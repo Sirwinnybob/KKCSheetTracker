@@ -1,0 +1,80 @@
+package com.kkc.sheettracker.ui.theme
+
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+private val LightColorScheme = lightColorScheme(
+    primary = Color(0xFF1E5FAF),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFDCEBFF),
+    onPrimaryContainer = Color(0xFF0B2B52),
+    secondary = Color(0xFF3C6EA8),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFD8E6F7),
+    onSecondaryContainer = Color(0xFF10243C),
+    tertiary = Color(0xFF4F7D99),
+    onTertiary = Color.White,
+    background = Color(0xFFF4F8FD),
+    onBackground = Color(0xFF122033),
+    surface = Color.White,
+    onSurface = Color(0xFF162236),
+    surfaceVariant = Color(0xFFE7EEF7),
+    onSurfaceVariant = Color(0xFF435467),
+    outline = Color(0xFF8EA1B6),
+    outlineVariant = Color(0xFFC6D3E2),
+    error = Color(0xFFC62828),
+    onError = Color.White
+)
+
+private val DarkColorScheme = darkColorScheme(
+    primary = Color(0xFF79B2FF),
+    onPrimary = Color(0xFF0A2C54),
+    primaryContainer = Color(0xFF123A67),
+    onPrimaryContainer = Color(0xFFDCEBFF),
+    secondary = Color(0xFF9BC3F3),
+    onSecondary = Color(0xFF102943),
+    secondaryContainer = Color(0xFF204668),
+    onSecondaryContainer = Color(0xFFD8E8FA),
+    tertiary = Color(0xFF9BC7D8),
+    onTertiary = Color(0xFF113040),
+    background = Color(0xFF0E1621),
+    onBackground = Color(0xFFDDE7F3),
+    surface = Color(0xFF111B27),
+    onSurface = Color(0xFFE3ECF8),
+    surfaceVariant = Color(0xFF1B2838),
+    onSurfaceVariant = Color(0xFFB4C6DA),
+    outline = Color(0xFF60758D),
+    outlineVariant = Color(0xFF314154),
+    error = Color(0xFFFF7A7A),
+    onError = Color(0xFF330000)
+)
+
+val KKCShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(6.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(24.dp)
+)
+
+@Composable
+fun KKCTheme(
+    darkTheme: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val statusColors = if (darkTheme) DarkStatusColors else LightStatusColors
+
+    CompositionLocalProvider(LocalKKCStatusColors provides statusColors) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = KKCTypography,
+            shapes = KKCShapes,
+            content = content
+        )
+    }
+}
