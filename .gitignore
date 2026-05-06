@@ -1,9 +1,32 @@
+# Secrets and signing
 keystore.properties
-app/*.jks
+*.jks
+*.keystore
+*.p12
+*.pem
+
+# Local SDK and machine config
+local.properties
+.idea/
+.vscode/
+
+# Gradle and Kotlin caches
 .gradle/
 .kotlin/
-.idea/
+
+# Build outputs
 build/
 **/build/
-local.properties
+app/release/
+app/debug/
+captures/
+
+# Logs
+*.log
+
+# Test and QA artifacts
 qa_artifacts/
+
+# OS files
+.DS_Store
+Thumbs.db
