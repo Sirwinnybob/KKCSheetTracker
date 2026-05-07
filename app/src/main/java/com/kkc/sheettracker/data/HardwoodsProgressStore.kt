@@ -54,14 +54,29 @@ class HardwoodsProgressStore(
         _progressVersion.value = _progressVersion.value + 1L
     }
 
-    private fun trackerDir(jobFolderName: String): File = File(baseDir, "$jobFolderName/Hardwoods/.tracker")
+    private fun trackerDir(jobFolderName: String): File =
+        File(baseDir, "$jobFolderName/.metadata/hardwoods/tracker")
+
+    // Legacy path — only for reading existing data; no new writes go here.
+    private fun legacyTrackerDir(jobFolderName: String): File =
+        File(baseDir, "$jobFolderName/Hardwoods/.tracker")
+
     private fun tabletFile(jobFolderName: String): File = File(trackerDir(jobFolderName), "$tabletId.json")
 
     private fun loadTabletProgress(jobFolderName: String): HardwoodTabletProgress {
         val file = tabletFile(jobFolderName)
-        if (!file.exists()) return HardwoodTabletProgress(tabletId = tabletId)
+        if (file.exists()) {
+            return try {
+                gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
+            } catch (_: Exception) {
+                HardwoodTabletProgress(tabletId = tabletId)
+            }
+        }
+        // Fall back to legacy location on first use after migration.
+        val legacy = File(legacyTrackerDir(jobFolderName), "$tabletId.json")
+        if (!legacy.exists()) return HardwoodTabletProgress(tabletId = tabletId)
         return try {
-            gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
+            gson.fromJson(legacy.readText(), HardwoodTabletProgress::class.java)
         } catch (_: Exception) {
             HardwoodTabletProgress(tabletId = tabletId)
         }
@@ -106,18 +121,27 @@ class HardwoodsProgressStore(
     }
 
     private fun loadAllProgress(jobFolderName: String): List<HardwoodTabletProgress> {
-        val dir = trackerDir(jobFolderName)
-        if (!dir.exists()) return emptyList()
-        return dir.listFiles()
-            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) }
-            ?.mapNotNull { file ->
-                try {
-                    gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
-                } catch (_: Exception) {
-                    null
+        fun readDir(dir: File): List<HardwoodTabletProgress> {
+            if (!dir.exists()) return emptyList()
+            return dir.listFiles()
+                ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) }
+                ?.mapNotNull { file ->
+                    try {
+                        gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
+                    } catch (_: Exception) {
+                        null
+                    }
                 }
-            }
-            ?: emptyList()
+                ?: emptyList()
+        }
+
+        val current = readDir(trackerDir(jobFolderName))
+        val legacy = readDir(legacyTrackerDir(jobFolderName))
+        if (legacy.isEmpty()) return current
+
+        // Merge: current entries take precedence for tablets also present in legacy.
+        val currentTabletIds = current.map { it.tabletId }.toSet()
+        return current + legacy.filter { it.tabletId !in currentTabletIds }
     }
 
     private fun loadAllActions(jobFolderName: String): List<HardwoodTrackerAction> {

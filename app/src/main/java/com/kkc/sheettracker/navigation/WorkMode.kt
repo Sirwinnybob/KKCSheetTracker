@@ -2,7 +2,8 @@ package com.kkc.sheettracker.navigation
 
 enum class WorkMode {
     CNC,
-    HARDWOODS;
+    HARDWOODS,
+    ASSEMBLY;
 
     companion object {
         fun fromStored(value: String?): WorkMode {

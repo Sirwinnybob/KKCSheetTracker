@@ -25,6 +25,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
+import com.kkc.sheettracker.data.AssemblyScanCoordinator
+import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
@@ -34,6 +36,9 @@ import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.ui.assembly.AssemblyDashboardScreen
+import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
+import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
 import com.kkc.sheettracker.ui.browser.JobBrowserScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
 import com.kkc.sheettracker.ui.components.NavDestination
@@ -134,6 +139,12 @@ private fun MultiBackStackNavigation(
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsProgressStore = remember(basePath, tabletId) { HardwoodsProgressStore(File(basePath), tabletId) }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
+    val assemblyScanCoordinator = remember(basePath, jobRepository, hardwoodsRepository) {
+        AssemblyScanCoordinator(File(basePath), jobRepository, hardwoodsRepository)
+    }
+    val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsRepository, progressStore, hardwoodsProgressStore, jobRepository) {
+        AssemblyStateStore(assemblyScanCoordinator, scanCoordinator, hardwoodsRepository, progressStore, hardwoodsProgressStore, jobRepository)
+    }
     val dashboardNavController = rememberNavController()
     val jobsNavController = rememberNavController()
     val searchNavController = rememberNavController()
@@ -146,7 +157,8 @@ private fun MultiBackStackNavigation(
         (
             jobsCurrentRoute?.startsWith("viewer/") == true ||
                 jobsCurrentRoute?.startsWith("referenceViewer/") == true ||
-                jobsCurrentRoute?.startsWith("hardwoods/workspace/") == true
+                jobsCurrentRoute?.startsWith("hardwoods/workspace/") == true ||
+                jobsCurrentRoute?.startsWith("assembly/viewer/") == true
             )
 
     val coordinator = remember(
@@ -174,6 +186,9 @@ private fun MultiBackStackNavigation(
         if (workMode == WorkMode.HARDWOODS) {
             hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
         }
+        if (workMode == WorkMode.ASSEMBLY) {
+            assemblyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -189,11 +204,15 @@ private fun MultiBackStackNavigation(
                     workMode = workMode,
                     hardwoodsScanCoordinator = hardwoodsScanCoordinator,
                     hardwoodsProgressStore = hardwoodsProgressStore,
+                    assemblyStateStore = assemblyStateStore,
                     onNavigateToJobs = {
                         coordinator.navigateTopLevel(TopLevelTab.JOBS)
                     },
                     onOpenSheet = { folderName, pdfFilename, page ->
                         coordinator.openSheetInJobs(folderName, pdfFilename, page)
+                    },
+                    onOpenAssemblyJob = { folderName ->
+                        coordinator.openAssemblyViewerInJobs(folderName)
                     }
                 )
             }
@@ -211,6 +230,8 @@ private fun MultiBackStackNavigation(
                     hardwoodsRepository = hardwoodsRepository,
                     hardwoodsScanCoordinator = hardwoodsScanCoordinator,
                     hardwoodsProgressStore = hardwoodsProgressStore,
+                    assemblyStateStore = assemblyStateStore,
+                    basePath = basePath,
                     onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
                     onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) }
                 )
@@ -301,8 +322,10 @@ private fun DashboardTabHost(
     workMode: WorkMode,
     hardwoodsScanCoordinator: HardwoodsScanCoordinator,
     hardwoodsProgressStore: HardwoodsProgressStore,
+    assemblyStateStore: AssemblyStateStore,
     onNavigateToJobs: () -> Unit,
-    onOpenSheet: (String, String, Int) -> Unit
+    onOpenSheet: (String, String, Int) -> Unit,
+    onOpenAssemblyJob: (String) -> Unit
 ) {
     NavHost(
         navController = navController,
@@ -310,8 +333,8 @@ private fun DashboardTabHost(
         modifier = Modifier.fillMaxSize()
     ) {
         composable("dashboard") {
-            if (workMode == WorkMode.CNC) {
-                DashboardScreen(
+            when (workMode) {
+                WorkMode.CNC -> DashboardScreen(
                     scanCoordinator = scanCoordinator,
                     appStateStore = appStateStore,
                     jobRepository = jobRepository,
@@ -320,8 +343,7 @@ private fun DashboardTabHost(
                     onNavigateToJobs = onNavigateToJobs,
                     onOpenSheet = onOpenSheet
                 )
-            } else {
-                HardwoodsDashboardScreen(
+                WorkMode.HARDWOODS -> HardwoodsDashboardScreen(
                     scanCoordinator = hardwoodsScanCoordinator,
                     progressStore = hardwoodsProgressStore,
                     onNavigateToJobs = onNavigateToJobs,
@@ -330,6 +352,11 @@ private fun DashboardTabHost(
                             launchSingleTop = true
                         }
                     }
+                )
+                WorkMode.ASSEMBLY -> AssemblyDashboardScreen(
+                    assemblyStateStore = assemblyStateStore,
+                    onNavigateToJobs = onNavigateToJobs,
+                    onOpenJob = { folderName -> onOpenAssemblyJob(folderName) }
                 )
             }
         }
@@ -347,8 +374,10 @@ private fun JobsTabHost(
     isDarkTheme: Boolean,
     workMode: WorkMode,
     hardwoodsRepository: HardwoodsRepository,
+    assemblyStateStore: AssemblyStateStore,
     hardwoodsScanCoordinator: HardwoodsScanCoordinator,
     hardwoodsProgressStore: HardwoodsProgressStore,
+    basePath: String,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -358,8 +387,8 @@ private fun JobsTabHost(
         modifier = Modifier.fillMaxSize()
     ) {
         composable("jobs") {
-            if (workMode == WorkMode.CNC) {
-                JobBrowserScreen(
+            when (workMode) {
+                WorkMode.CNC -> JobBrowserScreen(
                     scanCoordinator = scanCoordinator,
                     appStateStore = appStateStore,
                     jobRepository = jobRepository,
@@ -373,12 +402,21 @@ private fun JobsTabHost(
                     onSearchClick = onSearchClick,
                     onSettingsClick = onSettingsClick
                 )
-            } else {
-                HardwoodsJobsScreen(
+                WorkMode.HARDWOODS -> HardwoodsJobsScreen(
                     scanCoordinator = hardwoodsScanCoordinator,
                     progressStore = hardwoodsProgressStore,
                     onJobClick = { job ->
                         navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                            launchSingleTop = true
+                        }
+                    },
+                    onSearchClick = onSearchClick,
+                    onSettingsClick = onSettingsClick
+                )
+                WorkMode.ASSEMBLY -> AssemblyJobsScreen(
+                    assemblyStateStore = assemblyStateStore,
+                    onJobClick = { folderName ->
+                        navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
                             launchSingleTop = true
                         }
                     },
@@ -515,6 +553,21 @@ private fun JobsTabHost(
                 onBack = { navController.popBackStack() }
             )
         }
+
+        composable(
+            "assembly/job/{folderName}",
+            arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+        ) { backStack ->
+            val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            AssemblyViewerScreen(
+                assemblyStateStore = assemblyStateStore,
+                jobRepository = jobRepository,
+                jobFolderName = folderName,
+                basePath = basePath,
+                isDarkTheme = isDarkTheme,
+                onBack = { navController.popBackStack() }
+            )
+        }
     }
 }
 
@@ -536,20 +589,26 @@ private fun SearchTabHost(
         modifier = Modifier.fillMaxSize()
     ) {
         composable("search") {
-            if (workMode == WorkMode.CNC) {
-                SearchScreen(
+            when (workMode) {
+                WorkMode.CNC -> SearchScreen(
                     scanCoordinator = scanCoordinator,
                     jobRepository = jobRepository,
                     progressStore = progressStore,
                     onResultClick = onCncResultClick,
                     onBack = onBack
                 )
-            } else {
-                HardwoodsSearchScreen(
+                WorkMode.HARDWOODS -> HardwoodsSearchScreen(
                     scanCoordinator = hardwoodsScanCoordinator,
                     onResultClick = { folderName, docType, rowId ->
                         onHardwoodsResultClick("${folderName}|${docType.name}|${rowId}")
                     },
+                    onBack = onBack
+                )
+                WorkMode.ASSEMBLY -> SearchScreen(
+                    scanCoordinator = scanCoordinator,
+                    jobRepository = jobRepository,
+                    progressStore = progressStore,
+                    onResultClick = onCncResultClick,
                     onBack = onBack
                 )
             }
@@ -616,6 +675,12 @@ private fun LegacySingleStackNavigation(
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsProgressStore = remember(basePath, tabletId) { HardwoodsProgressStore(File(basePath), tabletId) }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
+    val assemblyScanCoordinator = remember(basePath, jobRepository, hardwoodsRepository) {
+        AssemblyScanCoordinator(File(basePath), jobRepository, hardwoodsRepository)
+    }
+    val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsRepository, progressStore, hardwoodsProgressStore, jobRepository) {
+        AssemblyStateStore(assemblyScanCoordinator, scanCoordinator, hardwoodsRepository, progressStore, hardwoodsProgressStore, jobRepository)
+    }
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -631,6 +696,9 @@ private fun LegacySingleStackNavigation(
         if (workMode == WorkMode.HARDWOODS) {
             hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
         }
+        if (workMode == WorkMode.ASSEMBLY) {
+            assemblyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+        }
     }
 
     val currentNavDest = remember(currentRoute) {
@@ -640,6 +708,8 @@ private fun LegacySingleStackNavigation(
                 currentRoute?.startsWith("job/") == true ||
                 currentRoute?.startsWith("hardwoods/job/") == true ||
                 currentRoute?.startsWith("hardwoods/workspace/") == true ||
+                currentRoute?.startsWith("assembly/job/") == true ||
+                currentRoute?.startsWith("assembly/viewer/") == true ||
                 currentRoute?.startsWith("viewer/") == true ||
                 currentRoute?.startsWith("referenceViewer/") == true -> NavDestination.JOBS
             currentRoute == "search" -> NavDestination.SEARCH
@@ -650,7 +720,8 @@ private fun LegacySingleStackNavigation(
 
     val isInViewer = currentRoute?.startsWith("viewer/") == true ||
         currentRoute?.startsWith("referenceViewer/") == true ||
-        currentRoute?.startsWith("hardwoods/workspace/") == true
+        currentRoute?.startsWith("hardwoods/workspace/") == true ||
+        currentRoute?.startsWith("assembly/viewer/") == true
 
     Column(modifier = Modifier.fillMaxSize()) {
         NavHost(
@@ -659,33 +730,39 @@ private fun LegacySingleStackNavigation(
             modifier = Modifier.weight(1f)
         ) {
             composable("dashboard") {
-                if (workMode == WorkMode.CNC) {
-                    DashboardScreen(
+                when (workMode) {
+                    WorkMode.CNC -> DashboardScreen(
                         scanCoordinator = scanCoordinator,
                         appStateStore = appStateStore,
                         jobRepository = jobRepository,
                         progressStore = progressStore,
                         appStateFlags = appStateFlags,
                         onNavigateToJobs = {
-                            navController.navigate("jobs") {
-                                launchSingleTop = true
-                            }
+                            navController.navigate("jobs") { launchSingleTop = true }
                         },
                         onOpenSheet = { folderName, pdfFilename, page ->
                             openSheetLegacy(folderName, pdfFilename, page)
                         }
                     )
-                } else {
-                    HardwoodsDashboardScreen(
+                    WorkMode.HARDWOODS -> HardwoodsDashboardScreen(
                         scanCoordinator = hardwoodsScanCoordinator,
                         progressStore = hardwoodsProgressStore,
                         onNavigateToJobs = {
-                            navController.navigate("jobs") {
-                                launchSingleTop = true
-                            }
+                            navController.navigate("jobs") { launchSingleTop = true }
                         },
                         onOpenJob = { job ->
                             navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                                launchSingleTop = true
+                            }
+                        }
+                    )
+                    WorkMode.ASSEMBLY -> AssemblyDashboardScreen(
+                        assemblyStateStore = assemblyStateStore,
+                        onNavigateToJobs = {
+                            navController.navigate("jobs") { launchSingleTop = true }
+                        },
+                        onOpenJob = { folderName ->
+                            navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
                                 launchSingleTop = true
                             }
                         }
@@ -694,8 +771,8 @@ private fun LegacySingleStackNavigation(
             }
 
             composable("jobs") {
-                if (workMode == WorkMode.CNC) {
-                    JobBrowserScreen(
+                when (workMode) {
+                    WorkMode.CNC -> JobBrowserScreen(
                         scanCoordinator = scanCoordinator,
                         appStateStore = appStateStore,
                         jobRepository = jobRepository,
@@ -704,34 +781,25 @@ private fun LegacySingleStackNavigation(
                         onJobClick = { job ->
                             navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}")
                         },
-                        onSearchClick = {
-                            navController.navigate("search") {
-                                launchSingleTop = true
-                            }
-                        },
-                        onSettingsClick = {
-                            navController.navigate("settings") {
-                                launchSingleTop = true
-                            }
-                        }
+                        onSearchClick = { navController.navigate("search") { launchSingleTop = true } },
+                        onSettingsClick = { navController.navigate("settings") { launchSingleTop = true } }
                     )
-                } else {
-                    HardwoodsJobsScreen(
+                    WorkMode.HARDWOODS -> HardwoodsJobsScreen(
                         scanCoordinator = hardwoodsScanCoordinator,
                         progressStore = hardwoodsProgressStore,
                         onJobClick = { job ->
                             navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}")
                         },
-                        onSearchClick = {
-                            navController.navigate("search") {
-                                launchSingleTop = true
-                            }
+                        onSearchClick = { navController.navigate("search") { launchSingleTop = true } },
+                        onSettingsClick = { navController.navigate("settings") { launchSingleTop = true } }
+                    )
+                    WorkMode.ASSEMBLY -> AssemblyJobsScreen(
+                        assemblyStateStore = assemblyStateStore,
+                        onJobClick = { folderName ->
+                            navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}")
                         },
-                        onSettingsClick = {
-                            navController.navigate("settings") {
-                                launchSingleTop = true
-                            }
-                        }
+                        onSearchClick = { navController.navigate("search") { launchSingleTop = true } },
+                        onSettingsClick = { navController.navigate("settings") { launchSingleTop = true } }
                     )
                 }
             }
@@ -860,9 +928,24 @@ private fun LegacySingleStackNavigation(
                 )
             }
 
+            composable(
+                "assembly/job/{folderName}",
+                arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+            ) { backStack ->
+                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                AssemblyViewerScreen(
+                    assemblyStateStore = assemblyStateStore,
+                    jobRepository = jobRepository,
+                    jobFolderName = folderName,
+                    basePath = basePath,
+                    isDarkTheme = isDarkTheme,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
             composable("search") {
-                if (workMode == WorkMode.CNC) {
-                    SearchScreen(
+                when (workMode) {
+                    WorkMode.CNC, WorkMode.ASSEMBLY -> SearchScreen(
                         scanCoordinator = scanCoordinator,
                         jobRepository = jobRepository,
                         progressStore = progressStore,
@@ -871,8 +954,7 @@ private fun LegacySingleStackNavigation(
                         },
                         onBack = { navController.popBackStack() }
                     )
-                } else {
-                    HardwoodsSearchScreen(
+                    WorkMode.HARDWOODS -> HardwoodsSearchScreen(
                         scanCoordinator = hardwoodsScanCoordinator,
                         onResultClick = { folderName, docType, rowId ->
                             navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, rowId)) {

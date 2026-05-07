@@ -80,9 +80,27 @@ enum class ReferenceDocType {
     PLANS_ELEVATIONS
 }
 
+data class AssemblySheetPart(
+    val qty: Int = 0,
+    val width: Double = 0.0,
+    val length: Double = 0.0,
+    val description: String = "",
+    val material: String = "",
+    val sectionType: String = "",
+    val isPurchased: Boolean = false
+)
+
+data class CabinetPageDetail(
+    val cabinets: List<String> = emptyList(),
+    val room: String? = null,
+    val wall: String? = null,
+    val parts: List<AssemblySheetPart> = emptyList()
+)
+
 data class ReferenceDocumentIndex(
     val pdfFilename: String = "",
-    val cabinetToPages: Map<String, List<Int>> = emptyMap()
+    val cabinetToPages: Map<String, List<Int>> = emptyMap(),
+    val pageDetails: Map<String, CabinetPageDetail> = emptyMap()
 )
 
 data class CabinetSheetIndexDocuments(
@@ -418,4 +436,98 @@ data class DashboardUiModel(
     val badItems: List<DashboardFlaggedSheetItem> = emptyList(),
     val skippedItems: List<DashboardFlaggedSheetItem> = emptyList(),
     val recentInProgressMaterials: List<DashboardRecentMaterialItem> = emptyList()
+)
+
+// ── Assembly Mode ─────────────────────────────────────────────────────────────
+
+data class AssemblyCncSummary(
+    val totalSheets: Int = 0,
+    val completedSheets: Int = 0,
+    val skippedSheets: Int = 0,
+    val badPartsSheets: Int = 0
+) {
+    val completionFraction: Float
+        get() = if (totalSheets <= 0) 0f else completedSheets.toFloat() / totalSheets.toFloat()
+}
+
+data class AssemblyHardwoodsSummary(
+    val totalPieces: Int = 0,
+    val donePieces: Int = 0,
+    val badPieces: Int = 0,
+    val skippedPieces: Int = 0
+) {
+    val completionFraction: Float
+        get() = if (totalPieces <= 0) 0f else donePieces.toFloat() / totalPieces.toFloat()
+}
+
+data class AssemblyJob(
+    val folderName: String,
+    val jobNumber: String,
+    val jobName: String,
+    val cabinetSheetIndex: CabinetSheetIndex? = null,
+    val cncSummary: AssemblyCncSummary? = null,
+    val hardwoodsSummary: AssemblyHardwoodsSummary? = null
+)
+
+data class AssemblyJobCard(
+    val folderName: String,
+    val jobNumber: String,
+    val jobName: String,
+    val cncSummary: AssemblyCncSummary,
+    val hardwoodsSummary: AssemblyHardwoodsSummary,
+    val hasBothModes: Boolean
+)
+
+data class AssemblyCncPart(
+    val materialName: String,
+    val pdfFilename: String,
+    val pageNumber: Int,
+    val partNumber: Int,
+    val partName: String,
+    val width: Double,
+    val length: Double,
+    val room: String,
+    val sheetStatus: SheetStatus,
+    val isBadPart: Boolean
+)
+
+data class AssemblyHardwoodRow(
+    val docType: HardwoodDocType,
+    val description: String,
+    val material: String?,
+    val qty: Int,
+    val width: String,
+    val length: String,
+    val doneCount: Int,
+    val badCount: Int,
+    val skipped: Boolean
+)
+
+data class AssemblyBomEntry(
+    val part: AssemblySheetPart,
+    val cncPart: AssemblyCncPart? = null,
+    val hardwoodRow: AssemblyHardwoodRow? = null
+) {
+    val isTracked: Boolean get() = cncPart != null || hardwoodRow != null
+}
+
+data class AssemblyCabinetParts(
+    val cabinetNumber: String,
+    val bom: List<AssemblyBomEntry> = emptyList(),
+    val cncParts: List<AssemblyCncPart> = emptyList(),
+    val hardwoodRows: List<AssemblyHardwoodRow> = emptyList()
+)
+
+data class AssemblyScanSnapshot(
+    val generation: Long = 0L,
+    val basePath: String = "",
+    val jobs: List<AssemblyJob> = emptyList(),
+    val startedAt: Long = 0L,
+    val completedAt: Long = 0L
+)
+
+data class AssemblyScanState(
+    val status: ScanStatus = ScanStatus.IDLE,
+    val snapshot: AssemblyScanSnapshot = AssemblyScanSnapshot(),
+    val errorMessage: String? = null
 )
