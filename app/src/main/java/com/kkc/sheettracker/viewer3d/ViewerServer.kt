@@ -41,6 +41,23 @@ class ViewerServer(
         }
     }
 
+    private fun normalizeRoomName(name: String): String =
+        name.replace(Regex("""[/\\:*?"<>|]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .uppercase()
+
+    private fun findRoomDir(folderName: String, room: String): File? {
+        val threeDDir = File(baseDir, "$folderName/3D")
+        if (!threeDDir.isDirectory) return null
+        // Exact match first (common case, fast)
+        File(threeDDir, room).takeIf { it.isDirectory }?.let { return it }
+        // Normalized match — handles rooms with / or other chars invalid in folder names
+        val normalizedRoom = normalizeRoomName(room)
+        return threeDDir.listFiles()
+            ?.firstOrNull { it.isDirectory && normalizeRoomName(it.name) == normalizedRoom }
+    }
+
     private fun serveJobApi(uri: String): Response {
         val tail = uri.removePrefix("/api/job/")
         val slashIdx = tail.indexOf('/')
@@ -55,7 +72,9 @@ class ViewerServer(
         } else {
             val folderName = URLDecoder.decode(tail.substring(0, slashIdx), "UTF-8")
             val room = URLDecoder.decode(tail.substring(slashIdx + 1), "UTF-8")
-            val glbUrl = "/jobs/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(room, "UTF-8")}/3d_medium.glb"
+            // Use the actual folder name on disk so the GLB URL resolves correctly
+            val actualRoom = findRoomDir(folderName, room)?.name ?: room
+            val glbUrl = "/jobs/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(actualRoom, "UTF-8")}/3d_medium.glb"
             val json = JSONObject().apply {
                 put("success", true)
                 put("url", glbUrl)
@@ -73,7 +92,9 @@ class ViewerServer(
         val folderName = URLDecoder.decode(parts[0], "UTF-8")
         val room = URLDecoder.decode(parts[1], "UTF-8")
         val filename = parts[2]
-        val file = File(baseDir, "$folderName/3D/$room/$filename")
+        val roomDir = findRoomDir(folderName, room)
+            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Room not found")
+        val file = File(roomDir, filename)
         return if (file.exists() && file.isFile) {
             newFixedLengthResponse(Response.Status.OK, "model/gltf-binary", FileInputStream(file), file.length())
         } else {

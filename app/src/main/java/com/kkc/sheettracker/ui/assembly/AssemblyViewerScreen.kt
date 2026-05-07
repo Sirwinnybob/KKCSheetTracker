@@ -179,8 +179,12 @@ fun AssemblyViewerScreen(
 
     fun extractRoomFolder(roomText: String?): String? =
         roomText?.let {
-            Regex("""\(([^)]+)\)""").find(it)?.groupValues?.get(1)?.uppercase()
+            val raw = Regex("""\(([^)]+)\)""").find(it)?.groupValues?.get(1)?.uppercase()
                 ?: it.uppercase().takeIf { it.isNotBlank() }
+            raw?.replace(Regex("""[/\\:*?"<>|]"""), " ")
+                ?.replace(Regex("""\s+"""), " ")
+                ?.trim()
+                ?.takeIf { s -> s.isNotBlank() }
         }
 
     fun roomForAssemblyPage(page: Int): String? =
