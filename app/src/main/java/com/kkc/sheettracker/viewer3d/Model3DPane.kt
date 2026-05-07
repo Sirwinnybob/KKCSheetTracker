@@ -1,6 +1,9 @@
 package com.kkc.sheettracker.viewer3d
 
 import android.annotation.SuppressLint
+import android.util.Log
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
@@ -81,6 +84,17 @@ fun Model3DPane(
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             webViewClient = WebViewClient()
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                                    val level = when (msg.messageLevel()) {
+                                        ConsoleMessage.MessageLevel.ERROR -> Log.ERROR
+                                        ConsoleMessage.MessageLevel.WARNING -> Log.WARN
+                                        else -> Log.DEBUG
+                                    }
+                                    Log.println(level, "Viewer3D_JS", "${msg.message()} [${msg.sourceId()}:${msg.lineNumber()}]")
+                                    return true
+                                }
+                            }
                             loadUrl(encodedUrl)
                         }
                     },

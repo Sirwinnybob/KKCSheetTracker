@@ -154,7 +154,7 @@ async function init() {
             const relY    = Math.max(0, Math.min(rect.height, clientY - rect.top));
             const center  = rect.height / 2;
             const rawInput = (center - relY) / center;
-            zoomVelocity  = Math.sign(rawInput) * (rawInput * rawInput) * 0.05;
+            zoomVelocity  = Math.sign(rawInput) * (rawInput * rawInput) * 0.15;
             if (joystickHandle) {
                 joystickHandle.style.top = `${relY - 18}px`;
                 const percent = Math.round(((rect.height - relY) / rect.height) * 100);
@@ -189,7 +189,7 @@ async function init() {
                 else if (e.key === 'PageDown') v = -1.0;
                 if (v !== 0) {
                     e.preventDefault();
-                    zoomVelocity = Math.sign(v) * (v * v) * 0.05;
+                    zoomVelocity = Math.sign(v) * (v * v) * 0.15;
                     const h = joystickContainer.offsetHeight || 160;
                     const t = (h / 2) - (v * (h / 2));
                     joystickHandle.style.top = `${t - 18}px`;
