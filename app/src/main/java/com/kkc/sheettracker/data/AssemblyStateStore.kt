@@ -1,264 +1,258 @@
 package com.kkc.sheettracker.data
 
-import android.util.Log
 import com.kkc.sheettracker.data.models.AssemblyBomEntry
 import com.kkc.sheettracker.data.models.AssemblyCabinetParts
 import com.kkc.sheettracker.data.models.AssemblyCncPart
 import com.kkc.sheettracker.data.models.AssemblyCncSummary
 import com.kkc.sheettracker.data.models.AssemblyHardwoodRow
 import com.kkc.sheettracker.data.models.AssemblyHardwoodsSummary
-import com.kkc.sheettracker.data.models.AssemblySheetPart
 import com.kkc.sheettracker.data.models.AssemblyJob
 import com.kkc.sheettracker.data.models.AssemblyJobCard
-import com.kkc.sheettracker.data.models.AssemblyScanState
-import com.kkc.sheettracker.data.models.HardwoodRowProgress
-import com.kkc.sheettracker.data.models.HardwoodTrackerActions
-import com.kkc.sheettracker.data.models.SheetStatus
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-private const val ASSEMBLY_TAG = "KKC_ASSEMBLY"
+import com.kkc.sheettracker.data.models.AssemblySearchEntry
+import com.kkc.sheettracker.data.models.AssemblySheetPart
+import com.kkc.sheettracker.data.models.CabinetSheetIndex
 
 class AssemblyStateStore(
     private val assemblyScanCoordinator: AssemblyScanCoordinator,
     private val scanCoordinator: ScanCoordinator,
-    private val hardwoodsRepository: HardwoodsRepository,
+    private val hardwoodsScanCoordinator: HardwoodsScanCoordinator,
     private val progressStore: ProgressStore,
-    private val hardwoodsProgressStore: HardwoodsProgressStore,
-    private val jobRepository: JobRepository
+    private val hardwoodsProgressStore: HardwoodsProgressStore
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    private val _scanState = MutableStateFlow(AssemblyScanState())
-    val scanState: StateFlow<AssemblyScanState> = _scanState.asStateFlow()
-
-    private val _jobCards = MutableStateFlow<List<AssemblyJobCard>>(emptyList())
-    val jobCards: StateFlow<List<AssemblyJobCard>> = _jobCards.asStateFlow()
-
-    init {
-        startDerivation()
+    fun getJobs(): List<AssemblyJob> {
+        return assemblyScanCoordinator.state.value.snapshot.jobs
     }
 
-    fun refresh() {
-        assemblyScanCoordinator.refresh(com.kkc.sheettracker.data.models.RefreshReason.USER_REFRESH, force = true)
+    fun getCabinetSheetIndex(jobFolderName: String): CabinetSheetIndex? {
+        return getJobs().firstOrNull { it.folderName == jobFolderName }?.cabinetSheetIndex
     }
 
-    @OptIn(FlowPreview::class)
-    private fun startDerivation() {
-        scope.launch {
-            combine(
-                assemblyScanCoordinator.state,
-                scanCoordinator.state,
-                progressStore.progressVersion.debounce(120L),
-                hardwoodsProgressStore.progressVersion.debounce(120L)
-            ) { assemblyState, _, _, _ -> assemblyState }
-                .collectLatest { assemblyState ->
-                    _scanState.value = assemblyState
-                    val cards = withContext(Dispatchers.Default) {
-                        deriveJobCards(assemblyState.snapshot.jobs)
-                    }
-                    if (_jobCards.value != cards) {
-                        _jobCards.value = cards
-                    }
-                    Log.d(ASSEMBLY_TAG, "derive_done jobs=${assemblyState.snapshot.jobs.size}")
-                }
-        }
-    }
+    fun deriveJobCards(): List<AssemblyJobCard> {
+        val assemblyJobs = getJobs()
+        val cncJobsByFolder = scanCoordinator.state.value.snapshot.jobs.associateBy { it.folderName }
+        val hardwoodJobsByFolder = hardwoodsScanCoordinator.state.value.snapshot.jobs.associateBy { it.folderName }
 
-    private fun deriveJobCards(jobs: List<AssemblyJob>): List<AssemblyJobCard> {
-        val cncJobsByFolder = scanCoordinator.currentSnapshotJobs()
-            .associateBy { it.folderName }
+        return assemblyJobs.map { job ->
+            val cncJob = cncJobsByFolder[job.folderName]
+            val hardwoodJob = hardwoodJobsByFolder[job.folderName]
 
-        return jobs.mapNotNull { job ->
-            val cncSummary = deriveCncSummary(job, cncJobsByFolder[job.folderName])
-            val hardwoodsSummary = deriveHardwoodsSummary(job)
-            if (cncSummary == null && hardwoodsSummary == null) return@mapNotNull null
+            val cncCounts = if (cncJob != null) {
+                progressStore.getJobStatusCounts(job.folderName, cncJob.materials)
+            } else {
+                null
+            }
+
+            val hardwoodCounts = if (hardwoodJob != null) {
+                hardwoodsProgressStore.summarizeJob(hardwoodJob).counts
+            } else {
+                null
+            }
+
             AssemblyJobCard(
                 folderName = job.folderName,
                 jobNumber = job.jobNumber,
                 jobName = job.jobName,
-                cncSummary = cncSummary ?: AssemblyCncSummary(),
-                hardwoodsSummary = hardwoodsSummary ?: AssemblyHardwoodsSummary(),
-                hasBothModes = cncSummary != null && hardwoodsSummary != null
+                cncSummary = if (cncCounts == null) {
+                    AssemblyCncSummary()
+                } else {
+                    AssemblyCncSummary(
+                        totalSheets = cncCounts.total,
+                        completedSheets = cncCounts.complete,
+                        skippedSheets = cncCounts.skipped,
+                        badPartsSheets = cncCounts.bad
+                    )
+                },
+                hardwoodsSummary = if (hardwoodCounts == null) {
+                    AssemblyHardwoodsSummary()
+                } else {
+                    AssemblyHardwoodsSummary(
+                        totalPieces = hardwoodCounts.totalPieces,
+                        donePieces = hardwoodCounts.donePieces,
+                        badPieces = hardwoodCounts.badPieces,
+                        skippedPieces = hardwoodCounts.skippedPieces
+                    )
+                },
+                hasBothModes = cncJob != null && hardwoodJob != null
             )
         }
     }
 
-    private fun deriveCncSummary(
-        assemblyJob: AssemblyJob,
-        cncJob: com.kkc.sheettracker.data.models.Job?
-    ): AssemblyCncSummary? {
-        val base = assemblyJob.cncSummary ?: return null
-        if (cncJob == null) return base
-
-        var completed = 0
-        var bad = 0
-        var skipped = 0
-        for (material in cncJob.materials) {
-            val trackable = trackablePages(material)
-            for (page in trackable) {
-                val status = progressStore.getSheetStatus(
-                    jobFolderName = assemblyJob.folderName,
-                    pdfFilename = material.pdfFilename,
-                    page = page,
-                    fileFingerprint = material.fileFingerprint
-                )
-                when (status) {
-                    SheetStatus.COMPLETE -> completed++
-                    SheetStatus.HAS_BAD_PARTS -> { completed++; bad++ }
-                    SheetStatus.SKIPPED -> skipped++
-                    else -> {}
-                }
-            }
-        }
-        return base.copy(completedSheets = completed, badPartsSheets = bad, skippedSheets = skipped)
+    fun getCabinetJumpPages(jobFolderName: String, cabinetNumber: String): Pair<Int?, Int?> {
+        val index = getCabinetSheetIndex(jobFolderName) ?: return null to null
+        val normalized = cabinetNumber.trim()
+        val assemblyPage = index.documents.assembly.cabinetToPages[normalized]?.firstOrNull()
+        val plansPage = index.documents.plansElevations.cabinetToPages[normalized]?.firstOrNull()
+        return assemblyPage to plansPage
     }
 
-    private fun deriveHardwoodsSummary(assemblyJob: AssemblyJob): AssemblyHardwoodsSummary? {
-        val base = assemblyJob.hardwoodsSummary ?: return null
-        val index = hardwoodsRepository.loadHardwoodsIndex(assemblyJob.folderName) ?: return base
-        val hwJob = com.kkc.sheettracker.data.models.HardwoodJob(
-            folderName = assemblyJob.folderName,
-            jobNumber = assemblyJob.jobNumber,
-            jobName = assemblyJob.jobName,
-            index = index
-        )
-        val summary = hardwoodsProgressStore.summarizeJob(hwJob)
-        return AssemblyHardwoodsSummary(
-            totalPieces = summary.counts.totalPieces,
-            donePieces = summary.counts.donePieces,
-            badPieces = summary.counts.badPieces,
-            skippedPieces = summary.counts.skippedPieces
-        )
+    fun getCabinetContext(jobFolderName: String, cabinetNumber: String): String {
+        val index = getCabinetSheetIndex(jobFolderName) ?: return ""
+        val page = index.documents.assembly.cabinetToPages[cabinetNumber.trim()]?.firstOrNull() ?: return ""
+        val detail = index.documents.assembly.pageDetails[page.toString()] ?: return ""
+        val room = detail.room?.trim().orEmpty()
+        val wall = detail.wall?.trim().orEmpty()
+        return listOf(room, wall).filter { it.isNotBlank() }.joinToString(" - ")
     }
 
     fun deriveCabinetParts(jobFolderName: String, cabinetNumber: String): AssemblyCabinetParts {
-        val cncJob = scanCoordinator.currentSnapshotJobs().firstOrNull { it.folderName == jobFolderName }
-        val cncParts = if (cncJob != null) deriveCncPartsForCabinet(cncJob, cabinetNumber) else emptyList()
+        val normalizedCab = cabinetNumber.trim()
+        val index = getCabinetSheetIndex(jobFolderName)
+        val assemblyPages = index?.documents?.assembly?.cabinetToPages?.get(normalizedCab).orEmpty()
+        val assemblyPageDetails = index?.documents?.assembly?.pageDetails.orEmpty()
 
-        val index = hardwoodsRepository.loadHardwoodsIndex(jobFolderName)
-        val hardwoodRows = if (index != null) deriveHardwoodRowsForCabinet(jobFolderName, index, cabinetNumber) else emptyList()
+        val sheetParts = assemblyPages.flatMap { page ->
+            assemblyPageDetails[page.toString()]?.parts.orEmpty()
+        }
 
-        val bom = deriveBomForCabinet(jobFolderName, cabinetNumber, cncParts, hardwoodRows)
+        val cncJob = scanCoordinator.state.value.snapshot.jobs.firstOrNull { it.folderName == jobFolderName }
+        val cncParts = mutableListOf<AssemblyCncPart>()
+        cncJob?.materials.orEmpty().forEach { material ->
+            material.metadata?.pages.orEmpty().forEach { page ->
+                if (page.hiddenInApp || page.trackingExcluded || page.isPartListContinuation) return@forEach
+                page.parts
+                    .filter { it.cabNumber.toString() == normalizedCab }
+                    .forEach { part ->
+                        val status = progressStore.getSheetStatus(
+                            jobFolderName = jobFolderName,
+                            pdfFilename = material.pdfFilename,
+                            page = page.pageNumber,
+                            fileFingerprint = material.fileFingerprint
+                        )
+                        val isBad = progressStore.isPartBad(
+                            jobFolderName = jobFolderName,
+                            pdfFilename = material.pdfFilename,
+                            page = page.pageNumber,
+                            fileFingerprint = material.fileFingerprint,
+                            partNumber = part.number
+                        )
+                        cncParts += AssemblyCncPart(
+                            materialName = material.materialName,
+                            pdfFilename = material.pdfFilename,
+                            pageNumber = page.pageNumber,
+                            partNumber = part.number,
+                            partName = part.name,
+                            width = part.width,
+                            length = part.length,
+                            room = part.room,
+                            sheetStatus = status,
+                            isBadPart = isBad
+                        )
+                    }
+            }
+        }
+
+        val hardwoodJob = hardwoodsScanCoordinator.state.value.snapshot.jobs.firstOrNull { it.folderName == jobFolderName }
+        val hardwoodRows = mutableListOf<AssemblyHardwoodRow>()
+        hardwoodJob?.index?.documents.orEmpty().forEach { doc ->
+            doc.rows
+                .filter { row -> row.cabinets.any { it.trim() == normalizedCab } }
+                .forEach { row ->
+                    val progress = hardwoodsProgressStore.getRowProgress(jobFolderName, doc.docType.name, row.rowId)
+                    hardwoodRows += AssemblyHardwoodRow(
+                        docType = doc.docType,
+                        description = row.description,
+                        material = row.material,
+                        qty = row.qty,
+                        width = row.width,
+                        length = row.length,
+                        doneCount = progress.doneCount,
+                        badCount = progress.badCount,
+                        skipped = progress.skipped
+                    )
+                }
+        }
+
+        if (sheetParts.isEmpty()) {
+            return AssemblyCabinetParts(
+                cabinetNumber = normalizedCab,
+                bom = emptyList(),
+                cncParts = cncParts,
+                hardwoodRows = hardwoodRows
+            )
+        }
+
+        val cncByDesc = cncParts.groupBy { normalizeKey(it.partName) }
+        val hwByDesc = hardwoodRows.groupBy { normalizeKey(it.description) }
+        val bom = sheetParts.map { part ->
+            val key = normalizeKey(part.description)
+            AssemblyBomEntry(
+                part = part,
+                cncParts = cncByDesc[key].orEmpty(),
+                hardwoodRows = hwByDesc[key].orEmpty()
+            )
+        }
 
         return AssemblyCabinetParts(
-            cabinetNumber = cabinetNumber,
+            cabinetNumber = normalizedCab,
             bom = bom,
             cncParts = cncParts,
             hardwoodRows = hardwoodRows
         )
     }
 
-    private fun deriveBomForCabinet(
-        jobFolderName: String,
-        cabinetNumber: String,
-        cncParts: List<AssemblyCncPart>,
-        hardwoodRows: List<AssemblyHardwoodRow>
-    ): List<AssemblyBomEntry> {
-        val assemblyIndex = jobRepository.getCabinetSheetIndex(jobFolderName)
-            ?.documents?.assembly ?: return emptyList()
-        val pages = assemblyIndex.cabinetToPages[cabinetNumber] ?: return emptyList()
-        val sheetParts: List<AssemblySheetPart> = pages
-            .flatMap { page -> assemblyIndex.pageDetails[page.toString()]?.parts.orEmpty() }
-        if (sheetParts.isEmpty()) return emptyList()
-        val cncByDesc = cncParts.associateBy { it.partName.trim().lowercase() }
-        val hwByDesc = hardwoodRows.associateBy { it.description.trim().lowercase() }
-        return sheetParts.map { p ->
-            val key = p.description.trim().lowercase()
-            AssemblyBomEntry(part = p, cncPart = cncByDesc[key], hardwoodRow = hwByDesc[key])
-        }
-    }
+    fun deriveSearchIndex(): List<AssemblySearchEntry> {
+        val jobs = getJobs()
+        val out = mutableListOf<AssemblySearchEntry>()
 
-    private fun deriveCncPartsForCabinet(
-        cncJob: com.kkc.sheettracker.data.models.Job,
-        cabinetNumber: String
-    ): List<AssemblyCncPart> {
-        val cabNum = cabinetNumber.toIntOrNull() ?: return emptyList()
-        val result = mutableListOf<AssemblyCncPart>()
-        for (material in cncJob.materials) {
-            val pages = material.metadata?.pages ?: continue
-            for (page in pages) {
-                if (page.hiddenInApp || page.trackingExcluded || page.isPartListContinuation) continue
-                for (part in page.parts) {
-                    if (part.cabNumber != cabNum) continue
-                    val sheetStatus = progressStore.getSheetStatus(
-                        jobFolderName = cncJob.folderName,
-                        pdfFilename = material.pdfFilename,
-                        page = page.pageNumber,
-                        fileFingerprint = material.fileFingerprint
-                    )
-                    val isBadPart = progressStore.getBadParts(
-                        jobFolderName = cncJob.folderName,
-                        pdfFilename = material.pdfFilename,
-                        page = page.pageNumber,
-                        fileFingerprint = material.fileFingerprint,
-                        includeDraft = false
-                    ).contains(part.number)
-                    result += AssemblyCncPart(
-                        materialName = material.materialName,
-                        pdfFilename = material.pdfFilename,
-                        pageNumber = page.pageNumber,
-                        partNumber = part.number,
-                        partName = part.name,
-                        width = part.width,
-                        length = part.length,
-                        room = part.room,
-                        sheetStatus = sheetStatus,
-                        isBadPart = isBadPart
-                    )
+        jobs.forEach { job ->
+            val index = job.cabinetSheetIndex ?: return@forEach
+            val assemblyDoc = index.documents.assembly
+            val plansDoc = index.documents.plansElevations
+
+            val allCabinets = linkedSetOf<String>()
+            allCabinets.addAll(assemblyDoc.cabinetToPages.keys)
+            allCabinets.addAll(plansDoc.cabinetToPages.keys)
+
+            allCabinets.forEach { cabinet ->
+                val assemblyPage = assemblyDoc.cabinetToPages[cabinet]?.firstOrNull()
+                val plansPage = plansDoc.cabinetToPages[cabinet]?.firstOrNull()
+                val detail = assemblyPage?.let { assemblyDoc.pageDetails[it.toString()] }
+
+                out += AssemblySearchEntry(
+                    jobFolderName = job.folderName,
+                    jobNumber = job.jobNumber,
+                    jobName = job.jobName,
+                    cabinetNumber = cabinet,
+                    room = detail?.room,
+                    wall = detail?.wall,
+                    assemblyPage = assemblyPage,
+                    plansPage = plansPage,
+                    description = "",
+                    material = "",
+                    sectionType = ""
+                )
+            }
+
+            assemblyDoc.pageDetails.forEach { (_, detail) ->
+                val assemblyPage = detail.cabinets.firstOrNull()?.let { assemblyDoc.cabinetToPages[it]?.firstOrNull() }
+                detail.cabinets.forEach { cabinet ->
+                    val plansPage = plansDoc.cabinetToPages[cabinet]?.firstOrNull()
+                    detail.parts.forEach { part ->
+                        out += AssemblySearchEntry(
+                            jobFolderName = job.folderName,
+                            jobNumber = job.jobNumber,
+                            jobName = job.jobName,
+                            cabinetNumber = cabinet,
+                            room = detail.room,
+                            wall = detail.wall,
+                            assemblyPage = assemblyPage,
+                            plansPage = plansPage,
+                            description = part.description,
+                            material = part.material,
+                            sectionType = part.sectionType
+                        )
+                    }
                 }
             }
         }
-        return result.sortedWith(compareBy({ it.materialName }, { it.pageNumber }, { it.partNumber }))
+
+        return out
     }
 
-    private fun deriveHardwoodRowsForCabinet(
-        jobFolderName: String,
-        index: com.kkc.sheettracker.data.models.HardwoodCutlistIndex,
-        cabinetNumber: String
-    ): List<AssemblyHardwoodRow> {
-        val result = mutableListOf<AssemblyHardwoodRow>()
-        for (doc in index.documents) {
-            for (row in doc.rows) {
-                if (!row.cabinets.contains(cabinetNumber)) continue
-                val progress = hardwoodsProgressStore.getRowProgress(
-                    jobFolderName = jobFolderName,
-                    docType = doc.docType.name,
-                    rowId = row.rowId
-                )
-                result += AssemblyHardwoodRow(
-                    docType = doc.docType,
-                    description = row.description,
-                    material = row.material,
-                    qty = row.qty,
-                    width = row.width,
-                    length = row.length,
-                    doneCount = progress.doneCount,
-                    badCount = progress.badCount,
-                    skipped = progress.skipped
-                )
-            }
-        }
-        return result
-    }
-
-    private fun trackablePages(material: com.kkc.sheettracker.data.models.Material): List<Int> {
-        val metadataPages = material.metadata?.pages.orEmpty()
-        val visible = metadataPages
-            .filterNot { it.hiddenInApp || it.trackingExcluded || it.isPartListContinuation }
-            .mapNotNull { it.pageNumber.takeIf { p -> p in 1..material.pageCount } }
-            .distinct()
-            .sorted()
-        return if (visible.isNotEmpty()) visible else (1..material.pageCount).toList()
+    private fun normalizeKey(value: String): String {
+        return value
+            .trim()
+            .lowercase()
+            .replace(Regex("\\s+"), " ")
     }
 }

@@ -1,190 +1,286 @@
 package com.kkc.sheettracker.ui.assembly
 
-import android.content.Context
-import android.content.Intent
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.VerticalDivider
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.AssemblyBomEntry
 import com.kkc.sheettracker.data.models.AssemblyCabinetParts
-import com.kkc.sheettracker.data.models.AssemblyCncPart
-import com.kkc.sheettracker.data.models.AssemblyHardwoodRow
-import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.ReferencePdfPane
-import com.kkc.sheettracker.ui.theme.KKCThemeColors
-import com.kkc.sheettracker.viewer3d.Model3DPane
-import com.kkc.sheettracker.viewer3d.ViewerServer
-import kotlinx.coroutines.Dispatchers
+import com.kkc.sheettracker.ui.components.StatusChip
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
 
-// Which document to show in a PDF pane
-private enum class PdfDoc { PLANS, ASSEMBLY }
+private enum class FullscreenPane {
+    NONE,
+    FIRST,
+    SECOND
+}
 
-// What a pane is currently showing
-private sealed interface PaneContent {
-    data class Pdf(val doc: PdfDoc) : PaneContent
-    data class ThreeD(val roomName: String?) : PaneContent
+private enum class PaneSource {
+    PLANS,
+    ASSEMBLY,
+    DELIVERY,
+    OTHER
+}
+
+private enum class PaneSlot {
+    FIRST,
+    SECOND
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssemblyViewerScreen(
-    assemblyStateStore: AssemblyStateStore,
     jobRepository: JobRepository,
+    assemblyStateStore: AssemblyStateStore,
     jobFolderName: String,
-    basePath: String,
+    basePath: String = "",
+    startPageAssembly: Int,
+    startPagePlans: Int,
     isDarkTheme: Boolean,
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
-    val jobCards by assemblyStateStore.jobCards.collectAsState()
-    val jobCard = remember(jobCards, jobFolderName) {
-        jobCards.firstOrNull { it.folderName == jobFolderName }
-    }
-    val cabinetSheetIndex = remember(jobFolderName) {
-        jobRepository.getCabinetSheetIndex(jobFolderName)
-    }
-    val plansFile = remember(jobFolderName, isDarkTheme) {
-        val fn = cabinetSheetIndex?.documents?.plansElevations?.pdfFilename
-            ?.takeIf { it.isNotBlank() }
-            ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
-            ?: return@remember null
-        jobRepository.getJobRootPdfFile(jobFolderName, fn, preferDarkMode = isDarkTheme)
-    }
-    val assemblyFile = remember(jobFolderName, isDarkTheme) {
-        val fn = cabinetSheetIndex?.documents?.assembly?.pdfFilename
-            ?.takeIf { it.isNotBlank() }
+    val sheetIndex = remember(jobFolderName) { assemblyStateStore.getCabinetSheetIndex(jobFolderName) }
+
+    val assemblyFilename = remember(sheetIndex, jobFolderName) {
+        sheetIndex?.documents?.assembly?.pdfFilename?.takeIf { it.isNotBlank() }
             ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY)
-            ?: return@remember null
-        jobRepository.getJobRootPdfFile(jobFolderName, fn, preferDarkMode = isDarkTheme)
+            ?: ""
+    }
+    val plansFilename = remember(sheetIndex, jobFolderName) {
+        sheetIndex?.documents?.plansElevations?.pdfFilename?.takeIf { it.isNotBlank() }
+            ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
+            ?: ""
+    }
+    val pdfCatalog = remember(jobFolderName) {
+        jobRepository.getJobPdfCatalog(jobFolderName)
+    }
+    val deliveryFilename = remember(pdfCatalog.deliverySheet) {
+        pdfCatalog.deliverySheet?.pdfFilename.orEmpty()
+    }
+    val unmanagedOtherPdfNames = remember(pdfCatalog.otherDocs) {
+        pdfCatalog.otherDocs.map { it.pdfFilename }
     }
 
-    // NanoHTTPD server — starts when this screen enters composition
-    var serverPort by remember { mutableIntStateOf(0) }
-    DisposableEffect(jobFolderName) {
-        val server = ViewerServer(context, File(basePath))
-        serverPort = server.startAndGetPort()
-        onDispose { server.stop() }
+    val assemblyPdfFile = remember(jobFolderName, assemblyFilename, isDarkTheme) {
+        if (assemblyFilename.isBlank()) null
+        else jobRepository.getJobRootPdfFile(jobFolderName, assemblyFilename, preferDarkMode = isDarkTheme)
+    }
+    val plansPdfFile = remember(jobFolderName, plansFilename, isDarkTheme) {
+        if (plansFilename.isBlank()) null
+        else jobRepository.getJobRootPdfFile(jobFolderName, plansFilename, preferDarkMode = isDarkTheme)
     }
 
-    var plansPage     by remember { mutableIntStateOf(1) }
-    var assemblyPage  by remember { mutableIntStateOf(1) }
-    var cabinetInput  by remember { mutableStateOf("") }
-    var activeCabinet by remember { mutableStateOf("") }
-    var cabinetContext by remember { mutableStateOf<String?>(null) }
-    var showParts     by remember { mutableStateOf(false) }
-    var cabinetParts  by remember { mutableStateOf<AssemblyCabinetParts?>(null) }
+    var assemblyPage by rememberSaveable(assemblyPdfFile?.absolutePath, startPageAssembly) {
+        mutableIntStateOf(startPageAssembly.coerceAtLeast(1))
+    }
+    var plansPage by rememberSaveable(plansPdfFile?.absolutePath, startPagePlans) {
+        mutableIntStateOf(startPagePlans.coerceAtLeast(1))
+    }
+    var searchText by rememberSaveable { mutableStateOf("") }
+    var lastSearchedCabinet by rememberSaveable { mutableStateOf("") }
+    var contextLine by remember { mutableStateOf("") }
+    var showPartsSheet by remember { mutableStateOf(false) }
+    var fullscreenPane by rememberSaveable { mutableStateOf(FullscreenPane.NONE) }
+    var firstPaneSource by rememberSaveable { mutableStateOf(PaneSource.PLANS) }
+    var secondPaneSource by rememberSaveable { mutableStateOf(PaneSource.ASSEMBLY) }
+    var firstPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
+    var secondPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
+    var firstPaneDeliveryPage by rememberSaveable { mutableIntStateOf(1) }
+    var secondPaneDeliveryPage by rememberSaveable { mutableIntStateOf(1) }
+    var firstPaneOtherPage by rememberSaveable(firstPaneOtherFilename) { mutableIntStateOf(1) }
+    var secondPaneOtherPage by rememberSaveable(secondPaneOtherFilename) { mutableIntStateOf(1) }
+    var firstPaneTotalPages by remember { mutableIntStateOf(0) }
+    var secondPaneTotalPages by remember { mutableIntStateOf(0) }
+    var firstPaneTocRequestToken by remember { mutableIntStateOf(0) }
+    var secondPaneTocRequestToken by remember { mutableIntStateOf(0) }
+    var otherPickerTarget by remember { mutableStateOf<PaneSlot?>(null) }
 
-    var leftPane:  PaneContent by remember { mutableStateOf(PaneContent.Pdf(PdfDoc.PLANS)) }
-    var rightPane: PaneContent by remember { mutableStateOf(PaneContent.Pdf(PdfDoc.ASSEMBLY)) }
-
+    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    fun jumpToCabinet(cab: String) {
-        if (cab.isBlank()) return
-        val idx = cabinetSheetIndex
-        var detectedRoom: String? = null
-        if (idx != null) {
-            idx.documents.plansElevations.cabinetToPages[cab]?.firstOrNull()?.let { plansPage = it }
-            idx.documents.assembly.cabinetToPages[cab]?.firstOrNull()?.let { assemblyPage = it }
-            val assemblyDetail = idx.documents.assembly.cabinetToPages[cab]
-                ?.firstOrNull()?.toString()?.let { idx.documents.assembly.pageDetails[it] }
-            val plansDetail = idx.documents.plansElevations.cabinetToPages[cab]
-                ?.firstOrNull()?.toString()?.let { idx.documents.plansElevations.pageDetails[it] }
-            val detail = assemblyDetail ?: plansDetail
-            cabinetContext = listOfNotNull(detail?.room, detail?.wall)
-                .joinToString(" — ").takeIf { it.isNotBlank() }
-            detectedRoom = extractRoomFolder(detail?.room)
-        }
-        activeCabinet = cab
-        if (detectedRoom != null) {
-            if (leftPane is PaneContent.ThreeD)  leftPane  = PaneContent.ThreeD(detectedRoom)
-            if (rightPane is PaneContent.ThreeD) rightPane = PaneContent.ThreeD(detectedRoom)
-        }
-        scope.launch(Dispatchers.Default) {
-            val parts = assemblyStateStore.deriveCabinetParts(jobFolderName, cab)
-            withContext(Dispatchers.Main) { cabinetParts = parts }
+    val cabinetParts = remember(jobFolderName, lastSearchedCabinet) {
+        lastSearchedCabinet.takeIf { it.isNotBlank() }?.let {
+            assemblyStateStore.deriveCabinetParts(jobFolderName, it)
         }
     }
 
-    if (showParts) {
-        val sheetState = rememberModalBottomSheetState()
-        ModalBottomSheet(
-            onDismissRequest = { showParts = false },
-            sheetState = sheetState
-        ) {
-            PartsChecklistSheet(
-                cabinetNumber = activeCabinet,
-                parts = cabinetParts ?: AssemblyCabinetParts(cabinetNumber = activeCabinet)
-            )
+    fun jumpToCabinet(cab: String) {
+        val normalized = cab.trim()
+        if (normalized.isBlank()) return
+        val (assemblyTarget, plansTarget) = assemblyStateStore.getCabinetJumpPages(jobFolderName, normalized)
+        if (assemblyTarget != null) assemblyPage = assemblyTarget
+        if (plansTarget != null) plansPage = plansTarget
+
+        lastSearchedCabinet = normalized
+        contextLine = assemblyStateStore.getCabinetContext(jobFolderName, normalized)
+
+        if (assemblyTarget == null && plansTarget == null) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Cabinet $normalized not found in Assembly or Plans")
+            }
+        } else {
+            if (assemblyTarget == null) {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Cabinet $normalized not in Assembly Sheets")
+                }
+            }
+            if (plansTarget == null) {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Cabinet $normalized not in Plans & Elevations")
+                }
+            }
+        }
+    }
+    fun sourceLabel(source: PaneSource): String {
+        return when (source) {
+            PaneSource.PLANS -> "Plans"
+            PaneSource.ASSEMBLY -> "Assembly"
+            PaneSource.DELIVERY -> "Delivery"
+            PaneSource.OTHER -> "Other"
+        }
+    }
+
+    fun sourceFilename(source: PaneSource, otherFilename: String?): String? {
+        return when (source) {
+            PaneSource.PLANS -> plansFilename.takeIf { it.isNotBlank() }
+            PaneSource.ASSEMBLY -> assemblyFilename.takeIf { it.isNotBlank() }
+            PaneSource.DELIVERY -> deliveryFilename.takeIf { it.isNotBlank() }
+            PaneSource.OTHER -> otherFilename?.takeIf { it.isNotBlank() }
+        }
+    }
+
+    fun sourcePage(source: PaneSource, otherPage: Int, deliveryPage: Int): Int {
+        return when (source) {
+            PaneSource.PLANS -> plansPage
+            PaneSource.ASSEMBLY -> assemblyPage
+            PaneSource.DELIVERY -> deliveryPage
+            PaneSource.OTHER -> otherPage
+        }
+    }
+
+    fun setSourcePage(source: PaneSource, nextPage: Int, setOther: (Int) -> Unit, setDelivery: (Int) -> Unit) {
+        when (source) {
+            PaneSource.PLANS -> plansPage = nextPage
+            PaneSource.ASSEMBLY -> assemblyPage = nextPage
+            PaneSource.DELIVERY -> setDelivery(nextPage)
+            PaneSource.OTHER -> setOther(nextPage)
+        }
+    }
+
+    val firstSourceName = sourceLabel(firstPaneSource)
+    val secondSourceName = sourceLabel(secondPaneSource)
+    val firstSourceFilename = sourceFilename(firstPaneSource, firstPaneOtherFilename)
+    val secondSourceFilename = sourceFilename(secondPaneSource, secondPaneOtherFilename)
+    val firstSourcePdfFile = remember(jobFolderName, firstSourceFilename, isDarkTheme) {
+        if (firstSourceFilename.isNullOrBlank()) null
+        else jobRepository.getJobRootPdfFile(jobFolderName, firstSourceFilename, preferDarkMode = isDarkTheme)
+    }
+    val secondSourcePdfFile = remember(jobFolderName, secondSourceFilename, isDarkTheme) {
+        if (secondSourceFilename.isNullOrBlank()) null
+        else jobRepository.getJobRootPdfFile(jobFolderName, secondSourceFilename, preferDarkMode = isDarkTheme)
+    }
+    val firstMissingText = remember(firstPaneSource, firstPaneOtherFilename, firstSourceFilename) {
+        when (firstPaneSource) {
+            PaneSource.OTHER -> when {
+                firstPaneOtherFilename.isNullOrBlank() -> "Select an Other PDF"
+                firstSourceFilename.isNullOrBlank() -> "Selected Other file is unavailable"
+                else -> "Selected Other file unavailable: $firstPaneOtherFilename"
+            }
+            else -> "$firstSourceName PDF not found"
+        }
+    }
+    val secondMissingText = remember(secondPaneSource, secondPaneOtherFilename, secondSourceFilename) {
+        when (secondPaneSource) {
+            PaneSource.OTHER -> when {
+                secondPaneOtherFilename.isNullOrBlank() -> "Select an Other PDF"
+                secondSourceFilename.isNullOrBlank() -> "Selected Other file is unavailable"
+                else -> "Selected Other file unavailable: $secondPaneOtherFilename"
+            }
+            else -> "$secondSourceName PDF not found"
+        }
+    }
+    val firstUnreadableText = remember(firstPaneSource, firstSourceName, firstSourceFilename) {
+        if (firstPaneSource == PaneSource.OTHER && !firstSourceFilename.isNullOrBlank()) {
+            "Unable to read ${firstSourceFilename}"
+        } else {
+            "Unable to read $firstSourceName"
+        }
+    }
+    val secondUnreadableText = remember(secondPaneSource, secondSourceName, secondSourceFilename) {
+        if (secondPaneSource == PaneSource.OTHER && !secondSourceFilename.isNullOrBlank()) {
+            "Unable to read ${secondSourceFilename}"
+        } else {
+            "Unable to read $secondSourceName"
         }
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
+                modifier = Modifier.height(52.dp),
                 title = {
                     Text(
-                        jobCard?.let { "${it.jobNumber} — ${it.jobName}" } ?: jobFolderName,
+                        "Assembly Viewer - $jobFolderName",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
+                        style = MaterialTheme.typography.titleSmall
                     )
                 },
                 navigationIcon = {
@@ -192,536 +288,516 @@ fun AssemblyViewerScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                actions = {
-                    if (cabinetParts != null) {
-                        TextButton(onClick = { showParts = true }) {
-                            Text("Parts")
-                            Icon(Icons.Default.ExpandMore, contentDescription = null)
-                        }
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
+                ),
+                windowInsets = WindowInsets(0, 0, 0, 0)
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            Row(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 2.dp, vertical = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                when (fullscreenPane) {
+                    FullscreenPane.FIRST -> {
+                        PdfPaneWithFloatingControls(
+                            title = firstSourceName,
+                            pdfFile = firstSourcePdfFile,
+                            currentPage = sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage),
+                            totalPages = firstPaneTotalPages,
+                            onCurrentPageChange = { nextPage ->
+                                setSourcePage(
+                                    source = firstPaneSource,
+                                    nextPage = nextPage,
+                                    setOther = { firstPaneOtherPage = it },
+                                    setDelivery = { firstPaneDeliveryPage = it }
+                                )
+                            },
+                            onTotalPagesChanged = { firstPaneTotalPages = it },
+                            tocRequestToken = firstPaneTocRequestToken,
+                            onOpenToc = { firstPaneTocRequestToken++ },
+                            missingText = firstMissingText,
+                            unreadableText = firstUnreadableText,
+                            sourceControlsInline = {
+                                PaneSourceControlsInline(
+                                    selectedSource = firstPaneSource,
+                                    selectedOtherFilename = firstPaneOtherFilename,
+                                    hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                    onSelectSource = { firstPaneSource = it },
+                                    onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
+                                )
+                            },
+                            isFullscreen = true,
+                            onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE }
+                        )
+                    }
+                    FullscreenPane.SECOND -> {
+                        PdfPaneWithFloatingControls(
+                            title = secondSourceName,
+                            pdfFile = secondSourcePdfFile,
+                            currentPage = sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage),
+                            totalPages = secondPaneTotalPages,
+                            onCurrentPageChange = { nextPage ->
+                                setSourcePage(
+                                    source = secondPaneSource,
+                                    nextPage = nextPage,
+                                    setOther = { secondPaneOtherPage = it },
+                                    setDelivery = { secondPaneDeliveryPage = it }
+                                )
+                            },
+                            onTotalPagesChanged = { secondPaneTotalPages = it },
+                            tocRequestToken = secondPaneTocRequestToken,
+                            onOpenToc = { secondPaneTocRequestToken++ },
+                            missingText = secondMissingText,
+                            unreadableText = secondUnreadableText,
+                            sourceControlsInline = {
+                                PaneSourceControlsInline(
+                                    selectedSource = secondPaneSource,
+                                    selectedOtherFilename = secondPaneOtherFilename,
+                                    hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                    onSelectSource = { secondPaneSource = it },
+                                    onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
+                                )
+                            },
+                            isFullscreen = true,
+                            onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE }
+                        )
+                    }
+                    FullscreenPane.NONE -> {
+                        AdaptiveSplitLayout(
+                            modifier = Modifier.fillMaxSize(),
+                            initialFirstWeight = 0.5f,
+                            firstContent = { paneModifier ->
+                                PdfPaneWithFloatingControls(
+                                    modifier = paneModifier,
+                                    title = firstSourceName,
+                                    pdfFile = firstSourcePdfFile,
+                                    currentPage = sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage),
+                                    totalPages = firstPaneTotalPages,
+                                    onCurrentPageChange = { nextPage ->
+                                        setSourcePage(
+                                            source = firstPaneSource,
+                                            nextPage = nextPage,
+                                            setOther = { firstPaneOtherPage = it },
+                                            setDelivery = { firstPaneDeliveryPage = it }
+                                        )
+                                    },
+                                    onTotalPagesChanged = { firstPaneTotalPages = it },
+                                    tocRequestToken = firstPaneTocRequestToken,
+                                    onOpenToc = { firstPaneTocRequestToken++ },
+                                    missingText = firstMissingText,
+                                    unreadableText = firstUnreadableText,
+                                    sourceControlsInline = {
+                                        PaneSourceControlsInline(
+                                            selectedSource = firstPaneSource,
+                                            selectedOtherFilename = firstPaneOtherFilename,
+                                            hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                            onSelectSource = { firstPaneSource = it },
+                                            onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
+                                        )
+                                    },
+                                    onToggleFullscreen = { fullscreenPane = FullscreenPane.FIRST }
+                                )
+                            },
+                            secondContent = { paneModifier ->
+                                PdfPaneWithFloatingControls(
+                                    modifier = paneModifier,
+                                    title = secondSourceName,
+                                    pdfFile = secondSourcePdfFile,
+                                    currentPage = sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage),
+                                    totalPages = secondPaneTotalPages,
+                                    onCurrentPageChange = { nextPage ->
+                                        setSourcePage(
+                                            source = secondPaneSource,
+                                            nextPage = nextPage,
+                                            setOther = { secondPaneOtherPage = it },
+                                            setDelivery = { secondPaneDeliveryPage = it }
+                                        )
+                                    },
+                                    onTotalPagesChanged = { secondPaneTotalPages = it },
+                                    tocRequestToken = secondPaneTocRequestToken,
+                                    onOpenToc = { secondPaneTocRequestToken++ },
+                                    missingText = secondMissingText,
+                                    unreadableText = secondUnreadableText,
+                                    sourceControlsInline = {
+                                        PaneSourceControlsInline(
+                                            selectedSource = secondPaneSource,
+                                            selectedOtherFilename = secondPaneOtherFilename,
+                                            hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                            onSelectSource = { secondPaneSource = it },
+                                            onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
+                                        )
+                                    },
+                                    onToggleFullscreen = { fullscreenPane = FullscreenPane.SECOND }
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Cabinet #") },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.small
+                    )
+                    Button(onClick = { jumpToCabinet(searchText) }) {
+                        Text("Go")
+                    }
+                    Button(
+                        onClick = { showPartsSheet = true },
+                        enabled = lastSearchedCabinet.isNotBlank()
+                    ) {
+                        Text("Parts")
+                    }
+                }
+                if (contextLine.isNotBlank()) {
+                    Text(
+                        contextLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    if (otherPickerTarget != null && unmanagedOtherPdfNames.isNotEmpty()) {
+        ModalBottomSheet(onDismissRequest = { otherPickerTarget = null }) {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedTextField(
-                    value = cabinetInput,
-                    onValueChange = { cabinetInput = it.filter { c -> c.isDigit() } },
-                    label = { Text("Cabinet #") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Search
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onSearch = { jumpToCabinet(cabinetInput.trim()) }
-                    ),
-                    trailingIcon = {
-                        IconButton(
-                            onClick = { jumpToCabinet(cabinetInput.trim()) },
-                            enabled = cabinetInput.isNotBlank()
+                Text(
+                    "Other Files",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(340.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(unmanagedOtherPdfNames) { filename ->
+                        Button(
+                            onClick = {
+                                when (otherPickerTarget) {
+                                    PaneSlot.FIRST -> {
+                                        firstPaneOtherFilename = filename
+                                        firstPaneSource = PaneSource.OTHER
+                                    }
+                                    PaneSlot.SECOND -> {
+                                        secondPaneOtherFilename = filename
+                                        secondPaneSource = PaneSource.OTHER
+                                    }
+                                    null -> Unit
+                                }
+                                otherPickerTarget = null
+                            },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Default.Search, contentDescription = "Jump to cabinet")
+                            Text(filename, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                    },
-                    modifier = Modifier.width(180.dp),
-                    shape = MaterialTheme.shapes.medium
-                )
-                if (cabinetContext != null) {
-                    Text(
-                        "Cab $activeCabinet — $cabinetContext",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else if (activeCabinet.isNotBlank()) {
-                    Text(
-                        "Cabinet $activeCabinet",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-            }
-            HorizontalDivider()
-
-            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                PaneSlot(
-                    modifier = Modifier.weight(1f),
-                    content = leftPane,
-                    onContentChange = { leftPane = it },
-                    plansFile = plansFile,
-                    assemblyFile = assemblyFile,
-                    plansPage = plansPage,
-                    assemblyPage = assemblyPage,
-                    onPlansPageChange = { plansPage = it },
-                    onAssemblyPageChange = { assemblyPage = it },
-                    serverPort = serverPort,
-                    jobFolderName = jobFolderName,
-                    basePath = basePath,
-                    isDarkTheme = isDarkTheme,
-                    context = context
-                )
-                VerticalDivider()
-                PaneSlot(
-                    modifier = Modifier.weight(1f),
-                    content = rightPane,
-                    onContentChange = { rightPane = it },
-                    plansFile = plansFile,
-                    assemblyFile = assemblyFile,
-                    plansPage = plansPage,
-                    assemblyPage = assemblyPage,
-                    onPlansPageChange = { plansPage = it },
-                    onAssemblyPageChange = { assemblyPage = it },
-                    serverPort = serverPort,
-                    jobFolderName = jobFolderName,
-                    basePath = basePath,
-                    isDarkTheme = isDarkTheme,
-                    context = context
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PaneSlot(
-    modifier: Modifier = Modifier,
-    content: PaneContent,
-    onContentChange: (PaneContent) -> Unit,
-    plansFile: java.io.File?,
-    assemblyFile: java.io.File?,
-    plansPage: Int,
-    assemblyPage: Int,
-    onPlansPageChange: (Int) -> Unit,
-    onAssemblyPageChange: (Int) -> Unit,
-    serverPort: Int,
-    jobFolderName: String,
-    basePath: String,
-    isDarkTheme: Boolean,
-    context: Context
-) {
-    var showDropdown by remember { mutableStateOf(false) }
-
-    val labelText = when (content) {
-        is PaneContent.Pdf -> when (content.doc) {
-            PdfDoc.PLANS    -> "Plans & Elevations"
-            PdfDoc.ASSEMBLY -> "Assembly Sheets"
-        }
-        is PaneContent.ThreeD -> "3D Model"
-    }
-
-    when (content) {
-        is PaneContent.Pdf -> {
-            val (file, page, onPageChange) = when (content.doc) {
-                PdfDoc.PLANS    -> Triple(plansFile,    plansPage,    onPlansPageChange)
-                PdfDoc.ASSEMBLY -> Triple(assemblyFile, assemblyPage, onAssemblyPageChange)
-            }
-            val missingText = when (content.doc) {
-                PdfDoc.PLANS    -> "Plans & Elevations PDF not found"
-                PdfDoc.ASSEMBLY -> "Assembly Sheets PDF not found"
-            }
-            ReferencePdfPane(
-                modifier = modifier,
-                pdfFile = file,
-                currentPage = page,
-                onCurrentPageChange = onPageChange,
-                showDocControls = {
-                    PaneSwitcherLabel(
-                        label = labelText,
-                        showDropdown = showDropdown,
-                        onToggle = { showDropdown = !showDropdown }
-                    )
-                    PaneDropdownMenu(
-                        expanded = showDropdown,
-                        onDismiss = { showDropdown = false },
-                        onSelect = { onContentChange(it); showDropdown = false }
-                    )
-                },
-                missingText = missingText
-            )
-        }
-        is PaneContent.ThreeD -> {
-            val roomForFullScreen = content.roomName
-            Model3DPane(
-                modifier = modifier,
-                folderName = jobFolderName,
-                roomName = content.roomName,
-                serverPort = serverPort,
-                isDarkTheme = isDarkTheme,
-                onFullScreen = {
-                    if (roomForFullScreen != null) {
-                        launchFullScreen3D(context, File("$basePath/$jobFolderName/3D/$roomForFullScreen/3d.dae"))
                     }
-                },
-                headerSlot = {
-                    PaneSwitcherLabel(
-                        label = labelText,
-                        showDropdown = showDropdown,
-                        onToggle = { showDropdown = !showDropdown }
-                    )
-                    PaneDropdownMenu(
-                        expanded = showDropdown,
-                        onDismiss = { showDropdown = false },
-                        onSelect = { onContentChange(it); showDropdown = false }
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
                 }
-            )
+            }
+        }
+    }
+
+    if (showPartsSheet && cabinetParts != null) {
+        ModalBottomSheet(
+            onDismissRequest = { showPartsSheet = false }
+        ) {
+            PartsChecklistSheet(parts = cabinetParts)
         }
     }
 }
 
 @Composable
-private fun PaneSwitcherLabel(label: String, showDropdown: Boolean, onToggle: () -> Unit) {
-    TextButton(onClick = onToggle) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Icon(
-            Icons.Default.ArrowDropDown,
-            contentDescription = "Switch pane content",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun PaneDropdownMenu(
-    expanded: Boolean,
-    onDismiss: () -> Unit,
-    onSelect: (PaneContent) -> Unit
+private fun PdfPaneWithFloatingControls(
+    modifier: Modifier = Modifier,
+    title: String,
+    pdfFile: java.io.File?,
+    currentPage: Int,
+    totalPages: Int,
+    onCurrentPageChange: (Int) -> Unit,
+    onTotalPagesChanged: (Int) -> Unit,
+    tocRequestToken: Int = 0,
+    onOpenToc: () -> Unit,
+    missingText: String = "$title PDF not found",
+    unreadableText: String = "Unable to read $title",
+    sourceControlsInline: (@Composable RowScope.() -> Unit)? = null,
+    isFullscreen: Boolean = false,
+    onToggleFullscreen: () -> Unit
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        DropdownMenuItem(
-            text = { Text("Plans & Elevations") },
-            onClick = { onSelect(PaneContent.Pdf(PdfDoc.PLANS)) }
-        )
-        DropdownMenuItem(
-            text = { Text("Assembly Sheets") },
-            onClick = { onSelect(PaneContent.Pdf(PdfDoc.ASSEMBLY)) }
-        )
-        DropdownMenuItem(
-            text = { Text("3D Model") },
-            onClick = { onSelect(PaneContent.ThreeD(null)) }
-        )
-    }
-}
+    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+    var viewportZoom by remember(pdfFile?.absolutePath) { mutableFloatStateOf(1f) }
+    val bottomLift = if (isPortrait && viewportZoom <= 1.02f) 78.dp else 0.dp
 
-private fun extractRoomFolder(roomText: String?): String? {
-    if (roomText.isNullOrBlank()) return null
-    val m = Regex("""\(([^)]+)\)""").find(roomText)
-    return (if (m != null) m.groupValues[1] else roomText).trim().uppercase()
-}
+    Box(modifier = modifier.fillMaxSize()) {
+        ReferencePdfPane(
+            modifier = Modifier.fillMaxSize(),
+            pdfFile = pdfFile,
+            currentPage = currentPage,
+            onCurrentPageChange = onCurrentPageChange,
+            missingText = missingText,
+            unreadableText = unreadableText,
+            onTotalPagesChanged = onTotalPagesChanged,
+            onViewportStateChange = { state -> viewportZoom = state.zoom },
+            showHeaderRow = false,
+            showNavigationButtons = false,
+            innerPadding = bottomLift,
+            tocRequestToken = tocRequestToken
+        )
 
-private fun launchFullScreen3D(context: Context, daeFile: File) {
-    if (!daeFile.exists()) return
-    try {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", daeFile)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/octet-stream")
-            setPackage("com.example.pccoe.assimpandroid")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+            tonalElevation = 2.dp,
+            shape = MaterialTheme.shapes.small,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(6.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
         }
-        context.startActivity(intent)
-    } catch (_: Exception) {
-        // AssimpAndroid not installed or unavailable — fail silently
+
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+            tonalElevation = 3.dp,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                if (sourceControlsInline != null) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        content = sourceControlsInline
+                    )
+                }
+                IconButton(
+                    onClick = { onCurrentPageChange((currentPage - 1).coerceAtLeast(1)) },
+                    enabled = totalPages > 0 && currentPage > 1,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous", modifier = Modifier.size(20.dp))
+                }
+                IconButton(
+                    onClick = onOpenToc,
+                    enabled = totalPages > 0,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(20.dp))
+                }
+                Text(
+                    "$currentPage/${totalPages.coerceAtLeast(0)}",
+                    style = MaterialTheme.typography.labelSmall
+                )
+                IconButton(
+                    onClick = { onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1))) },
+                    enabled = totalPages > 0 && currentPage < totalPages,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", modifier = Modifier.size(20.dp))
+                }
+                IconButton(
+                    onClick = onToggleFullscreen,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                        contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun PartsChecklistSheet(cabinetNumber: String, parts: AssemblyCabinetParts) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            "Cabinet $cabinetNumber — Parts",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+private fun RowScope.PaneSourceControlsInline(
+    selectedSource: PaneSource,
+    selectedOtherFilename: String?,
+    hasOtherOptions: Boolean,
+    onSelectSource: (PaneSource) -> Unit,
+    onOpenOtherPicker: () -> Unit
+) {
+    FilterChip(
+        selected = selectedSource == PaneSource.PLANS,
+        onClick = { onSelectSource(PaneSource.PLANS) },
+        label = { Text("Plans") }
+    )
+    FilterChip(
+        selected = selectedSource == PaneSource.ASSEMBLY,
+        onClick = { onSelectSource(PaneSource.ASSEMBLY) },
+        label = { Text("Assembly") }
+    )
+    FilterChip(
+        selected = selectedSource == PaneSource.DELIVERY,
+        onClick = { onSelectSource(PaneSource.DELIVERY) },
+        label = { Text("Delivery") }
+    )
+    if (!selectedOtherFilename.isNullOrBlank()) {
+        FilterChip(
+            selected = selectedSource == PaneSource.OTHER,
+            onClick = { onSelectSource(PaneSource.OTHER) },
+            label = {
+                Text(
+                    "Other: $selectedOtherFilename",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         )
-        HorizontalDivider()
+    }
+    if (hasOtherOptions) {
+        Button(onClick = onOpenOtherPicker) {
+            Text("Other Files")
+        }
+    }
+}
+
+@Composable
+private fun PartsChecklistSheet(parts: AssemblyCabinetParts) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Text(
+            "Cabinet ${parts.cabinetNumber} - Parts",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(10.dp))
 
         if (parts.bom.isNotEmpty()) {
-            BomPartsContent(parts.bom)
-        } else if (parts.cncParts.isEmpty() && parts.hardwoodRows.isEmpty()) {
-            Text(
-                "No parts found for cabinet $cabinetNumber",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp)
-            )
-        } else {
-            LegacyPartsContent(parts)
-        }
-    }
-}
-
-@Composable
-private fun BomPartsContent(bom: List<AssemblyBomEntry>) {
-    val bySection = bom.groupBy { it.part.sectionType }
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        for ((section, entries) in bySection) {
-            item(key = "bom_sec_$section") { PartsSheetSectionHeader(section.uppercase()) }
-            items(entries, key = { "bom_${section}_${it.part.description}_${it.part.width}_${it.part.length}_${entries.indexOf(it)}" }) { entry ->
-                BomPartRow(entry)
+            val grouped = parts.bom.groupBy { it.part.sectionType.ifBlank { "Unspecified" } }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                grouped.forEach { (section, entries) ->
+                    item {
+                        Text(
+                            section,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                    items(entries) { entry ->
+                        BomPartRow(entry)
+                    }
+                }
             }
+        } else {
+            Text(
+                "No parsed BOM found. Showing indexed CNC/Hardwoods matches.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("CNC Parts: ${parts.cncParts.size}", style = MaterialTheme.typography.bodyMedium)
+            Text("Hardwood Rows: ${parts.hardwoodRows.size}", style = MaterialTheme.typography.bodyMedium)
         }
+
+        Spacer(Modifier.height(12.dp))
     }
 }
 
 @Composable
 private fun BomPartRow(entry: AssemblyBomEntry) {
-    val colors = KKCThemeColors.statusColors
-    val part = entry.part
-
-    val (icon, iconTint, chipLabel, chipColor) = when {
-        part.isPurchased -> BomRowDisplay(
-            icon = "—",
-            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-            chip = "Purch.",
-            chipColor = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        entry.cncPart != null -> {
-            val cp = entry.cncPart
-            val (ic, tint) = when {
-                cp.isBadPart -> "⚠" to MaterialTheme.colorScheme.error
-                cp.sheetStatus == SheetStatus.COMPLETE -> "✓" to colors.completeBorder
-                cp.sheetStatus == SheetStatus.SKIPPED -> "⏭" to MaterialTheme.colorScheme.onSurfaceVariant
-                cp.sheetStatus == SheetStatus.IN_PROGRESS -> "◑" to colors.inProgressBorder
-                else -> "✗" to MaterialTheme.colorScheme.onSurfaceVariant
-            }
-            BomRowDisplay(ic, tint, "CNC", tint)
-        }
-        entry.hardwoodRow != null -> {
-            val hw = entry.hardwoodRow
-            val fullyDone = hw.doneCount >= part.qty
-            val (ic, tint) = when {
-                hw.skipped -> "⏭" to MaterialTheme.colorScheme.onSurfaceVariant
-                hw.badCount > 0 -> "⚠" to MaterialTheme.colorScheme.error
-                fullyDone -> "✓" to colors.completeBorder
-                hw.doneCount > 0 -> "◑" to colors.inProgressBorder
-                else -> "✗" to MaterialTheme.colorScheme.onSurfaceVariant
-            }
-            BomRowDisplay(ic, tint, "HW ${hw.doneCount}/${part.qty}", tint)
-        }
-        else -> BomRowDisplay(
-            icon = "?",
-            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-            chip = "?",
-            chipColor = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(icon, color = iconTint, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(18.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                "${part.qty}×  ${part.description}",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                "${part.width}\" × ${part.length}\"",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Text(
-            chipLabel,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = chipColor
-        )
-    }
-}
-
-private data class BomRowDisplay(
-    val icon: String,
-    val iconTint: androidx.compose.ui.graphics.Color,
-    val chip: String,
-    val chipColor: androidx.compose.ui.graphics.Color
-)
-
-@Composable
-private fun LegacyPartsContent(parts: AssemblyCabinetParts) {
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        if (parts.cncParts.isNotEmpty()) {
-            item { PartsSheetSectionHeader("CNC PARTS") }
-            val byMaterial = parts.cncParts.groupBy { it.materialName }
-            for ((materialName, matParts) in byMaterial) {
-                item(key = "mat_$materialName") {
-                    Text(
-                        materialName,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
-                    )
-                }
-                items(matParts, key = { "cnc_${materialName}_${it.pageNumber}_${it.partNumber}" }) { part ->
-                    CncPartRow(part)
-                }
+    val (label, bg, fg) = when {
+        entry.part.isPurchased -> Triple("Purchased", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+        entry.cncParts.isNotEmpty() -> {
+            val anyBad = entry.cncParts.any { it.isBadPart || it.sheetStatus == SheetStatus.HAS_BAD_PARTS }
+            val allComplete = entry.cncParts.all { it.sheetStatus == SheetStatus.COMPLETE }
+            val anySkipped = entry.cncParts.any { it.sheetStatus == SheetStatus.SKIPPED }
+            when {
+                anyBad -> Triple("CNC - Bad Part", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+                allComplete -> Triple("CNC - Complete", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+                anySkipped -> Triple("CNC - Skipped", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+                else -> Triple("CNC - Not Started", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-
-        if (parts.hardwoodRows.isNotEmpty()) {
-            item {
-                if (parts.cncParts.isNotEmpty()) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                }
-                PartsSheetSectionHeader("HARDWOODS")
-            }
-            val byDocType = parts.hardwoodRows.groupBy { it.docType }
-            for ((docType, rows) in byDocType) {
-                item(key = "hw_doc_${docType.name}") {
-                    Text(
-                        docType.displayName(),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
-                    )
-                }
-                items(rows, key = { "hw_${docType.name}_${it.description}_${it.qty}_${it.width}_${it.length}" }) { row ->
-                    HardwoodRowItem(row)
-                }
+        entry.hardwoodRows.isNotEmpty() -> {
+            val qty = entry.hardwoodRows.sumOf { it.qty.coerceAtLeast(0) }
+            val done = entry.hardwoodRows.sumOf { it.doneCount.coerceAtLeast(0) }
+            val anyBad = entry.hardwoodRows.any { it.badCount > 0 }
+            when {
+                anyBad -> Triple("HW - Bad", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+                done >= qty && qty > 0 -> Triple("HW - $done/$qty", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+                done > 0 -> Triple("HW - $done/$qty", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+                else -> Triple("HW - 0/$qty", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        else -> Triple("Not Indexed", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
     }
-}
 
-@Composable
-private fun PartsSheetSectionHeader(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(bottom = 4.dp)
-    )
-}
-
-@Composable
-private fun CncPartRow(part: AssemblyCncPart) {
-    val colors = KKCThemeColors.statusColors
-    val (icon, tint) = when {
-        part.isBadPart -> "⚠" to MaterialTheme.colorScheme.error
-        part.sheetStatus == SheetStatus.COMPLETE -> "✓" to colors.completeBorder
-        part.sheetStatus == SheetStatus.SKIPPED -> "⏭" to MaterialTheme.colorScheme.onSurfaceVariant
-        part.sheetStatus == SheetStatus.IN_PROGRESS -> "◑" to colors.inProgressBorder
-        else -> "✗" to MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(icon, color = tint, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(18.dp))
-        Text(
-            "#${part.partNumber}",
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.width(32.dp)
-        )
-        Text(
-            part.partName,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            "${part.width}\" × ${part.length}\"",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun HardwoodRowItem(row: AssemblyHardwoodRow) {
-    val colors = KKCThemeColors.statusColors
-    val fullyDone = row.doneCount >= row.qty
-    val (icon, tint) = when {
-        row.skipped -> "⏭" to MaterialTheme.colorScheme.onSurfaceVariant
-        row.badCount > 0 -> "⚠" to MaterialTheme.colorScheme.error
-        fullyDone -> "✓" to colors.completeBorder
-        row.doneCount > 0 -> "◑" to colors.inProgressBorder
-        else -> "✗" to MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(icon, color = tint, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(18.dp))
-        Text(
-            row.description,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (row.material != null) {
-            Text(
-                row.material,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(80.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+    androidx.compose.material3.Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "${entry.part.qty} x ${entry.part.description}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${entry.part.width}\" x ${entry.part.length}\" • ${entry.part.material}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            StatusChip(text = label, backgroundColor = bg, contentColor = fg)
         }
-        Text(
-            "${row.width} × ${row.length}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(100.dp)
-        )
-        Text(
-            "${row.doneCount}/${row.qty}",
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.SemiBold,
-            color = if (fullyDone) colors.completeBorder else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.width(36.dp)
-        )
     }
-}
-
-private fun HardwoodDocType.displayName(): String = when (this) {
-    HardwoodDocType.FACE_FRAME_CUT_LIST -> "Face Frame Cut List"
-    HardwoodDocType.NAILER_CUT_LIST     -> "Nailer Cut List"
-    HardwoodDocType.DOOR_CUT_LIST       -> "Door Cut List"
-    HardwoodDocType.DOOR_LIST           -> "Door List"
 }
