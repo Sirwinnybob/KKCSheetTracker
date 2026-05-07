@@ -54,6 +54,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.AssemblyBomEntry
@@ -63,6 +65,9 @@ import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.ReferencePdfPane
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.viewer3d.Model3DPane
+import com.kkc.sheettracker.viewer3d.ViewerServer
+import java.io.File
 import kotlinx.coroutines.launch
 
 private enum class FullscreenPane {
@@ -75,7 +80,8 @@ private enum class PaneSource {
     PLANS,
     ASSEMBLY,
     DELIVERY,
-    OTHER
+    OTHER,
+    THREE_D
 }
 
 private enum class PaneSlot {
@@ -150,6 +156,16 @@ fun AssemblyViewerScreen(
     var firstPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var secondPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var otherPickerTarget by remember { mutableStateOf<PaneSlot?>(null) }
+    var serverPort by remember { mutableIntStateOf(0) }
+    var detectedRoom by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val context = LocalContext.current
+    DisposableEffect(basePath, jobFolderName) {
+        if (basePath.isBlank()) return@DisposableEffect onDispose {}
+        val server = ViewerServer(context, File(basePath))
+        serverPort = server.startAndGetPort()
+        onDispose { server.stop() }
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -158,6 +174,26 @@ fun AssemblyViewerScreen(
         lastSearchedCabinet.takeIf { it.isNotBlank() }?.let {
             assemblyStateStore.deriveCabinetParts(jobFolderName, it)
         }
+    }
+
+    fun extractRoomFolder(roomText: String?): String? =
+        roomText?.let {
+            Regex("""\(([^)]+)\)""").find(it)?.groupValues?.get(1)?.uppercase()
+                ?: it.uppercase().takeIf { it.isNotBlank() }
+        }
+
+    fun launchFullScreen3D(room: String?) {
+        if (room == null || basePath.isBlank()) return
+        val daeFile = File("$basePath/$jobFolderName/3D/$room/3d.dae")
+        if (!daeFile.exists()) return
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context, "${context.packageName}.provider", daeFile
+        )
+        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/octet-stream")
+            setPackage("com.example.pccoe.assimpandroid")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        })
     }
 
     fun jumpToCabinet(cab: String) {
@@ -169,6 +205,9 @@ fun AssemblyViewerScreen(
 
         lastSearchedCabinet = normalized
         contextLine = assemblyStateStore.getCabinetContext(jobFolderName, normalized)
+
+        val roomText = sheetIndex?.documents?.assembly?.pageDetails?.get(assemblyTarget?.toString())?.room
+        detectedRoom = extractRoomFolder(roomText)
 
         if (assemblyTarget == null && plansTarget == null) {
             scope.launch {
@@ -187,31 +226,28 @@ fun AssemblyViewerScreen(
             }
         }
     }
-    fun sourceLabel(source: PaneSource): String {
-        return when (source) {
-            PaneSource.PLANS -> "Plans"
-            PaneSource.ASSEMBLY -> "Assembly"
-            PaneSource.DELIVERY -> "Delivery"
-            PaneSource.OTHER -> "Other"
-        }
+    fun sourceLabel(source: PaneSource): String = when (source) {
+        PaneSource.PLANS -> "Plans"
+        PaneSource.ASSEMBLY -> "Assembly"
+        PaneSource.DELIVERY -> "Delivery"
+        PaneSource.OTHER -> "Other"
+        PaneSource.THREE_D -> "3D"
     }
 
-    fun sourceFilename(source: PaneSource, otherFilename: String?): String? {
-        return when (source) {
-            PaneSource.PLANS -> plansFilename.takeIf { it.isNotBlank() }
-            PaneSource.ASSEMBLY -> assemblyFilename.takeIf { it.isNotBlank() }
-            PaneSource.DELIVERY -> deliveryFilename.takeIf { it.isNotBlank() }
-            PaneSource.OTHER -> otherFilename?.takeIf { it.isNotBlank() }
-        }
+    fun sourceFilename(source: PaneSource, otherFilename: String?): String? = when (source) {
+        PaneSource.PLANS -> plansFilename.takeIf { it.isNotBlank() }
+        PaneSource.ASSEMBLY -> assemblyFilename.takeIf { it.isNotBlank() }
+        PaneSource.DELIVERY -> deliveryFilename.takeIf { it.isNotBlank() }
+        PaneSource.OTHER -> otherFilename?.takeIf { it.isNotBlank() }
+        PaneSource.THREE_D -> null
     }
 
-    fun sourcePage(source: PaneSource, otherPage: Int, deliveryPage: Int): Int {
-        return when (source) {
-            PaneSource.PLANS -> plansPage
-            PaneSource.ASSEMBLY -> assemblyPage
-            PaneSource.DELIVERY -> deliveryPage
-            PaneSource.OTHER -> otherPage
-        }
+    fun sourcePage(source: PaneSource, otherPage: Int, deliveryPage: Int): Int = when (source) {
+        PaneSource.PLANS -> plansPage
+        PaneSource.ASSEMBLY -> assemblyPage
+        PaneSource.DELIVERY -> deliveryPage
+        PaneSource.OTHER -> otherPage
+        PaneSource.THREE_D -> 1
     }
 
     fun setSourcePage(source: PaneSource, nextPage: Int, setOther: (Int) -> Unit, setDelivery: (Int) -> Unit) {
@@ -220,6 +256,7 @@ fun AssemblyViewerScreen(
             PaneSource.ASSEMBLY -> assemblyPage = nextPage
             PaneSource.DELIVERY -> setDelivery(nextPage)
             PaneSource.OTHER -> setOther(nextPage)
+            PaneSource.THREE_D -> Unit
         }
     }
 
@@ -242,6 +279,7 @@ fun AssemblyViewerScreen(
                 firstSourceFilename.isNullOrBlank() -> "Selected Other file is unavailable"
                 else -> "Selected Other file unavailable: $firstPaneOtherFilename"
             }
+            PaneSource.THREE_D -> "Search a cabinet to load its 3D model"
             else -> "$firstSourceName PDF not found"
         }
     }
@@ -252,6 +290,7 @@ fun AssemblyViewerScreen(
                 secondSourceFilename.isNullOrBlank() -> "Selected Other file is unavailable"
                 else -> "Selected Other file unavailable: $secondPaneOtherFilename"
             }
+            PaneSource.THREE_D -> "Search a cabinet to load its 3D model"
             else -> "$secondSourceName PDF not found"
         }
     }
@@ -334,7 +373,18 @@ fun AssemblyViewerScreen(
                                 )
                             },
                             isFullscreen = true,
-                            onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE }
+                            onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE },
+                            customContent = if (firstPaneSource == PaneSource.THREE_D) {{
+                                Model3DPane(
+                                    modifier = Modifier.fillMaxSize(),
+                                    folderName = jobFolderName,
+                                    roomName = detectedRoom,
+                                    serverPort = serverPort,
+                                    isDarkTheme = isDarkTheme,
+                                    onFullScreen = { launchFullScreen3D(detectedRoom) },
+                                    headerSlot = {}
+                                )
+                            }} else null
                         )
                     }
                     FullscreenPane.SECOND -> {
@@ -366,7 +416,18 @@ fun AssemblyViewerScreen(
                                 )
                             },
                             isFullscreen = true,
-                            onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE }
+                            onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE },
+                            customContent = if (secondPaneSource == PaneSource.THREE_D) {{
+                                Model3DPane(
+                                    modifier = Modifier.fillMaxSize(),
+                                    folderName = jobFolderName,
+                                    roomName = detectedRoom,
+                                    serverPort = serverPort,
+                                    isDarkTheme = isDarkTheme,
+                                    onFullScreen = { launchFullScreen3D(detectedRoom) },
+                                    headerSlot = {}
+                                )
+                            }} else null
                         )
                     }
                     FullscreenPane.NONE -> {
@@ -402,7 +463,18 @@ fun AssemblyViewerScreen(
                                             onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
                                         )
                                     },
-                                    onToggleFullscreen = { fullscreenPane = FullscreenPane.FIRST }
+                                    onToggleFullscreen = { fullscreenPane = FullscreenPane.FIRST },
+                                    customContent = if (firstPaneSource == PaneSource.THREE_D) {{
+                                        Model3DPane(
+                                            modifier = Modifier.fillMaxSize(),
+                                            folderName = jobFolderName,
+                                            roomName = detectedRoom,
+                                            serverPort = serverPort,
+                                            isDarkTheme = isDarkTheme,
+                                            onFullScreen = { launchFullScreen3D(detectedRoom) },
+                                            headerSlot = {}
+                                        )
+                                    }} else null
                                 )
                             },
                             secondContent = { paneModifier ->
@@ -434,7 +506,18 @@ fun AssemblyViewerScreen(
                                             onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
                                         )
                                     },
-                                    onToggleFullscreen = { fullscreenPane = FullscreenPane.SECOND }
+                                    onToggleFullscreen = { fullscreenPane = FullscreenPane.SECOND },
+                                    customContent = if (secondPaneSource == PaneSource.THREE_D) {{
+                                        Model3DPane(
+                                            modifier = Modifier.fillMaxSize(),
+                                            folderName = jobFolderName,
+                                            roomName = detectedRoom,
+                                            serverPort = serverPort,
+                                            isDarkTheme = isDarkTheme,
+                                            onFullScreen = { launchFullScreen3D(detectedRoom) },
+                                            headerSlot = {}
+                                        )
+                                    }} else null
                                 )
                             }
                         )
@@ -550,45 +633,31 @@ private fun PdfPaneWithFloatingControls(
     unreadableText: String = "Unable to read $title",
     sourceControlsInline: (@Composable RowScope.() -> Unit)? = null,
     isFullscreen: Boolean = false,
-    onToggleFullscreen: () -> Unit
+    onToggleFullscreen: () -> Unit,
+    customContent: (@Composable () -> Unit)? = null
 ) {
     val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
     var viewportZoom by remember(pdfFile?.absolutePath) { mutableFloatStateOf(1f) }
-    val bottomLift = if (isPortrait && viewportZoom <= 1.02f) 78.dp else 0.dp
+    val bottomLift = if (customContent == null && isPortrait && viewportZoom <= 1.02f) 78.dp else 0.dp
 
     Box(modifier = modifier.fillMaxSize()) {
-        ReferencePdfPane(
-            modifier = Modifier.fillMaxSize(),
-            pdfFile = pdfFile,
-            currentPage = currentPage,
-            onCurrentPageChange = onCurrentPageChange,
-            missingText = missingText,
-            unreadableText = unreadableText,
-            onTotalPagesChanged = onTotalPagesChanged,
-            onViewportStateChange = { state -> viewportZoom = state.zoom },
-            showHeaderRow = false,
-            showNavigationButtons = false,
-            innerPadding = bottomLift,
-            tocRequestToken = tocRequestToken
-        )
-
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-            tonalElevation = 2.dp,
-            shape = MaterialTheme.shapes.small,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(6.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
+        if (customContent != null) {
+            customContent()
+        } else {
+            ReferencePdfPane(
+                modifier = Modifier.fillMaxSize(),
+                pdfFile = pdfFile,
+                currentPage = currentPage,
+                onCurrentPageChange = onCurrentPageChange,
+                missingText = missingText,
+                unreadableText = unreadableText,
+                onTotalPagesChanged = onTotalPagesChanged,
+                onViewportStateChange = { state -> viewportZoom = state.zoom },
+                showHeaderRow = false,
+                showNavigationButtons = false,
+                innerPadding = bottomLift,
+                tocRequestToken = tocRequestToken
+            )
         }
 
         Surface(
@@ -614,30 +683,32 @@ private fun PdfPaneWithFloatingControls(
                         content = sourceControlsInline
                     )
                 }
-                IconButton(
-                    onClick = { onCurrentPageChange((currentPage - 1).coerceAtLeast(1)) },
-                    enabled = totalPages > 0 && currentPage > 1,
-                    modifier = Modifier.size(38.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous", modifier = Modifier.size(20.dp))
-                }
-                IconButton(
-                    onClick = onOpenToc,
-                    enabled = totalPages > 0,
-                    modifier = Modifier.size(38.dp)
-                ) {
-                    Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(20.dp))
-                }
-                Text(
-                    "$currentPage/${totalPages.coerceAtLeast(0)}",
-                    style = MaterialTheme.typography.labelSmall
-                )
-                IconButton(
-                    onClick = { onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1))) },
-                    enabled = totalPages > 0 && currentPage < totalPages,
-                    modifier = Modifier.size(38.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", modifier = Modifier.size(20.dp))
+                if (customContent == null) {
+                    IconButton(
+                        onClick = { onCurrentPageChange((currentPage - 1).coerceAtLeast(1)) },
+                        enabled = totalPages > 0 && currentPage > 1,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous", modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(
+                        onClick = onOpenToc,
+                        enabled = totalPages > 0,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(20.dp))
+                    }
+                    Text(
+                        "$currentPage/${totalPages.coerceAtLeast(0)}",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    IconButton(
+                        onClick = { onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1))) },
+                        enabled = totalPages > 0 && currentPage < totalPages,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", modifier = Modifier.size(20.dp))
+                    }
                 }
                 IconButton(
                     onClick = onToggleFullscreen,
@@ -676,6 +747,11 @@ private fun RowScope.PaneSourceControlsInline(
         selected = selectedSource == PaneSource.DELIVERY,
         onClick = { onSelectSource(PaneSource.DELIVERY) },
         label = { Text("Delivery") }
+    )
+    FilterChip(
+        selected = selectedSource == PaneSource.THREE_D,
+        onClick = { onSelectSource(PaneSource.THREE_D) },
+        label = { Text("3D") }
     )
     if (!selectedOtherFilename.isNullOrBlank()) {
         FilterChip(
