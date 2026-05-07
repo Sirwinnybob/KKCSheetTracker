@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
+import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodJob
@@ -49,8 +50,10 @@ import com.kkc.sheettracker.ui.components.StatusSummaryRow
 fun HardwoodsJobDetailScreen(
     scanCoordinator: HardwoodsScanCoordinator,
     progressStore: HardwoodsProgressStore,
+    jobRepository: JobRepository,
     jobFolderName: String,
     onOpenWorkspace: (HardwoodDocType) -> Unit,
+    onOpenRipCutList: () -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onBack: () -> Unit
 ) {
@@ -64,8 +67,12 @@ fun HardwoodsJobDetailScreen(
     var progressExpanded by rememberSaveable(jobFolderName) { mutableStateOf(true) }
     var expandedDocs by rememberSaveable(jobFolderName) { mutableStateOf(setOf<String>()) }
     val rowProgressMap = remember(progressVersion, jobFolderName) { progressStore.getRowProgressMap(jobFolderName) }
+    val totalsDoneMap = remember(progressVersion, jobFolderName) { progressStore.getTotalsRip10DoneMap(jobFolderName) }
     val docsByType = remember(job.index) {
         job.index?.documents.orEmpty().associateBy { it.docType }
+    }
+    val hasDeliverySheet = remember(jobFolderName) {
+        jobRepository.getJobPdfCatalog(jobFolderName).deliverySheet != null
     }
     val docSummariesByType = remember(summary.documents) {
         summary.documents.associateBy { it.docType }
@@ -102,6 +109,11 @@ fun HardwoodsJobDetailScreen(
                 Button(onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }) {
                     Text("View Plans & Elevations")
                 }
+                if (hasDeliverySheet) {
+                    Button(onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }) {
+                        Text("View Cover Sheet")
+                    }
+                }
             }
 
             val jobStatusCounts = summary.counts.toStatusCounts()
@@ -122,6 +134,26 @@ fun HardwoodsJobDetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            val boardStockCounts = remember(job.index, totalsDoneMap, scanState.snapshot.basePath) {
+                val rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index)
+                val total = rows.sumOf { it.neededRips.coerceAtLeast(0) }
+                val done = rows.sumOf { row ->
+                    val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
+                    (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
+                }
+                HardwoodStatusCounts(totalPieces = total, donePieces = done)
+            }
+            ProgressCard(
+                title = "Rip Cut List",
+                subtitle = "${boardStockCounts.donePieces}/${boardStockCounts.totalPieces} done",
+                fraction = boardStockCounts.completionFraction,
+                expanded = false,
+                segmentedStatusCounts = boardStockCounts.toStatusCounts(),
+                showBottomProgressBar = true,
+                onToggleExpanded = {},
+                onClick = onOpenRipCutList
+            )
 
             for (docType in HardwoodDocType.entries) {
                 val doc = docsByType[docType]

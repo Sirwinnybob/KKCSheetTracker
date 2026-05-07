@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +65,7 @@ fun JobBrowserScreen(
     progressStore: ProgressStore,
     appStateFlags: AppStateFeatureFlags,
     onJobClick: (Job) -> Unit,
+    onViewCoverSheet: (Job) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -172,6 +174,9 @@ fun JobBrowserScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filteredJobs, key = { it.folderName }) { job ->
+                        val hasDeliverySheet = remember(job.folderName) {
+                            jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
+                        }
                         val statusColors = KKCThemeColors.statusColors
                         val appModel: JobUiModel? = appJobModelsByFolder[job.folderName]
                         val counts: StatusCounts = if (useAppState && appModel != null) {
@@ -207,6 +212,13 @@ fun JobBrowserScreen(
                             materialSegments = materialSegments,
                             showExpandToggle = false,
                             headerActions = {
+                                if (hasDeliverySheet) {
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = { onViewCoverSheet(job) },
+                                        label = { Text("Cover Sheet") }
+                                    )
+                                }
                                 CountStatusChip(
                                     label = "Done",
                                     count = counts.complete,

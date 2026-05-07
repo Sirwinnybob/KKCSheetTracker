@@ -6,6 +6,7 @@ import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocSummary
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodJob
+import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJobSummary
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
@@ -25,6 +26,7 @@ import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToInt
 
 private data class HardwoodRowKey(
     val docType: String,
@@ -54,14 +56,22 @@ class HardwoodsProgressStore(
         _progressVersion.value = _progressVersion.value + 1L
     }
 
-    private fun trackerDir(jobFolderName: String): File = File(baseDir, "$jobFolderName/Hardwoods/.tracker")
+    private fun trackerDir(jobFolderName: String): File = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker")
+    private fun legacyTrackerDir(jobFolderName: String): File = File(baseDir, "$jobFolderName/Hardwoods/.tracker")
     private fun tabletFile(jobFolderName: String): File = File(trackerDir(jobFolderName), "$tabletId.json")
+    private fun legacyTabletFile(jobFolderName: String): File = File(legacyTrackerDir(jobFolderName), "$tabletId.json")
+    private fun boardStockMigrationMarkerFile(jobFolderName: String): File =
+        File(trackerDir(jobFolderName), ".board_stock_migration_${tabletId}.json")
 
     private fun loadTabletProgress(jobFolderName: String): HardwoodTabletProgress {
-        val file = tabletFile(jobFolderName)
-        if (!file.exists()) return HardwoodTabletProgress(tabletId = tabletId)
+        val file = when {
+            tabletFile(jobFolderName).exists() -> tabletFile(jobFolderName)
+            legacyTabletFile(jobFolderName).exists() -> legacyTabletFile(jobFolderName)
+            else -> return HardwoodTabletProgress(tabletId = tabletId)
+        }
         return try {
-            gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
+            val parsed = gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
+            sanitizeProgress(parsed, fallbackTabletId = tabletId) ?: HardwoodTabletProgress(tabletId = tabletId)
         } catch (_: Exception) {
             HardwoodTabletProgress(tabletId = tabletId)
         }
@@ -106,24 +116,71 @@ class HardwoodsProgressStore(
     }
 
     private fun loadAllProgress(jobFolderName: String): List<HardwoodTabletProgress> {
-        val dir = trackerDir(jobFolderName)
+        val combined = LinkedHashMap<String, HardwoodTabletProgress>()
+        readProgressFromDir(legacyTrackerDir(jobFolderName)).forEach { progress ->
+            combined[progress.tabletId] = progress
+        }
+        readProgressFromDir(trackerDir(jobFolderName)).forEach { progress ->
+            val existing = combined[progress.tabletId]
+            combined[progress.tabletId] = if (existing == null) progress else preferProgress(existing, progress)
+        }
+        return combined.values.toList()
+    }
+
+    private fun readProgressFromDir(dir: File): List<HardwoodTabletProgress> {
         if (!dir.exists()) return emptyList()
         return dir.listFiles()
             ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) }
             ?.mapNotNull { file ->
-                try {
-                    gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
-                } catch (_: Exception) {
-                    null
-                }
+                runCatching { gson.fromJson(file.readText(), HardwoodTabletProgress::class.java) }
+                    .getOrNull()
+                    ?.let { sanitizeProgress(it, fallbackTabletId = file.nameWithoutExtension) }
             }
             ?: emptyList()
     }
 
+    private fun preferProgress(a: HardwoodTabletProgress, b: HardwoodTabletProgress): HardwoodTabletProgress {
+        val aCount = a.actions.size
+        val bCount = b.actions.size
+        if (bCount > aCount) return b
+        if (aCount > bCount) return a
+        val aLast = a.actions.maxOfOrNull { it.timestamp }.orEmpty()
+        val bLast = b.actions.maxOfOrNull { it.timestamp }.orEmpty()
+        return if (bLast > aLast) b else a
+    }
+
     private fun loadAllActions(jobFolderName: String): List<HardwoodTrackerAction> {
         return loadAllProgress(jobFolderName)
-            .flatMap { it.actions }
+            .flatMap { it.actions.orEmpty() }
             .sortedBy { it.timestamp }
+    }
+
+    private fun sanitizeProgress(
+        progress: HardwoodTabletProgress?,
+        fallbackTabletId: String
+    ): HardwoodTabletProgress? {
+        progress ?: return null
+        val safeTabletId = (progress.tabletId as String?).orEmpty().ifBlank { fallbackTabletId }
+        val safeActions = (progress.actions as? List<*>).orEmpty()
+            .mapNotNull { it as? HardwoodTrackerAction }
+            .mapNotNull { sanitizeAction(it) }
+        return HardwoodTabletProgress(
+            tabletId = safeTabletId,
+            actions = safeActions
+        )
+    }
+
+    private fun sanitizeAction(action: HardwoodTrackerAction): HardwoodTrackerAction? {
+        val safeAction = (action.action as String?).orEmpty().trim()
+        if (safeAction.isBlank()) return null
+        return HardwoodTrackerAction(
+            docType = (action.docType as String?).orEmpty(),
+            rowId = (action.rowId as String?).orEmpty(),
+            totalsKey = (action.totalsKey as String?)?.trim()?.takeIf { it.isNotBlank() },
+            action = safeAction,
+            value = action.value,
+            timestamp = (action.timestamp as String?).orEmpty()
+        )
     }
 
     fun getRowProgressMap(jobFolderName: String): Map<Pair<String, String>, HardwoodRowProgress> {
@@ -221,6 +278,96 @@ class HardwoodsProgressStore(
         return ensureJobCache(jobFolderName).totalsRip10Map.toMap()
     }
 
+    fun getBoardStockRipDone(
+        jobFolderName: String,
+        material: String,
+        normalizedWidth: Double,
+        source: String
+    ): Int {
+        val key = makeBoardStockTallyKey(material, normalizedWidth, source)
+        return getTotalsRip10DoneMap(jobFolderName)[key] ?: 0
+    }
+
+    fun makeBoardStockRipSkipKey(material: String, normalizedWidth: Double, source: String): String {
+        val widthPart = if (normalizedWidth % 1.0 == 0.0) {
+            normalizedWidth.roundToInt().toString()
+        } else {
+            normalizedWidth.toString()
+        }
+        return "board_stock_skip|${material.trim()}|$widthPart|${source.trim().uppercase()}"
+    }
+
+    fun makeBoardStockMaterialSkipKey(material: String): String {
+        return "board_stock_material_skip|${material.trim().uppercase()}"
+    }
+
+    fun isBoardStockRipSkipped(
+        jobFolderName: String,
+        material: String,
+        normalizedWidth: Double,
+        source: String
+    ): Boolean {
+        val key = makeBoardStockRipSkipKey(material, normalizedWidth, source)
+        return (getTotalsRip10DoneMap(jobFolderName)[key] ?: 0) > 0
+    }
+
+    fun setBoardStockRipSkipped(
+        jobFolderName: String,
+        material: String,
+        normalizedWidth: Double,
+        source: String,
+        skipped: Boolean
+    ) {
+        val key = makeBoardStockRipSkipKey(material, normalizedWidth, source)
+        appendAction(
+            jobFolderName = jobFolderName,
+            docType = "BOARD_STOCK_SKIP",
+            rowId = "",
+            totalsKey = key,
+            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = if (skipped) 1 else 0
+        )
+    }
+
+    fun isBoardStockMaterialSkipped(jobFolderName: String, material: String): Boolean {
+        val key = makeBoardStockMaterialSkipKey(material)
+        return (getTotalsRip10DoneMap(jobFolderName)[key] ?: 0) > 0
+    }
+
+    fun setBoardStockMaterialSkipped(jobFolderName: String, material: String, skipped: Boolean) {
+        val key = makeBoardStockMaterialSkipKey(material)
+        appendAction(
+            jobFolderName = jobFolderName,
+            docType = "BOARD_STOCK_SKIP",
+            rowId = "",
+            totalsKey = key,
+            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = if (skipped) 1 else 0
+        )
+    }
+
+    fun setBoardStockRipDone(
+        jobFolderName: String,
+        material: String,
+        normalizedWidth: Double,
+        source: String,
+        doneCount: Int
+    ) {
+        val key = makeBoardStockTallyKey(material, normalizedWidth, source)
+        val normalizedTarget = doneCount.coerceAtLeast(0)
+        val current = getTotalsRip10DoneMap(jobFolderName)[key] ?: 0
+        val delta = normalizedTarget - current
+        if (delta == 0) return
+        appendAction(
+            jobFolderName = jobFolderName,
+            docType = "BOARD_STOCK",
+            rowId = "",
+            totalsKey = key,
+            action = HardwoodTrackerActions.ADD_TOTALS_RIP10_DONE_COUNT,
+            value = delta
+        )
+    }
+
     fun getTotalsRip10Done(
         jobFolderName: String,
         docType: String,
@@ -305,6 +452,15 @@ class HardwoodsProgressStore(
         )
     }
 
+    fun getLocalLastTouchedAtMs(jobFolderName: String): Long {
+        val progress = loadTabletProgress(jobFolderName)
+        return progress.actions
+            .mapNotNull { action ->
+                runCatching { java.time.Instant.parse(action.timestamp).toEpochMilli() }.getOrNull()
+            }
+            .maxOrNull() ?: 0L
+    }
+
     private fun encodeCabinetSkipRowId(rowId: String, cabinet: String): String {
         return "$rowId$cabinetSkipMarker$cabinet"
     }
@@ -326,9 +482,10 @@ class HardwoodsProgressStore(
     }
 
     private fun buildJobCache(jobFolderName: String): JobCache {
+        migrateLegacyTotalsKeysIfNeeded(jobFolderName)
         val allProgress = loadAllProgress(jobFolderName)
         val allActions = allProgress
-            .flatMap { it.actions }
+            .flatMap { it.actions.orEmpty() }
             .sortedBy { it.timestamp }
         val localActions = (allProgress.firstOrNull { it.tabletId == tabletId }?.actions.orEmpty())
             .sortedBy { it.timestamp }
@@ -342,6 +499,75 @@ class HardwoodsProgressStore(
         )
         allActions.forEach { applyActionToCache(cache, it) }
         return cache
+    }
+
+    private fun migrateLegacyTotalsKeysIfNeeded(jobFolderName: String) {
+        val marker = boardStockMigrationMarkerFile(jobFolderName)
+        if (marker.exists()) return
+        val current = loadTabletProgress(jobFolderName)
+        if (current.actions.isEmpty()) {
+            writeMigrationMarker(jobFolderName, migratedCount = 0)
+            return
+        }
+        val migratedActions = current.actions.map { action ->
+            val legacy = action.totalsKey?.takeIf { isLegacyTotalsKey(it) } ?: return@map action
+            val boardKey = legacyToBoardStockKey(jobFolderName, legacy) ?: return@map action
+            action.copy(totalsKey = boardKey)
+        }
+        val changed = migratedActions.zip(current.actions).count { (next, prev) -> next.totalsKey != prev.totalsKey }
+        if (changed > 0) saveTabletProgress(jobFolderName, current.copy(actions = migratedActions))
+        writeMigrationMarker(jobFolderName, migratedCount = changed)
+    }
+
+    private fun writeMigrationMarker(jobFolderName: String, migratedCount: Int) {
+        val marker = boardStockMigrationMarkerFile(jobFolderName)
+        marker.parentFile?.mkdirs()
+        val payload = mapOf(
+            "tabletId" to tabletId,
+            "migratedCount" to migratedCount,
+            "migratedAt" to Instant.now().toString()
+        )
+        runCatching { marker.writeText(gson.toJson(payload)) }
+    }
+
+    private fun isLegacyTotalsKey(key: String): Boolean {
+        val parts = key.split("|")
+        if (parts.size != 3) return false
+        return parts[1].toIntOrNull() != null && parts[2].toIntOrNull() != null
+    }
+
+    private fun legacyToBoardStockKey(jobFolderName: String, legacyKey: String): String? {
+        val parts = legacyKey.split("|")
+        if (parts.size != 3) return null
+        val docType = runCatching { HardwoodDocType.valueOf(parts[0]) }.getOrNull() ?: return null
+        val blockIndex = parts[1].toIntOrNull() ?: return null
+        val lineIndex = parts[2].toIntOrNull() ?: return null
+        val index = runCatching {
+            val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
+            if (!file.exists() || !file.isFile) return@runCatching null
+            gson.fromJson(file.readText(), HardwoodCutlistIndex::class.java)
+        }.getOrNull() ?: return null
+        val doc = index.documents.firstOrNull { it.docType == docType } ?: return null
+        val block = doc.totals.getOrNull(blockIndex) ?: return null
+        val material = block.material.orEmpty().trim()
+        val widthRaw = block.widthValues.getOrNull(lineIndex).orEmpty()
+        val normalizedWidth = widthRaw.trim().toDoubleOrNull() ?: return null
+        val source = when (docType) {
+            HardwoodDocType.FACE_FRAME_CUT_LIST -> "FRAME"
+            HardwoodDocType.NAILER_CUT_LIST -> "NAILER"
+            HardwoodDocType.DOOR_CUT_LIST -> "DOOR"
+            else -> return null
+        }
+        return makeBoardStockTallyKey(material, normalizedWidth, source)
+    }
+
+    fun makeBoardStockTallyKey(material: String, normalizedWidth: Double, source: String): String {
+        val widthPart = if (normalizedWidth % 1.0 == 0.0) {
+            normalizedWidth.roundToInt().toString()
+        } else {
+            normalizedWidth.toString()
+        }
+        return "board_stock|${material.trim()}|$widthPart|${source.trim().uppercase()}"
     }
 
     private fun applyActionToCache(cache: JobCache, action: HardwoodTrackerAction) {

@@ -189,11 +189,16 @@ class JobRepository(private var baseDir: File) {
     }
 
     fun findReferencePdfFilename(jobFolderName: String, docType: ReferenceDocType): String? {
+        if (docType == ReferenceDocType.DELIVERY_SHEETS) {
+            return getJobPdfCatalog(jobFolderName).deliverySheet?.pdfFilename
+        }
+
         val jobDir = File(baseDir, jobFolderName)
         if (!jobDir.isDirectory) return null
         val target = when (docType) {
             ReferenceDocType.ASSEMBLY -> "assembly sheets"
             ReferenceDocType.PLANS_ELEVATIONS -> "plans & elevations"
+            ReferenceDocType.DELIVERY_SHEETS -> "delivery sheets"
         }
 
         fun findIn(dir: File): String? {
@@ -206,5 +211,71 @@ class JobRepository(private var baseDir: File) {
         }
 
         return findIn(jobDir) ?: findIn(File(jobDir, "DARK MODE"))
+    }
+
+    fun getJobPdfCatalog(jobFolderName: String): JobPdfCatalog {
+        val jobDir = File(baseDir, jobFolderName)
+        if (!jobDir.isDirectory) return JobPdfCatalog()
+
+        val rootPdfs = jobDir.listFiles()
+            ?.asSequence()
+            ?.filter { file ->
+                file.isFile && file.extension.lowercase(Locale.US) == "pdf"
+            }
+            ?.sortedBy { it.name.lowercase(Locale.US) }
+            ?.toList()
+            .orEmpty()
+
+        val managed = mutableListOf<JobPdfRef>()
+        val other = mutableListOf<JobPdfRef>()
+        var deliverySheet: JobPdfRef? = null
+
+        rootPdfs.forEach { file ->
+            val lower = file.name.lowercase(Locale.US)
+            val managedLabel = when {
+                isDeliverySheetPdf(lower) -> "Delivery Sheets"
+                isAssemblySheetPdf(lower) -> "Assembly Sheets"
+                isPlansElevationsPdf(lower) -> "Plans & Elevations"
+                isDoorListPdf(lower) -> "Door List"
+                isCutListPdf(lower) -> "Cut List"
+                else -> null
+            }
+
+            if (managedLabel != null) {
+                val ref = JobPdfRef(pdfFilename = file.name, label = managedLabel)
+                managed += ref
+                if (managedLabel == "Delivery Sheets" && deliverySheet == null) {
+                    deliverySheet = ref
+                }
+            } else {
+                other += JobPdfRef(pdfFilename = file.name, label = file.nameWithoutExtension)
+            }
+        }
+
+        return JobPdfCatalog(
+            deliverySheet = deliverySheet,
+            managedDocs = managed,
+            otherDocs = other
+        )
+    }
+
+    private fun isAssemblySheetPdf(lowercaseFilename: String): Boolean {
+        return lowercaseFilename.contains("assembly sheets")
+    }
+
+    private fun isPlansElevationsPdf(lowercaseFilename: String): Boolean {
+        return lowercaseFilename.contains("plans & elevations") || lowercaseFilename.contains("plans and elevations")
+    }
+
+    private fun isDeliverySheetPdf(lowercaseFilename: String): Boolean {
+        return lowercaseFilename.contains("delivery sheets")
+    }
+
+    private fun isDoorListPdf(lowercaseFilename: String): Boolean {
+        return lowercaseFilename.contains("door list")
+    }
+
+    private fun isCutListPdf(lowercaseFilename: String): Boolean {
+        return lowercaseFilename.contains("cut list") || lowercaseFilename.contains("cutlist")
     }
 }

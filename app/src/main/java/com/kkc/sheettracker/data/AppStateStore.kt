@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val APP_STATE_TAG = "KKC_APP_STATE"
-private const val DASHBOARD_RECENT_LIMIT = 6
+private const val DASHBOARD_RECENT_LIMIT = 3
 
 class AppStateStore(
     private val scanCoordinator: ScanCoordinator,

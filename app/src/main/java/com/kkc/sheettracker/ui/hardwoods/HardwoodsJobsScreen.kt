@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
+import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.RefreshReason
@@ -51,7 +53,9 @@ import com.kkc.sheettracker.ui.components.StatusSummaryRow
 fun HardwoodsJobsScreen(
     scanCoordinator: HardwoodsScanCoordinator,
     progressStore: HardwoodsProgressStore,
+    jobRepository: JobRepository,
     onJobClick: (HardwoodJob) -> Unit,
+    onViewCoverSheet: (HardwoodJob) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -124,8 +128,14 @@ fun HardwoodsJobsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filtered, key = { it.folderName }) { job ->
+                        val hasDeliverySheet = remember(job.folderName) {
+                            jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
+                        }
                         val summary = remember(progressVersion, job.index) {
                             progressStore.summarizeJob(job)
+                        }
+                        val totalsDoneMap = remember(progressVersion, job.folderName) {
+                            progressStore.getTotalsRip10DoneMap(job.folderName)
                         }
                         val includedDocSummaries = summary.documents.filter { it.docType != com.kkc.sheettracker.data.models.HardwoodDocType.DOOR_LIST }
                         val includedCounts = includedDocSummaries.fold(HardwoodStatusCounts()) { acc, doc ->
@@ -136,7 +146,21 @@ fun HardwoodsJobsScreen(
                                 skippedPieces = acc.skippedPieces + doc.counts.skippedPieces
                             )
                         }
-                        val counts = includedCounts
+                        val boardStockCounts = remember(job.index, totalsDoneMap, scanState.snapshot.basePath) {
+                            val rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index)
+                            val total = rows.sumOf { it.neededRips.coerceAtLeast(0) }
+                            val done = rows.sumOf { row ->
+                                val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
+                                (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
+                            }
+                            HardwoodStatusCounts(totalPieces = total, donePieces = done)
+                        }
+                        val counts = HardwoodStatusCounts(
+                            totalPieces = includedCounts.totalPieces + boardStockCounts.totalPieces,
+                            donePieces = includedCounts.donePieces + boardStockCounts.donePieces,
+                            badPieces = includedCounts.badPieces,
+                            skippedPieces = includedCounts.skippedPieces
+                        )
                         val docCount = includedDocSummaries.size
                         val subtitle = buildString {
                             append("${counts.donePieces}/${counts.totalPieces} done")
@@ -147,7 +171,10 @@ fun HardwoodsJobsScreen(
                                 materialName = it.docType.uiLabel(),
                                 counts = it.counts.toStatusCounts()
                             )
-                        }
+                        } + MaterialSegmentData(
+                            materialName = "Rip Cut List",
+                            counts = boardStockCounts.toStatusCounts()
+                        )
 
                         ProgressCard(
                             title = job.folderName,
@@ -164,12 +191,21 @@ fun HardwoodsJobsScreen(
                             segmentedStatusCounts = counts.toStatusCounts(),
                             materialSegments = docSegments,
                             showBottomProgressBar = true,
+                            headerActions = {
+                                if (hasDeliverySheet) {
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = { onViewCoverSheet(job) },
+                                        label = { Text("Cover Sheet") }
+                                    )
+                                }
+                            },
                             onClick = { onJobClick(job) }
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 StatusSummaryRow(counts.toStatusCounts())
                                 Text(
-                                    "Cutlists: ${docCount}/3",
+                                    "Cutlists: ${docCount}/3 + Rip Cut List",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.Medium

@@ -27,6 +27,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.JobRepository
@@ -48,7 +49,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val DASHBOARD_PARITY_TAG = "KKC_APP_STATE_PARITY_DASH"
-private const val DASHBOARD_RECENT_LIMIT = 6
+private const val DASHBOARD_RECENT_LIMIT = 3
+private const val RECENT_JOBS_LIMIT = 5
+
+private data class RecentJobEntry(
+    val folderName: String,
+    val jobNumber: String,
+    val jobName: String,
+    val lastTouchedAtMs: Long
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,7 +68,8 @@ fun DashboardScreen(
     progressStore: ProgressStore,
     appStateFlags: AppStateFeatureFlags,
     onNavigateToJobs: () -> Unit,
-    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
+    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
+    onOpenJob: (jobFolderName: String) -> Unit
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -69,6 +79,7 @@ fun DashboardScreen(
     val useAppState = appFlags.dashboardEnabled
     val jobs = scanState.snapshot.jobs
     var stats by remember { mutableStateOf(DashboardUiModel()) }
+    var recentJobs by remember { mutableStateOf<List<RecentJobEntry>>(emptyList()) }
     var showBadList by remember { mutableStateOf(false) }
     var showSkippedList by remember { mutableStateOf(false) }
     var isComputing by remember { mutableStateOf(!useAppState) }
@@ -82,6 +93,13 @@ fun DashboardScreen(
     LaunchedEffect(useAppState, scanState.snapshot.generation, progressVersion, appUiState.scanGeneration, appUiState.progressVersion) {
         if (useAppState) {
             stats = appDashboard
+            recentJobs = withContext(Dispatchers.IO) {
+                jobs.mapNotNull { job ->
+                    val lastMs = progressStore.getLocalMaterialLastTouches(job.folderName)
+                        .values.maxOfOrNull { it.touchedAtMs } ?: 0L
+                    if (lastMs > 0L) RecentJobEntry(job.folderName, job.jobNumber, job.jobName, lastMs) else null
+                }.sortedByDescending { it.lastTouchedAtMs }.take(RECENT_JOBS_LIMIT)
+            }
             isComputing = false
             return@LaunchedEffect
         }
@@ -174,30 +192,41 @@ fun DashboardScreen(
                     }
                 }
             }
-            DashboardUiModel(
-                totalJobs = jobs.size,
-                totalSheets = totalSheets,
-                completedSheets = completed,
-                badPartsSheets = bad,
-                skippedSheets = skipped,
-                badItems = badItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
-                skippedItems = skippedItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
-                recentInProgressMaterials = recentItems
-                    .sortedByDescending { it.lastTouchedAtMs }
-                    .take(DASHBOARD_RECENT_LIMIT)
+            val recentJobsList = jobs.mapNotNull { job ->
+                val lastMs = progressStore.getLocalMaterialLastTouches(job.folderName)
+                    .values.maxOfOrNull { it.touchedAtMs } ?: 0L
+                if (lastMs > 0L) RecentJobEntry(job.folderName, job.jobNumber, job.jobName, lastMs) else null
+            }.sortedByDescending { it.lastTouchedAtMs }.take(RECENT_JOBS_LIMIT)
+
+            Pair(
+                DashboardUiModel(
+                    totalJobs = jobs.size,
+                    totalSheets = totalSheets,
+                    completedSheets = completed,
+                    badPartsSheets = bad,
+                    skippedSheets = skipped,
+                    badItems = badItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
+                    skippedItems = skippedItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
+                    recentInProgressMaterials = recentItems
+                        .sortedByDescending { it.lastTouchedAtMs }
+                        .take(DASHBOARD_RECENT_LIMIT)
+                ),
+                recentJobsList
             )
         }
-        stats = legacyModel
+        stats = legacyModel.first
+        recentJobs = legacyModel.second
 
+        val legacyStats = legacyModel.first
         if (appFlags.shadowEnabled) {
-            val badParity = appDashboard.badItems.size == legacyModel.badItems.size
-            val skippedParity = appDashboard.skippedItems.size == legacyModel.skippedItems.size
+            val badParity = appDashboard.badItems.size == legacyStats.badItems.size
+            val skippedParity = appDashboard.skippedItems.size == legacyStats.skippedItems.size
             val totalsParity =
-                appDashboard.totalJobs == legacyModel.totalJobs &&
-                    appDashboard.totalSheets == legacyModel.totalSheets &&
-                    appDashboard.completedSheets == legacyModel.completedSheets &&
-                    appDashboard.badPartsSheets == legacyModel.badPartsSheets &&
-                    appDashboard.skippedSheets == legacyModel.skippedSheets
+                appDashboard.totalJobs == legacyStats.totalJobs &&
+                    appDashboard.totalSheets == legacyStats.totalSheets &&
+                    appDashboard.completedSheets == legacyStats.completedSheets &&
+                    appDashboard.badPartsSheets == legacyStats.badPartsSheets &&
+                    appDashboard.skippedSheets == legacyStats.skippedSheets
             if (!badParity || !skippedParity || !totalsParity) {
                 Log.w(
                     DASHBOARD_PARITY_TAG,
@@ -211,7 +240,9 @@ fun DashboardScreen(
     val completionFraction = if (stats.totalSheets > 0)
         stats.completedSheets.toFloat() / stats.totalSheets.toFloat()
     else 0f
-    val recentInProgress = if (useAppState) stats.recentInProgressMaterials else appDashboard.recentInProgressMaterials
+    // stats is always the authoritative source: equals appDashboard when useAppState=true,
+    // equals the freshly computed legacy model when useAppState=false.
+    val recentInProgress = stats.recentInProgressMaterials
 
     Scaffold(
         topBar = {
@@ -401,6 +432,61 @@ fun DashboardScreen(
                         contentDescription = "Go to jobs",
                         tint = MaterialTheme.colorScheme.primary
                     )
+                }
+            }
+
+            if (recentJobs.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "Recent Jobs",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        recentJobs.forEachIndexed { index, entry ->
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenJob(entry.folderName) }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        entry.folderName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        formatRelativeTime(entry.lastTouchedAtMs),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Open job",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -728,6 +814,25 @@ private fun StatCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+private fun formatRelativeTime(ms: Long): String {
+    if (ms <= 0L) return ""
+    val diffMs = System.currentTimeMillis() - ms
+    val minutes = diffMs / 60_000
+    val hours = diffMs / 3_600_000
+    val days = diffMs / 86_400_000
+    return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> "$minutes min ago"
+        hours < 24 -> "$hours hr ago"
+        days == 1L -> "Yesterday"
+        days < 7 -> "$days days ago"
+        else -> {
+            val sdf = java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault())
+            sdf.format(java.util.Date(ms))
         }
     }
 }

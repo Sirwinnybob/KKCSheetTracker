@@ -104,6 +104,11 @@ fun SettingsScreen(
                         onClick = { onWorkModeChanged(WorkMode.HARDWOODS) },
                         label = { Text("Hardwoods") }
                     )
+                    FilterChip(
+                        selected = workMode == WorkMode.ASSEMBLY,
+                        onClick = { onWorkModeChanged(WorkMode.ASSEMBLY) },
+                        label = { Text("Assembly") }
+                    )
                 }
             }
 

@@ -32,7 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.UnfoldMore
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -61,6 +60,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -276,7 +276,12 @@ fun ReferencePdfPane(
     showDocControls: (@Composable RowScope.() -> Unit)? = null,
     missingText: String = "Reference PDF not found",
     unreadableText: String = "Unable to read PDF",
-    onTotalPagesChanged: (Int) -> Unit = {}
+    onTotalPagesChanged: (Int) -> Unit = {},
+    onViewportStateChange: (PdfViewportState) -> Unit = {},
+    showHeaderRow: Boolean = true,
+    showNavigationButtons: Boolean = true,
+    innerPadding: Dp = 8.dp,
+    tocRequestToken: Int = 0
 ) {
     val engine = remember(pdfFile?.absolutePath) { pdfFile?.takeIf { it.exists() }?.let { PdfRenderEngine(it) } }
     DisposableEffect(engine) {
@@ -303,10 +308,20 @@ fun ReferencePdfPane(
         onTotalPagesChanged(totalPages)
     }
 
+    LaunchedEffect(tocRequestToken, totalPages) {
+        if (tocRequestToken > 0 && totalPages > 0) {
+            showToc = true
+        }
+    }
+
     LaunchedEffect(currentPage) {
         viewportState = viewportState.copy(zoom = 1f, panX = 0f, panY = 0f)
         detailBitmap = null
         detailForViewport = null
+    }
+
+    LaunchedEffect(viewportState) {
+        onViewportStateChange(viewportState)
     }
 
     LaunchedEffect(engine, currentPage, totalPages) {
@@ -400,26 +415,13 @@ fun ReferencePdfPane(
         }
     }
 
-    Column(modifier = modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            showDocControls?.invoke(this)
-            Spacer(Modifier.weight(1f))
-            Text("Page $currentPage/$totalPages", style = MaterialTheme.typography.bodySmall)
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = { onCurrentPageChange((currentPage - 1).coerceAtLeast(1)) },
-                enabled = totalPages > 0 && currentPage > 1
-            ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-            Button(
-                onClick = { showToc = true },
-                enabled = totalPages > 0
-            ) { Icon(Icons.Default.UnfoldMore, null) }
-            Button(
-                onClick = { onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages)) },
-                enabled = totalPages > 0 && currentPage < totalPages
-            ) { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) }
+    Column(modifier = modifier.padding(innerPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (showHeaderRow) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                showDocControls?.invoke(this)
+                Spacer(Modifier.weight(1f))
+                Text("Page $currentPage/$totalPages", style = MaterialTheme.typography.bodySmall)
+            }
         }
 
         Surface(
@@ -487,6 +489,61 @@ fun ReferencePdfPane(
                                 }
                             }
                             is PdfRenderUiState.Ready -> Unit
+                        }
+
+                        if (showNavigationButtons) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                                tonalElevation = 3.dp,
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    androidx.compose.material3.IconButton(
+                                        onClick = { onCurrentPageChange((currentPage - 1).coerceAtLeast(1)) },
+                                        enabled = totalPages > 0 && currentPage > 1,
+                                        modifier = Modifier.size(38.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Previous",
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    androidx.compose.material3.IconButton(
+                                        onClick = { showToc = true },
+                                        enabled = totalPages > 0,
+                                        modifier = Modifier.size(38.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.UnfoldMore,
+                                            contentDescription = "Sheet list",
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Text(
+                                        "$currentPage/${totalPages.coerceAtLeast(0)}",
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                    androidx.compose.material3.IconButton(
+                                        onClick = { onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1))) },
+                                        enabled = totalPages > 0 && currentPage < totalPages,
+                                        modifier = Modifier.size(38.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowForward,
+                                            contentDescription = "Next",
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

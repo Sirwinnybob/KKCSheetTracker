@@ -134,6 +134,7 @@ fun ProgressCard(
     hidePrimaryProgressBar: Boolean = false,
     showExpandToggle: Boolean = true,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
+    inlineContent: (@Composable ColumnScope.() -> Unit)? = null,
     modifier: Modifier = Modifier,
     expandedContent: (@Composable ColumnScope.() -> Unit)? = null
 ) {
@@ -147,28 +148,11 @@ fun ProgressCard(
         shape = MaterialTheme.shapes.medium,
         tonalElevation = 1.dp
     ) {
-        Box(
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .animateContentSize()
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                    .fillMaxHeight()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                colors.progressGradientStart,
-                                colors.progressGradientEnd
-                            )
-                        )
-                    )
-            )
-
-            Column(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .animateContentSize()
-            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -231,13 +215,17 @@ fun ProgressCard(
                     }
                 }
 
+                if (inlineContent != null) {
+                    Spacer(Modifier.height(10.dp))
+                    inlineContent.invoke(this)
+                }
+
                 if (expanded && expandedContent != null) {
                     Spacer(Modifier.height(12.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Spacer(Modifier.height(12.dp))
                     expandedContent.invoke(this)
                 }
-            }
         }
     }
 }
@@ -248,14 +236,29 @@ fun SectionProgressHeader(
     itemCount: Int,
     done: Int,
     total: Int,
+    dimmed: Boolean = false,
+    skipped: Boolean = false,
     expanded: Boolean = true,
     onToggleExpanded: (() -> Unit)? = null,
+    headerActions: (@Composable RowScope.() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)
     val safeDone = done.coerceAtLeast(0).coerceAtMost(safeTotal)
     val fraction = if (safeTotal <= 0) 0f else safeDone.toFloat() / safeTotal.toFloat()
+    val containerColor = if (dimmed) {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val titleColor = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+    val progressColor = if (dimmed) {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+    } else {
+        colors.completeBorder
+    }
+    val skippedBarColor = colors.completeBorder.copy(alpha = 0.52f)
 
     Surface(
         modifier = modifier
@@ -263,7 +266,7 @@ fun SectionProgressHeader(
             .let { base ->
                 if (onToggleExpanded != null) base.clickable { onToggleExpanded() } else base
             },
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = containerColor,
         shape = MaterialTheme.shapes.medium
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -286,15 +289,25 @@ fun SectionProgressHeader(
                     Text(
                         text = "$title • $itemCount",
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        color = titleColor
                     )
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (headerActions != null) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                content = headerActions
+                            )
+                        }
                         ProgressPill(
                             done = safeDone,
-                            total = safeTotal
+                            total = safeTotal,
+                            state = if (skipped) ProgressState.SKIPPED else ProgressState.from(safeDone, safeTotal),
+                            skippedFillColor = skippedBarColor
                         )
                         if (onToggleExpanded != null) {
                             Icon(
@@ -315,7 +328,7 @@ fun SectionProgressHeader(
                         modifier = Modifier
                             .weight(1f)
                             .height(4.dp),
-                        color = colors.completeBorder,
+                        color = if (skipped) skippedBarColor else progressColor,
                         trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                     )
                     Spacer(Modifier.width(8.dp))

@@ -1,18 +1,22 @@
 package com.kkc.sheettracker.ui.hardwoods
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
@@ -22,9 +26,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -32,21 +39,37 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
+import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJob
+import com.kkc.sheettracker.data.models.HardwoodJobSummary
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.ui.components.ProgressPill
+import com.kkc.sheettracker.ui.components.ProgressState
 import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlin.math.roundToInt
+
+private data class HardwoodJobDashboardEntry(
+    val summary: HardwoodJobSummary,
+    val ripsDone: Int,
+    val ripsTotal: Int
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,15 +85,46 @@ fun HardwoodsDashboardScreen(
     val loading = scanState.status == ScanStatus.LOADING && jobs.isEmpty()
 
     val summaries = remember(jobs, progressVersion) {
-        jobs.map { progressStore.summarizeJob(it) }
+        jobs.map { job ->
+            val base = progressStore.summarizeJob(job)
+            val totalsDoneMap = progressStore.getTotalsRip10DoneMap(job.folderName)
+            val boardRows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index)
+            val boardTotal = boardRows.sumOf { it.neededRips.coerceAtLeast(0) }
+            val boardDone = boardRows.sumOf { row ->
+                val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
+                (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
+            }
+            HardwoodJobDashboardEntry(
+                summary = base.copy(
+                    counts = HardwoodStatusCounts(
+                        totalPieces = base.counts.totalPieces + boardTotal,
+                        donePieces = base.counts.donePieces + boardDone,
+                        badPieces = base.counts.badPieces,
+                        skippedPieces = base.counts.skippedPieces
+                    )
+                ),
+                ripsDone = boardDone,
+                ripsTotal = boardTotal
+            )
+        }
     }
-    val totalCounts = summaries.fold(HardwoodStatusCounts()) { acc, item ->
+    val totalCounts = summaries.fold(HardwoodStatusCounts()) { acc, entry ->
         HardwoodStatusCounts(
-            totalPieces = acc.totalPieces + item.counts.totalPieces,
-            donePieces = acc.donePieces + item.counts.donePieces,
-            badPieces = acc.badPieces + item.counts.badPieces,
-            skippedPieces = acc.skippedPieces + item.counts.skippedPieces
+            totalPieces = acc.totalPieces + entry.summary.counts.totalPieces,
+            donePieces = acc.donePieces + entry.summary.counts.donePieces,
+            badPieces = acc.badPieces + entry.summary.counts.badPieces,
+            skippedPieces = acc.skippedPieces + entry.summary.counts.skippedPieces
         )
+    }
+
+    val statusColors = KKCThemeColors.statusColors
+    var showBadModal by rememberSaveable { mutableStateOf(false) }
+    var showSkippedModal by rememberSaveable { mutableStateOf(false) }
+    val recentJobs = remember(jobs, progressVersion) {
+        jobs.map { job -> job to progressStore.getLocalLastTouchedAtMs(job.folderName) }
+            .filter { (_, ms) -> ms > 0L }
+            .sortedByDescending { (_, ms) -> ms }
+            .take(5)
     }
 
     Scaffold(
@@ -109,28 +163,13 @@ fun HardwoodsDashboardScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Card(
-                    shape = MaterialTheme.shapes.large,
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("Jobs: ${jobs.size}")
-                        Text("Pieces: ${totalCounts.donePieces}/${totalCounts.totalPieces} complete")
-                        Text("Bad pieces: ${totalCounts.badPieces}")
-                        Text("Skipped pieces: ${totalCounts.skippedPieces}")
-                        Text("Completion: ${(totalCounts.completionFraction * 100f).roundToInt()}%")
-                        Button(onClick = onNavigateToJobs) {
-                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
-                            Text("  Open Jobs")
-                        }
-                    }
-                }
+                HardwoodsOverviewCard(
+                    jobs = jobs,
+                    totalCounts = totalCounts,
+                    onNavigateToJobs = onNavigateToJobs,
+                    onBadClick = { showBadModal = true },
+                    onSkippedClick = { showSkippedModal = true }
+                )
             }
 
             item {
@@ -140,40 +179,183 @@ fun HardwoodsDashboardScreen(
                 )
             }
 
-            items(summaries.take(8), key = { it.job.folderName }) { summary ->
-                StatusBorderedCard(
-                    status = hardwoodSummaryStatus(summary.counts),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { onOpenJob(summary.job) },
-                    shape = MaterialTheme.shapes.medium,
-                    tonalElevation = 1.dp
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(summary.job.folderName, fontWeight = FontWeight.SemiBold)
+            if (recentJobs.isNotEmpty()) {
+                item {
+                    HardwoodsRecentJobsCard(
+                        recentJobs = recentJobs,
+                        onOpenJob = onOpenJob
+                    )
+                }
+            }
+
+            items(summaries.take(8), key = { it.summary.job.folderName }) { entry ->
+                HardwoodsJobCard(
+                    entry = entry,
+                    onClick = { onOpenJob(entry.summary.job) }
+                )
+            }
+        }
+    }
+
+    if (showBadModal) {
+        HardwoodsFlaggedPartsSheet(
+            title = "Bad Pieces",
+            summaries = summaries.map { it.summary },
+            countSelector = { it.badPieces },
+            accentColor = statusColors.bad,
+            onDismiss = { showBadModal = false }
+        )
+    }
+    if (showSkippedModal) {
+        HardwoodsFlaggedPartsSheet(
+            title = "Skipped Pieces",
+            summaries = summaries.map { it.summary },
+            countSelector = { it.skippedPieces },
+            accentColor = statusColors.skip,
+            onDismiss = { showSkippedModal = false }
+        )
+    }
+}
+
+// ── Overview card ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun HardwoodsOverviewCard(
+    jobs: List<HardwoodJob>,
+    totalCounts: HardwoodStatusCounts,
+    onNavigateToJobs: () -> Unit,
+    onBadClick: () -> Unit,
+    onSkippedClick: () -> Unit
+) {
+    val colors = KKCThemeColors.statusColors
+    val completionFraction = totalCounts.completionFraction
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Top row: circular progress (left) + job count + button (right)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = { completionFraction.coerceIn(0f, 1f) },
+                        modifier = Modifier.size(80.dp),
+                        strokeWidth = 8.dp,
+                        color = colors.completeBorder,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        strokeCap = StrokeCap.Round
+                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "${summary.counts.donePieces}/${summary.counts.totalPieces} done • bad ${summary.counts.badPieces} • skipped ${summary.counts.skippedPieces}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
+                            "${(completionFraction * 100f).roundToInt()}%",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "${totalCounts.donePieces}/${totalCounts.totalPieces}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
+
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "${jobs.size} job${if (jobs.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Button(onClick = onNavigateToJobs) {
+                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Open Jobs")
+                    }
+                }
+            }
+
+            // Bottom row: 3 stat cards
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                HardwoodsStatCard(
+                    label = "Done Pieces",
+                    value = "${totalCounts.donePieces}",
+                    color = colors.complete,
+                    modifier = Modifier.weight(1f),
+                    onClick = null
+                )
+                HardwoodsStatCard(
+                    label = "Bad Pieces",
+                    value = "${totalCounts.badPieces}",
+                    color = colors.bad,
+                    modifier = Modifier.weight(1f),
+                    onClick = if (totalCounts.badPieces > 0) onBadClick else null
+                )
+                HardwoodsStatCard(
+                    label = "Skipped",
+                    value = "${totalCounts.skippedPieces}",
+                    color = colors.skip,
+                    modifier = Modifier.weight(1f),
+                    onClick = if (totalCounts.skippedPieces > 0) onSkippedClick else null
+                )
             }
         }
     }
 }
 
-private fun hardwoodSummaryStatus(counts: HardwoodStatusCounts): SheetStatus {
-    return when {
-        counts.badPieces > 0 -> SheetStatus.HAS_BAD_PARTS
-        counts.skippedPieces > 0 && counts.donePieces <= 0 -> SheetStatus.SKIPPED
-        counts.totalPieces > 0 && counts.donePieces >= counts.totalPieces -> SheetStatus.COMPLETE
-        counts.donePieces > 0 || counts.skippedPieces > 0 -> SheetStatus.IN_PROGRESS
-        else -> SheetStatus.NOT_STARTED
+@Composable
+private fun HardwoodsStatCard(
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
+) {
+    Card(
+        modifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier,
+        shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                value,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
+
+// ── Quality alert ──────────────────────────────────────────────────────────────
 
 @Composable
 private fun HardwoodsQualityAlertCard(
@@ -231,5 +413,312 @@ private fun HardwoodsQualityAlertCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+// ── Recent jobs ────────────────────────────────────────────────────────────────
+
+@Composable
+private fun HardwoodsRecentJobsCard(
+    recentJobs: List<Pair<HardwoodJob, Long>>,
+    onOpenJob: (HardwoodJob) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                "Recent Jobs (This Tablet)",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            recentJobs.forEachIndexed { index, (job, ms) ->
+                if (index > 0) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenJob(job) }
+                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            buildString {
+                                if (job.jobNumber.isNotBlank()) {
+                                    append(job.jobNumber)
+                                    append(" - ")
+                                }
+                                append(job.jobName.ifBlank { job.folderName })
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            formatHardwoodRelativeTime(ms),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Open job",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Job cards ──────────────────────────────────────────────────────────────────
+
+@Composable
+private fun HardwoodsJobCard(
+    entry: HardwoodJobDashboardEntry,
+    onClick: () -> Unit
+) {
+    val colors = KKCThemeColors.statusColors
+    val summary = entry.summary
+    val counts = summary.counts
+    val status = hardwoodSummaryStatus(counts)
+    val progressColor = when (status) {
+        SheetStatus.HAS_BAD_PARTS -> colors.bad
+        SheetStatus.SKIPPED -> colors.skipBorder
+        SheetStatus.COMPLETE -> colors.completeBorder
+        SheetStatus.IN_PROGRESS -> colors.inProgressBorder
+        SheetStatus.NOT_STARTED -> colors.notStarted
+    }
+
+    StatusBorderedCard(
+        status = status,
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Job number + name inline: "XXX - Job Name"
+            Text(
+                buildString {
+                    if (summary.job.jobNumber.isNotBlank()) {
+                        append(summary.job.jobNumber)
+                        append(" - ")
+                    }
+                    append(summary.job.jobName.ifBlank { summary.job.folderName })
+                },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Progress bar
+            LinearProgressIndicator(
+                progress = { counts.completionFraction.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+                color = progressColor,
+                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+            )
+
+            // Doc type pills — DOOR_LIST excluded (no cut quantities); Rips sourced from board stock
+            val presentDocs = summary.documents.filter {
+                it.counts.totalPieces > 0 && it.docType != HardwoodDocType.DOOR_LIST
+            }
+            val showPills = presentDocs.isNotEmpty() || entry.ripsTotal > 0
+            if (showPills) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    presentDocs.forEach { docSummary ->
+                        val docState = when {
+                            docSummary.counts.donePieces >= docSummary.counts.totalPieces && docSummary.counts.totalPieces > 0 -> ProgressState.COMPLETE
+                            docSummary.counts.donePieces > 0 || docSummary.counts.skippedPieces > 0 -> ProgressState.IN_PROGRESS
+                            else -> ProgressState.NOT_STARTED
+                        }
+                        val docLabel = when (docSummary.docType) {
+                            HardwoodDocType.FACE_FRAME_CUT_LIST -> "Face Frame"
+                            HardwoodDocType.NAILER_CUT_LIST -> "Nailers"
+                            HardwoodDocType.DOOR_CUT_LIST -> "Doors"
+                            HardwoodDocType.DOOR_LIST -> "" // excluded above, never reached
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            ProgressPill(
+                                done = docSummary.counts.donePieces,
+                                total = docSummary.counts.totalPieces,
+                                state = docState
+                            )
+                            Text(
+                                docLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Rips pill — board stock progress
+                    if (entry.ripsTotal > 0) {
+                        val ripsState = when {
+                            entry.ripsDone >= entry.ripsTotal -> ProgressState.COMPLETE
+                            entry.ripsDone > 0 -> ProgressState.IN_PROGRESS
+                            else -> ProgressState.NOT_STARTED
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            ProgressPill(
+                                done = entry.ripsDone,
+                                total = entry.ripsTotal,
+                                state = ripsState
+                            )
+                            Text(
+                                "Rips",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Piece count summary
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "${counts.donePieces}/${counts.totalPieces} pieces",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (counts.badPieces > 0) {
+                    Text(
+                        "• ${counts.badPieces} bad",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.bad
+                    )
+                }
+                if (counts.skippedPieces > 0) {
+                    Text(
+                        "• ${counts.skippedPieces} skipped",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.skip
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Flagged parts modal sheet ──────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HardwoodsFlaggedPartsSheet(
+    title: String,
+    summaries: List<HardwoodJobSummary>,
+    countSelector: (HardwoodStatusCounts) -> Int,
+    accentColor: Color,
+    onDismiss: () -> Unit
+) {
+    val jobsWithIssues = summaries.filter { countSelector(it.counts) > 0 }
+    val totalIssues = jobsWithIssues.sumOf { countSelector(it.counts) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.75f)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                if (jobsWithIssues.isEmpty()) "None found."
+                else "$totalIssues pieces across ${jobsWithIssues.size} job${if (jobsWithIssues.size == 1) "" else "s"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(4.dp))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(jobsWithIssues, key = { it.job.folderName }) { summary ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                summary.job.jobName.ifBlank { summary.job.folderName },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            summary.documents
+                                .filter { countSelector(it.counts) > 0 }
+                                .forEach { docSummary ->
+                                    val docName = when (docSummary.docType) {
+                                        HardwoodDocType.FACE_FRAME_CUT_LIST -> "Face Frame Cut List"
+                                        HardwoodDocType.NAILER_CUT_LIST -> "Nailer Cut List"
+                                        HardwoodDocType.DOOR_CUT_LIST -> "Door Cut List"
+                                        HardwoodDocType.DOOR_LIST -> "Door List"
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            docName,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            "${countSelector(docSummary.counts)} pieces",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = accentColor,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+private fun hardwoodSummaryStatus(counts: HardwoodStatusCounts): SheetStatus {
+    return when {
+        counts.badPieces > 0 -> SheetStatus.HAS_BAD_PARTS
+        counts.skippedPieces > 0 && counts.donePieces <= 0 -> SheetStatus.SKIPPED
+        counts.totalPieces > 0 && counts.donePieces >= counts.totalPieces -> SheetStatus.COMPLETE
+        counts.donePieces > 0 || counts.skippedPieces > 0 -> SheetStatus.IN_PROGRESS
+        else -> SheetStatus.NOT_STARTED
+    }
+}
+
+private fun formatHardwoodRelativeTime(ms: Long): String {
+    if (ms <= 0L) return ""
+    val diffMs = System.currentTimeMillis() - ms
+    val minutes = diffMs / 60_000
+    val hours = diffMs / 3_600_000
+    val days = diffMs / 86_400_000
+    return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> "$minutes min ago"
+        hours < 24 -> "$hours hr ago"
+        days == 1L -> "Yesterday"
+        days < 7 -> "$days days ago"
+        else -> java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()).format(java.util.Date(ms))
     }
 }

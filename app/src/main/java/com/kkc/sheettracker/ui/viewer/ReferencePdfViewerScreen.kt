@@ -39,6 +39,7 @@ fun ReferencePdfViewerScreen(
         when (docType) {
             ReferenceDocType.ASSEMBLY -> sheetIndex?.documents?.assembly
             ReferenceDocType.PLANS_ELEVATIONS -> sheetIndex?.documents?.plansElevations
+            ReferenceDocType.DELIVERY_SHEETS -> null
         }
     }
     val pdfFilename = remember(documentIndex, docType, jobFolderName) {
@@ -59,6 +60,7 @@ fun ReferencePdfViewerScreen(
                         when (docType) {
                             ReferenceDocType.ASSEMBLY -> "Assembly Sheets"
                             ReferenceDocType.PLANS_ELEVATIONS -> "Plans & Elevations"
+                            ReferenceDocType.DELIVERY_SHEETS -> "Cover Sheet"
                         },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,

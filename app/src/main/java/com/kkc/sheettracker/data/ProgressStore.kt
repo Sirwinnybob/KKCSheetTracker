@@ -711,6 +711,31 @@ class ProgressStore(
         }
     }
 
+    /**
+     * Returns last-touch data for this tablet only — used for per-tablet
+     * "recent jobs" lists so each device shows its own history.
+     */
+    fun getLocalMaterialLastTouches(jobFolderName: String): Map<String, MaterialLastTouch> {
+        val progress = loadTabletProgress(jobFolderName)
+        val touches = mutableMapOf<String, MaterialTouchEntry>()
+        progress.actions.sortedBy { it.timestamp }.forEach { action ->
+            val ms = parseTimestampMillis(action.timestamp)
+            val entry = touches.getOrPut(action.file) { MaterialTouchEntry() }
+            if (ms >= entry.lastTouchedAtMs) {
+                entry.lastTouchedAtMs = ms
+                entry.lastTouchedPage = action.page.coerceAtLeast(1)
+                entry.lastTouchedTimestamp = action.timestamp
+            }
+        }
+        return touches.mapValues { (_, touch) ->
+            MaterialLastTouch(
+                page = touch.lastTouchedPage.coerceAtLeast(1),
+                touchedAtMs = touch.lastTouchedAtMs,
+                timestamp = touch.lastTouchedTimestamp
+            )
+        }
+    }
+
     fun hasOcrCache(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String): Boolean {
         val key = ocrCacheKey(jobFolderName, pdfFilename, page, fileFingerprint)
         if (ocrMemCache.containsKey(key)) return true

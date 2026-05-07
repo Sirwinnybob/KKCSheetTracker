@@ -78,6 +78,9 @@ fun JobDetailScreen(
     val job = remember(scanState.snapshot.generation, jobFolderName) {
         scanState.snapshot.jobs.find { it.folderName == jobFolderName }
     }
+    val hasDeliverySheet = remember(jobFolderName) {
+        jobRepository.getJobPdfCatalog(jobFolderName).deliverySheet != null
+    }
     val listState = rememberLazyListState()
 
     LaunchedEffect(scanState.snapshot.generation, jobFolderName) {
@@ -155,6 +158,14 @@ fun JobDetailScreen(
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("View Plans & Elevations")
+                        }
+                        if (hasDeliverySheet) {
+                            Button(
+                                onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("View Cover Sheet")
+                            }
                         }
                     }
                 }

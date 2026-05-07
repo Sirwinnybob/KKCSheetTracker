@@ -2289,12 +2289,24 @@ private fun PartsTable(
             }
         }
 
+        // Fixed width for the rotation indicator (*) column — not resizable
+        val rotColWidth = 20.dp
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
+            // Rotation indicator column header — muted, not sortable
+            Text(
+                "*",
+                modifier = Modifier.width(rotColWidth),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+            )
             SortHeader("#", Modifier.width(numberColDp.dp), sortColumn == SortColumn.NUMBER, sortDirection) { onSortChange(SortColumn.NUMBER) }
             ResizeHandle(onDrag = onResizeNumber)
             SortHeader("Width", Modifier.width(widthColDp.dp), sortColumn == SortColumn.WIDTH, sortDirection) { onSortChange(SortColumn.WIDTH) }
@@ -2335,12 +2347,29 @@ private fun PartsTable(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Rotation indicator — shown in amber when rotated, blank otherwise.
+                    // Spacers after each data cell match the 16dp ResizeHandle gaps in the header,
+                    // keeping all columns aligned.
+                    Text(
+                        if (part.rotated) "*" else "",
+                        modifier = Modifier.width(rotColWidth),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        color = Color(0xFFE65100)
+                    )
                     Text("${part.number}", Modifier.width(numberColDp.dp), style = DimensionTextStyle)
+                    Spacer(Modifier.width(16.dp))
                     Text("${part.width}", Modifier.width(widthColDp.dp), style = DimensionTextStyle)
+                    Spacer(Modifier.width(16.dp))
                     Text("${part.length}", Modifier.width(lengthColDp.dp), style = DimensionTextStyle)
+                    Spacer(Modifier.width(16.dp))
                     Text(part.name, Modifier.weight(nameWeight), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(16.dp))
                     Text("${part.cabNumber}", Modifier.width(cabColDp.dp), fontSize = 13.sp)
+                    Spacer(Modifier.width(16.dp))
                     Text(part.room, Modifier.width(roomColDp.dp), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(16.dp))
 
                     IconButton(
                         onClick = { onToggleBadPart(part) },

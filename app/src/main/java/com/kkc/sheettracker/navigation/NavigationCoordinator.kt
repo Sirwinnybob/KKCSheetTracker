@@ -103,6 +103,18 @@ class NavigationCoordinator(
         Log.d(NAV_TAG, "sheet_open route=$targetRoute")
     }
 
+    fun openJobDetailInJobs(jobFolderName: String) {
+        val targetRoute = "job/${URLEncoder.encode(jobFolderName, "UTF-8")}"
+        if (getSelectedTab() != TopLevelTab.JOBS) {
+            setSelectedTab(TopLevelTab.JOBS)
+            Log.d(NAV_TAG, "job_detail_tab_switch target=jobs")
+        }
+        jobsNavController.navigate(targetRoute) {
+            launchSingleTop = true
+        }
+        Log.d(NAV_TAG, "job_detail_open route=$targetRoute")
+    }
+
     fun openHardwoodsJobInJobs(jobFolderName: String) {
         val targetRoute = "hardwoods/job/${URLEncoder.encode(jobFolderName, "UTF-8")}"
         if (getSelectedTab() != TopLevelTab.JOBS) {
@@ -124,6 +136,18 @@ class NavigationCoordinator(
             launchSingleTop = true
         }
         Log.d(NAV_TAG, "hardwoods_route_open route=$route")
+    }
+
+    fun openAssemblyViewerInJobs(jobFolderName: String, assemblyPage: Int, plansPage: Int) {
+        val targetRoute = "assembly/viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/$assemblyPage/$plansPage"
+        if (getSelectedTab() != TopLevelTab.JOBS) {
+            setSelectedTab(TopLevelTab.JOBS)
+            Log.d(NAV_TAG, "assembly_viewer_tab_switch target=jobs")
+        }
+        jobsNavController.navigate(targetRoute) {
+            launchSingleTop = true
+        }
+        Log.d(NAV_TAG, "assembly_viewer_open route=$targetRoute")
     }
 
     fun onBackPressed(activity: Activity) {

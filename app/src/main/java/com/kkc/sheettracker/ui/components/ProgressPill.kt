@@ -47,7 +47,8 @@ fun ProgressPill(
     total: Int,
     modifier: Modifier = Modifier,
     state: ProgressState = ProgressState.from(done, total),
-    showCheckOnComplete: Boolean = true
+    showCheckOnComplete: Boolean = true,
+    skippedFillColor: Color? = null
 ) {
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)
@@ -61,7 +62,7 @@ fun ProgressPill(
         ProgressState.NOT_STARTED -> Color.Transparent
         ProgressState.IN_PROGRESS -> colors.inProgressBorder
         ProgressState.COMPLETE -> colors.completeBorder
-        ProgressState.SKIPPED -> colors.skipBorder
+        ProgressState.SKIPPED -> skippedFillColor ?: colors.skipBorder
     }
     val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     val shape = RoundedCornerShape(11.dp)
