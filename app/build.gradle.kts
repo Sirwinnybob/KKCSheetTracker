@@ -79,5 +79,6 @@ dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

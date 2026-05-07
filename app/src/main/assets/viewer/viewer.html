@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KKC 3D Viewer</title>
+    <link rel="stylesheet" href="css/viewer.css">
+    <style>
+        #mini-ui {
+            position: fixed;
+            top: 8px;
+            left: 8px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        #room-switcher-mini {
+            display: none;
+        }
+        #room-switcher-mini label {
+            font-size: 11px;
+            font-weight: 600;
+            opacity: 0.7;
+            display: block;
+            margin-bottom: 3px;
+        }
+        #room-list-ui {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .room-switcher-btn {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(128,128,128,0.4);
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+            text-align: left;
+            white-space: nowrap;
+            min-width: 80px;
+        }
+    </style>
+</head>
+<body>
+    <div id="mini-ui">
+        <div id="room-switcher-mini">
+            <label>Room:</label>
+            <div id="room-list-ui"></div>
+        </div>
+    </div>
+
+    <div id="status" role="status" aria-live="polite">
+        <span class="status-spin"></span>
+        <span id="status-text">Initializing 3D...</span>
+    </div>
+
+    <!-- Zoom Joystick -->
+    <div id="joystick-container">
+        <div id="joystick-track"></div>
+        <div id="joystick-handle" role="slider" aria-label="Zoom joystick handle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" tabindex="0"></div>
+        <div class="joystick-label">Zoom</div>
+    </div>
+
+    <div id="canvas-container" tabindex="-1"></div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "./js/three.module.js",
+            "three/addons/": "./js/three-addons/"
+        }
+    }
+    </script>
+    <script type="module" src="js/viewer.js"></script>
+</body>
+</html>
