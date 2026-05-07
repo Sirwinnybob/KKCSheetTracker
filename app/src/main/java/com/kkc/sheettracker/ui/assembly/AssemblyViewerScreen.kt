@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.JobRepository
@@ -182,6 +183,9 @@ fun AssemblyViewerScreen(
                 ?: it.uppercase().takeIf { it.isNotBlank() }
         }
 
+    fun roomForAssemblyPage(page: Int): String? =
+        extractRoomFolder(sheetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
+
     fun launchFullScreen3D(room: String?) {
         if (room == null || basePath.isBlank()) return
         val daeFile = File("$basePath/$jobFolderName/3D/$room/3d.dae")
@@ -206,8 +210,7 @@ fun AssemblyViewerScreen(
         lastSearchedCabinet = normalized
         contextLine = assemblyStateStore.getCabinetContext(jobFolderName, normalized)
 
-        val roomText = sheetIndex?.documents?.assembly?.pageDetails?.get(assemblyTarget?.toString())?.room
-        detectedRoom = extractRoomFolder(roomText)
+        detectedRoom = roomForAssemblyPage(assemblyTarget ?: assemblyPage)
 
         if (assemblyTarget == null && plansTarget == null) {
             scope.launch {
@@ -226,6 +229,13 @@ fun AssemblyViewerScreen(
             }
         }
     }
+
+    LaunchedEffect(assemblyPage, firstPaneSource, secondPaneSource) {
+        if (firstPaneSource == PaneSource.THREE_D || secondPaneSource == PaneSource.THREE_D) {
+            roomForAssemblyPage(assemblyPage)?.let { detectedRoom = it }
+        }
+    }
+
     fun sourceLabel(source: PaneSource): String = when (source) {
         PaneSource.PLANS -> "Plans"
         PaneSource.ASSEMBLY -> "Assembly"
