@@ -4,11 +4,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -56,6 +59,7 @@ fun HardwoodsJobsScreen(
     jobRepository: JobRepository,
     onJobClick: (HardwoodJob) -> Unit,
     onViewCoverSheet: (HardwoodJob) -> Unit,
+    onView3D: (HardwoodJob) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -191,12 +195,24 @@ fun HardwoodsJobsScreen(
                             segmentedStatusCounts = counts.toStatusCounts(),
                             materialSegments = docSegments,
                             showBottomProgressBar = true,
-                            headerActions = {
-                                if (hasDeliverySheet) {
+                            inlineContent = {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (hasDeliverySheet) {
+                                        FilterChip(
+                                            selected = false,
+                                            onClick = { onViewCoverSheet(job) },
+                                            label = { Text("Cover Sheet") }
+                                        )
+                                    }
                                     FilterChip(
                                         selected = false,
-                                        onClick = { onViewCoverSheet(job) },
-                                        label = { Text("Cover Sheet") }
+                                        onClick = { onView3D(job) },
+                                        label = { Text("View 3D") }
                                     )
                                 }
                             },

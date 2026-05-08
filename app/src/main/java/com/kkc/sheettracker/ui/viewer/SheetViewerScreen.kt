@@ -180,6 +180,7 @@ fun SheetViewerScreen(
     startPage: Int,
     isDarkTheme: Boolean,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
+    onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
     onBack: () -> Unit
 ) {
     val scanState by scanCoordinator.state.collectAsState()
@@ -244,6 +245,40 @@ fun SheetViewerScreen(
     var renderEffectCount by remember { mutableIntStateOf(0) }
     var statusEffectCount by remember { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val cabinetSheetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
+
+    fun normalizeRoomFolder(roomText: String?): String? {
+        val raw = roomText?.let {
+            Regex("""\(([^)]+)\)""").find(it)?.groupValues?.get(1)?.uppercase()
+                ?: it.uppercase().takeIf { s -> s.isNotBlank() }
+        } ?: return null
+        return raw.replace(Regex("""[/\\:*?"<>|]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .takeIf { it.isNotBlank() }
+    }
+
+    fun firstAlphabeticalRoomFromIndex(): Pair<String, Int>? {
+        return cabinetSheetIndex?.documents?.assembly?.pageDetails
+            ?.mapNotNull { (pageKey, detail) ->
+                val page = pageKey.toIntOrNull() ?: return@mapNotNull null
+                val room = normalizeRoomFolder(detail.room) ?: return@mapNotNull null
+                room to page
+            }
+            ?.sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
+            ?.firstOrNull()
+    }
+
+    fun roomInCurrentSheetView(): String? {
+        val roomCounts = parts.asSequence()
+            .mapNotNull { part -> normalizeRoomFolder(part.room)?.takeIf { room -> room.isNotBlank() } }
+            .groupingBy { it }
+            .eachCount()
+        return roomCounts.entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .firstOrNull()
+            ?.key
+    }
 
     val pdfFile = remember { jobRepository.getPdfFile(jobFolderName, pdfFilename) }
     val fileFingerprint = currentMaterial?.fileFingerprint.orEmpty()
@@ -937,6 +972,61 @@ fun SheetViewerScreen(
                 }
             }
 
+            val activeCabinet = selectedCabinetNumber
+                ?: selectedPartNumber?.let { selected ->
+                    parts.firstOrNull { it.number == selected }?.cabNumber?.takeIf { it > 0 }
+                }
+            val activePart = selectedPartNumber?.let { selected ->
+                parts.firstOrNull { it.number == selected }
+            }
+            val activeAssemblyPage = activeCabinet?.let { cab ->
+                cabinetSheetIndex?.documents?.assembly?.cabinetToPages?.get(cab.toString())?.firstOrNull()
+            }
+            val activePlansPage = activeCabinet?.let { cab ->
+                cabinetSheetIndex?.documents?.plansElevations?.cabinetToPages?.get(cab.toString())?.firstOrNull()
+            }
+            val activeRoom = normalizeRoomFolder(activePart?.room)
+                ?: roomInCurrentSheetView()
+                ?: activeAssemblyPage?.let { page ->
+                    normalizeRoomFolder(cabinetSheetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
+                }
+                ?: firstAlphabeticalRoomFromIndex()?.first
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = false,
+                    enabled = activeAssemblyPage != null,
+                    onClick = { activeAssemblyPage?.let { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, it) } },
+                    label = { Text(if (activeAssemblyPage != null) "Assembly" else "Assembly (N/A)") }
+                )
+                FilterChip(
+                    selected = false,
+                    enabled = activePlansPage != null,
+                    onClick = { activePlansPage?.let { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, it) } },
+                    label = { Text(if (activePlansPage != null) "Plans & Elevations" else "Plans (N/A)") }
+                )
+                FilterChip(
+                    selected = false,
+                    enabled = activeRoom != null,
+                    onClick = {
+                        if (activeRoom != null) {
+                            onOpenThreeDTarget(
+                                activeCabinet?.toString(),
+                                activeAssemblyPage,
+                                activePlansPage,
+                                activeRoom
+                            )
+                        }
+                    },
+                    label = { Text(if (activeRoom != null) "3D" else "3D (N/A)") }
+                )
+            }
+
             val bitmap = if (showFullPdfPage) pageBitmap else (diagramBitmap ?: pageBitmap)
 
             VerticalSplitLayout(
@@ -957,9 +1047,11 @@ fun SheetViewerScreen(
                                     .padding(4.dp),
                                 onTapPart = { partNumber ->
                                     selectedPartNumber = if (selectedPartNumber == partNumber) null else partNumber
+                                    selectedCabinetNumber = parts.firstOrNull { it.number == partNumber }?.cabNumber?.takeIf { it > 0 }
                                 },
                                 onLongPressPart = { partNumber ->
                                     val cabNumber = parts.firstOrNull { it.number == partNumber }?.cabNumber
+                                    selectedPartNumber = partNumber
                                     selectedCabinetNumber = cabNumber?.takeIf { it > 0 }
                                     showReferenceDocDialog = true
                                 }
@@ -1042,8 +1134,10 @@ fun SheetViewerScreen(
                     modifier = bottomModifier.fillMaxWidth(),
                     onPartClick = { part ->
                         selectedPartNumber = if (selectedPartNumber == part.number) null else part.number
+                        selectedCabinetNumber = part.cabNumber.takeIf { it > 0 }
                     },
                     onPartLongPress = { part ->
+                        selectedPartNumber = part.number
                         selectedCabinetNumber = part.cabNumber.takeIf { it > 0 }
                         showReferenceDocDialog = true
                     },
@@ -1063,8 +1157,8 @@ fun SheetViewerScreen(
     }
 
     if (showReferenceDocDialog) {
-        val cabinetSheetIndex = remember(showReferenceDocDialog, jobFolderName) {
-            jobRepository.getCabinetSheetIndex(jobFolderName)
+        val selectedPart = selectedPartNumber?.let { selected ->
+            parts.firstOrNull { it.number == selected }
         }
         val cabinetNumber = selectedCabinetNumber
         val assemblyPage = cabinetNumber?.let { cab ->
@@ -1073,15 +1167,28 @@ fun SheetViewerScreen(
         val plansPage = cabinetNumber?.let { cab ->
             cabinetSheetIndex?.documents?.plansElevations?.cabinetToPages?.get(cab.toString())?.firstOrNull()
         }
+        val roomFolder = normalizeRoomFolder(selectedPart?.room)
+            ?: roomInCurrentSheetView()
+            ?: assemblyPage?.let { page ->
+                normalizeRoomFolder(cabinetSheetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
+            }
+            ?: firstAlphabeticalRoomFromIndex()?.first
         AlertDialog(
             onDismissRequest = { showReferenceDocDialog = false },
             title = { Text("Open Reference Sheet") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Cabinet #${cabinetNumber ?: "?"}")
+                    if (!selectedPart?.room.isNullOrBlank()) {
+                        Text(
+                            "Room: ${selectedPart?.room}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     if (cabinetNumber == null) {
                         Text(
-                            "No cabinet number was found for this part.",
+                            "No cabinet number was found for this part. 3D can still open when room mapping exists.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1109,6 +1216,23 @@ fun SheetViewerScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(if (plansPage != null) "Plans & Elevations (Page $plansPage)" else "Plans & Elevations (Not found)")
+                    }
+                    Button(
+                        onClick = {
+                            if (roomFolder != null) {
+                                showReferenceDocDialog = false
+                                onOpenThreeDTarget(
+                                    cabinetNumber?.toString(),
+                                    assemblyPage,
+                                    plansPage,
+                                    roomFolder
+                                )
+                            }
+                        },
+                        enabled = roomFolder != null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (roomFolder != null) "View 3D Room" else "View 3D Room (Not found)")
                     }
                     if (isDarkTheme) {
                         Text(

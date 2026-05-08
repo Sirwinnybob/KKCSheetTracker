@@ -40,6 +40,7 @@ fun AppBottomNavBar(
     currentDestination: NavDestination,
     onNavigate: (NavDestination) -> Unit,
     minimized: Boolean,
+    destinations: List<NavDestination> = NavDestination.entries,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -52,7 +53,7 @@ fun AppBottomNavBar(
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 2.dp
         ) {
-            NavDestination.entries.forEach { dest ->
+            destinations.forEach { dest ->
                 val selected = dest == currentDestination
                 NavigationBarItem(
                     selected = selected,
@@ -75,14 +76,19 @@ fun AppBottomNavBar(
     }
 
     if (minimized) {
-        MinimizedNavBar(currentDestination = currentDestination, onNavigate = onNavigate)
+        MinimizedNavBar(
+            currentDestination = currentDestination,
+            onNavigate = onNavigate,
+            destinations = destinations
+        )
     }
 }
 
 @Composable
 private fun MinimizedNavBar(
     currentDestination: NavDestination,
-    onNavigate: (NavDestination) -> Unit
+    onNavigate: (NavDestination) -> Unit,
+    destinations: List<NavDestination>
 ) {
     Surface(
         tonalElevation = 2.dp,
@@ -97,7 +103,7 @@ private fun MinimizedNavBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            NavDestination.entries.forEach { dest ->
+            destinations.forEach { dest ->
                 val selected = dest == currentDestination
                 Icon(
                     if (selected) dest.selectedIcon else dest.unselectedIcon,

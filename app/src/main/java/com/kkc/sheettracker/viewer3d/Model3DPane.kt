@@ -21,6 +21,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
@@ -37,8 +38,10 @@ fun Model3DPane(
     folderName: String,
     roomName: String?,
     serverPort: Int,
+    serverError: String?,
     isDarkTheme: Boolean,
-    onFullScreen: () -> Unit,
+    onFullScreen: (() -> Unit)? = null,
+    onOpenIn3DApp: (() -> Unit)? = null,
     headerSlot: @Composable RowScope.() -> Unit
 ) {
     val encodedUrl = if (serverPort > 0 && roomName != null) {
@@ -47,7 +50,6 @@ fun Model3DPane(
         val darkParam   = if (isDarkTheme) "1" else "0"
         "http://127.0.0.1:$serverPort/viewer.html?job=$encodedJob&room=$encodedRoom&dark=$darkParam"
     } else ""
-
     Column(modifier = modifier) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -61,7 +63,15 @@ fun Model3DPane(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 headerSlot()
-                if (roomName != null) {
+                if (roomName != null && onOpenIn3DApp != null) {
+                    TextButton(
+                        onClick = onOpenIn3DApp,
+                        modifier = Modifier.padding(end = 2.dp)
+                    ) {
+                        Text("Open in 3D APP")
+                    }
+                }
+                if (roomName != null && onFullScreen != null) {
                     IconButton(
                         onClick = onFullScreen,
                         modifier = Modifier.size(32.dp)
@@ -108,7 +118,8 @@ fun Model3DPane(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    if (serverPort == 0) "Starting 3D viewer…"
+                    if (serverPort == 0 && !serverError.isNullOrBlank()) "3D viewer server failed: $serverError"
+                    else if (serverPort == 0) "Starting 3D viewer…"
                     else "Search a cabinet to load its 3D room",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

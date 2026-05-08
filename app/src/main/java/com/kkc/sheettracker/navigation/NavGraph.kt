@@ -156,7 +156,15 @@ private fun MultiBackStackNavigation(
     val jobsNavController = rememberNavController()
     val searchNavController = rememberNavController()
     val settingsNavController = rememberNavController()
-    var selectedTab by remember { mutableStateOf(TopLevelTab.DASHBOARD) }
+    val homeTab = if (workMode == WorkMode.ASSEMBLY) TopLevelTab.JOBS else TopLevelTab.DASHBOARD
+    var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
+    val visibleDestinations = remember(workMode) {
+        if (workMode == WorkMode.ASSEMBLY) {
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.SETTINGS)
+        } else {
+            NavDestination.entries
+        }
+    }
 
     val jobsBackStack by jobsNavController.currentBackStackEntryAsState()
     val jobsCurrentRoute = jobsBackStack?.destination?.route
@@ -172,13 +180,14 @@ private fun MultiBackStackNavigation(
         dashboardNavController,
         jobsNavController,
         searchNavController,
-        settingsNavController
+            settingsNavController
     ) {
         NavigationCoordinator(
             dashboardNavController = dashboardNavController,
             jobsNavController = jobsNavController,
             searchNavController = searchNavController,
             settingsNavController = settingsNavController,
+            getHomeTab = { homeTab },
             getSelectedTab = { selectedTab },
             setSelectedTab = { selectedTab = it }
         )
@@ -307,6 +316,7 @@ private fun MultiBackStackNavigation(
         AppBottomNavBar(
             currentDestination = TopLevelTab.toDestination(selectedTab),
             minimized = isInViewer,
+            destinations = visibleDestinations,
             onNavigate = { dest ->
                 coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
             }
@@ -439,6 +449,20 @@ private fun JobsTabHost(
                                 launchSingleTop = true
                             }
                         },
+                        onView3D = { job ->
+                            val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
+                            navController.navigate(
+                                assemblyViewerRoute(
+                                    jobFolderName = job.folderName,
+                                    assemblyPage = target.assemblyPage,
+                                    plansPage = target.plansPage,
+                                    source = "3d",
+                                    room = target.room
+                                )
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
                         onSearchClick = onSearchClick,
                         onSettingsClick = onSettingsClick
                     )
@@ -456,6 +480,20 @@ private fun JobsTabHost(
                         onViewCoverSheet = { job ->
                             navController.navigate(
                                 referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onView3D = { job ->
+                            val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
+                            navController.navigate(
+                                assemblyViewerRoute(
+                                    jobFolderName = job.folderName,
+                                    assemblyPage = target.assemblyPage,
+                                    plansPage = target.plansPage,
+                                    source = "3d",
+                                    room = target.room
+                                )
                             ) {
                                 launchSingleTop = true
                             }
@@ -514,6 +552,20 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
+                onOpenThreeD = {
+                    val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                    navController.navigate(
+                        assemblyViewerRoute(
+                            jobFolderName = folderName,
+                            assemblyPage = target.assemblyPage,
+                            plansPage = target.plansPage,
+                            source = "3d",
+                            room = target.room
+                        )
+                    ) {
+                        launchSingleTop = true
+                    }
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -541,6 +593,20 @@ private fun JobsTabHost(
                 isDarkTheme = isDarkTheme,
                 onOpenReferenceDocument = { docType, startAt ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
+                    navController.navigate(
+                        assemblyViewerRoute(
+                            jobFolderName = folderName,
+                            assemblyPage = assemblyPage ?: 1,
+                            plansPage = plansPage ?: 1,
+                            source = "3d",
+                            cabinet = cabinet,
+                            room = room
+                        )
+                    ) {
                         launchSingleTop = true
                     }
                 },
@@ -601,6 +667,20 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
+                onOpenThreeD = {
+                    val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                    navController.navigate(
+                        assemblyViewerRoute(
+                            jobFolderName = folderName,
+                            assemblyPage = target.assemblyPage,
+                            plansPage = target.plansPage,
+                            source = "3d",
+                            room = target.room
+                        )
+                    ) {
+                        launchSingleTop = true
+                    }
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -626,21 +706,41 @@ private fun JobsTabHost(
                 initialDocType = docType,
                 initialRowId = rowId,
                 isDarkTheme = isDarkTheme,
+                onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
+                    navController.navigate(
+                        assemblyViewerRoute(
+                            jobFolderName = folderName,
+                            assemblyPage = assemblyPage ?: 1,
+                            plansPage = plansPage ?: 1,
+                            source = "3d",
+                            cabinet = cabinet,
+                            room = room
+                        )
+                    ) {
+                        launchSingleTop = true
+                    }
+                },
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(
-            "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}",
+            "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}?source={source}&cab={cab}&room={room}",
             arguments = listOf(
                 navArgument("folderName") { type = NavType.StringType },
                 navArgument("startPageAssembly") { type = NavType.IntType },
-                navArgument("startPagePlans") { type = NavType.IntType }
+                navArgument("startPagePlans") { type = NavType.IntType },
+                navArgument("source") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("cab") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
             val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
             val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
+            val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
+            val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
+            val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
             AssemblyViewerScreen(
                 jobRepository = jobRepository,
                 assemblyStateStore = assemblyStateStore,
@@ -648,6 +748,9 @@ private fun JobsTabHost(
                 basePath = basePath,
                 startPageAssembly = startPageAssembly,
                 startPagePlans = startPagePlans,
+                initialSource = initialSource,
+                initialCabinet = initialCabinet,
+                initialRoom = initialRoom,
                 isDarkTheme = isDarkTheme,
                 onBack = { navController.popBackStack() }
             )
@@ -902,6 +1005,20 @@ private fun LegacySingleStackNavigation(
                                     launchSingleTop = true
                                 }
                             },
+                            onView3D = { job ->
+                                val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
+                                navController.navigate(
+                                    assemblyViewerRoute(
+                                        jobFolderName = job.folderName,
+                                        assemblyPage = target.assemblyPage,
+                                        plansPage = target.plansPage,
+                                        source = "3d",
+                                        room = target.room
+                                    )
+                                ) {
+                                    launchSingleTop = true
+                                }
+                            },
                             onSearchClick = {
                                 navController.navigate("search") {
                                     launchSingleTop = true
@@ -925,6 +1042,20 @@ private fun LegacySingleStackNavigation(
                             onViewCoverSheet = { job ->
                                 navController.navigate(
                                     referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
+                                ) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onView3D = { job ->
+                                val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
+                                navController.navigate(
+                                    assemblyViewerRoute(
+                                        jobFolderName = job.folderName,
+                                        assemblyPage = target.assemblyPage,
+                                        plansPage = target.plansPage,
+                                        source = "3d",
+                                        room = target.room
+                                    )
                                 ) {
                                     launchSingleTop = true
                                 }
@@ -995,6 +1126,20 @@ private fun LegacySingleStackNavigation(
                             launchSingleTop = true
                         }
                     },
+                    onOpenThreeD = {
+                        val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                        navController.navigate(
+                            assemblyViewerRoute(
+                                jobFolderName = folderName,
+                                assemblyPage = target.assemblyPage,
+                                plansPage = target.plansPage,
+                                source = "3d",
+                                room = target.room
+                            )
+                        ) {
+                            launchSingleTop = true
+                        }
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -1022,6 +1167,20 @@ private fun LegacySingleStackNavigation(
                     isDarkTheme = isDarkTheme,
                     onOpenReferenceDocument = { docType, startAt ->
                         navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
+                        navController.navigate(
+                            assemblyViewerRoute(
+                                jobFolderName = folderName,
+                                assemblyPage = assemblyPage ?: 1,
+                                plansPage = plansPage ?: 1,
+                                source = "3d",
+                                cabinet = cabinet,
+                                room = room
+                            )
+                        ) {
                             launchSingleTop = true
                         }
                     },
@@ -1082,6 +1241,20 @@ private fun LegacySingleStackNavigation(
                             launchSingleTop = true
                         }
                     },
+                    onOpenThreeD = {
+                        val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                        navController.navigate(
+                            assemblyViewerRoute(
+                                jobFolderName = folderName,
+                                assemblyPage = target.assemblyPage,
+                                plansPage = target.plansPage,
+                                source = "3d",
+                                room = target.room
+                            )
+                        ) {
+                            launchSingleTop = true
+                        }
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -1107,25 +1280,49 @@ private fun LegacySingleStackNavigation(
                     initialDocType = docType,
                     initialRowId = rowId,
                     isDarkTheme = isDarkTheme,
+                    onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
+                        navController.navigate(
+                            assemblyViewerRoute(
+                                jobFolderName = folderName,
+                                assemblyPage = assemblyPage ?: 1,
+                                plansPage = plansPage ?: 1,
+                                source = "3d",
+                                cabinet = cabinet,
+                                room = room
+                            )
+                        ) {
+                            launchSingleTop = true
+                        }
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }
 
             composable(
-                "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}",
+                "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}?source={source}&cab={cab}&room={room}",
                 arguments = listOf(
                     navArgument("folderName") { type = NavType.StringType },
                     navArgument("startPageAssembly") { type = NavType.IntType },
-                    navArgument("startPagePlans") { type = NavType.IntType }
+                    navArgument("startPagePlans") { type = NavType.IntType },
+                    navArgument("source") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("cab") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
                 )
             ) { backStack ->
                 val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
                 val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
                 val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
+                val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
+                val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
+                val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
                 AssemblyViewerScreen(
                     jobRepository = jobRepository,
                     assemblyStateStore = assemblyStateStore,
                     jobFolderName = folderName,
+                    basePath = basePath,
+                    initialSource = initialSource,
+                    initialCabinet = initialCabinet,
+                    initialRoom = initialRoom,
                     startPageAssembly = startPageAssembly,
                     startPagePlans = startPagePlans,
                     isDarkTheme = isDarkTheme,
@@ -1223,8 +1420,69 @@ private fun referenceViewerRoute(jobFolderName: String, docType: ReferenceDocTyp
     return "referenceViewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(docType.name, "UTF-8")}/$page"
 }
 
-private fun assemblyViewerRoute(jobFolderName: String, assemblyPage: Int, plansPage: Int): String {
-    return "assembly/viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/$assemblyPage/$plansPage"
+private data class ThreeDRouteTarget(
+    val assemblyPage: Int,
+    val plansPage: Int,
+    val room: String?
+)
+
+private fun resolveDefaultThreeDTarget(
+    jobRepository: JobRepository,
+    jobFolderName: String
+): ThreeDRouteTarget {
+    val sheetIndex = jobRepository.getCabinetSheetIndex(jobFolderName)
+    val assemblyDoc = sheetIndex?.documents?.assembly
+    val plansDoc = sheetIndex?.documents?.plansElevations
+
+    val assemblyRooms = assemblyDoc?.pageDetails
+        ?.mapNotNull { (pageKey, detail) ->
+            val page = pageKey.toIntOrNull() ?: return@mapNotNull null
+            val room = normalizeRoomFolderName(detail.room) ?: return@mapNotNull null
+            room to page
+        }
+        .orEmpty()
+    val firstRoom = assemblyRooms
+        .sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
+        .firstOrNull()
+
+    val firstAssemblyPage = firstRoom?.second
+        ?: assemblyDoc?.cabinetToPages?.values?.flatten()?.minOrNull()
+        ?: 1
+    val firstPlansPage = plansDoc?.cabinetToPages?.values?.flatten()?.minOrNull() ?: 1
+
+    return ThreeDRouteTarget(
+        assemblyPage = firstAssemblyPage,
+        plansPage = firstPlansPage,
+        room = firstRoom?.first
+    )
+}
+
+private fun normalizeRoomFolderName(roomText: String?): String? {
+    val raw = roomText?.let {
+        Regex("""\(([^)]+)\)""").find(it)?.groupValues?.get(1)?.uppercase()
+            ?: it.uppercase().takeIf { s -> s.isNotBlank() }
+    } ?: return null
+    return raw.replace(Regex("""[/\\:*?"<>|]"""), " ")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+        .takeIf { it.isNotBlank() }
+}
+
+private fun assemblyViewerRoute(
+    jobFolderName: String,
+    assemblyPage: Int,
+    plansPage: Int,
+    source: String? = null,
+    cabinet: String? = null,
+    room: String? = null
+): String {
+    val base = "assembly/viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/$assemblyPage/$plansPage"
+    val query = buildList {
+        if (!source.isNullOrBlank()) add("source=${URLEncoder.encode(source, "UTF-8")}")
+        if (!cabinet.isNullOrBlank()) add("cab=${URLEncoder.encode(cabinet, "UTF-8")}")
+        if (!room.isNullOrBlank()) add("room=${URLEncoder.encode(room, "UTF-8")}")
+    }
+    return if (query.isEmpty()) base else "$base?${query.joinToString("&")}"
 }
 
 private fun hardwoodsWorkspaceRoute(jobFolderName: String, docType: HardwoodDocType, rowId: String?): String {

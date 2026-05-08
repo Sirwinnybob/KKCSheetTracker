@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.viewer3d
 
 import android.content.Context
+import android.util.Log
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONArray
 import org.json.JSONObject
@@ -14,9 +15,41 @@ class ViewerServer(
     private val baseDir: File
 ) : NanoHTTPD(0) {
 
-    fun startAndGetPort(): Int {
-        start(SOCKET_READ_TIMEOUT, false)
-        return listeningPort
+    data class StartResult(
+        val port: Int,
+        val error: String? = null
+    )
+
+    fun startWithRetry(maxAttempts: Int = 3, retryDelayMs: Long = 150L): StartResult {
+        var lastError: String? = null
+        for (attempt in 1..maxAttempts.coerceAtLeast(1)) {
+            try {
+                start(SOCKET_READ_TIMEOUT, false)
+                val port = listeningPort
+                if (port <= 0) {
+                    val errorText = "Server started with invalid listening port=$port"
+                    lastError = errorText
+                    Log.e("ViewerServer", "Start failed attempt=$attempt/$maxAttempts baseDir=${baseDir.absolutePath} error=$errorText")
+                    stop()
+                } else {
+                    Log.d("ViewerServer", "Started on port $port, baseDir=${baseDir.absolutePath}, attempt=$attempt")
+                    return StartResult(port = port)
+                }
+            } catch (e: Exception) {
+                val errorText = "${e.javaClass.simpleName}: ${e.message ?: "unknown error"}"
+                lastError = errorText
+                Log.e("ViewerServer", "Start failed attempt=$attempt/$maxAttempts baseDir=${baseDir.absolutePath} error=$errorText", e)
+                if (attempt < maxAttempts) {
+                    try {
+                        Thread.sleep(retryDelayMs)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
+                }
+            }
+        }
+        return StartResult(port = 0, error = lastError ?: "unknown startup failure")
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -84,21 +117,39 @@ class ViewerServer(
     }
 
     private fun serveGlbFile(uri: String): Response {
-        // /jobs/{folderName}/{room}/3d_medium.glb
+        // /jobs/{folderName}/{room}/<relative path inside room>
         val parts = uri.removePrefix("/jobs/").split("/")
         if (parts.size < 3) {
             return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Bad path")
         }
         val folderName = URLDecoder.decode(parts[0], "UTF-8")
         val room = URLDecoder.decode(parts[1], "UTF-8")
-        val filename = parts[2]
+        val relativePath = parts.drop(2)
+            .joinToString("/")
+            .let { URLDecoder.decode(it, "UTF-8") }
         val roomDir = findRoomDir(folderName, room)
             ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Room not found")
-        val file = File(roomDir, filename)
-        return if (file.exists() && file.isFile) {
-            newFixedLengthResponse(Response.Status.OK, "model/gltf-binary", FileInputStream(file), file.length())
+
+        val target = File(roomDir, relativePath)
+        val roomCanonical = roomDir.canonicalFile
+        val targetCanonical = try {
+            target.canonicalFile
+        } catch (_: Exception) {
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid path")
+        }
+        if (!targetCanonical.path.startsWith(roomCanonical.path + File.separator)) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Blocked path")
+        }
+
+        return if (targetCanonical.exists() && targetCanonical.isFile) {
+            newFixedLengthResponse(
+                Response.Status.OK,
+                mimeFor(targetCanonical.name),
+                FileInputStream(targetCanonical),
+                targetCanonical.length()
+            )
         } else {
-            newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "GLB not found")
+            newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "File not found")
         }
     }
 
@@ -118,6 +169,11 @@ class ViewerServer(
         path.endsWith(".css")  -> "text/css; charset=utf-8"
         path.endsWith(".glb")  -> "model/gltf-binary"
         path.endsWith(".json") -> "application/json"
+        path.endsWith(".jpg") || path.endsWith(".jpeg") -> "image/jpeg"
+        path.endsWith(".png")  -> "image/png"
+        path.endsWith(".webp") -> "image/webp"
+        path.endsWith(".bmp")  -> "image/bmp"
+        path.endsWith(".gif")  -> "image/gif"
         else -> MIME_PLAINTEXT
     }
 }

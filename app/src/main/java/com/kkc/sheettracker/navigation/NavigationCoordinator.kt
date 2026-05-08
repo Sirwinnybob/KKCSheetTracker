@@ -41,6 +41,7 @@ class NavigationCoordinator(
     private val jobsNavController: NavHostController,
     private val searchNavController: NavHostController,
     private val settingsNavController: NavHostController,
+    private val getHomeTab: () -> TopLevelTab,
     private val getSelectedTab: () -> TopLevelTab,
     private val setSelectedTab: (TopLevelTab) -> Unit
 ) {
@@ -151,6 +152,7 @@ class NavigationCoordinator(
     }
 
     fun onBackPressed(activity: Activity) {
+        val homeTab = getHomeTab()
         val selected = getSelectedTab()
         val controller = currentController()
         val popped = controller.popBackStack()
@@ -158,9 +160,9 @@ class NavigationCoordinator(
             Log.d(NAV_TAG, "back_action result=pop tab=${selected.route}")
             return
         }
-        if (selected != TopLevelTab.DASHBOARD) {
-            setSelectedTab(TopLevelTab.DASHBOARD)
-            Log.d(NAV_TAG, "back_action result=switch_to_dashboard from=${selected.route}")
+        if (selected != homeTab) {
+            setSelectedTab(homeTab)
+            Log.d(NAV_TAG, "back_action result=switch_to_home home=${homeTab.route} from=${selected.route}")
             return
         }
         Log.d(NAV_TAG, "back_action result=exit")

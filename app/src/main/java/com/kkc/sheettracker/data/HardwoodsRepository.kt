@@ -22,6 +22,8 @@ class HardwoodsRepository(private var baseDir: File) {
         baseDir = newBaseDir
     }
 
+    fun currentBasePath(): String = baseDir.absolutePath
+
     fun scanJobs(): List<HardwoodJob> {
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
         return baseDir.listFiles()

@@ -60,6 +60,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -98,6 +99,9 @@ import com.kkc.sheettracker.ui.components.ReferencePdfPane
 import com.kkc.sheettracker.ui.components.SectionProgressHeader
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.viewer3d.Model3DPane
+import com.kkc.sheettracker.viewer3d.ViewerServer
+import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -130,6 +134,12 @@ private data class HardwoodsSectionProgress(
         get() = if (totalPieces <= 0) 0f else donePieces.toFloat() / totalPieces.toFloat()
 }
 
+private enum class HardwoodsJumpTarget {
+    ASSEMBLY,
+    PLANS,
+    THREE_D
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -141,6 +151,7 @@ fun HardwoodsWorkspaceScreen(
     initialDocType: HardwoodDocType,
     initialRowId: String?,
     isDarkTheme: Boolean,
+    onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -245,6 +256,29 @@ fun HardwoodsWorkspaceScreen(
         val stored = prefs.getString("hardwoods_last_ref_$jobFolderName", ReferenceDocType.ASSEMBLY.name)
         mutableStateOf(runCatching { ReferenceDocType.valueOf(stored ?: ReferenceDocType.ASSEMBLY.name) }.getOrDefault(ReferenceDocType.ASSEMBLY))
     }
+    var jumpTarget by remember(jobFolderName) {
+        mutableStateOf(
+            if (referenceDocType == ReferenceDocType.PLANS_ELEVATIONS) HardwoodsJumpTarget.PLANS
+            else HardwoodsJumpTarget.ASSEMBLY
+        )
+    }
+    var serverPort by remember { mutableIntStateOf(0) }
+    var viewerServerError by remember { mutableStateOf<String?>(null) }
+    var detectedRoom by rememberSaveable(jobFolderName) { mutableStateOf<String?>(null) }
+
+    val viewerBasePath = scanState.snapshot.basePath
+    DisposableEffect(viewerBasePath, jobFolderName) {
+        if (viewerBasePath.isBlank()) {
+            serverPort = 0
+            viewerServerError = "Base path is blank"
+            return@DisposableEffect onDispose {}
+        }
+        val server = ViewerServer(context, File(viewerBasePath))
+        val result = server.startWithRetry()
+        serverPort = result.port
+        viewerServerError = result.error
+        onDispose { server.stop() }
+    }
     LaunchedEffect(referenceDocType) {
         prefs.edit().putString("hardwoods_last_ref_$jobFolderName", referenceDocType.name).apply()
     }
@@ -270,6 +304,97 @@ fun HardwoodsWorkspaceScreen(
         return map?.get(cab)?.firstOrNull()
     }
 
+    fun normalizeRoomFolder(roomText: String?): String? {
+        val raw = roomText?.let {
+            Regex("""\(([^)]+)\)""").find(it)?.groupValues?.get(1)?.uppercase()
+                ?: it.uppercase().takeIf { s -> s.isNotBlank() }
+        } ?: return null
+        return raw.replace(Regex("""[/\\:*?"<>|]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .takeIf { it.isNotBlank() }
+    }
+
+    fun firstAlphabeticalRoomFromIndex(): Pair<String, Int>? {
+        return cabinetIndex?.documents?.assembly?.pageDetails
+            ?.mapNotNull { (pageKey, detail) ->
+                val page = pageKey.toIntOrNull() ?: return@mapNotNull null
+                val room = normalizeRoomFolder(detail.room) ?: return@mapNotNull null
+                room to page
+            }
+            ?.sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
+            ?.firstOrNull()
+    }
+
+    fun roomForCurrentReferencePage(): Pair<String, Int>? {
+        if (referenceDocType == ReferenceDocType.ASSEMBLY) {
+            val room = normalizeRoomFolder(cabinetIndex?.documents?.assembly?.pageDetails?.get(referencePage.toString())?.room)
+            if (room != null) return room to referencePage
+        }
+        if (referenceDocType == ReferenceDocType.PLANS_ELEVATIONS) {
+            val cab = cabinetIndex?.documents?.plansElevations?.cabinetToPages
+                ?.entries
+                ?.firstOrNull { it.value.contains(referencePage) }
+                ?.key
+            val assemblyPage = cab?.let { mappedPage(ReferenceDocType.ASSEMBLY, it) }
+            val room = assemblyPage?.let { page ->
+                normalizeRoomFolder(cabinetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
+            }
+            if (room != null) return room to assemblyPage
+        }
+        return null
+    }
+
+    fun resolveRoomDae(room: String?): File? {
+        if (room == null || viewerBasePath.isBlank()) return null
+        val roomDir = File("$viewerBasePath/$jobFolderName/3D/$room")
+        if (!roomDir.isDirectory) return null
+        val preferred = listOf("3d.dae", "3D.dae")
+            .map { File(roomDir, it) }
+            .firstOrNull { it.exists() && it.isFile }
+        if (preferred != null) return preferred
+        return roomDir.listFiles()
+            ?.firstOrNull { it.isFile && it.extension.equals("dae", ignoreCase = true) }
+    }
+
+    fun openIn3DApp(room: String?) {
+        val daeFile = resolveRoomDae(room) ?: return
+        val oldPolicy = android.os.StrictMode.getVmPolicy()
+        android.os.StrictMode.setVmPolicy(android.os.StrictMode.VmPolicy.Builder().build())
+        try {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(android.net.Uri.fromFile(daeFile), "application/octet-stream")
+                setPackage("com.anandmuralidhar.assimpandroid")
+            })
+        } finally {
+            android.os.StrictMode.setVmPolicy(oldPolicy)
+        }
+    }
+
+    data class ThreeDTarget(
+        val cabinet: String?,
+        val assemblyPage: Int?,
+        val plansPage: Int?,
+        val room: String?
+    )
+
+    fun resolveThreeDTarget(cabinetHint: String? = lastJumpCab, roomHint: String? = detectedRoom): ThreeDTarget {
+        val cabinet = cabinetHint?.trim()?.takeIf { it.isNotBlank() }
+        val assemblyTarget = cabinet?.let { mappedPage(ReferenceDocType.ASSEMBLY, it) }
+        val plansTarget = cabinet?.let { mappedPage(ReferenceDocType.PLANS_ELEVATIONS, it) }
+        val fallbackRoom = roomForCurrentReferencePage()?.first ?: firstAlphabeticalRoomFromIndex()?.first
+        val room = roomHint ?: assemblyTarget?.let { page ->
+            normalizeRoomFolder(cabinetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
+        } ?: fallbackRoom
+        val fallbackAssemblyPage = roomForCurrentReferencePage()?.second ?: firstAlphabeticalRoomFromIndex()?.second
+        return ThreeDTarget(
+            cabinet = cabinet,
+            assemblyPage = assemblyTarget ?: fallbackAssemblyPage,
+            plansPage = plansTarget,
+            room = room
+        )
+    }
+
     suspend fun jumpToCab(cab: String) {
         val normalizedCab = cab.trim()
         if (normalizedCab.isBlank()) {
@@ -277,7 +402,29 @@ fun HardwoodsWorkspaceScreen(
             return
         }
         lastJumpCab = normalizedCab
-        showReferencePane = true
+        if (jumpTarget != HardwoodsJumpTarget.THREE_D) {
+            showReferencePane = true
+        }
+        if (jumpTarget == HardwoodsJumpTarget.THREE_D) {
+            val assemblyTarget = mappedPage(ReferenceDocType.ASSEMBLY, normalizedCab)
+            val plansTarget = mappedPage(ReferenceDocType.PLANS_ELEVATIONS, normalizedCab)
+            if (assemblyTarget == null && plansTarget == null) {
+                snackbar.showSnackbar("Not found in Assembly or Plans/Elevations for cabinet $normalizedCab")
+                return
+            }
+            val room = assemblyTarget?.let { page ->
+                normalizeRoomFolder(cabinetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
+            } ?: roomForCurrentReferencePage()?.first
+                ?: firstAlphabeticalRoomFromIndex()?.first
+            detectedRoom = room
+            when (referenceDocType) {
+                ReferenceDocType.ASSEMBLY -> assemblyTarget?.let { referencePage = it }
+                ReferenceDocType.PLANS_ELEVATIONS -> plansTarget?.let { referencePage = it }
+                ReferenceDocType.DELIVERY_SHEETS -> Unit
+            }
+            showReferencePane = true
+            return
+        }
         val current = mappedPage(referenceDocType, normalizedCab)
         if (current != null) {
             referencePage = current
@@ -294,6 +441,13 @@ fun HardwoodsWorkspaceScreen(
             promptSwitchTarget = fallbackType
         } else {
             snackbar.showSnackbar("Not found in Assembly or Plans/Elevations for cabinet $normalizedCab")
+        }
+    }
+
+    LaunchedEffect(jumpTarget, referenceDocType, referencePage) {
+        if (jumpTarget == HardwoodsJumpTarget.THREE_D && detectedRoom.isNullOrBlank()) {
+            val fallback = roomForCurrentReferencePage() ?: firstAlphabeticalRoomFromIndex()
+            detectedRoom = fallback?.first
         }
     }
 
@@ -635,8 +789,14 @@ fun HardwoodsWorkspaceScreen(
                 jobFolderName = jobFolderName,
                 isDarkTheme = isDarkTheme,
                 referenceDocType = referenceDocType,
+                jumpTarget = jumpTarget,
                 onReferenceDocTypeChange = { target ->
                     referenceDocType = target
+                    jumpTarget = if (target == ReferenceDocType.PLANS_ELEVATIONS) {
+                        HardwoodsJumpTarget.PLANS
+                    } else {
+                        HardwoodsJumpTarget.ASSEMBLY
+                    }
                     val cab = lastJumpCab
                     if (cab != null) {
                         mappedPage(target, cab)?.let { page ->
@@ -644,8 +804,48 @@ fun HardwoodsWorkspaceScreen(
                         }
                     }
                 },
+                onJumpTargetChange = { target ->
+                    jumpTarget = target
+                    if (target == HardwoodsJumpTarget.THREE_D) {
+                        val cab = lastJumpCab
+                        if (cab != null) {
+                            scope.launch { jumpToCab(cab) }
+                        } else {
+                            scope.launch {
+                                val roomTarget = roomForCurrentReferencePage() ?: firstAlphabeticalRoomFromIndex()
+                                if (roomTarget != null) {
+                                    detectedRoom = roomTarget.first
+                                    if (referenceDocType == ReferenceDocType.ASSEMBLY) {
+                                        referencePage = roomTarget.second
+                                    }
+                                } else {
+                                    snackbar.showSnackbar("No room model mapping found for this job.")
+                                }
+                            }
+                        }
+                    }
+                },
                 currentPage = referencePage,
-                onCurrentPageChange = { referencePage = it }
+                onCurrentPageChange = { referencePage = it },
+                roomName = detectedRoom,
+                serverPort = serverPort,
+                serverError = viewerServerError,
+                onThreeDFullScreen = {
+                    scope.launch {
+                        val target = resolveThreeDTarget()
+                        if (target.room == null) {
+                            snackbar.showSnackbar("No room model mapping found for this job.")
+                        } else {
+                            onOpenThreeDTarget(
+                                target.cabinet,
+                                target.assemblyPage,
+                                target.plansPage,
+                                target.room
+                            )
+                        }
+                    }
+                },
+                onOpenIn3DApp = { openIn3DApp(detectedRoom ?: resolveThreeDTarget().room) }
             )
         }
 
@@ -941,9 +1141,16 @@ private fun ReferencePane(
     jobFolderName: String,
     isDarkTheme: Boolean,
     referenceDocType: ReferenceDocType,
+    jumpTarget: HardwoodsJumpTarget,
     onReferenceDocTypeChange: (ReferenceDocType) -> Unit,
+    onJumpTargetChange: (HardwoodsJumpTarget) -> Unit,
     currentPage: Int,
-    onCurrentPageChange: (Int) -> Unit
+    onCurrentPageChange: (Int) -> Unit,
+    roomName: String?,
+    serverPort: Int,
+    serverError: String?,
+    onThreeDFullScreen: () -> Unit,
+    onOpenIn3DApp: () -> Unit
 ) {
     val cabinetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
     val docIndex = remember(cabinetIndex, referenceDocType) {
@@ -962,24 +1169,51 @@ private fun ReferencePane(
         if (pdfFilename.isBlank()) null else jobRepository.getJobRootPdfFile(jobFolderName, pdfFilename, preferDarkMode = isDarkTheme)
     }
 
-    ReferencePdfPane(
-        modifier = modifier,
-        pdfFile = pdfFile,
-        currentPage = currentPage,
-        onCurrentPageChange = onCurrentPageChange,
-        showDocControls = {
+    val docControls: @Composable RowScope.() -> Unit = {
             FilterChip(
                 selected = referenceDocType == ReferenceDocType.ASSEMBLY,
-                onClick = { onReferenceDocTypeChange(ReferenceDocType.ASSEMBLY) },
+                onClick = {
+                    onReferenceDocTypeChange(ReferenceDocType.ASSEMBLY)
+                    onJumpTargetChange(HardwoodsJumpTarget.ASSEMBLY)
+                },
                 label = { Text("Assembly") }
             )
             FilterChip(
                 selected = referenceDocType == ReferenceDocType.PLANS_ELEVATIONS,
-                onClick = { onReferenceDocTypeChange(ReferenceDocType.PLANS_ELEVATIONS) },
+                onClick = {
+                    onReferenceDocTypeChange(ReferenceDocType.PLANS_ELEVATIONS)
+                    onJumpTargetChange(HardwoodsJumpTarget.PLANS)
+                },
                 label = { Text("Plans & Elevations") }
             )
-        }
-    )
+            FilterChip(
+                selected = jumpTarget == HardwoodsJumpTarget.THREE_D,
+                onClick = { onJumpTargetChange(HardwoodsJumpTarget.THREE_D) },
+                label = { Text("View 3D") }
+            )
+    }
+
+    if (jumpTarget == HardwoodsJumpTarget.THREE_D) {
+        Model3DPane(
+            modifier = modifier,
+            folderName = jobFolderName,
+            roomName = roomName,
+            serverPort = serverPort,
+            serverError = serverError,
+            isDarkTheme = isDarkTheme,
+            onFullScreen = onThreeDFullScreen,
+            onOpenIn3DApp = onOpenIn3DApp,
+            headerSlot = docControls
+        )
+    } else {
+        ReferencePdfPane(
+            modifier = modifier,
+            pdfFile = pdfFile,
+            currentPage = currentPage,
+            onCurrentPageChange = onCurrentPageChange,
+            showDocControls = docControls
+        )
+    }
 }
 
 @Composable

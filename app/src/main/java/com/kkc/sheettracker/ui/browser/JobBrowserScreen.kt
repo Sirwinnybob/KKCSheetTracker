@@ -5,12 +5,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -66,6 +69,7 @@ fun JobBrowserScreen(
     appStateFlags: AppStateFeatureFlags,
     onJobClick: (Job) -> Unit,
     onViewCoverSheet: (Job) -> Unit,
+    onView3D: (Job) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -212,13 +216,6 @@ fun JobBrowserScreen(
                             materialSegments = materialSegments,
                             showExpandToggle = false,
                             headerActions = {
-                                if (hasDeliverySheet) {
-                                    FilterChip(
-                                        selected = false,
-                                        onClick = { onViewCoverSheet(job) },
-                                        label = { Text("Cover Sheet") }
-                                    )
-                                }
                                 CountStatusChip(
                                     label = "Done",
                                     count = counts.complete,
@@ -227,6 +224,27 @@ fun JobBrowserScreen(
                                 )
                                 CountStatusChip("Bad", counts.bad, statusColors.bad)
                                 CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
+                            },
+                            inlineContent = {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                if (hasDeliverySheet) {
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = { onViewCoverSheet(job) },
+                                        label = { Text("Cover Sheet") }
+                                    )
+                                }
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { onView3D(job) },
+                                    label = { Text("View 3D") }
+                                )
+                                }
                             },
                             onToggleExpanded = {},
                             onClick = { onJobClick(job) }

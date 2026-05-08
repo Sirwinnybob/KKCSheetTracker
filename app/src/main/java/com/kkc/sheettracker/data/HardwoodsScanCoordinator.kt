@@ -43,7 +43,7 @@ class HardwoodsScanCoordinator(
                     status = ScanStatus.READY,
                     snapshot = HardwoodScanSnapshot(
                         generation = generation.incrementAndGet(),
-                        basePath = "",
+                        basePath = repository.currentBasePath(),
                         jobs = jobs,
                         searchIndex = search,
                         startedAt = started,
@@ -62,4 +62,3 @@ class HardwoodsScanCoordinator(
         }
     }
 }
-

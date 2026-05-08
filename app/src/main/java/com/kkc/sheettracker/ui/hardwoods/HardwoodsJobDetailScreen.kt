@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.hardwoods
 
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +56,7 @@ fun HardwoodsJobDetailScreen(
     onOpenWorkspace: (HardwoodDocType) -> Unit,
     onOpenRipCutList: () -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
+    onOpenThreeD: () -> Unit,
     onBack: () -> Unit
 ) {
     val scanState by scanCoordinator.state.collectAsState()
@@ -102,7 +104,10 @@ fun HardwoodsJobDetailScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Button(onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }) {
                     Text("View Assembly")
                 }
@@ -113,6 +118,9 @@ fun HardwoodsJobDetailScreen(
                     Button(onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }) {
                         Text("View Cover Sheet")
                     }
+                }
+                Button(onClick = onOpenThreeD) {
+                    Text("View 3D")
                 }
             }
 

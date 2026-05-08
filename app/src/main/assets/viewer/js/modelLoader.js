@@ -25,7 +25,6 @@ export function loadModel(url, maxAnisotropy, onProgress) {
                             name: prevMat.name
                         });
                         if (newMat.map) {
-                            newMat.map.colorSpace = THREE.SRGBColorSpace;
                             newMat.map.anisotropy = maxAnisotropy;
                             newMat.map.minFilter  = THREE.LinearMipmapLinearFilter;
                             newMat.map.magFilter  = THREE.LinearFilter;
@@ -50,7 +49,6 @@ export function loadModel(url, maxAnisotropy, onProgress) {
                             if (!materialMap.get(texSrc).meshes.includes(child)) materialMap.get(texSrc).meshes.push(child);
                         }
                     });
-                    child.geometry.computeVertexNormals();
                     child.castShadow = true;
                     child.receiveShadow = true;
                 }

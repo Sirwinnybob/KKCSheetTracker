@@ -99,10 +99,20 @@ fun AssemblyViewerScreen(
     basePath: String = "",
     startPageAssembly: Int,
     startPagePlans: Int,
+    initialSource: String? = null,
+    initialCabinet: String? = null,
+    initialRoom: String? = null,
     isDarkTheme: Boolean,
     onBack: () -> Unit
 ) {
     val sheetIndex = remember(jobFolderName) { assemblyStateStore.getCabinetSheetIndex(jobFolderName) }
+    fun parseInitialSource(raw: String?): PaneSource? = when (raw?.trim()?.lowercase()) {
+        "3d", "three_d", "threed" -> PaneSource.THREE_D
+        "assembly" -> PaneSource.ASSEMBLY
+        "plans", "plans_elevations", "elevations" -> PaneSource.PLANS
+        else -> null
+    }
+    val initialPaneSource = parseInitialSource(initialSource)
 
     val assemblyFilename = remember(sheetIndex, jobFolderName) {
         sheetIndex?.documents?.assembly?.pdfFilename?.takeIf { it.isNotBlank() }
@@ -143,8 +153,12 @@ fun AssemblyViewerScreen(
     var lastSearchedCabinet by rememberSaveable { mutableStateOf("") }
     var contextLine by remember { mutableStateOf("") }
     var showPartsSheet by remember { mutableStateOf(false) }
-    var fullscreenPane by rememberSaveable { mutableStateOf(FullscreenPane.NONE) }
-    var firstPaneSource by rememberSaveable { mutableStateOf(PaneSource.PLANS) }
+    var fullscreenPane by rememberSaveable(initialSource) {
+        mutableStateOf(if (initialPaneSource == PaneSource.THREE_D) FullscreenPane.FIRST else FullscreenPane.NONE)
+    }
+    var firstPaneSource by rememberSaveable(initialSource) {
+        mutableStateOf(initialPaneSource ?: PaneSource.PLANS)
+    }
     var secondPaneSource by rememberSaveable { mutableStateOf(PaneSource.ASSEMBLY) }
     var firstPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
     var secondPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
@@ -158,13 +172,23 @@ fun AssemblyViewerScreen(
     var secondPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var otherPickerTarget by remember { mutableStateOf<PaneSlot?>(null) }
     var serverPort by remember { mutableIntStateOf(0) }
-    var detectedRoom by rememberSaveable { mutableStateOf<String?>(null) }
+    var viewerServerError by remember { mutableStateOf<String?>(null) }
+    var detectedRoom by rememberSaveable(initialRoom) { mutableStateOf(initialRoom) }
 
     val context = LocalContext.current
     DisposableEffect(basePath, jobFolderName) {
-        if (basePath.isBlank()) return@DisposableEffect onDispose {}
+        android.util.Log.d("AssemblyViewer", "DisposableEffect: basePath='$basePath' job='$jobFolderName'")
+        if (basePath.isBlank()) {
+            android.util.Log.w("AssemblyViewer", "basePath blank — skipping server start")
+            serverPort = 0
+            viewerServerError = "Base path is blank"
+            return@DisposableEffect onDispose {}
+        }
         val server = ViewerServer(context, File(basePath))
-        serverPort = server.startAndGetPort()
+        val startResult = server.startWithRetry()
+        serverPort = startResult.port
+        viewerServerError = startResult.error
+        android.util.Log.d("AssemblyViewer", "serverPort set to $serverPort, viewerServerError=${viewerServerError ?: "none"}")
         onDispose { server.stop() }
     }
 
@@ -190,18 +214,43 @@ fun AssemblyViewerScreen(
     fun roomForAssemblyPage(page: Int): String? =
         extractRoomFolder(sheetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
 
-    fun launchFullScreen3D(room: String?) {
-        if (room == null || basePath.isBlank()) return
-        val daeFile = File("$basePath/$jobFolderName/3D/$room/3d.dae")
-        if (!daeFile.exists()) return
-        val uri = androidx.core.content.FileProvider.getUriForFile(
-            context, "${context.packageName}.provider", daeFile
-        )
-        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/octet-stream")
-            setPackage("com.example.pccoe.assimpandroid")
-            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        })
+    fun firstAlphabeticalRoomFromIndex(): Pair<String, Int>? {
+        return sheetIndex?.documents?.assembly?.pageDetails
+            ?.mapNotNull { (pageKey, detail) ->
+                val page = pageKey.toIntOrNull() ?: return@mapNotNull null
+                val room = extractRoomFolder(detail.room) ?: return@mapNotNull null
+                room to page
+            }
+            ?.sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
+            ?.firstOrNull()
+    }
+
+    fun resolveRoomDae(room: String?): File? {
+        if (room == null || basePath.isBlank()) return null
+        val roomDir = File("$basePath/$jobFolderName/3D/$room")
+        if (!roomDir.isDirectory) return null
+        val preferred = listOf("3d.dae", "3D.dae")
+            .map { File(roomDir, it) }
+            .firstOrNull { it.exists() && it.isFile }
+        if (preferred != null) return preferred
+        return roomDir.listFiles()
+            ?.firstOrNull { it.isFile && it.extension.equals("dae", ignoreCase = true) }
+    }
+
+    fun openIn3DApp(room: String?) {
+        val daeFile = resolveRoomDae(room) ?: return
+        // AssimpAndroid calls uri.getPath() and needs a file:// URI with a real path.
+        // Temporarily relax StrictMode to allow file:// URIs to cross process boundaries.
+        val oldPolicy = android.os.StrictMode.getVmPolicy()
+        android.os.StrictMode.setVmPolicy(android.os.StrictMode.VmPolicy.Builder().build())
+        try {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(android.net.Uri.fromFile(daeFile), "application/octet-stream")
+                setPackage("com.anandmuralidhar.assimpandroid")
+            })
+        } finally {
+            android.os.StrictMode.setVmPolicy(oldPolicy)
+        }
     }
 
     fun jumpToCabinet(cab: String) {
@@ -237,6 +286,24 @@ fun AssemblyViewerScreen(
     LaunchedEffect(assemblyPage, firstPaneSource, secondPaneSource) {
         if (firstPaneSource == PaneSource.THREE_D || secondPaneSource == PaneSource.THREE_D) {
             roomForAssemblyPage(assemblyPage)?.let { detectedRoom = it }
+        }
+    }
+
+    LaunchedEffect(initialCabinet, initialRoom, initialPaneSource) {
+        val shouldAutoJumpCabinet = initialPaneSource != PaneSource.THREE_D || initialRoom.isNullOrBlank()
+        if (shouldAutoJumpCabinet && !initialCabinet.isNullOrBlank() && lastSearchedCabinet.isBlank()) {
+            searchText = initialCabinet
+            jumpToCabinet(initialCabinet)
+        }
+    }
+
+    LaunchedEffect(initialPaneSource, sheetIndex, detectedRoom) {
+        if (initialPaneSource == PaneSource.THREE_D && detectedRoom.isNullOrBlank()) {
+            val fallback = firstAlphabeticalRoomFromIndex()
+            if (fallback != null) {
+                detectedRoom = fallback.first
+                assemblyPage = fallback.second
+            }
         }
     }
 
@@ -293,7 +360,7 @@ fun AssemblyViewerScreen(
                 firstSourceFilename.isNullOrBlank() -> "Selected Other file is unavailable"
                 else -> "Selected Other file unavailable: $firstPaneOtherFilename"
             }
-            PaneSource.THREE_D -> "Search a cabinet to load its 3D model"
+            PaneSource.THREE_D -> "Select a part/room target to load its 3D model"
             else -> "$firstSourceName PDF not found"
         }
     }
@@ -304,7 +371,7 @@ fun AssemblyViewerScreen(
                 secondSourceFilename.isNullOrBlank() -> "Selected Other file is unavailable"
                 else -> "Selected Other file unavailable: $secondPaneOtherFilename"
             }
-            PaneSource.THREE_D -> "Search a cabinet to load its 3D model"
+            PaneSource.THREE_D -> "Select a part/room target to load its 3D model"
             else -> "$secondSourceName PDF not found"
         }
     }
@@ -394,8 +461,9 @@ fun AssemblyViewerScreen(
                                     folderName = jobFolderName,
                                     roomName = detectedRoom,
                                     serverPort = serverPort,
+                                    serverError = viewerServerError,
                                     isDarkTheme = isDarkTheme,
-                                    onFullScreen = { launchFullScreen3D(detectedRoom) },
+                                    onOpenIn3DApp = { openIn3DApp(detectedRoom) },
                                     headerSlot = {}
                                 )
                             }} else null
@@ -437,8 +505,9 @@ fun AssemblyViewerScreen(
                                     folderName = jobFolderName,
                                     roomName = detectedRoom,
                                     serverPort = serverPort,
+                                    serverError = viewerServerError,
                                     isDarkTheme = isDarkTheme,
-                                    onFullScreen = { launchFullScreen3D(detectedRoom) },
+                                    onOpenIn3DApp = { openIn3DApp(detectedRoom) },
                                     headerSlot = {}
                                 )
                             }} else null
@@ -484,8 +553,10 @@ fun AssemblyViewerScreen(
                                             folderName = jobFolderName,
                                             roomName = detectedRoom,
                                             serverPort = serverPort,
-                                            isDarkTheme = isDarkTheme,
-                                            onFullScreen = { launchFullScreen3D(detectedRoom) },
+                                    serverError = viewerServerError,
+                                    isDarkTheme = isDarkTheme,
+                                            onFullScreen = { fullscreenPane = FullscreenPane.FIRST },
+                                            onOpenIn3DApp = { openIn3DApp(detectedRoom) },
                                             headerSlot = {}
                                         )
                                     }} else null
@@ -527,8 +598,10 @@ fun AssemblyViewerScreen(
                                             folderName = jobFolderName,
                                             roomName = detectedRoom,
                                             serverPort = serverPort,
-                                            isDarkTheme = isDarkTheme,
-                                            onFullScreen = { launchFullScreen3D(detectedRoom) },
+                                    serverError = viewerServerError,
+                                    isDarkTheme = isDarkTheme,
+                                            onFullScreen = { fullscreenPane = FullscreenPane.SECOND },
+                                            onOpenIn3DApp = { openIn3DApp(detectedRoom) },
                                             headerSlot = {}
                                         )
                                     }} else null

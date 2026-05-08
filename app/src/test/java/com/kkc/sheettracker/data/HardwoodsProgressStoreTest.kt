@@ -1,0 +1,264 @@
+package com.kkc.sheettracker.data
+
+import com.google.gson.Gson
+import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
+import com.kkc.sheettracker.data.models.HardwoodCutlistRow
+import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
+import com.kkc.sheettracker.data.models.HardwoodTabletProgress
+import com.kkc.sheettracker.data.models.HardwoodTrackerAction
+import com.kkc.sheettracker.data.models.HardwoodTrackerActions
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+import java.nio.file.Files
+
+class HardwoodsProgressStoreTest {
+    private val gson = Gson()
+    private val jobFolderName = "1234 - Test Job"
+    private val tabletId = "tablet-test"
+
+    @Test
+    fun compactsStaleRowActionsAndPersistsCompactedLocalActions() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex(
+                documents = listOf(
+                    HardwoodDocumentIndex(
+                        docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+                        rows = listOf(
+                            HardwoodCutlistRow(rowId = "row-keep", qty = 6),
+                            HardwoodCutlistRow(rowId = "row-other", qty = 2)
+                        )
+                    )
+                )
+            )
+        )
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = tabletId,
+            progress = HardwoodTabletProgress(
+                tabletId = tabletId,
+                actions = listOf(
+                    trackerAction("FACE_FRAME_CUT_LIST", "row-keep", HardwoodTrackerActions.SET_DONE_COUNT, 4, timestamp = "2026-05-01T00:00:01Z"),
+                    trackerAction("FACE_FRAME_CUT_LIST", "row-missing", HardwoodTrackerActions.SET_DONE_COUNT, 2, timestamp = "2026-05-01T00:00:02Z"),
+                    trackerAction(
+                        docType = "BOARD_STOCK",
+                        rowId = "",
+                        action = HardwoodTrackerActions.ADD_TOTALS_RIP10_DONE_COUNT,
+                        value = 3,
+                        totalsKey = "board_stock|RED OAK|2.5|FRAME",
+                        timestamp = "2026-05-01T00:00:03Z"
+                    )
+                )
+            )
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val rowMap = store.getRowProgressMap(jobFolderName)
+
+        assertEquals(4, rowMap["FACE_FRAME_CUT_LIST" to "row-keep"]?.doneCount)
+        assertNull(rowMap["FACE_FRAME_CUT_LIST" to "row-missing"])
+
+        val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
+        val persistedRowActions = persisted.actions.filter { it.action == HardwoodTrackerActions.SET_DONE_COUNT }
+        assertEquals(1, persistedRowActions.size)
+        assertEquals("row-keep", persistedRowActions.first().rowId)
+        assertEquals(3, store.getBoardStockRipDone(jobFolderName, "red oak", 2.5, "frame"))
+    }
+
+    @Test
+    fun keepsOnlyCabinetSkipActionsForCabinetsStillOnMatchingRow() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex(
+                documents = listOf(
+                    HardwoodDocumentIndex(
+                        docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+                        rows = listOf(
+                            HardwoodCutlistRow(
+                                rowId = "row-keep",
+                                qty = 5,
+                                cabinets = listOf("C1", "C2")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = tabletId,
+            progress = HardwoodTabletProgress(
+                tabletId = tabletId,
+                actions = listOf(
+                    trackerAction(
+                        docType = "FACE_FRAME_CUT_LIST",
+                        rowId = encodeCabinetSkipRowId("row-keep", " c1 "),
+                        action = HardwoodTrackerActions.SET_SKIPPED,
+                        timestamp = "2026-05-01T00:00:01Z"
+                    ),
+                    trackerAction(
+                        docType = "FACE_FRAME_CUT_LIST",
+                        rowId = encodeCabinetSkipRowId("row-keep", "C9"),
+                        action = HardwoodTrackerActions.SET_SKIPPED,
+                        timestamp = "2026-05-01T00:00:02Z"
+                    ),
+                    trackerAction(
+                        docType = "FACE_FRAME_CUT_LIST",
+                        rowId = encodeCabinetSkipRowId("row-missing", "C1"),
+                        action = HardwoodTrackerActions.SET_SKIPPED,
+                        timestamp = "2026-05-01T00:00:03Z"
+                    )
+                )
+            )
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val skippedMap = store.getSkippedCabinetMap(jobFolderName)
+        val rowSkipped = skippedMap["FACE_FRAME_CUT_LIST" to "row-keep"].orEmpty()
+
+        assertEquals(setOf("C1"), rowSkipped)
+        assertFalse(skippedMap.containsKey("FACE_FRAME_CUT_LIST" to "row-missing"))
+
+        val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
+        assertEquals(1, persisted.actions.size)
+        assertEquals(encodeCabinetSkipRowId("row-keep", "C1"), persisted.actions.first().rowId)
+    }
+
+    @Test
+    fun migratesBoardStockKeysToCanonicalFormatOnceAndPreservesDoneCounts() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex()
+        )
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = tabletId,
+            progress = HardwoodTabletProgress(
+                tabletId = tabletId,
+                actions = listOf(
+                    trackerAction(
+                        docType = "BOARD_STOCK",
+                        rowId = "",
+                        action = HardwoodTrackerActions.ADD_TOTALS_RIP10_DONE_COUNT,
+                        value = 2,
+                        totalsKey = "board_stock| Maple   Select |2.5000| frame ",
+                        timestamp = "2026-05-01T00:00:01Z"
+                    ),
+                    trackerAction(
+                        docType = "BOARD_STOCK",
+                        rowId = "",
+                        action = HardwoodTrackerActions.ADD_TOTALS_RIP10_DONE_COUNT,
+                        value = 1,
+                        totalsKey = "board_stock|MAPLE SELECT|2.5|FRAME",
+                        timestamp = "2026-05-01T00:00:02Z"
+                    ),
+                    trackerAction(
+                        docType = "BOARD_STOCK_SKIP",
+                        rowId = "",
+                        action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+                        value = 1,
+                        totalsKey = "board_stock_skip| maple   select |2.500|frame ",
+                        timestamp = "2026-05-01T00:00:03Z"
+                    ),
+                    trackerAction(
+                        docType = "BOARD_STOCK_SKIP",
+                        rowId = "",
+                        action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+                        value = 1,
+                        totalsKey = "board_stock_material_skip| maple   select ",
+                        timestamp = "2026-05-01T00:00:04Z"
+                    )
+                )
+            )
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val canonicalTally = store.makeBoardStockTallyKey("maple select", 2.5, "frame")
+        val canonicalSkip = store.makeBoardStockRipSkipKey("maple select", 2.5, "frame")
+        val canonicalMaterialSkip = store.makeBoardStockMaterialSkipKey("maple select")
+        val totals = store.getTotalsRip10DoneMap(jobFolderName)
+
+        assertEquals(3, totals[canonicalTally])
+        assertEquals(1, totals[canonicalSkip])
+        assertEquals(1, totals[canonicalMaterialSkip])
+
+        val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
+        assertTrue(persisted.actions.all { action ->
+            val key = action.totalsKey ?: return@all true
+            !key.contains("  ") && key == key.trim()
+        })
+
+        val marker = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/.board_stock_canonical_migration_${tabletId}.json")
+        assertTrue(marker.exists())
+        val markerBody = marker.readText()
+        assertTrue(markerBody.contains("\"migratedCount\""))
+        assertFalse(markerBody.contains("\"migratedCount\": 0"))
+
+        val storeReloaded = HardwoodsProgressStore(baseDir, tabletId)
+        assertEquals(3, storeReloaded.getTotalsRip10DoneMap(jobFolderName)[canonicalTally])
+        assertNotNull(storeReloaded.getTotalsRip10DoneMap(jobFolderName)[canonicalSkip])
+    }
+
+    private fun trackerAction(
+        docType: String,
+        rowId: String,
+        action: String,
+        value: Int? = null,
+        totalsKey: String? = null,
+        timestamp: String
+    ): HardwoodTrackerAction {
+        return HardwoodTrackerAction(
+            docType = docType,
+            rowId = rowId,
+            totalsKey = totalsKey,
+            action = action,
+            value = value,
+            timestamp = timestamp
+        )
+    }
+
+    private fun createTempBaseDir(): File {
+        return Files.createTempDirectory("hardwoods-progress-store-test").toFile()
+    }
+
+    private fun writeCutlistIndex(baseDir: File, jobFolderName: String, index: HardwoodCutlistIndex) {
+        val path = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
+        path.parentFile?.mkdirs()
+        path.writeText(gson.toJson(index))
+    }
+
+    private fun writeTabletProgress(
+        baseDir: File,
+        jobFolderName: String,
+        tabletId: String,
+        progress: HardwoodTabletProgress
+    ) {
+        val trackerDir = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker")
+        trackerDir.mkdirs()
+        File(trackerDir, "$tabletId.json").writeText(gson.toJson(progress))
+    }
+
+    private fun readTabletProgress(baseDir: File, jobFolderName: String, tabletId: String): HardwoodTabletProgress {
+        val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/$tabletId.json")
+        return gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
+    }
+
+    private fun encodeCabinetSkipRowId(rowId: String, cabinet: String): String {
+        return "$rowId|@cab:$cabinet"
+    }
+}

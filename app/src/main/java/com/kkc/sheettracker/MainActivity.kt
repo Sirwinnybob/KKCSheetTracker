@@ -31,6 +31,7 @@ import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.navigation.AppNavigation
 import com.kkc.sheettracker.navigation.WorkMode
+import com.kkc.sheettracker.ui.migration.MigrationRequiredScreen
 import com.kkc.sheettracker.ui.theme.KKCTheme
 import com.kkc.sheettracker.update.UpdateManager
 import java.io.File
@@ -59,6 +60,27 @@ class MainActivity : ComponentActivity() {
 
         val basePath = prefs.getString("base_path", null)
             ?: findDefaultBasePath()
+        val migrationMarkerPath = File(basePath, ".appupdates/migration_complete.json")
+        val migrationReady = migrationMarkerPath.isFile
+
+        if (!migrationReady) {
+            setContent {
+                KKCTheme(darkTheme = prefs.getBoolean("dark_theme", false)) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        MigrationRequiredScreen(
+                            basePath = basePath,
+                            markerPath = migrationMarkerPath.absolutePath,
+                            onRetry = { recreate() },
+                            onExit = { finishAffinity() }
+                        )
+                    }
+                }
+            }
+            return
+        }
 
         val baseDir = File(basePath)
         val jobRepository = JobRepository(baseDir)
