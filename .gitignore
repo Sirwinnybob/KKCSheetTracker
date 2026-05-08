@@ -30,3 +30,4 @@ qa_artifacts/
 # OS files
 .DS_Store
 Thumbs.db
+.claude/worktrees/pedantic-blackburn-d33df3
