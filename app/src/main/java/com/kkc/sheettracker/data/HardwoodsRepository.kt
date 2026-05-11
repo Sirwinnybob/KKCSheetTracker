@@ -10,6 +10,8 @@ import com.kkc.sheettracker.data.models.BoardStockSource
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJob
+import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
+import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
 import com.kkc.sheettracker.data.models.HardwoodSearchEntry
 import java.io.File
 import kotlin.math.ceil
@@ -17,6 +19,7 @@ import java.util.Locale
 
 class HardwoodsRepository(private var baseDir: File) {
     private val gson = Gson()
+    private val revisionFilePathSuffix = ".metadata/hardwoods/cutlist_revisions.json"
 
     fun updateBaseDir(newBaseDir: File) {
         baseDir = newBaseDir
@@ -76,6 +79,32 @@ class HardwoodsRepository(private var baseDir: File) {
         } catch (_: Exception) {
             null
         }
+    }
+
+    fun loadHardwoodsRevisionHistory(jobFolderName: String): HardwoodRevisionHistory? {
+        val file = File(baseDir, "$jobFolderName/$revisionFilePathSuffix")
+        if (!file.exists() || !file.isFile) return null
+        return try {
+            gson.fromJson(file.readText(), HardwoodRevisionHistory::class.java)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun findRowRevisionState(
+        jobFolderName: String,
+        docType: String,
+        rowId: String
+    ): HardwoodRowRevisionState? {
+        val history = loadHardwoodsRevisionHistory(jobFolderName) ?: return null
+        return history.currentRowStates.firstOrNull {
+            it.docType == docType && it.rowId == rowId
+        }
+    }
+
+    fun getRowRevisionStates(jobFolderName: String): Map<Pair<String, String>, HardwoodRowRevisionState> {
+        val history = loadHardwoodsRevisionHistory(jobFolderName) ?: return emptyMap()
+        return history.currentRowStates.associateBy { it.docType to it.rowId }
     }
 
     fun getHardwoodsPdfFile(jobFolderName: String, pdfFilename: String, preferDarkMode: Boolean): File? {

@@ -54,6 +54,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -116,7 +117,8 @@ class PdfRenderEngine(private val pdfFile: File) {
 
     suspend fun renderViewportTile(
         pageIndex: Int,
-        viewport: PdfViewportState
+        viewport: PdfViewportState,
+        matteColorArgb: Int = android.graphics.Color.WHITE
     ): Bitmap? = mutex.withLock {
         if (!pdfFile.exists() || viewport.viewSize == IntSize.Zero) return null
         val localRenderer = ensureRendererLocked()
@@ -171,7 +173,7 @@ class PdfRenderEngine(private val pdfFile: File) {
             val srcHeight = (srcBottom - srcTop).coerceAtLeast(1f)
 
             val bmp = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
-            bmp.eraseColor(android.graphics.Color.WHITE)
+            bmp.eraseColor(matteColorArgb)
             val uniformScale = minOf(outWidth / srcWidth, outHeight / srcHeight)
             val bitmapOffsetX = (outWidth - srcWidth * uniformScale) / 2f
             val bitmapOffsetY = (outHeight - srcHeight * uniformScale) / 2f
@@ -206,7 +208,8 @@ class PdfRenderEngine(private val pdfFile: File) {
     suspend fun renderBasePage(
         pageIndex: Int,
         viewSize: IntSize,
-        qualityScale: Float = 1.1f
+        qualityScale: Float = 1.1f,
+        matteColorArgb: Int = android.graphics.Color.WHITE
     ): Bitmap? = mutex.withLock {
         if (!pdfFile.exists() || viewSize == IntSize.Zero) return null
         val localRenderer = ensureRendererLocked()
@@ -230,7 +233,7 @@ class PdfRenderEngine(private val pdfFile: File) {
                 outHeight = (outHeight / down).toInt().coerceAtLeast(1)
             }
             val bmp = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
-            bmp.eraseColor(android.graphics.Color.WHITE)
+            bmp.eraseColor(matteColorArgb)
             activePage.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             bmp
         } finally {
@@ -293,6 +296,7 @@ fun ReferencePdfPane(
     var isInteracting by remember(engine) { mutableStateOf(false) }
     var pageAspectRatio by remember(engine, currentPage) { mutableStateOf<Float?>(null) }
     var renderState by remember(engine, currentPage) { mutableStateOf<PdfRenderUiState>(PdfRenderUiState.Loading) }
+    val matteColorArgb = MaterialTheme.colorScheme.surface.toArgb()
     var baseBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailForViewport by remember(engine, currentPage) { mutableStateOf<QuantizedViewportState?>(null) }
@@ -334,7 +338,7 @@ fun ReferencePdfPane(
         }
     }
 
-    LaunchedEffect(engine, currentPage, totalPages, viewportState.viewSize) {
+    LaunchedEffect(engine, currentPage, totalPages, viewportState.viewSize, matteColorArgb) {
         if (engine == null || totalPages <= 0) {
             renderState = PdfRenderUiState.Error(unreadableText)
             return@LaunchedEffect
@@ -344,7 +348,8 @@ fun ReferencePdfPane(
         val renderedBase = withContext(Dispatchers.IO) {
             engine.renderBasePage(
                 pageIndex = (currentPage - 1).coerceAtLeast(0),
-                viewSize = viewSize
+                viewSize = viewSize,
+                matteColorArgb = matteColorArgb
             )
         }
         if (renderedBase != null) {
@@ -352,7 +357,7 @@ fun ReferencePdfPane(
         }
     }
 
-    LaunchedEffect(engine, currentPage, totalPages) {
+    LaunchedEffect(engine, currentPage, totalPages, matteColorArgb) {
         if (engine == null || totalPages <= 0) {
             renderState = PdfRenderUiState.Error(unreadableText)
             return@LaunchedEffect
@@ -370,7 +375,8 @@ fun ReferencePdfPane(
                     val bitmap = withContext(Dispatchers.IO) {
                         engine.renderViewportTile(
                             pageIndex = (currentPage - 1).coerceAtLeast(0),
-                            viewport = viewport
+                            viewport = viewport,
+                            matteColorArgb = matteColorArgb
                         )
                     }
                     if (bitmap != null) {

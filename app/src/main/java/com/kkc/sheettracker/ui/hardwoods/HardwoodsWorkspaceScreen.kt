@@ -41,6 +41,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -84,18 +85,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
+import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
+import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
+import com.kkc.sheettracker.ui.components.ChangedBadge
 import com.kkc.sheettracker.ui.components.ProgressPill
 import com.kkc.sheettracker.ui.components.ProgressState
 import com.kkc.sheettracker.ui.components.ReferencePdfPane
+import com.kkc.sheettracker.ui.components.RevisionBadge
 import com.kkc.sheettracker.ui.components.SectionProgressHeader
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
@@ -145,6 +150,7 @@ private enum class HardwoodsJumpTarget {
 @Composable
 fun HardwoodsWorkspaceScreen(
     scanCoordinator: HardwoodsScanCoordinator,
+    hardwoodsRepository: HardwoodsRepository,
     hardwoodsProgressStore: HardwoodsProgressStore,
     jobRepository: JobRepository,
     jobFolderName: String,
@@ -181,6 +187,7 @@ fun HardwoodsWorkspaceScreen(
     val rows = selectedDoc?.rows.orEmpty()
     val totals = selectedDoc?.totals.orEmpty()
     var showRipCutList by rememberSaveable(jobFolderName) { mutableStateOf(initialRowId == HARDWOODS_RIP_CUT_LIST_ROW_ID) }
+    var showChangedOnly by rememberSaveable(jobFolderName) { mutableStateOf(false) }
     val partSections = remember(rows, totals) {
         buildHardwoodsPartSections(rows, totals, HardwoodsRowSortMode.CutlistOrder)
     }
@@ -198,6 +205,9 @@ fun HardwoodsWorkspaceScreen(
         indexById
     }
     val rowProgressMap = remember(progressVersion, jobFolderName) { hardwoodsProgressStore.getRowProgressMap(jobFolderName) }
+    val rowRevisionStateMap = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
+        hardwoodsRepository.getRowRevisionStates(jobFolderName)
+    }
     var highlightedRowId by remember(jobFolderName, initialRowId) { mutableStateOf(initialRowId) }
     val widthColorBands = remember(displayRows, statusColors.widthBandPalette) {
         val palette = statusColors.widthBandPalette
@@ -230,14 +240,26 @@ fun HardwoodsWorkspaceScreen(
             )
         }
     }
-    val sectionProgressByKey = remember(partSections, rowProgressMap, selectedDocName) {
-        partSections.associate { section ->
-            val totalPieces = section.rows.sumOf { it.qty.coerceAtLeast(0) }
-            val donePieces = section.rows.sumOf { row ->
-                val done = rowProgressMap[selectedDocName to row.rowId]?.doneCount ?: 0
-                done.coerceIn(0, row.qty.coerceAtLeast(0))
-            }
-            section.material to HardwoodsSectionProgress(donePieces = donePieces, totalPieces = totalPieces)
+    val pendingChangedByDoc = remember(documents, rowRevisionStateMap, rowProgressMap) {
+        documents.associate { doc ->
+            val pending = doc.rows.filter { row ->
+                val state = rowRevisionStateMap[doc.docType.name to row.rowId] ?: return@filter false
+                if (state.latestRevision <= 0) return@filter false
+                val qty = row.qty.coerceAtLeast(0)
+                val done = rowProgressMap[doc.docType.name to row.rowId]?.doneCount ?: 0
+                qty > 0 && done < qty
+            }.map { it.rowId }.toSet()
+            doc.docType to pending
+        }
+    }
+    val hasAnyPendingChanged = remember(pendingChangedByDoc) {
+        pendingChangedByDoc.values.any { it.isNotEmpty() }
+    }
+    val selectedDocPendingChanged = pendingChangedByDoc[selectedDocType].orEmpty()
+
+    LaunchedEffect(hasAnyPendingChanged) {
+        if (!hasAnyPendingChanged && showChangedOnly) {
+            showChangedOnly = false
         }
     }
 
@@ -605,11 +627,12 @@ fun HardwoodsWorkspaceScreen(
                     items(HardwoodDocType.entries, key = { it.name }) { docType ->
                         val available = documents.any { it.docType == docType }
                         FilterChip(
-                            selected = !showRipCutList && selectedDocType == docType,
+                            selected = !showRipCutList && !showChangedOnly && selectedDocType == docType,
                             onClick = {
                                 if (available) {
                                     selectedDocType = docType
                                     showRipCutList = false
+                                    showChangedOnly = false
                                 }
                             },
                             label = {
@@ -625,9 +648,39 @@ fun HardwoodsWorkspaceScreen(
                     item(key = "rip-cut-list") {
                         FilterChip(
                             selected = showRipCutList,
-                            onClick = { showRipCutList = true },
+                            onClick = {
+                                showRipCutList = true
+                                showChangedOnly = false
+                            },
                             label = { Text("Rip Cut List") }
                         )
+                    }
+                    if (hasAnyPendingChanged) {
+                        item(key = "changed-parts") {
+                            FilterChip(
+                                selected = !showRipCutList && showChangedOnly,
+                                onClick = {
+                                    showRipCutList = false
+                                    showChangedOnly = true
+                                    if (selectedDocPendingChanged.isEmpty()) {
+                                        val firstDocWithPending = pendingChangedByDoc
+                                            .entries
+                                            .firstOrNull { it.value.isNotEmpty() }
+                                            ?.key
+                                        if (firstDocWithPending != null) {
+                                            selectedDocType = firstDocWithPending
+                                        }
+                                    }
+                                },
+                                label = { Text("CHANGED") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.22f),
+                                    selectedLabelColor = MaterialTheme.colorScheme.tertiary,
+                                    containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.10f),
+                                    labelColor = MaterialTheme.colorScheme.tertiary
+                                )
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(6.dp))
@@ -664,12 +717,29 @@ fun HardwoodsWorkspaceScreen(
                         verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         partSections.forEach { section ->
+                            val sectionRows = if (showChangedOnly) {
+                                section.rows.filter { row ->
+                                    row.rowId in selectedDocPendingChanged
+                                }
+                            } else {
+                                section.rows
+                            }
+                            if (sectionRows.isEmpty()) {
+                                return@forEach
+                            }
                             val sectionKey = section.material
                             val sectionStateKey = "${selectedDoc.docType.name}|$sectionKey"
                             val isCollapsed = sectionStateKey in collapsedPartSections
-                            val sectionProgress = sectionProgressByKey[sectionKey] ?: HardwoodsSectionProgress(0, 0)
+                            val sectionProgress = run {
+                                val totalPieces = sectionRows.sumOf { it.qty.coerceAtLeast(0) }
+                                val donePieces = sectionRows.sumOf { row ->
+                                    val done = rowProgressMap[selectedDoc.docType.name to row.rowId]?.doneCount ?: 0
+                                    done.coerceIn(0, row.qty.coerceAtLeast(0))
+                                }
+                                HardwoodsSectionProgress(donePieces = donePieces, totalPieces = totalPieces)
+                            }
                             val isNailerDoc = selectedDoc.docType == HardwoodDocType.NAILER_CUT_LIST
-                            val sectionAllSkipped = section.rows.all { row ->
+                            val sectionAllSkipped = sectionRows.all { row ->
                                 (rowProgressMap[selectedDoc.docType.name to row.rowId]?.skipped == true)
                             }
                             stickyHeader(key = "part-section:${selectedDoc.docType.name}:$sectionKey") {
@@ -696,7 +766,7 @@ fun HardwoodsWorkspaceScreen(
                                                 skipped = sectionAllSkipped,
                                                 onClick = {
                                                     val nextSkipped = !sectionAllSkipped
-                                                    section.rows.forEach { row ->
+                                                    sectionRows.forEach { row ->
                                                         hardwoodsProgressStore.setSkipped(
                                                             jobFolderName = jobFolderName,
                                                             docType = selectedDoc.docType.name,
@@ -714,7 +784,7 @@ fun HardwoodsWorkspaceScreen(
                                 )
                             }
                             if (!isCollapsed) {
-                                items(section.rows, key = { it.rowId }) { row ->
+                                items(sectionRows, key = { it.rowId }) { row ->
                                     val rowUi = rowDisplayMap[row.rowId] ?: return@items
                                     val progress = remember(progressVersion, selectedDoc.docType.name, row.rowId) {
                                         rowProgressMap[selectedDoc.docType.name to row.rowId] ?: HardwoodRowProgress()
@@ -765,6 +835,7 @@ fun HardwoodsWorkspaceScreen(
                                         rowUi = rowUi,
                                         qty = qty,
                                         progress = progress,
+                                        revisionState = rowRevisionStateMap[selectedDoc.docType.name to row.rowId],
                                         skippedCabs = skippedCabs,
                                         isHighlighted = isHighlighted,
                                         widthBand = widthBand,
@@ -875,6 +946,7 @@ private fun HardwoodsPartRow(
     rowUi: HardwoodsRowUiModel,
     qty: Int,
     progress: HardwoodRowProgress,
+    revisionState: HardwoodRowRevisionState?,
     skippedCabs: Set<String>,
     isHighlighted: Boolean,
     widthBand: Color,
@@ -918,7 +990,13 @@ private fun HardwoodsPartRow(
     }
     val baseRowColor = if (isHighlighted) highlightColor else visuals.backgroundTint
     val completionTint = statusColors.completeBorder.copy(alpha = 0.22f * completionFlash.value)
-    val rowColor = completionTint.compositeOver(baseRowColor)
+    val isChangedPendingRecut = revisionState?.changedPendingRecut == true && done < qty.coerceAtLeast(0)
+    val changedTint = if (isChangedPendingRecut) {
+        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
+    } else {
+        Color.Transparent
+    }
+    val rowColor = completionTint.compositeOver(changedTint.compositeOver(baseRowColor))
     val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
     Surface(
         modifier = Modifier
@@ -986,6 +1064,15 @@ private fun HardwoodsPartRow(
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (revisionState != null && revisionState.latestRevision > 0) {
+                            RevisionBadge(
+                                state = revisionState,
+                                isChangedPendingRecut = isChangedPendingRecut
+                            )
+                        }
+                        if (isChangedPendingRecut) {
+                            ChangedBadge()
+                        }
                         if (isDoorListDoc) {
                             Text(
                                 "$qty pcs • ${row.width} x ${row.length}",

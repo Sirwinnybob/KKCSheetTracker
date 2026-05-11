@@ -289,6 +289,49 @@ data class HardwoodCutlistIndex(
     val documents: List<HardwoodDocumentIndex> = emptyList()
 )
 
+data class HardwoodRevisionHistory(
+    val schemaVersion: Int = 1,
+    val updatedAt: String? = null,
+    val currentRevision: Int = 0,
+    val revisions: List<HardwoodRevisionEntry> = emptyList(),
+    val currentRowStates: List<HardwoodRowRevisionState> = emptyList()
+)
+
+data class HardwoodRevisionEntry(
+    val revision: Int = 0,
+    val kind: String = "DIFF",
+    val timestamp: String? = null,
+    val added: List<HardwoodRevisionRowSnapshot> = emptyList(),
+    val removed: List<HardwoodRevisionRowSnapshot> = emptyList(),
+    val modified: List<HardwoodRevisionModifiedEntry> = emptyList()
+)
+
+data class HardwoodRevisionRowSnapshot(
+    val docType: String = "",
+    val rowId: String = "",
+    val page: Int = 0,
+    val rowOrdinal: Int = 0,
+    val qty: Int = 0,
+    val material: String = "",
+    val description: String = "",
+    val width: String = "",
+    val length: String = "",
+    val cabinets: List<String> = emptyList()
+)
+
+data class HardwoodRevisionModifiedEntry(
+    val before: HardwoodRevisionRowSnapshot = HardwoodRevisionRowSnapshot(),
+    val after: HardwoodRevisionRowSnapshot = HardwoodRevisionRowSnapshot(),
+    val changedFields: List<String> = emptyList()
+)
+
+data class HardwoodRowRevisionState(
+    val docType: String = "",
+    val rowId: String = "",
+    val latestRevision: Int = 0,
+    val changedPendingRecut: Boolean = false
+)
+
 data class HardwoodJob(
     val folderName: String,
     val jobNumber: String,

@@ -58,6 +58,24 @@ fun AppBottomNavBar(
             tonalElevation = 2.dp
         ) {
             destinations.forEach { dest ->
+                if (dest == NavDestination.SETTINGS) {
+                    NavigationBarItem(
+                        selected = isCalculatorOpen,
+                        onClick = onCalculatorClick,
+                        icon = {
+                            Icon(
+                                if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                                contentDescription = "Calculator"
+                            )
+                        },
+                        label = { Text("Calc", style = MaterialTheme.typography.labelSmall) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    )
+                }
                 val selected = dest == currentDestination
                 NavigationBarItem(
                     selected = selected,
@@ -76,22 +94,6 @@ fun AppBottomNavBar(
                     )
                 )
             }
-            NavigationBarItem(
-                selected = isCalculatorOpen,
-                onClick = onCalculatorClick,
-                icon = {
-                    Icon(
-                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                        contentDescription = "Calculator"
-                    )
-                },
-                label = { Text("Calc", style = MaterialTheme.typography.labelSmall) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            )
         }
     }
 
@@ -128,6 +130,17 @@ private fun MinimizedNavBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             destinations.forEach { dest ->
+                if (dest == NavDestination.SETTINGS) {
+                    Icon(
+                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                        contentDescription = "Calculator",
+                        tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { onCalculatorClick() }
+                    )
+                }
                 val selected = dest == currentDestination
                 Icon(
                     if (selected) dest.selectedIcon else dest.unselectedIcon,
@@ -139,15 +152,6 @@ private fun MinimizedNavBar(
                         .clickable { onNavigate(dest) }
                 )
             }
-            Icon(
-                if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                contentDescription = "Calculator",
-                tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clickable { onCalculatorClick() }
-            )
         }
     }
 }

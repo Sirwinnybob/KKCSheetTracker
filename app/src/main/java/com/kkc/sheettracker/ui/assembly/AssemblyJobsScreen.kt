@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -47,28 +48,34 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.HardwoodsProgressStore
+import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
+import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.ProgressCard
+import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssemblyJobsScreen(
     assemblyScanCoordinator: AssemblyScanCoordinator,
     assemblyStateStore: AssemblyStateStore,
+    hardwoodsRepository: HardwoodsRepository,
     jobRepository: JobRepository,
     progressStore: ProgressStore,
     hardwoodsProgressStore: HardwoodsProgressStore,
     onJobClick: (AssemblyJobCard) -> Unit,
+    onOpenHardwoodsChange: (jobFolderName: String, docType: HardwoodDocType, rowId: String) -> Unit,
     onViewCoverSheet: (AssemblyJobCard) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     val scanState by assemblyScanCoordinator.state.collectAsState()
     val cncProgressVersion by progressStore.progressVersion.collectAsState()
     val hardwoodProgressVersion by hardwoodsProgressStore.progressVersion.collectAsState()
@@ -159,6 +166,9 @@ fun AssemblyJobsScreen(
                             val hasDeliverySheet = remember(card.folderName) {
                                 jobRepository.getJobPdfCatalog(card.folderName).deliverySheet != null
                             }
+                            val history = remember(scanState.snapshot.generation, hardwoodProgressVersion, card.folderName) {
+                                hardwoodsRepository.loadHardwoodsRevisionHistory(card.folderName)
+                            }
                             val cncCounts = remember(card) { card.toCncStatusCounts() }
                             val hardwoodCounts = remember(card) { card.toHardwoodsStatusCounts() }
                             val combinedCounts = remember(cncCounts, hardwoodCounts) { combineCounts(cncCounts, hardwoodCounts) }
@@ -181,6 +191,11 @@ fun AssemblyJobsScreen(
                                             label = { Text("Cover Sheet") }
                                         )
                                     }
+                                    if (history != null) {
+                                        TextButton(onClick = { selectedHistoryJob = card.folderName }) {
+                                            Text("History")
+                                        }
+                                    }
                                 },
                                 inlineContent = {
                                     DualModeProgressBars(
@@ -194,6 +209,25 @@ fun AssemblyJobsScreen(
                 }
             }
         }
+    }
+
+    val historyJob = selectedHistoryJob
+    if (historyJob != null) {
+        val history = remember(scanState.snapshot.generation, hardwoodProgressVersion, historyJob) {
+            hardwoodsRepository.loadHardwoodsRevisionHistory(historyJob)
+        }
+        HardwoodsRevisionHistorySheet(
+            jobFolderName = historyJob,
+            history = history,
+            onOpenRow = { docTypeRaw, rowId ->
+                val docType = runCatching { HardwoodDocType.valueOf(docTypeRaw) }.getOrNull()
+                if (docType != null) {
+                    selectedHistoryJob = null
+                    onOpenHardwoodsChange(historyJob, docType, rowId)
+                }
+            },
+            onDismiss = { selectedHistoryJob = null }
+        )
     }
 }
 

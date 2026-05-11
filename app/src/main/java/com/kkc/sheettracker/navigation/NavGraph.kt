@@ -487,11 +487,17 @@ private fun JobsTabHost(
                     JobBrowserScreen(
                         scanCoordinator = scanCoordinator,
                         appStateStore = appStateStore,
+                        hardwoodsRepository = hardwoodsRepository,
                         jobRepository = jobRepository,
                         progressStore = progressStore,
                         appStateFlags = appStateFlags,
                         onJobClick = { job ->
                             navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                            navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
                                 launchSingleTop = true
                             }
                         },
@@ -523,10 +529,16 @@ private fun JobsTabHost(
                 WorkMode.HARDWOODS -> {
                     HardwoodsJobsScreen(
                         scanCoordinator = hardwoodsScanCoordinator,
+                        hardwoodsRepository = hardwoodsRepository,
                         progressStore = hardwoodsProgressStore,
                         jobRepository = jobRepository,
                         onJobClick = { job ->
                             navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                            navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
                                 launchSingleTop = true
                             }
                         },
@@ -559,11 +571,17 @@ private fun JobsTabHost(
                     AssemblyJobsScreen(
                         assemblyScanCoordinator = assemblyScanCoordinator,
                         assemblyStateStore = assemblyStateStore,
+                        hardwoodsRepository = hardwoodsRepository,
                         jobRepository = jobRepository,
                         progressStore = progressStore,
                         hardwoodsProgressStore = hardwoodsProgressStore,
                         onJobClick = { card ->
                             navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                            navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
                                 launchSingleTop = true
                             }
                         },
@@ -753,6 +771,7 @@ private fun JobsTabHost(
             val rowId = rowIdArg.takeIf { it.isNotBlank() && it != "_" }
             HardwoodsWorkspaceScreen(
                 scanCoordinator = hardwoodsScanCoordinator,
+                hardwoodsRepository = hardwoodsRepository,
                 hardwoodsProgressStore = hardwoodsProgressStore,
                 jobRepository = jobRepository,
                 jobFolderName = folderName,
@@ -1074,11 +1093,15 @@ private fun LegacySingleStackNavigation(
                         JobBrowserScreen(
                             scanCoordinator = scanCoordinator,
                             appStateStore = appStateStore,
+                            hardwoodsRepository = hardwoodsRepository,
                             jobRepository = jobRepository,
                             progressStore = progressStore,
                             appStateFlags = appStateFlags,
                             onJobClick = { job ->
                                 navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}")
+                            },
+                            onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                                navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId))
                             },
                             onViewCoverSheet = { job ->
                                 navController.navigate(
@@ -1116,10 +1139,14 @@ private fun LegacySingleStackNavigation(
                     WorkMode.HARDWOODS -> {
                         HardwoodsJobsScreen(
                             scanCoordinator = hardwoodsScanCoordinator,
+                            hardwoodsRepository = hardwoodsRepository,
                             progressStore = hardwoodsProgressStore,
                             jobRepository = jobRepository,
                             onJobClick = { job ->
                                 navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}")
+                            },
+                            onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                                navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId))
                             },
                             onViewCoverSheet = { job ->
                                 navController.navigate(
@@ -1158,11 +1185,17 @@ private fun LegacySingleStackNavigation(
                         AssemblyJobsScreen(
                             assemblyScanCoordinator = assemblyScanCoordinator,
                             assemblyStateStore = assemblyStateStore,
+                            hardwoodsRepository = hardwoodsRepository,
                             jobRepository = jobRepository,
                             progressStore = progressStore,
                             hardwoodsProgressStore = hardwoodsProgressStore,
                             onJobClick = { card ->
                                 navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                                navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
                                     launchSingleTop = true
                                 }
                             },
@@ -1356,6 +1389,7 @@ private fun LegacySingleStackNavigation(
                 val rowId = rowIdArg.takeIf { it.isNotBlank() && it != "_" }
                 HardwoodsWorkspaceScreen(
                     scanCoordinator = hardwoodsScanCoordinator,
+                    hardwoodsRepository = hardwoodsRepository,
                     hardwoodsProgressStore = hardwoodsProgressStore,
                     jobRepository = jobRepository,
                     jobFolderName = folderName,

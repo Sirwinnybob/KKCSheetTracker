@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -40,14 +41,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
+import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
+import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 
@@ -55,9 +59,11 @@ import com.kkc.sheettracker.ui.components.StatusSummaryRow
 @Composable
 fun HardwoodsJobsScreen(
     scanCoordinator: HardwoodsScanCoordinator,
+    hardwoodsRepository: HardwoodsRepository,
     progressStore: HardwoodsProgressStore,
     jobRepository: JobRepository,
     onJobClick: (HardwoodJob) -> Unit,
+    onOpenHardwoodsChange: (jobFolderName: String, docType: HardwoodDocType, rowId: String) -> Unit,
     onViewCoverSheet: (HardwoodJob) -> Unit,
     onView3D: (HardwoodJob) -> Unit,
     onSearchClick: () -> Unit,
@@ -65,6 +71,7 @@ fun HardwoodsJobsScreen(
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var expandedJobs by rememberSaveable { mutableStateOf(setOf<String>()) }
+    var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
     val jobs = scanState.snapshot.jobs
@@ -135,6 +142,9 @@ fun HardwoodsJobsScreen(
                         val hasDeliverySheet = remember(job.folderName) {
                             jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
                         }
+                        val history = remember(scanState.snapshot.generation, progressVersion, job.folderName) {
+                            hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
+                        }
                         val summary = remember(progressVersion, job.index) {
                             progressStore.summarizeJob(job)
                         }
@@ -195,6 +205,13 @@ fun HardwoodsJobsScreen(
                             segmentedStatusCounts = counts.toStatusCounts(),
                             materialSegments = docSegments,
                             showBottomProgressBar = true,
+                            headerActions = {
+                                if (history != null) {
+                                    TextButton(onClick = { selectedHistoryJob = job.folderName }) {
+                                        Text("History")
+                                    }
+                                }
+                            },
                             inlineContent = {
                                 Row(
                                     modifier = Modifier
@@ -232,6 +249,25 @@ fun HardwoodsJobsScreen(
                 }
             }
         }
+    }
+
+    val historyJob = selectedHistoryJob
+    if (historyJob != null) {
+        val history = remember(scanState.snapshot.generation, progressVersion, historyJob) {
+            hardwoodsRepository.loadHardwoodsRevisionHistory(historyJob)
+        }
+        HardwoodsRevisionHistorySheet(
+            jobFolderName = historyJob,
+            history = history,
+            onOpenRow = { docTypeRaw, rowId ->
+                val docType = runCatching { HardwoodDocType.valueOf(docTypeRaw) }.getOrNull()
+                if (docType != null) {
+                    selectedHistoryJob = null
+                    onOpenHardwoodsChange(historyJob, docType, rowId)
+                }
+            },
+            onDismiss = { selectedHistoryJob = null }
+        )
     }
 }
 
