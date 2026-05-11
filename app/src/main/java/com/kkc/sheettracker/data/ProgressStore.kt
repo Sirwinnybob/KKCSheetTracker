@@ -103,7 +103,8 @@ data class MaterialLastTouch(
 class ProgressStore(
     private val baseDir: File,
     private val tabletId: String,
-    private val localStateDir: File
+    private val localStateDir: File,
+    private val readOnly: Boolean = false
 ) {
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
@@ -183,7 +184,10 @@ class ProgressStore(
         val file = tabletFile(jobFolderName)
         if (!file.exists()) return TabletProgress(tabletId)
         return try {
-            gson.fromJson(file.readText(), TabletProgress::class.java)
+            sanitizeProgress(
+                gson.fromJson(file.readText(), TabletProgress::class.java),
+                fallbackTabletId = tabletId
+            ) ?: TabletProgress(tabletId)
         } catch (_: Exception) {
             TabletProgress(tabletId)
         }
@@ -219,6 +223,7 @@ class ProgressStore(
         fileFingerprint: String,
         part: Int? = null
     ) {
+        if (readOnly) return
         val progress = loadTabletProgress(jobFolderName)
         val entry = TrackerAction(
             file = pdfFilename,
@@ -238,16 +243,46 @@ class ProgressStore(
         if (!dir.exists()) return emptyList()
 
         return dir.listFiles()
-            ?.filter { it.extension == "json" }
+            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) && !it.name.startsWith(".") }
             ?.mapNotNull { file ->
                 try {
-                    gson.fromJson(file.readText(), TabletProgress::class.java)
+                    sanitizeProgress(
+                        gson.fromJson(file.readText(), TabletProgress::class.java),
+                        fallbackTabletId = file.nameWithoutExtension
+                    )
                 } catch (_: Exception) {
                     Log.w("KKC_PROGRESS", "Skipping malformed tracker file: ${file.absolutePath}")
                     null
                 }
             }
             ?: emptyList()
+    }
+
+    private fun sanitizeProgress(progress: TabletProgress?, fallbackTabletId: String): TabletProgress? {
+        progress ?: return null
+        val safeTabletId = (progress.tabletId as String?).orEmpty().ifBlank { fallbackTabletId }
+        val safeActions = (progress.actions as? List<*>).orEmpty()
+            .mapNotNull { it as? TrackerAction }
+            .mapNotNull { sanitizeAction(it) }
+        return TabletProgress(
+            tabletId = safeTabletId,
+            actions = safeActions
+        )
+    }
+
+    private fun sanitizeAction(action: TrackerAction): TrackerAction? {
+        val safeFile = (action.file as String?).orEmpty().trim()
+        val safeAction = (action.action as String?).orEmpty().trim()
+        val safeTimestamp = (action.timestamp as String?).orEmpty().trim()
+        if (safeFile.isEmpty() || safeAction.isEmpty()) return null
+        return TrackerAction(
+            file = safeFile,
+            page = action.page,
+            part = action.part,
+            action = safeAction,
+            timestamp = safeTimestamp,
+            fileFingerprint = (action.fileFingerprint as String?)?.trim()
+        )
     }
 
     private fun trackerDirSignature(jobFolderName: String): Long {
@@ -260,7 +295,7 @@ class ProgressStore(
         }
 
         val files = dir.listFiles()
-            ?.filter { it.isFile && it.extension == "json" }
+            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) && !it.name.startsWith(".") }
             ?.sortedBy { it.name }
             ?: emptyList()
 
@@ -421,6 +456,7 @@ class ProgressStore(
     }
 
     fun markSheetComplete(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
+        if (readOnly) return
         if (isSheetSkipped(jobFolderName, pdfFilename, page, fileFingerprint)) {
             appendAction(jobFolderName, pdfFilename, page, "unskip", fileFingerprint)
         }
@@ -433,14 +469,17 @@ class ProgressStore(
     }
 
     fun unmarkSheetComplete(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
+        if (readOnly) return
         appendAction(jobFolderName, pdfFilename, page, "uncomplete", fileFingerprint)
     }
 
     fun markSheetSkipped(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
+        if (readOnly) return
         appendAction(jobFolderName, pdfFilename, page, "skip", fileFingerprint)
     }
 
     fun unmarkSheetSkipped(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
+        if (readOnly) return
         appendAction(jobFolderName, pdfFilename, page, "unskip", fileFingerprint)
     }
 
@@ -472,6 +511,7 @@ class ProgressStore(
         page: Int,
         fileFingerprint: String
     ) {
+        if (readOnly) return
         val state = loadDraftState(jobFolderName)
         val next = state.copy(
             entries = state.entries.filterNot {
@@ -516,6 +556,7 @@ class ProgressStore(
     }
 
     fun toggleBadPart(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String, partNumber: Int) {
+        if (readOnly) return
         if (isSheetComplete(jobFolderName, pdfFilename, page, fileFingerprint)) {
             val isBad = isPartBad(jobFolderName, pdfFilename, page, fileFingerprint, partNumber)
             appendAction(
@@ -571,6 +612,7 @@ class ProgressStore(
         page: Int,
         fileFingerprint: String
     ) {
+        if (readOnly) return
         val committed = getCommittedBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
         committed.forEach { partNumber ->
             appendAction(
@@ -592,6 +634,7 @@ class ProgressStore(
         fileFingerprint: String,
         partNumbers: Set<Int>
     ): Int {
+        if (readOnly) return 0
         if (partNumbers.isEmpty()) return 0
         val committed = getCommittedBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
         val targets = committed.intersect(partNumbers)
@@ -926,6 +969,7 @@ class ProgressStore(
     }
 
     fun pruneLocalStateForJob(jobFolderName: String, materials: List<Material>) {
+        if (readOnly) return
         val validFingerprintsByPdf = materials.associate { it.pdfFilename to it.fileFingerprint }
 
         val draft = loadDraftState(jobFolderName)

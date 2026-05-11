@@ -12,10 +12,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.navigation.WorkMode
+import com.kkc.sheettracker.sync.SyncthingServiceStatus
+import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import kotlinx.coroutines.delay
+import java.text.DateFormat
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,14 +36,22 @@ fun SettingsScreen(
     onReinstallLatest: () -> Unit,
     onTabletIdChanged: (String) -> Unit,
     onBasePathChanged: (String) -> Unit,
+    syncthingApiKey: String,
+    syncthingStatus: SyncthingStatusUiState,
+    onSyncthingApiKeySave: (String) -> Unit,
+    onSyncthingCheckNow: () -> Unit,
+    onSyncthingStartNow: () -> Unit,
     onBack: () -> Unit
 ) {
     var editTabletId by remember { mutableStateOf(tabletId) }
     var editBasePath by remember { mutableStateOf(basePath) }
+    var editSyncthingApiKey by remember(syncthingApiKey) { mutableStateOf(syncthingApiKey) }
     var tabletIdDirty by remember { mutableStateOf(false) }
     var basePathDirty by remember { mutableStateOf(false) }
+    var syncthingApiKeyDirty by remember { mutableStateOf(false) }
     var tabletSaved by remember { mutableStateOf(false) }
     var basePathSaved by remember { mutableStateOf(false) }
+    var syncthingApiKeySaved by remember { mutableStateOf(false) }
 
     LaunchedEffect(tabletSaved) {
         if (tabletSaved) {
@@ -49,6 +63,12 @@ fun SettingsScreen(
         if (basePathSaved) {
             delay(1600)
             basePathSaved = false
+        }
+    }
+    LaunchedEffect(syncthingApiKeySaved) {
+        if (syncthingApiKeySaved) {
+            delay(1600)
+            syncthingApiKeySaved = false
         }
     }
 
@@ -207,6 +227,96 @@ fun SettingsScreen(
             }
 
             SettingsSection(
+                title = "Syncthing",
+                accentColor = MaterialTheme.colorScheme.primary
+            ) {
+                OutlinedTextField(
+                    value = editSyncthingApiKey,
+                    onValueChange = {
+                        editSyncthingApiKey = it
+                        syncthingApiKeyDirty = it.trim() != syncthingApiKey.trim()
+                    },
+                    label = { Text("Syncthing API Key") },
+                    supportingText = { Text("Used for localhost API checks at 127.0.0.1:8384.") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = KeyboardType.Password
+                    )
+                )
+
+                if (syncthingApiKeyDirty || syncthingApiKeySaved) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (syncthingApiKeyDirty) {
+                            Button(
+                                onClick = {
+                                    onSyncthingApiKeySave(editSyncthingApiKey.trim())
+                                    syncthingApiKeyDirty = false
+                                    syncthingApiKeySaved = true
+                                },
+                                enabled = editSyncthingApiKey.trim().isNotBlank(),
+                                shape = MaterialTheme.shapes.medium
+                            ) {
+                                Text("Save API Key")
+                            }
+                        }
+                        if (syncthingApiKeySaved) {
+                            Text(
+                                "Saved",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "Status: ${syncthingStatusText(syncthingStatus.status)}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                syncthingStatus.lastCheckedAtMs?.let { checkedAt ->
+                    Text(
+                        text = "Last check: ${formatStatusTime(checkedAt)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                syncthingStatus.lastStartAttemptAtMs?.let { startedAt ->
+                    Text(
+                        text = "Last restart attempt: ${formatStatusTime(startedAt)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onSyncthingCheckNow,
+                        shape = MaterialTheme.shapes.medium,
+                        enabled = syncthingApiKey.isNotBlank()
+                    ) {
+                        Text("Check Now")
+                    }
+                    Button(
+                        onClick = onSyncthingStartNow,
+                        shape = MaterialTheme.shapes.medium,
+                        enabled = syncthingApiKey.isNotBlank()
+                    ) {
+                        Text("Start Now")
+                    }
+                }
+            }
+
+            SettingsSection(
                 title = "About",
                 accentColor = MaterialTheme.colorScheme.outline
             ) {
@@ -224,6 +334,20 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+private fun syncthingStatusText(status: SyncthingServiceStatus): String {
+    return when (status) {
+        SyncthingServiceStatus.CHECKING -> "Checking"
+        SyncthingServiceStatus.RUNNING -> "Running"
+        SyncthingServiceStatus.NOT_RUNNING -> "Not running"
+        SyncthingServiceStatus.START_FAILED -> "Start failed"
+        SyncthingServiceStatus.API_KEY_REQUIRED -> "API key required"
+    }
+}
+
+private fun formatStatusTime(timestampMs: Long): String {
+    return DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
 }
 
 @Composable

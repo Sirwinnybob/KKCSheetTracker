@@ -1,0 +1,229 @@
+package com.kkc.sheettracker.sync
+
+import android.content.Context
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+enum class SyncthingServiceStatus {
+    CHECKING,
+    RUNNING,
+    NOT_RUNNING,
+    START_FAILED,
+    API_KEY_REQUIRED
+}
+
+data class SyncthingStatusUiState(
+    val status: SyncthingServiceStatus = SyncthingServiceStatus.API_KEY_REQUIRED,
+    val isMonitoring: Boolean = false,
+    val lastCheckedAtMs: Long? = null,
+    val lastStartAttemptAtMs: Long? = null,
+    val hasApiKey: Boolean = false
+)
+
+class SyncthingSupervisor(
+    private val context: Context?,
+    private val runtimeConfig: SyncthingRuntimeConfig,
+    private val preferencesStore: SyncthingPreferencesStore,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val managerFactory: (String) -> SyncController = { apiKey ->
+        SyncthingManager(
+            context = requireNotNull(context) {
+                "Context is required when using the default Syncthing manager factory."
+            },
+            config = runtimeConfig.copy(apiKey = apiKey)
+        )
+    }
+) {
+    private val checkMutex = Mutex()
+    private var settingsObserverJob: Job? = null
+    private var watchdogJob: Job? = null
+
+    private val _apiKey = MutableStateFlow("")
+    val apiKey: StateFlow<String> = _apiKey.asStateFlow()
+
+    private val _status = MutableStateFlow(
+        SyncthingStatusUiState(
+            status = SyncthingServiceStatus.API_KEY_REQUIRED,
+            isMonitoring = false,
+            hasApiKey = false
+        )
+    )
+    val status: StateFlow<SyncthingStatusUiState> = _status.asStateFlow()
+
+    fun startMonitoring() {
+        if (settingsObserverJob?.isActive == true) return
+
+        settingsObserverJob = scope.launch {
+            var previousKey = ""
+            preferencesStore.settings.collect { settings ->
+                val normalizedApiKey = settings.apiKey.trim()
+                _apiKey.value = normalizedApiKey
+
+                if (normalizedApiKey.isBlank()) {
+                    watchdogJob?.cancel()
+                    watchdogJob = null
+                    _status.value = _status.value.copy(
+                        status = SyncthingServiceStatus.API_KEY_REQUIRED,
+                        isMonitoring = true,
+                        hasApiKey = false
+                    )
+                    previousKey = normalizedApiKey
+                    return@collect
+                }
+
+                _status.value = _status.value.copy(
+                    isMonitoring = true,
+                    hasApiKey = true
+                )
+
+                if (previousKey != normalizedApiKey || watchdogJob?.isActive != true) {
+                    watchdogJob?.cancel()
+                    watchdogJob = launchWatchdog(normalizedApiKey)
+                }
+                previousKey = normalizedApiKey
+            }
+        }
+    }
+
+    fun stopMonitoring() {
+        settingsObserverJob?.cancel()
+        watchdogJob?.cancel()
+        settingsObserverJob = null
+        watchdogJob = null
+        _status.value = _status.value.copy(isMonitoring = false)
+    }
+
+    fun checkNow() {
+        val currentApiKey = _apiKey.value.trim()
+        if (currentApiKey.isBlank()) {
+            _status.value = _status.value.copy(
+                status = SyncthingServiceStatus.API_KEY_REQUIRED,
+                hasApiKey = false
+            )
+            return
+        }
+        scope.launch {
+            runHealthCheck(currentApiKey, allowAutoStart = false)
+        }
+    }
+
+    fun startNow() {
+        val currentApiKey = _apiKey.value.trim()
+        if (currentApiKey.isBlank()) {
+            _status.value = _status.value.copy(
+                status = SyncthingServiceStatus.API_KEY_REQUIRED,
+                hasApiKey = false
+            )
+            return
+        }
+        scope.launch {
+            val controller = managerFactory(currentApiKey)
+            controller.startService()
+            val startedAt = System.currentTimeMillis()
+            _status.value = _status.value.copy(
+                status = SyncthingServiceStatus.CHECKING,
+                lastStartAttemptAtMs = startedAt,
+                hasApiKey = true,
+                isMonitoring = true
+            )
+            delay(runtimeConfig.watchdog.restartVerificationDelayMs)
+            val isRunning = withContext(ioDispatcher) {
+                controller.isServiceRunning()
+            }
+            _status.value = _status.value.copy(
+                status = if (isRunning) SyncthingServiceStatus.RUNNING else SyncthingServiceStatus.START_FAILED,
+                hasApiKey = true,
+                isMonitoring = true,
+                lastCheckedAtMs = System.currentTimeMillis(),
+                lastStartAttemptAtMs = startedAt
+            )
+        }
+    }
+
+    suspend fun saveApiKey(apiKey: String) {
+        preferencesStore.saveApiKey(apiKey)
+    }
+
+    fun close() {
+        stopMonitoring()
+        scope.cancel()
+    }
+
+    private fun launchWatchdog(apiKey: String): Job = scope.launch {
+        runHealthCheck(apiKey, allowAutoStart = runtimeConfig.watchdog.autoStartOnFailure)
+        while (true) {
+            delay(runtimeConfig.watchdog.intervalMs)
+            runHealthCheck(apiKey, allowAutoStart = runtimeConfig.watchdog.autoStartOnFailure)
+        }
+    }
+
+    private suspend fun runHealthCheck(
+        apiKey: String,
+        allowAutoStart: Boolean
+    ) {
+        checkMutex.withLock {
+            _status.value = _status.value.copy(
+                status = SyncthingServiceStatus.CHECKING,
+                isMonitoring = true,
+                hasApiKey = true
+            )
+
+            val controller = managerFactory(apiKey)
+            val isRunning = withContext(ioDispatcher) {
+                controller.isServiceRunning()
+            }
+            val checkedAt = System.currentTimeMillis()
+
+            if (isRunning) {
+                _status.value = _status.value.copy(
+                    status = SyncthingServiceStatus.RUNNING,
+                    lastCheckedAtMs = checkedAt,
+                    hasApiKey = true,
+                    isMonitoring = true
+                )
+                return
+            }
+
+            if (allowAutoStart) {
+                val attemptedAt = System.currentTimeMillis()
+                controller.startService()
+                delay(runtimeConfig.watchdog.restartVerificationDelayMs)
+                val isRunningAfterStart = withContext(ioDispatcher) {
+                    controller.isServiceRunning()
+                }
+                _status.value = _status.value.copy(
+                    status = if (isRunningAfterStart) {
+                        SyncthingServiceStatus.RUNNING
+                    } else {
+                        SyncthingServiceStatus.START_FAILED
+                    },
+                    lastCheckedAtMs = System.currentTimeMillis(),
+                    lastStartAttemptAtMs = attemptedAt,
+                    hasApiKey = true,
+                    isMonitoring = true
+                )
+            } else {
+                _status.value = _status.value.copy(
+                    status = SyncthingServiceStatus.NOT_RUNNING,
+                    lastCheckedAtMs = checkedAt,
+                    hasApiKey = true,
+                    isMonitoring = true
+                )
+            }
+        }
+    }
+}

@@ -41,7 +41,8 @@ private data class CutlistLookup(
 
 class HardwoodsProgressStore(
     private val baseDir: File,
-    private val tabletId: String
+    private val tabletId: String,
+    private val readOnly: Boolean = false
 ) {
     private data class JobCache(
         val localActions: MutableList<HardwoodTrackerAction>,
@@ -94,6 +95,7 @@ class HardwoodsProgressStore(
         value: Int? = null,
         totalsKey: String? = null
     ) {
+        if (readOnly) return
         val next = HardwoodTrackerAction(
             docType = docType,
             rowId = rowId,
@@ -463,8 +465,10 @@ class HardwoodsProgressStore(
     }
 
     private fun buildJobCache(jobFolderName: String): JobCache {
-        migrateLegacyTotalsKeysIfNeeded(jobFolderName)
-        migrateBoardStockKeysToCanonicalIfNeeded(jobFolderName)
+        if (!readOnly) {
+            migrateLegacyTotalsKeysIfNeeded(jobFolderName)
+            migrateBoardStockKeysToCanonicalIfNeeded(jobFolderName)
+        }
         val allProgress = loadAllProgress(jobFolderName)
         val lookup = loadCutlistLookup(jobFolderName)
         val allActions = allProgress

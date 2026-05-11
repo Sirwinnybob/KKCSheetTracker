@@ -37,6 +37,7 @@ import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.ui.assembly.AssemblyDashboardScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
 import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
@@ -66,6 +67,7 @@ fun AppNavigation(
     appStateStore: AppStateStore,
     jobRepository: JobRepository,
     progressStore: ProgressStore,
+    isViewOnlyMode: Boolean,
     appStateFlags: AppStateFeatureFlags,
     tabletId: String,
     basePath: String,
@@ -76,7 +78,12 @@ fun AppNavigation(
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
     onBasePathChanged: (String) -> Unit,
-    onTabletIdChanged: (String) -> Unit
+    onTabletIdChanged: (String) -> Unit,
+    syncthingApiKey: String,
+    syncthingStatus: SyncthingStatusUiState,
+    onSyncthingApiKeySave: (String) -> Unit,
+    onSyncthingCheckNow: () -> Unit,
+    onSyncthingStartNow: () -> Unit
 ) {
     val flags = remember(appStateFlags) { appStateFlags.snapshot() }
     key(workMode) {
@@ -86,6 +93,7 @@ fun AppNavigation(
                 appStateStore = appStateStore,
                 jobRepository = jobRepository,
                 progressStore = progressStore,
+                isViewOnlyMode = isViewOnlyMode,
                 appStateFlags = appStateFlags,
                 tabletId = tabletId,
                 basePath = basePath,
@@ -96,7 +104,12 @@ fun AppNavigation(
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
                 onBasePathChanged = onBasePathChanged,
-                onTabletIdChanged = onTabletIdChanged
+                onTabletIdChanged = onTabletIdChanged,
+                syncthingApiKey = syncthingApiKey,
+                syncthingStatus = syncthingStatus,
+                onSyncthingApiKeySave = onSyncthingApiKeySave,
+                onSyncthingCheckNow = onSyncthingCheckNow,
+                onSyncthingStartNow = onSyncthingStartNow
             )
         } else {
             LegacySingleStackNavigation(
@@ -104,6 +117,7 @@ fun AppNavigation(
                 appStateStore = appStateStore,
                 jobRepository = jobRepository,
                 progressStore = progressStore,
+                isViewOnlyMode = isViewOnlyMode,
                 appStateFlags = appStateFlags,
                 tabletId = tabletId,
                 basePath = basePath,
@@ -114,7 +128,12 @@ fun AppNavigation(
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
                 onBasePathChanged = onBasePathChanged,
-                onTabletIdChanged = onTabletIdChanged
+                onTabletIdChanged = onTabletIdChanged,
+                syncthingApiKey = syncthingApiKey,
+                syncthingStatus = syncthingStatus,
+                onSyncthingApiKeySave = onSyncthingApiKeySave,
+                onSyncthingCheckNow = onSyncthingCheckNow,
+                onSyncthingStartNow = onSyncthingStartNow
             )
         }
     }
@@ -126,6 +145,7 @@ private fun MultiBackStackNavigation(
     appStateStore: AppStateStore,
     jobRepository: JobRepository,
     progressStore: ProgressStore,
+    isViewOnlyMode: Boolean,
     appStateFlags: AppStateFeatureFlags,
     tabletId: String,
     basePath: String,
@@ -136,11 +156,18 @@ private fun MultiBackStackNavigation(
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
     onBasePathChanged: (String) -> Unit,
-    onTabletIdChanged: (String) -> Unit
+    onTabletIdChanged: (String) -> Unit,
+    syncthingApiKey: String,
+    syncthingStatus: SyncthingStatusUiState,
+    onSyncthingApiKeySave: (String) -> Unit,
+    onSyncthingCheckNow: () -> Unit,
+    onSyncthingStartNow: () -> Unit
 ) {
     val activity = LocalContext.current as? Activity
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
-    val hardwoodsProgressStore = remember(basePath, tabletId) { HardwoodsProgressStore(File(basePath), tabletId) }
+    val hardwoodsProgressStore = remember(basePath, tabletId, isViewOnlyMode) {
+        HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
+    }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
     val assemblyScanCoordinator = remember(basePath) { AssemblyScanCoordinator(File(basePath), jobRepository) }
     val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore) {
@@ -228,6 +255,12 @@ private fun MultiBackStackNavigation(
                     onNavigateToJobs = {
                         coordinator.navigateTopLevel(TopLevelTab.JOBS)
                     },
+                    onOpenJobInJobs = { folderName ->
+                        coordinator.openJobDetailInJobs(folderName)
+                    },
+                    onOpenHardwoodsJobInJobs = { folderName ->
+                        coordinator.openHardwoodsJobInJobs(folderName)
+                    },
                     onOpenSheet = { folderName, pdfFilename, page ->
                         coordinator.openSheetInJobs(folderName, pdfFilename, page)
                     }
@@ -306,6 +339,11 @@ private fun MultiBackStackNavigation(
                     onReinstallLatest = onReinstallLatest,
                     onTabletIdChanged = onTabletIdChanged,
                     onBasePathChanged = onBasePathChanged,
+                    syncthingApiKey = syncthingApiKey,
+                    syncthingStatus = syncthingStatus,
+                    onSyncthingApiKeySave = onSyncthingApiKeySave,
+                    onSyncthingCheckNow = onSyncthingCheckNow,
+                    onSyncthingStartNow = onSyncthingStartNow,
                     onBack = {
                         coordinator.navigateTopLevel(TopLevelTab.DASHBOARD)
                     }
@@ -353,6 +391,8 @@ private fun DashboardTabHost(
     assemblyScanCoordinator: AssemblyScanCoordinator,
     assemblyStateStore: AssemblyStateStore,
     onNavigateToJobs: () -> Unit,
+    onOpenJobInJobs: (String) -> Unit,
+    onOpenHardwoodsJobInJobs: (String) -> Unit,
     onOpenSheet: (String, String, Int) -> Unit
 ) {
     NavHost(
@@ -372,9 +412,7 @@ private fun DashboardTabHost(
                         onNavigateToJobs = onNavigateToJobs,
                         onOpenSheet = onOpenSheet,
                         onOpenJob = { folderName ->
-                            navController.navigate("job/${URLEncoder.encode(folderName, "UTF-8")}") {
-                                launchSingleTop = true
-                            }
+                            onOpenJobInJobs(folderName)
                         }
                     )
                 }
@@ -384,9 +422,7 @@ private fun DashboardTabHost(
                         progressStore = hardwoodsProgressStore,
                         onNavigateToJobs = onNavigateToJobs,
                         onOpenJob = { job ->
-                            navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
-                                launchSingleTop = true
-                            }
+                            onOpenHardwoodsJobInJobs(job.folderName)
                         }
                     )
                 }
@@ -824,6 +860,11 @@ private fun SettingsTabHost(
     onReinstallLatest: () -> Unit,
     onTabletIdChanged: (String) -> Unit,
     onBasePathChanged: (String) -> Unit,
+    syncthingApiKey: String,
+    syncthingStatus: SyncthingStatusUiState,
+    onSyncthingApiKeySave: (String) -> Unit,
+    onSyncthingCheckNow: () -> Unit,
+    onSyncthingStartNow: () -> Unit,
     onBack: () -> Unit
 ) {
     NavHost(
@@ -843,6 +884,11 @@ private fun SettingsTabHost(
                 onReinstallLatest = onReinstallLatest,
                 onTabletIdChanged = onTabletIdChanged,
                 onBasePathChanged = onBasePathChanged,
+                syncthingApiKey = syncthingApiKey,
+                syncthingStatus = syncthingStatus,
+                onSyncthingApiKeySave = onSyncthingApiKeySave,
+                onSyncthingCheckNow = onSyncthingCheckNow,
+                onSyncthingStartNow = onSyncthingStartNow,
                 onBack = onBack
             )
         }
@@ -855,6 +901,7 @@ private fun LegacySingleStackNavigation(
     appStateStore: AppStateStore,
     jobRepository: JobRepository,
     progressStore: ProgressStore,
+    isViewOnlyMode: Boolean,
     appStateFlags: AppStateFeatureFlags,
     tabletId: String,
     basePath: String,
@@ -865,10 +912,17 @@ private fun LegacySingleStackNavigation(
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
     onBasePathChanged: (String) -> Unit,
-    onTabletIdChanged: (String) -> Unit
+    onTabletIdChanged: (String) -> Unit,
+    syncthingApiKey: String,
+    syncthingStatus: SyncthingStatusUiState,
+    onSyncthingApiKeySave: (String) -> Unit,
+    onSyncthingCheckNow: () -> Unit,
+    onSyncthingStartNow: () -> Unit
 ) {
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
-    val hardwoodsProgressStore = remember(basePath, tabletId) { HardwoodsProgressStore(File(basePath), tabletId) }
+    val hardwoodsProgressStore = remember(basePath, tabletId, isViewOnlyMode) {
+        HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
+    }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
     val assemblyScanCoordinator = remember(basePath) { AssemblyScanCoordinator(File(basePath), jobRepository) }
     val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore) {
@@ -883,6 +937,14 @@ private fun LegacySingleStackNavigation(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val startRoute = if (workMode == WorkMode.ASSEMBLY) "jobs" else "dashboard"
+    val visibleDestinations = remember(workMode) {
+        if (workMode == WorkMode.ASSEMBLY) {
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.SETTINGS)
+        } else {
+            NavDestination.entries
+        }
+    }
     fun openSheetLegacy(jobFolderName: String, pdfFilename: String, page: Int) {
         if (isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page)) return
         navController.navigate(viewerRoute(jobFolderName, pdfFilename, page)) {
@@ -905,7 +967,7 @@ private fun LegacySingleStackNavigation(
 
     val currentNavDest = remember(currentRoute) {
         when {
-            currentRoute == "dashboard" -> NavDestination.DASHBOARD
+            currentRoute == "dashboard" && workMode != WorkMode.ASSEMBLY -> NavDestination.DASHBOARD
             currentRoute?.startsWith("jobs") == true ||
             currentRoute?.startsWith("job/") == true ||
                 currentRoute?.startsWith("hardwoods/job/") == true ||
@@ -915,7 +977,7 @@ private fun LegacySingleStackNavigation(
                 currentRoute?.startsWith("referenceViewer/") == true -> NavDestination.JOBS
             currentRoute == "search" -> NavDestination.SEARCH
             currentRoute == "settings" -> NavDestination.SETTINGS
-            else -> NavDestination.DASHBOARD
+            else -> if (workMode == WorkMode.ASSEMBLY) NavDestination.JOBS else NavDestination.DASHBOARD
         }
     }
 
@@ -927,7 +989,7 @@ private fun LegacySingleStackNavigation(
     Column(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
-            startDestination = "dashboard",
+            startDestination = startRoute,
             modifier = Modifier.weight(1f)
         ) {
             composable("dashboard") {
@@ -1387,6 +1449,11 @@ private fun LegacySingleStackNavigation(
                     onReinstallLatest = onReinstallLatest,
                     onTabletIdChanged = onTabletIdChanged,
                     onBasePathChanged = onBasePathChanged,
+                    syncthingApiKey = syncthingApiKey,
+                    syncthingStatus = syncthingStatus,
+                    onSyncthingApiKeySave = onSyncthingApiKeySave,
+                    onSyncthingCheckNow = onSyncthingCheckNow,
+                    onSyncthingStartNow = onSyncthingStartNow,
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -1395,9 +1462,10 @@ private fun LegacySingleStackNavigation(
         AppBottomNavBar(
             currentDestination = currentNavDest,
             minimized = isInViewer,
+            destinations = visibleDestinations,
             onNavigate = { dest ->
                 if (currentRoute == dest.route) return@AppBottomNavBar
-                check(dest.route in NavDestination.entries.map { it.route }) {
+                check(dest.route in visibleDestinations.map { it.route }) {
                     "Invalid top-level destination route: ${dest.route}"
                 }
                 navController.navigate(dest.route) {

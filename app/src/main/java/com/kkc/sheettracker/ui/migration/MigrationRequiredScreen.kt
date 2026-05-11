@@ -20,6 +20,7 @@ fun MigrationRequiredScreen(
     basePath: String,
     markerPath: String,
     onRetry: () -> Unit,
+    onContinueViewOnly: () -> Unit,
     onExit: () -> Unit
 ) {
     Column(
@@ -72,6 +73,13 @@ fun MigrationRequiredScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Retry Check")
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Button(
+            onClick = onContinueViewOnly,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Continue View-Only")
         }
         Spacer(modifier = Modifier.height(10.dp))
         Button(
