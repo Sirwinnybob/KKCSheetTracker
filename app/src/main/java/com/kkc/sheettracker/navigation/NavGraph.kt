@@ -5,6 +5,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -44,7 +47,9 @@ import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
 import com.kkc.sheettracker.ui.browser.JobBrowserScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
+import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
 import com.kkc.sheettracker.ui.components.NavDestination
+import com.kkc.sheettracker.ui.components.rememberCalculatorOverlayState
 import com.kkc.sheettracker.ui.dashboard.DashboardScreen
 import com.kkc.sheettracker.ui.detail.JobDetailScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsDashboardScreen
@@ -164,6 +169,8 @@ private fun MultiBackStackNavigation(
     onSyncthingStartNow: () -> Unit
 ) {
     val activity = LocalContext.current as? Activity
+    val calculatorState = rememberCalculatorOverlayState()
+    val compactWidth = rememberCompactWidthClass()
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsProgressStore = remember(basePath, tabletId, isViewOnlyMode) {
         HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
@@ -237,127 +244,137 @@ private fun MultiBackStackNavigation(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.weight(1f)) {
-            TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
-                DashboardTabHost(
-                    navController = dashboardNavController,
-                    scanCoordinator = scanCoordinator,
-                    appStateStore = appStateStore,
-                    jobRepository = jobRepository,
-                    progressStore = progressStore,
-                    appStateFlags = appStateFlags,
-                    workMode = workMode,
-                    hardwoodsScanCoordinator = hardwoodsScanCoordinator,
-                    hardwoodsProgressStore = hardwoodsProgressStore,
-                    assemblyScanCoordinator = assemblyScanCoordinator,
-                    assemblyStateStore = assemblyStateStore,
-                    onNavigateToJobs = {
-                        coordinator.navigateTopLevel(TopLevelTab.JOBS)
-                    },
-                    onOpenJobInJobs = { folderName ->
-                        coordinator.openJobDetailInJobs(folderName)
-                    },
-                    onOpenHardwoodsJobInJobs = { folderName ->
-                        coordinator.openHardwoodsJobInJobs(folderName)
-                    },
-                    onOpenSheet = { folderName, pdfFilename, page ->
-                        coordinator.openSheetInJobs(folderName, pdfFilename, page)
-                    }
-                )
-            }
-
-            TabLayer(visible = selectedTab == TopLevelTab.JOBS) {
-                JobsTabHost(
-                    navController = jobsNavController,
-                    scanCoordinator = scanCoordinator,
-                    appStateStore = appStateStore,
-                    jobRepository = jobRepository,
-                    progressStore = progressStore,
-                    appStateFlags = appStateFlags,
-                    isDarkTheme = isDarkTheme,
-                    workMode = workMode,
-                    hardwoodsRepository = hardwoodsRepository,
-                    hardwoodsScanCoordinator = hardwoodsScanCoordinator,
-                    hardwoodsProgressStore = hardwoodsProgressStore,
-                    assemblyScanCoordinator = assemblyScanCoordinator,
-                    assemblyStateStore = assemblyStateStore,
-                    basePath = basePath,
-                    onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
-                    onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) }
-                )
-            }
-
-            TabLayer(visible = selectedTab == TopLevelTab.SEARCH) {
-                SearchTabHost(
-                    navController = searchNavController,
-                    scanCoordinator = scanCoordinator,
-                    jobRepository = jobRepository,
-                    progressStore = progressStore,
-                    workMode = workMode,
-                    hardwoodsScanCoordinator = hardwoodsScanCoordinator,
-                    assemblyScanCoordinator = assemblyScanCoordinator,
-                    assemblyStateStore = assemblyStateStore,
-                    onCncResultClick = { folderName, pdfFilename, page ->
-                        coordinator.openSheetInJobs(folderName, pdfFilename, page)
-                    },
-                    onHardwoodsResultClick = { payload ->
-                        val parts = payload.split('|')
-                        if (parts.size >= 3) {
-                            val folderName = parts[0]
-                            val docType = runCatching { HardwoodDocType.valueOf(parts[1]) }
-                                .getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
-                            val rowId = parts[2]
-                            coordinator.openHardwoodsRouteInJobs(hardwoodsWorkspaceRoute(folderName, docType, rowId))
-                        } else {
-                            coordinator.openHardwoodsJobInJobs(payload)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
+                    DashboardTabHost(
+                        navController = dashboardNavController,
+                        scanCoordinator = scanCoordinator,
+                        appStateStore = appStateStore,
+                        jobRepository = jobRepository,
+                        progressStore = progressStore,
+                        appStateFlags = appStateFlags,
+                        workMode = workMode,
+                        hardwoodsScanCoordinator = hardwoodsScanCoordinator,
+                        hardwoodsProgressStore = hardwoodsProgressStore,
+                        assemblyScanCoordinator = assemblyScanCoordinator,
+                        assemblyStateStore = assemblyStateStore,
+                        onNavigateToJobs = {
+                            coordinator.navigateTopLevel(TopLevelTab.JOBS)
+                        },
+                        onOpenJobInJobs = { folderName ->
+                            coordinator.openJobDetailInJobs(folderName)
+                        },
+                        onOpenHardwoodsJobInJobs = { folderName ->
+                            coordinator.openHardwoodsJobInJobs(folderName)
+                        },
+                        onOpenSheet = { folderName, pdfFilename, page ->
+                            coordinator.openSheetInJobs(folderName, pdfFilename, page)
                         }
-                    },
-                    onAssemblyResultClick = { result ->
-                        coordinator.openAssemblyViewerInJobs(
-                            jobFolderName = result.jobFolderName,
-                            assemblyPage = result.assemblyPage ?: 1,
-                            plansPage = result.plansPage ?: 1
-                        )
-                    },
-                    onBack = {
-                        coordinator.navigateTopLevel(TopLevelTab.DASHBOARD)
-                    }
-                )
+                    )
+                }
+
+                TabLayer(visible = selectedTab == TopLevelTab.JOBS) {
+                    JobsTabHost(
+                        navController = jobsNavController,
+                        scanCoordinator = scanCoordinator,
+                        appStateStore = appStateStore,
+                        jobRepository = jobRepository,
+                        progressStore = progressStore,
+                        appStateFlags = appStateFlags,
+                        isDarkTheme = isDarkTheme,
+                        workMode = workMode,
+                        hardwoodsRepository = hardwoodsRepository,
+                        hardwoodsScanCoordinator = hardwoodsScanCoordinator,
+                        hardwoodsProgressStore = hardwoodsProgressStore,
+                        assemblyScanCoordinator = assemblyScanCoordinator,
+                        assemblyStateStore = assemblyStateStore,
+                        basePath = basePath,
+                        onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
+                        onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) }
+                    )
+                }
+
+                TabLayer(visible = selectedTab == TopLevelTab.SEARCH) {
+                    SearchTabHost(
+                        navController = searchNavController,
+                        scanCoordinator = scanCoordinator,
+                        jobRepository = jobRepository,
+                        progressStore = progressStore,
+                        workMode = workMode,
+                        hardwoodsScanCoordinator = hardwoodsScanCoordinator,
+                        assemblyScanCoordinator = assemblyScanCoordinator,
+                        assemblyStateStore = assemblyStateStore,
+                        onCncResultClick = { folderName, pdfFilename, page ->
+                            coordinator.openSheetInJobs(folderName, pdfFilename, page)
+                        },
+                        onHardwoodsResultClick = { payload ->
+                            val parts = payload.split('|')
+                            if (parts.size >= 3) {
+                                val folderName = parts[0]
+                                val docType = runCatching { HardwoodDocType.valueOf(parts[1]) }
+                                    .getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
+                                val rowId = parts[2]
+                                coordinator.openHardwoodsRouteInJobs(hardwoodsWorkspaceRoute(folderName, docType, rowId))
+                            } else {
+                                coordinator.openHardwoodsJobInJobs(payload)
+                            }
+                        },
+                        onAssemblyResultClick = { result ->
+                            coordinator.openAssemblyViewerInJobs(
+                                jobFolderName = result.jobFolderName,
+                                assemblyPage = result.assemblyPage ?: 1,
+                                plansPage = result.plansPage ?: 1
+                            )
+                        },
+                        onBack = {
+                            coordinator.navigateTopLevel(TopLevelTab.DASHBOARD)
+                        }
+                    )
+                }
+
+                TabLayer(visible = selectedTab == TopLevelTab.SETTINGS) {
+                    SettingsTabHost(
+                        navController = settingsNavController,
+                        tabletId = tabletId,
+                        basePath = basePath,
+                        isDebugBuild = isDebugBuild,
+                        isDarkTheme = isDarkTheme,
+                        workMode = workMode,
+                        onThemeChanged = onThemeChanged,
+                        onWorkModeChanged = onWorkModeChanged,
+                        onReinstallLatest = onReinstallLatest,
+                        onTabletIdChanged = onTabletIdChanged,
+                        onBasePathChanged = onBasePathChanged,
+                        syncthingApiKey = syncthingApiKey,
+                        syncthingStatus = syncthingStatus,
+                        onSyncthingApiKeySave = onSyncthingApiKeySave,
+                        onSyncthingCheckNow = onSyncthingCheckNow,
+                        onSyncthingStartNow = onSyncthingStartNow,
+                        onBack = {
+                            coordinator.navigateTopLevel(TopLevelTab.DASHBOARD)
+                        }
+                    )
+                }
             }
 
-            TabLayer(visible = selectedTab == TopLevelTab.SETTINGS) {
-                SettingsTabHost(
-                    navController = settingsNavController,
-                    tabletId = tabletId,
-                    basePath = basePath,
-                    isDebugBuild = isDebugBuild,
-                    isDarkTheme = isDarkTheme,
-                    workMode = workMode,
-                    onThemeChanged = onThemeChanged,
-                    onWorkModeChanged = onWorkModeChanged,
-                    onReinstallLatest = onReinstallLatest,
-                    onTabletIdChanged = onTabletIdChanged,
-                    onBasePathChanged = onBasePathChanged,
-                    syncthingApiKey = syncthingApiKey,
-                    syncthingStatus = syncthingStatus,
-                    onSyncthingApiKeySave = onSyncthingApiKeySave,
-                    onSyncthingCheckNow = onSyncthingCheckNow,
-                    onSyncthingStartNow = onSyncthingStartNow,
-                    onBack = {
-                        coordinator.navigateTopLevel(TopLevelTab.DASHBOARD)
-                    }
-                )
-            }
+            AppBottomNavBar(
+                currentDestination = TopLevelTab.toDestination(selectedTab),
+                minimized = isInViewer,
+                destinations = visibleDestinations,
+                isCalculatorOpen = calculatorState.snapshot.isOpen,
+                onCalculatorClick = { calculatorState.toggleOpen() },
+                onNavigate = { dest ->
+                    coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                }
+            )
         }
 
-        AppBottomNavBar(
-            currentDestination = TopLevelTab.toDestination(selectedTab),
-            minimized = isInViewer,
-            destinations = visibleDestinations,
-            onNavigate = { dest ->
-                coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
-            }
+        CalculatorOverlayHost(
+            state = calculatorState,
+            compactWidth = compactWidth,
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
@@ -919,6 +936,8 @@ private fun LegacySingleStackNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit
 ) {
+    val calculatorState = rememberCalculatorOverlayState()
+    val compactWidth = rememberCompactWidthClass()
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsProgressStore = remember(basePath, tabletId, isViewOnlyMode) {
         HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
@@ -986,12 +1005,13 @@ private fun LegacySingleStackNavigation(
         currentRoute?.startsWith("hardwoods/workspace/") == true ||
         currentRoute?.startsWith("assembly/viewer/") == true
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        NavHost(
-            navController = navController,
-            startDestination = startRoute,
-            modifier = Modifier.weight(1f)
-        ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            NavHost(
+                navController = navController,
+                startDestination = startRoute,
+                modifier = Modifier.weight(1f)
+            ) {
             composable("dashboard") {
                 when (workMode) {
                     WorkMode.CNC -> {
@@ -1457,31 +1477,48 @@ private fun LegacySingleStackNavigation(
                     onBack = { navController.popBackStack() }
                 )
             }
+            }
+
+            AppBottomNavBar(
+                currentDestination = currentNavDest,
+                minimized = isInViewer,
+                destinations = visibleDestinations,
+                isCalculatorOpen = calculatorState.snapshot.isOpen,
+                onCalculatorClick = { calculatorState.toggleOpen() },
+                onNavigate = { dest ->
+                    if (currentRoute == dest.route) return@AppBottomNavBar
+                    check(dest.route in visibleDestinations.map { it.route }) {
+                        "Invalid top-level destination route: ${dest.route}"
+                    }
+                    navController.navigate(dest.route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = false
+                        }
+                        launchSingleTop = true
+                        restoreState = false
+                    }
+                }
+            )
         }
 
-        AppBottomNavBar(
-            currentDestination = currentNavDest,
-            minimized = isInViewer,
-            destinations = visibleDestinations,
-            onNavigate = { dest ->
-                if (currentRoute == dest.route) return@AppBottomNavBar
-                check(dest.route in visibleDestinations.map { it.route }) {
-                    "Invalid top-level destination route: ${dest.route}"
-                }
-                navController.navigate(dest.route) {
-                    popUpTo(navController.graph.findStartDestination().id) {
-                        saveState = false
-                    }
-                    launchSingleTop = true
-                    restoreState = false
-                }
-            }
+        CalculatorOverlayHost(
+            state = calculatorState,
+            compactWidth = compactWidth,
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
 
 private fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int): String {
     return "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
+}
+
+@OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
+@Composable
+private fun rememberCompactWidthClass(): Boolean {
+    val activity = LocalContext.current as? Activity ?: return false
+    val windowSizeClass = calculateWindowSizeClass(activity)
+    return windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact
 }
 
 private fun referenceViewerRoute(jobFolderName: String, docType: ReferenceDocType, page: Int): String {

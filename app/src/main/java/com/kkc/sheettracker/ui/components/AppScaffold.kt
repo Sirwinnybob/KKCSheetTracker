@@ -9,9 +9,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.List
 import androidx.compose.material.icons.outlined.Search
@@ -39,6 +41,8 @@ enum class NavDestination(
 fun AppBottomNavBar(
     currentDestination: NavDestination,
     onNavigate: (NavDestination) -> Unit,
+    onCalculatorClick: () -> Unit,
+    isCalculatorOpen: Boolean,
     minimized: Boolean,
     destinations: List<NavDestination> = NavDestination.entries,
     modifier: Modifier = Modifier
@@ -72,6 +76,22 @@ fun AppBottomNavBar(
                     )
                 )
             }
+            NavigationBarItem(
+                selected = isCalculatorOpen,
+                onClick = onCalculatorClick,
+                icon = {
+                    Icon(
+                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                        contentDescription = "Calculator"
+                    )
+                },
+                label = { Text("Calc", style = MaterialTheme.typography.labelSmall) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            )
         }
     }
 
@@ -79,6 +99,8 @@ fun AppBottomNavBar(
         MinimizedNavBar(
             currentDestination = currentDestination,
             onNavigate = onNavigate,
+            onCalculatorClick = onCalculatorClick,
+            isCalculatorOpen = isCalculatorOpen,
             destinations = destinations
         )
     }
@@ -88,6 +110,8 @@ fun AppBottomNavBar(
 private fun MinimizedNavBar(
     currentDestination: NavDestination,
     onNavigate: (NavDestination) -> Unit,
+    onCalculatorClick: () -> Unit,
+    isCalculatorOpen: Boolean,
     destinations: List<NavDestination>
 ) {
     Surface(
@@ -115,6 +139,15 @@ private fun MinimizedNavBar(
                         .clickable { onNavigate(dest) }
                 )
             }
+            Icon(
+                if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                contentDescription = "Calculator",
+                tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable { onCalculatorClick() }
+            )
         }
     }
 }
