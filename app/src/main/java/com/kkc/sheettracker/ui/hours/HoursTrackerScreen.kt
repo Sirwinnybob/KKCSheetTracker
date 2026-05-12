@@ -138,16 +138,15 @@ fun HoursTrackerScreen(
             }
 
             val otherEmployees = todayEntries
-                .filter { it.employeeName != employeeName }
+                .filter { it.employeeName != employeeName && it.clockOutMs == null }
                 .groupBy { it.employeeName }
             if (otherEmployees.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Text("On the Clock Today", style = MaterialTheme.typography.titleMedium)
                 otherEmployees.forEach { (name, empEntries) ->
-                    val empActive = empEntries.any { it.clockOutMs == null }
                     val empTotal = empEntries.filter { it.clockOutMs != null }
                         .sumOf { it.clockOutMs!! - it.clockInMs }
-                    EmployeeSummaryRow(name = name, totalMs = empTotal, isClockedIn = empActive)
+                    EmployeeSummaryRow(name = name, totalMs = empTotal, isClockedIn = true)
                 }
             }
         }
