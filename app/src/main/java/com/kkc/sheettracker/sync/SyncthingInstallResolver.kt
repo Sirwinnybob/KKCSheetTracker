@@ -27,7 +27,7 @@ object SyncthingInstallResolver {
 
     private fun isInstalled(context: Context, packageName: String): Boolean {
         return try {
-            context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) { context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0)) } else { context.packageManager.getPackageInfo(packageName, 0) }
             true
         } catch (_: Exception) {
             false

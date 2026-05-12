@@ -38,6 +38,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -164,11 +168,17 @@ fun AssemblyJobsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(filtered, key = { it.folderName }) { card ->
-                            val hasDeliverySheet = remember(card.folderName) {
+                            @Suppress("ProduceStateDoesNotAssignValue")
+                            val hasDeliverySheet by produceState(initialValue = false, key1 = card.folderName) {
+                                value = withContext(Dispatchers.IO) {
                                 jobRepository.getJobPdfCatalog(card.folderName).deliverySheet != null
+                                }
                             }
-                            val history = remember(scanState.snapshot.generation, hardwoodProgressVersion, card.folderName) {
+                            @Suppress("ProduceStateDoesNotAssignValue")
+                            val history by produceState<com.kkc.sheettracker.data.models.HardwoodRevisionHistory?>(initialValue = null, key1 = scanState.snapshot.generation, key2 = hardwoodProgressVersion, key3 = card.folderName) {
+                                value = withContext(Dispatchers.IO) {
                                 hardwoodsRepository.loadHardwoodsRevisionHistory(card.folderName)
+                                }
                             }
                             val cncCounts = remember(card) { card.toCncStatusCounts() }
                             val hardwoodCounts = remember(card) { card.toHardwoodsStatusCounts() }

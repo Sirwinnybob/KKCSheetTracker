@@ -34,6 +34,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -140,8 +144,11 @@ fun HardwoodsJobsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filtered, key = { it.folderName }) { job ->
-                        val hasDeliverySheet = remember(job.folderName) {
+                        @Suppress("ProduceStateDoesNotAssignValue")
+                            val hasDeliverySheet by produceState(initialValue = false, key1 = job.folderName) {
+                            value = withContext(Dispatchers.IO) {
                             jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
+                            }
                         }
                         val assemblyMode = remember(scanState.snapshot.generation, job.folderName) {
                             jobRepository.getCabinetSheetIndex(job.folderName)
@@ -151,8 +158,11 @@ fun HardwoodsJobsScreen(
                                 ?.uppercase()
                                 .orEmpty()
                         }
-                        val history = remember(scanState.snapshot.generation, progressVersion, job.folderName) {
+                        @Suppress("ProduceStateDoesNotAssignValue")
+                            val history by produceState<com.kkc.sheettracker.data.models.HardwoodRevisionHistory?>(initialValue = null, key1 = scanState.snapshot.generation, key2 = progressVersion, key3 = job.folderName) {
+                            value = withContext(Dispatchers.IO) {
                             hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
+                            }
                         }
                         val summary = remember(progressVersion, job.index) {
                             progressStore.summarizeJob(job)
