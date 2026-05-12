@@ -50,16 +50,12 @@ class HoursStore(
 
     fun clockOut(entryId: String, date: LocalDate = LocalDate.now()): HoursEntry? {
         val log = readLog(date)
-        val updated = log.entries.map { entry ->
-            if (entry.id == entryId && entry.clockOutMs == null) {
-                entry.copy(clockOutMs = System.currentTimeMillis())
-            } else {
-                entry
-            }
-        }
-        val result = updated.find { it.id == entryId }
+        val target = log.entries.find { it.id == entryId && it.clockOutMs == null }
+            ?: return null
+        val stamped = target.copy(clockOutMs = System.currentTimeMillis())
+        val updated = log.entries.map { if (it.id == entryId) stamped else it }
         writeLog(log.copy(entries = updated))
-        return result
+        return stamped
     }
 
     fun getEntriesForDate(date: LocalDate = LocalDate.now()): List<HoursEntry> {

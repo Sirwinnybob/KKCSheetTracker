@@ -79,4 +79,17 @@ class HoursStoreTest {
         assertEquals(1, entries.size)
         assertEquals(entry.id, entries[0].id)
     }
+
+    @Test
+    fun clockOut_returnsNullIfAlreadyClockedOut() {
+        val baseDir = tempBaseDir()
+        val store = HoursStore(baseDir, "tablet-1")
+        val date = LocalDate.of(2026, 5, 12)
+
+        val entry = store.clockIn("Alice", date)
+        store.clockOut(entry.id, date)
+        val second = store.clockOut(entry.id, date)
+
+        assertNull(second)
+    }
 }
