@@ -955,7 +955,9 @@ private fun SettingsTabHost(
                 onSyncthingApiKeySave = onSyncthingApiKeySave,
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
-                onBack = onBack
+                onBack = onBack,
+                employeeName = employeeName,
+                onEmployeeNameChanged = onEmployeeNameChanged,
             )
         }
     }
@@ -1563,7 +1565,9 @@ private fun LegacySingleStackNavigation(
                     onSyncthingApiKeySave = onSyncthingApiKeySave,
                     onSyncthingCheckNow = onSyncthingCheckNow,
                     onSyncthingStartNow = onSyncthingStartNow,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    employeeName = employeeName,
+                    onEmployeeNameChanged = onEmployeeNameChanged,
                 )
             }
             }

@@ -41,11 +41,16 @@ fun SettingsScreen(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
 ) {
     var editTabletId by remember { mutableStateOf(tabletId) }
     var editBasePath by remember { mutableStateOf(basePath) }
     var editSyncthingApiKey by remember(syncthingApiKey) { mutableStateOf(syncthingApiKey) }
+    var editEmployeeName by remember { mutableStateOf(employeeName) }
+    var employeeNameDirty by remember { mutableStateOf(false) }
+    var employeeNameSaved by remember { mutableStateOf(false) }
     var tabletIdDirty by remember { mutableStateOf(false) }
     var basePathDirty by remember { mutableStateOf(false) }
     var syncthingApiKeyDirty by remember { mutableStateOf(false) }
@@ -69,6 +74,12 @@ fun SettingsScreen(
         if (syncthingApiKeySaved) {
             delay(1600)
             syncthingApiKeySaved = false
+        }
+    }
+    LaunchedEffect(employeeNameSaved) {
+        if (employeeNameSaved) {
+            delay(1600)
+            employeeNameSaved = false
         }
     }
 
@@ -136,6 +147,47 @@ fun SettingsScreen(
                 title = "Tablet",
                 accentColor = MaterialTheme.colorScheme.tertiary
             ) {
+                OutlinedTextField(
+                    value = editEmployeeName,
+                    onValueChange = {
+                        editEmployeeName = it
+                        employeeNameDirty = it != employeeName
+                    },
+                    label = { Text("Your Name / PIN") },
+                    supportingText = { Text("Used for auto-login to the Hours Tracker. Leave blank to be prompted each time.") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium
+                )
+
+                if (employeeNameDirty || employeeNameSaved) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (employeeNameDirty) {
+                            Button(
+                                onClick = {
+                                    onEmployeeNameChanged(editEmployeeName.trim())
+                                    employeeNameDirty = false
+                                    employeeNameSaved = true
+                                },
+                                shape = MaterialTheme.shapes.medium
+                            ) {
+                                Text("Save Name")
+                            }
+                        }
+                        if (employeeNameSaved) {
+                            Text(
+                                "Saved",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = editTabletId,
                     onValueChange = {
