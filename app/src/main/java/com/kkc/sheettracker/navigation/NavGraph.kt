@@ -1060,6 +1060,9 @@ private fun LegacySingleStackNavigation(
         currentRoute?.startsWith("hardwoods/workspace/") == true ||
         currentRoute?.startsWith("assembly/viewer/") == true
 
+    var hoursSessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
+    var hoursShowLoginDialog by remember { mutableStateOf(hoursSessionName == null) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             NavHost(
@@ -1528,19 +1531,16 @@ private fun LegacySingleStackNavigation(
             }
 
             composable("hours") {
-                var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
-                var showLoginDialog by remember { mutableStateOf(sessionName == null) }
-
-                if (showLoginDialog || sessionName == null) {
+                if (hoursShowLoginDialog || hoursSessionName == null) {
                     HoursLoginDialog(
                         onLogin = { name ->
-                            sessionName = name
-                            showLoginDialog = false
+                            hoursSessionName = name
+                            hoursShowLoginDialog = false
                         },
-                        onDismiss = { showLoginDialog = false }
+                        onDismiss = { hoursShowLoginDialog = false }
                     )
                 }
-                sessionName?.let { name ->
+                hoursSessionName?.let { name ->
                     HoursTrackerScreen(
                         hoursStore = hoursStore,
                         employeeName = name
