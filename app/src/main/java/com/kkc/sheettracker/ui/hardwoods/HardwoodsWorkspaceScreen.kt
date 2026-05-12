@@ -99,11 +99,16 @@ import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.ChangedBadge
 import com.kkc.sheettracker.ui.components.ProgressPill
 import com.kkc.sheettracker.ui.components.ProgressState
-import com.kkc.sheettracker.ui.components.ReferencePdfPane
 import com.kkc.sheettracker.ui.components.RevisionBadge
 import com.kkc.sheettracker.ui.components.SectionProgressHeader
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
+import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageMapping
+import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageSource
+import com.kkc.sheettracker.ui.viewer.buildPlanViewLabelsFromPageToRoom
+import com.kkc.sheettracker.ui.viewer.extractRoomDisplayName
+import com.kkc.sheettracker.ui.viewer.sanitizeVirtualAssemblyData
 import com.kkc.sheettracker.viewer3d.Model3DPane
 import com.kkc.sheettracker.viewer3d.ViewerServer
 import java.io.File
@@ -1258,52 +1263,78 @@ private fun ReferencePane(
             ReferenceDocType.DELIVERY_SHEETS -> null
         }
     }
-    val assemblyVirtualMap = remember(cabinetIndex) {
-        cabinetIndex?.documents?.assembly?.virtualCombined?.virtualPageToSource.orEmpty()
+    val assemblyVirtualRawMap = remember(cabinetIndex) {
+        cabinetIndex?.documents?.assembly?.virtualCombined?.virtualPageToSource
+            ?.mapNotNull { (virtualPageKey, source) ->
+                val page = virtualPageKey.toIntOrNull() ?: return@mapNotNull null
+                if (page <= 0) return@mapNotNull null
+                page to UnifiedVirtualPageSource(
+                    pdfFilename = source.pdfFilename,
+                    page = source.page,
+                    cabinet = source.cabinet,
+                    sourceVariant = source.variant
+                )
+            }
+            ?.toMap()
+            .orEmpty()
     }
     val assemblyVirtualTotalPages = remember(cabinetIndex) {
         (cabinetIndex?.documents?.assembly?.virtualCombined?.totalVirtualPages ?: 0).coerceAtLeast(0)
     }
-    val hasVirtualAssembly = referenceDocType == ReferenceDocType.ASSEMBLY && assemblyVirtualTotalPages > 0
-    var showCombinedSheetNavigator by remember(jobFolderName, referenceDocType) { mutableStateOf(false) }
-
-    fun resolveAssemblyFilename(virtualPage: Int): String {
-        val mapped = assemblyVirtualMap[virtualPage.toString()]?.pdfFilename?.takeIf { it.isNotBlank() }
-        val fallback = docIndex?.pdfFilename?.takeIf { it.isNotBlank() }
-            ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY)
-        return mapped ?: fallback.orEmpty()
+    val assemblyVirtualSanitized = remember(
+        referenceDocType,
+        assemblyVirtualTotalPages,
+        assemblyVirtualRawMap,
+        cabinetIndex,
+        docIndex
+    ) {
+        sanitizeVirtualAssemblyData(
+            totalVirtualPages = assemblyVirtualTotalPages,
+            defaultPdfFilename = docIndex?.pdfFilename?.takeIf { it.isNotBlank() }
+                ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY).orEmpty(),
+            sourceByDisplayPage = assemblyVirtualRawMap,
+            cabinetToPages = cabinetIndex?.documents?.assembly?.virtualCombined?.cabinetToPages.orEmpty()
+        )
     }
-
-    fun resolveAssemblySourcePage(virtualPage: Int): Int {
-        return assemblyVirtualMap[virtualPage.toString()]?.page?.takeIf { it > 0 } ?: virtualPage
-    }
-
-    fun resolveVirtualPage(sourceFilename: String, sourcePage: Int): Int? {
-        if (sourceFilename.isBlank() || sourcePage <= 0) return null
-        val match = assemblyVirtualMap.entries.firstOrNull { (_, source) ->
-            source.pdfFilename.equals(sourceFilename, ignoreCase = true) && source.page == sourcePage
-        } ?: return null
-        return match.key.toIntOrNull()
-    }
-
-    val virtualPage = if (hasVirtualAssembly) {
-        currentPage.coerceIn(1, assemblyVirtualTotalPages.coerceAtLeast(1))
-    } else {
-        currentPage
-    }
-    val pdfFilename = remember(docIndex, referenceDocType, jobFolderName, virtualPage, hasVirtualAssembly) {
-        if (hasVirtualAssembly) {
-            resolveAssemblyFilename(virtualPage)
+    val virtualMapping = remember(referenceDocType, assemblyVirtualSanitized) {
+        if (referenceDocType != ReferenceDocType.ASSEMBLY || assemblyVirtualTotalPages <= 0) {
+            null
         } else {
-            docIndex?.pdfFilename?.takeIf { it.isNotBlank() }
-                ?: jobRepository.findReferencePdfFilename(jobFolderName, referenceDocType)
-                ?: ""
+            assemblyVirtualSanitized.mapping
         }
     }
-    val pdfFile = remember(jobFolderName, pdfFilename, isDarkTheme) {
-        if (pdfFilename.isBlank()) null else jobRepository.getJobRootPdfFile(jobFolderName, pdfFilename, preferDarkMode = isDarkTheme)
+    val navigatorCabinetToPages = remember(referenceDocType, docIndex, assemblyVirtualSanitized, virtualMapping) {
+        when (referenceDocType) {
+            ReferenceDocType.ASSEMBLY -> if (virtualMapping != null) {
+                assemblyVirtualSanitized.cabinetToPages
+            } else {
+                docIndex?.cabinetToPages.orEmpty()
+            }
+            ReferenceDocType.PLANS_ELEVATIONS -> docIndex?.cabinetToPages.orEmpty()
+            ReferenceDocType.DELIVERY_SHEETS -> emptyMap()
+        }
     }
-    val sourcePage = if (hasVirtualAssembly) resolveAssemblySourcePage(virtualPage) else currentPage
+    val navigatorPlanViewLabels = remember(referenceDocType, docIndex) {
+        if (referenceDocType != ReferenceDocType.PLANS_ELEVATIONS) {
+            emptyMap()
+        } else {
+            val pageToRoom = docIndex?.pageDetails
+                .orEmpty()
+                .mapNotNull { (pageKey, detail) ->
+                    val page = pageKey.toIntOrNull() ?: return@mapNotNull null
+                    val room = extractRoomDisplayName(detail.room) ?: return@mapNotNull null
+                    page to room
+                }
+                .toMap()
+            buildPlanViewLabelsFromPageToRoom(pageToRoom)
+        }
+    }
+
+    val defaultPdfFilename = remember(docIndex, referenceDocType, jobFolderName) {
+        docIndex?.pdfFilename?.takeIf { it.isNotBlank() }
+            ?: jobRepository.findReferencePdfFilename(jobFolderName, referenceDocType)
+            ?: ""
+    }
 
     val docControls: @Composable RowScope.() -> Unit = {
             FilterChip(
@@ -1342,102 +1373,28 @@ private fun ReferencePane(
             headerSlot = docControls
         )
     } else {
-        ReferencePdfPane(
+        UnifiedReferenceViewer(
             modifier = modifier,
-            pdfFile = pdfFile,
-            currentPage = sourcePage,
-            onCurrentPageChange = { nextSourcePage ->
-                if (hasVirtualAssembly) {
-                    val mapped = resolveVirtualPage(pdfFilename, nextSourcePage)
-                    if (mapped != null) onCurrentPageChange(mapped)
-                } else {
-                    onCurrentPageChange(nextSourcePage)
-                }
-            },
-            showDocControls = docControls,
-            displayPageOverride = if (hasVirtualAssembly) virtualPage else null,
-            displayTotalPagesOverride = if (hasVirtualAssembly) assemblyVirtualTotalPages else null,
-            onStepPage = if (hasVirtualAssembly) {
-                { delta ->
-                    onCurrentPageChange((virtualPage + delta).coerceIn(1, assemblyVirtualTotalPages.coerceAtLeast(1)))
-                }
-            } else {
-                null
-            },
-            onOpenSheetNavigator = if (hasVirtualAssembly) {
-                { showCombinedSheetNavigator = true }
-            } else {
-                null
-            }
-        )
-    }
-
-    if (showCombinedSheetNavigator && hasVirtualAssembly) {
-        val pages = remember(assemblyVirtualTotalPages) { (1..assemblyVirtualTotalPages).toList() }
-        ModalBottomSheet(onDismissRequest = { showCombinedSheetNavigator = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.88f)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Sheet Navigator", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "Combined FF/FL assembly pages",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            displayPage = currentPage,
+            onDisplayPageChange = onCurrentPageChange,
+            defaultPdfFilename = defaultPdfFilename,
+            pdfFileForFilename = { filename ->
+                jobRepository.getJobRootPdfFile(
+                    jobFolderName = jobFolderName,
+                    pdfFilename = filename,
+                    preferDarkMode = isDarkTheme
                 )
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(pages, key = { it }) { page ->
-                        val mapped = assemblyVirtualMap[page.toString()]
-                        val sourceLabel = mapped?.let { source ->
-                            val shortName = source.pdfFilename.substringBeforeLast(".pdf")
-                            "$shortName - Page ${source.page}"
-                        } ?: "Page $page"
-                        val selected = page == virtualPage
-                        Surface(
-                            tonalElevation = if (selected) 3.dp else 1.dp,
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
-                            shape = MaterialTheme.shapes.medium,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onCurrentPageChange(page)
-                                    showCombinedSheetNavigator = false
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Text(
-                                    "Sheet $page",
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold
-                                )
-                                Spacer(Modifier.weight(1f))
-                                Text(
-                                    sourceLabel,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+            },
+            virtualMapping = virtualMapping,
+            navigatorCabinetToPages = navigatorCabinetToPages,
+            navigatorPlanViewLabels = navigatorPlanViewLabels,
+            navigatorWarningMessage = if (referenceDocType == ReferenceDocType.ASSEMBLY) {
+                assemblyVirtualSanitized.warningMessage
+            } else {
+                null
+            },
+            showDocControls = docControls
+        )
     }
 }
 

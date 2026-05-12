@@ -66,8 +66,13 @@ import com.kkc.sheettracker.data.models.AssemblyCabinetParts
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
-import com.kkc.sheettracker.ui.components.ReferencePdfPane
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
+import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageMapping
+import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageSource
+import com.kkc.sheettracker.ui.viewer.buildPlanViewLabelsFromPageToRoom
+import com.kkc.sheettracker.ui.viewer.extractRoomDisplayName
+import com.kkc.sheettracker.ui.viewer.sanitizeVirtualAssemblyData
 import com.kkc.sheettracker.viewer3d.Model3DPane
 import com.kkc.sheettracker.viewer3d.ViewerServer
 import java.io.File
@@ -121,15 +126,62 @@ fun AssemblyViewerScreen(
             ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY)
             ?: ""
     }
-    val assemblyVirtualTotalPages = remember(sheetIndex) {
-        val total = sheetIndex?.documents?.assembly?.virtualCombined?.totalVirtualPages ?: 0
-        total.coerceAtLeast(0)
+    val assemblyVirtualRawMap = remember(sheetIndex) {
+        sheetIndex?.documents?.assembly?.virtualCombined?.virtualPageToSource
+            ?.mapNotNull { (virtualPageKey, source) ->
+                val virtualPage = virtualPageKey.toIntOrNull() ?: return@mapNotNull null
+                if (virtualPage <= 0) return@mapNotNull null
+                virtualPage to UnifiedVirtualPageSource(
+                    pdfFilename = source.pdfFilename,
+                    page = source.page,
+                    cabinet = source.cabinet,
+                    sourceVariant = source.variant
+                )
+            }
+            ?.toMap()
+            .orEmpty()
     }
-    val hasVirtualAssembly = assemblyVirtualTotalPages > 0
+    val assemblyVirtualTotalPagesRaw = remember(sheetIndex) {
+        (sheetIndex?.documents?.assembly?.virtualCombined?.totalVirtualPages ?: 0).coerceAtLeast(0)
+    }
+    val assemblyVirtualSanitized = remember(
+        assemblyVirtualTotalPagesRaw,
+        assemblyFilename,
+        assemblyVirtualRawMap,
+        sheetIndex
+    ) {
+        sanitizeVirtualAssemblyData(
+            totalVirtualPages = assemblyVirtualTotalPagesRaw,
+            defaultPdfFilename = assemblyFilename,
+            sourceByDisplayPage = assemblyVirtualRawMap,
+            cabinetToPages = sheetIndex?.documents?.assembly?.virtualCombined?.cabinetToPages.orEmpty()
+        )
+    }
+    val assemblyVirtualMapping = remember(assemblyVirtualSanitized) { assemblyVirtualSanitized.mapping }
+    val assemblyVirtualTotalPages = assemblyVirtualMapping?.totalDisplayPages ?: 0
+    val hasVirtualAssembly = assemblyVirtualMapping != null && assemblyVirtualTotalPages > 0
+    val assemblyNavigatorCabinetToPages = remember(sheetIndex, assemblyVirtualSanitized, hasVirtualAssembly) {
+        if (hasVirtualAssembly) {
+            assemblyVirtualSanitized.cabinetToPages
+        } else {
+            sheetIndex?.documents?.assembly?.cabinetToPages.orEmpty()
+        }
+    }
     val plansFilename = remember(sheetIndex, jobFolderName) {
         sheetIndex?.documents?.plansElevations?.pdfFilename?.takeIf { it.isNotBlank() }
             ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
             ?: ""
+    }
+    val plansNavigatorPlanViewLabels = remember(sheetIndex) {
+        val pageToRoom = sheetIndex?.documents?.plansElevations?.pageDetails
+            .orEmpty()
+            .mapNotNull { (pageKey, detail) ->
+                val page = pageKey.toIntOrNull() ?: return@mapNotNull null
+                val room = extractRoomDisplayName(detail.room) ?: return@mapNotNull null
+                page to room
+            }
+            .toMap()
+        buildPlanViewLabelsFromPageToRoom(pageToRoom)
     }
     val pdfCatalog = remember(jobFolderName) {
         jobRepository.getJobPdfCatalog(jobFolderName)
@@ -178,7 +230,6 @@ fun AssemblyViewerScreen(
     var firstPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var secondPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var otherPickerTarget by remember { mutableStateOf<PaneSlot?>(null) }
-    var virtualAssemblyPickerTarget by remember { mutableStateOf<PaneSlot?>(null) }
     var serverPort by remember { mutableIntStateOf(0) }
     var viewerServerError by remember { mutableStateOf<String?>(null) }
     var detectedRoom by rememberSaveable(initialRoom) { mutableStateOf(initialRoom) }
@@ -329,20 +380,9 @@ fun AssemblyViewerScreen(
         PaneSource.THREE_D -> "3D"
     }
 
-    fun resolvedAssemblyFilename(virtualPage: Int): String? {
-        val mapped = assemblyStateStore.resolveAssemblyPageSource(jobFolderName, virtualPage)
-        val mappedFilename = mapped?.pdfFilename?.takeIf { it.isNotBlank() }
-        return mappedFilename ?: assemblyFilename.takeIf { it.isNotBlank() }
-    }
-
-    fun resolvedAssemblySourcePage(virtualPage: Int): Int {
-        val mapped = assemblyStateStore.resolveAssemblyPageSource(jobFolderName, virtualPage)
-        return mapped?.page?.takeIf { it > 0 } ?: virtualPage
-    }
-
     fun sourceFilename(source: PaneSource, otherFilename: String?): String? = when (source) {
         PaneSource.PLANS -> plansFilename.takeIf { it.isNotBlank() }
-        PaneSource.ASSEMBLY -> resolvedAssemblyFilename(assemblyPage)
+        PaneSource.ASSEMBLY -> assemblyFilename.takeIf { it.isNotBlank() }
         PaneSource.DELIVERY -> deliveryFilename.takeIf { it.isNotBlank() }
         PaneSource.OTHER -> otherFilename?.takeIf { it.isNotBlank() }
         PaneSource.THREE_D -> null
@@ -350,7 +390,7 @@ fun AssemblyViewerScreen(
 
     fun sourcePage(source: PaneSource, otherPage: Int, deliveryPage: Int): Int = when (source) {
         PaneSource.PLANS -> plansPage
-        PaneSource.ASSEMBLY -> resolvedAssemblySourcePage(assemblyPage)
+        PaneSource.ASSEMBLY -> assemblyPage
         PaneSource.DELIVERY -> deliveryPage
         PaneSource.OTHER -> otherPage
         PaneSource.THREE_D -> 1
@@ -363,13 +403,7 @@ fun AssemblyViewerScreen(
                 if (hasVirtualAssembly) {
                     assemblyPage = nextPage.coerceIn(1, assemblyVirtualTotalPages.coerceAtLeast(1))
                 } else {
-                    val sourceFilename = resolvedAssemblyFilename(assemblyPage).orEmpty()
-                    val virtualPage = assemblyStateStore.resolveVirtualAssemblyPage(
-                        jobFolderName = jobFolderName,
-                        sourcePdfFilename = sourceFilename,
-                        sourcePage = nextPage
-                    )
-                    assemblyPage = virtualPage ?: nextPage
+                    assemblyPage = nextPage.coerceAtLeast(1)
                 }
             }
             PaneSource.DELIVERY -> setDelivery(nextPage)
@@ -382,14 +416,6 @@ fun AssemblyViewerScreen(
     val secondSourceName = sourceLabel(secondPaneSource)
     val firstSourceFilename = sourceFilename(firstPaneSource, firstPaneOtherFilename)
     val secondSourceFilename = sourceFilename(secondPaneSource, secondPaneOtherFilename)
-    val firstSourcePdfFile = remember(jobFolderName, firstSourceFilename, isDarkTheme) {
-        if (firstSourceFilename.isNullOrBlank()) null
-        else jobRepository.getJobRootPdfFile(jobFolderName, firstSourceFilename, preferDarkMode = isDarkTheme)
-    }
-    val secondSourcePdfFile = remember(jobFolderName, secondSourceFilename, isDarkTheme) {
-        if (secondSourceFilename.isNullOrBlank()) null
-        else jobRepository.getJobRootPdfFile(jobFolderName, secondSourceFilename, preferDarkMode = isDarkTheme)
-    }
     val firstMissingText = remember(firstPaneSource, firstPaneOtherFilename, firstSourceFilename) {
         when (firstPaneSource) {
             PaneSource.OTHER -> when {
@@ -463,9 +489,16 @@ fun AssemblyViewerScreen(
                 when (fullscreenPane) {
                     FullscreenPane.FIRST -> {
                         PdfPaneWithFloatingControls(
+                            jobRepository = jobRepository,
+                            jobFolderName = jobFolderName,
+                            isDarkTheme = isDarkTheme,
                             title = firstSourceName,
-                            pdfFile = firstSourcePdfFile,
-                            currentPage = sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage),
+                            pdfFilename = firstSourceFilename,
+                            currentPage = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                assemblyPage
+                            } else {
+                                sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage)
+                            },
                             totalPages = firstPaneTotalPages,
                             onCurrentPageChange = { nextPage ->
                                 setSourcePage(
@@ -484,11 +517,29 @@ fun AssemblyViewerScreen(
                             },
                             tocRequestToken = firstPaneTocRequestToken,
                             onOpenToc = {
-                                if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                    virtualAssemblyPickerTarget = PaneSlot.FIRST
-                                } else {
-                                    firstPaneTocRequestToken++
-                                }
+                                firstPaneTocRequestToken++
+                            },
+                            virtualMapping = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                assemblyVirtualMapping
+                            } else {
+                                null
+                            },
+                            navigatorCabinetToPages = if (firstPaneSource == PaneSource.ASSEMBLY) {
+                                assemblyNavigatorCabinetToPages
+                            } else if (firstPaneSource == PaneSource.PLANS) {
+                                sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
+                            } else {
+                                emptyMap()
+                            },
+                            navigatorPlanViewLabels = if (firstPaneSource == PaneSource.PLANS) {
+                                plansNavigatorPlanViewLabels
+                            } else {
+                                emptyMap()
+                            },
+                            navigatorWarningMessage = if (firstPaneSource == PaneSource.ASSEMBLY) {
+                                assemblyVirtualSanitized.warningMessage
+                            } else {
+                                null
                             },
                             missingText = firstMissingText,
                             unreadableText = firstUnreadableText,
@@ -519,9 +570,16 @@ fun AssemblyViewerScreen(
                     }
                     FullscreenPane.SECOND -> {
                         PdfPaneWithFloatingControls(
+                            jobRepository = jobRepository,
+                            jobFolderName = jobFolderName,
+                            isDarkTheme = isDarkTheme,
                             title = secondSourceName,
-                            pdfFile = secondSourcePdfFile,
-                            currentPage = sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage),
+                            pdfFilename = secondSourceFilename,
+                            currentPage = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                assemblyPage
+                            } else {
+                                sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage)
+                            },
                             totalPages = secondPaneTotalPages,
                             onCurrentPageChange = { nextPage ->
                                 setSourcePage(
@@ -540,11 +598,29 @@ fun AssemblyViewerScreen(
                             },
                             tocRequestToken = secondPaneTocRequestToken,
                             onOpenToc = {
-                                if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                    virtualAssemblyPickerTarget = PaneSlot.SECOND
-                                } else {
-                                    secondPaneTocRequestToken++
-                                }
+                                secondPaneTocRequestToken++
+                            },
+                            virtualMapping = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                assemblyVirtualMapping
+                            } else {
+                                null
+                            },
+                            navigatorCabinetToPages = if (secondPaneSource == PaneSource.ASSEMBLY) {
+                                assemblyNavigatorCabinetToPages
+                            } else if (secondPaneSource == PaneSource.PLANS) {
+                                sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
+                            } else {
+                                emptyMap()
+                            },
+                            navigatorPlanViewLabels = if (secondPaneSource == PaneSource.PLANS) {
+                                plansNavigatorPlanViewLabels
+                            } else {
+                                emptyMap()
+                            },
+                            navigatorWarningMessage = if (secondPaneSource == PaneSource.ASSEMBLY) {
+                                assemblyVirtualSanitized.warningMessage
+                            } else {
+                                null
                             },
                             missingText = secondMissingText,
                             unreadableText = secondUnreadableText,
@@ -580,9 +656,16 @@ fun AssemblyViewerScreen(
                             firstContent = { paneModifier ->
                                 PdfPaneWithFloatingControls(
                                     modifier = paneModifier,
+                                    jobRepository = jobRepository,
+                                    jobFolderName = jobFolderName,
+                                    isDarkTheme = isDarkTheme,
                                     title = firstSourceName,
-                                    pdfFile = firstSourcePdfFile,
-                                    currentPage = sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage),
+                                    pdfFilename = firstSourceFilename,
+                                    currentPage = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                        assemblyPage
+                                    } else {
+                                        sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage)
+                                    },
                                     totalPages = firstPaneTotalPages,
                                     onCurrentPageChange = { nextPage ->
                                         setSourcePage(
@@ -601,11 +684,29 @@ fun AssemblyViewerScreen(
                                     },
                                     tocRequestToken = firstPaneTocRequestToken,
                                     onOpenToc = {
-                                        if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                            virtualAssemblyPickerTarget = PaneSlot.FIRST
-                                        } else {
-                                            firstPaneTocRequestToken++
-                                        }
+                                        firstPaneTocRequestToken++
+                                    },
+                                    virtualMapping = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                        assemblyVirtualMapping
+                                    } else {
+                                        null
+                                    },
+                                    navigatorCabinetToPages = if (firstPaneSource == PaneSource.ASSEMBLY) {
+                                        assemblyNavigatorCabinetToPages
+                                    } else if (firstPaneSource == PaneSource.PLANS) {
+                                        sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
+                                    } else {
+                                        emptyMap()
+                                    },
+                                    navigatorPlanViewLabels = if (firstPaneSource == PaneSource.PLANS) {
+                                        plansNavigatorPlanViewLabels
+                                    } else {
+                                        emptyMap()
+                                    },
+                                    navigatorWarningMessage = if (firstPaneSource == PaneSource.ASSEMBLY) {
+                                        assemblyVirtualSanitized.warningMessage
+                                    } else {
+                                        null
                                     },
                                     missingText = firstMissingText,
                                     unreadableText = firstUnreadableText,
@@ -637,9 +738,16 @@ fun AssemblyViewerScreen(
                             secondContent = { paneModifier ->
                                 PdfPaneWithFloatingControls(
                                     modifier = paneModifier,
+                                    jobRepository = jobRepository,
+                                    jobFolderName = jobFolderName,
+                                    isDarkTheme = isDarkTheme,
                                     title = secondSourceName,
-                                    pdfFile = secondSourcePdfFile,
-                                    currentPage = sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage),
+                                    pdfFilename = secondSourceFilename,
+                                    currentPage = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                        assemblyPage
+                                    } else {
+                                        sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage)
+                                    },
                                     totalPages = secondPaneTotalPages,
                                     onCurrentPageChange = { nextPage ->
                                         setSourcePage(
@@ -658,11 +766,29 @@ fun AssemblyViewerScreen(
                                     },
                                     tocRequestToken = secondPaneTocRequestToken,
                                     onOpenToc = {
-                                        if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                            virtualAssemblyPickerTarget = PaneSlot.SECOND
-                                        } else {
-                                            secondPaneTocRequestToken++
-                                        }
+                                        secondPaneTocRequestToken++
+                                    },
+                                    virtualMapping = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                        assemblyVirtualMapping
+                                    } else {
+                                        null
+                                    },
+                                    navigatorCabinetToPages = if (secondPaneSource == PaneSource.ASSEMBLY) {
+                                        assemblyNavigatorCabinetToPages
+                                    } else if (secondPaneSource == PaneSource.PLANS) {
+                                        sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
+                                    } else {
+                                        emptyMap()
+                                    },
+                                    navigatorPlanViewLabels = if (secondPaneSource == PaneSource.PLANS) {
+                                        plansNavigatorPlanViewLabels
+                                    } else {
+                                        emptyMap()
+                                    },
+                                    navigatorWarningMessage = if (secondPaneSource == PaneSource.ASSEMBLY) {
+                                        assemblyVirtualSanitized.warningMessage
+                                    } else {
+                                        null
                                     },
                                     missingText = secondMissingText,
                                     unreadableText = secondUnreadableText,
@@ -780,74 +906,6 @@ fun AssemblyViewerScreen(
         }
     }
 
-    if (virtualAssemblyPickerTarget != null && hasVirtualAssembly) {
-        val pages = remember(assemblyVirtualTotalPages) { (1..assemblyVirtualTotalPages).toList() }
-        ModalBottomSheet(onDismissRequest = { virtualAssemblyPickerTarget = null }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(620.dp)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Sheet Navigator", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Combined FF/FL assembly pages",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(pages, key = { it }) { page ->
-                        val mapped = assemblyStateStore.resolveAssemblyPageSource(jobFolderName, page)
-                        val sourceLabel = mapped?.let { source ->
-                            val shortName = source.pdfFilename.substringBeforeLast(".pdf")
-                            "$shortName - Page ${source.page}"
-                        } ?: "Page $page"
-                        val selected = page == assemblyPage
-                        Surface(
-                            tonalElevation = if (selected) 3.dp else 1.dp,
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
-                            shape = MaterialTheme.shapes.medium,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    assemblyPage = page
-                                    virtualAssemblyPickerTarget = null
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Text(
-                                    "Sheet $page",
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold
-                                )
-                                Spacer(Modifier.weight(1f))
-                                Text(
-                                    sourceLabel,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     if (showPartsSheet && cabinetParts != null) {
         ModalBottomSheet(
             onDismissRequest = { showPartsSheet = false }
@@ -860,14 +918,21 @@ fun AssemblyViewerScreen(
 @Composable
 private fun PdfPaneWithFloatingControls(
     modifier: Modifier = Modifier,
+    jobRepository: JobRepository,
+    jobFolderName: String,
+    isDarkTheme: Boolean,
     title: String,
-    pdfFile: java.io.File?,
+    pdfFilename: String?,
     currentPage: Int,
     totalPages: Int,
     onCurrentPageChange: (Int) -> Unit,
     onTotalPagesChanged: (Int) -> Unit,
     tocRequestToken: Int = 0,
     onOpenToc: () -> Unit,
+    virtualMapping: UnifiedVirtualPageMapping? = null,
+    navigatorCabinetToPages: Map<String, List<Int>> = emptyMap(),
+    navigatorPlanViewLabels: Map<Int, String> = emptyMap(),
+    navigatorWarningMessage: String? = null,
     missingText: String = "$title PDF not found",
     unreadableText: String = "Unable to read $title",
     sourceControlsInline: (@Composable RowScope.() -> Unit)? = null,
@@ -876,18 +941,29 @@ private fun PdfPaneWithFloatingControls(
     customContent: (@Composable () -> Unit)? = null
 ) {
     val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-    var viewportZoom by remember(pdfFile?.absolutePath) { mutableFloatStateOf(1f) }
+    var viewportZoom by remember(pdfFilename) { mutableFloatStateOf(1f) }
     val bottomLift = if (customContent == null && isPortrait && viewportZoom <= 1.02f) 78.dp else 0.dp
 
     Box(modifier = modifier.fillMaxSize()) {
         if (customContent != null) {
             customContent()
         } else {
-            ReferencePdfPane(
+            UnifiedReferenceViewer(
                 modifier = Modifier.fillMaxSize(),
-                pdfFile = pdfFile,
-                currentPage = currentPage,
-                onCurrentPageChange = onCurrentPageChange,
+                displayPage = currentPage,
+                onDisplayPageChange = onCurrentPageChange,
+                defaultPdfFilename = pdfFilename.orEmpty(),
+                pdfFileForFilename = { filename ->
+                    jobRepository.getJobRootPdfFile(
+                        jobFolderName = jobFolderName,
+                        pdfFilename = filename,
+                        preferDarkMode = isDarkTheme
+                    )
+                },
+                virtualMapping = virtualMapping,
+                navigatorCabinetToPages = navigatorCabinetToPages,
+                navigatorPlanViewLabels = navigatorPlanViewLabels,
+                navigatorWarningMessage = navigatorWarningMessage,
                 missingText = missingText,
                 unreadableText = unreadableText,
                 onTotalPagesChanged = onTotalPagesChanged,
