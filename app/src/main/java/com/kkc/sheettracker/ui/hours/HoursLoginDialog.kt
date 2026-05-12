@@ -62,6 +62,10 @@ fun HoursLoginDialog(
     )
 
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        try {
+            focusRequester.requestFocus()
+        } catch (_: IllegalStateException) {
+            // Composable not yet attached to layout tree
+        }
     }
 }

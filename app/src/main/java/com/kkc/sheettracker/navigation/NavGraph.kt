@@ -356,7 +356,8 @@ private fun MultiBackStackNavigation(
                     HoursTabHost(
                         navController = hoursNavController,
                         hoursStore = hoursStore,
-                        employeeName = employeeName
+                        employeeName = employeeName,
+                        isTabSelected = selectedTab == TopLevelTab.HOURS
                     )
                 }
 
@@ -1712,7 +1713,8 @@ private fun isCurrentViewerTarget(
 private fun HoursTabHost(
     navController: NavHostController,
     hoursStore: HoursStore,
-    employeeName: String
+    employeeName: String,
+    isTabSelected: Boolean
 ) {
     var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
     var showLoginDialog by remember { mutableStateOf(sessionName == null) }
@@ -1723,7 +1725,7 @@ private fun HoursTabHost(
         modifier = Modifier.fillMaxSize()
     ) {
         composable("hours") {
-            if (showLoginDialog || sessionName == null) {
+            if (isTabSelected && (showLoginDialog || sessionName == null)) {
                 HoursLoginDialog(
                     onLogin = { name ->
                         sessionName = name
