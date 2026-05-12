@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.models.AssemblyJob
 import com.kkc.sheettracker.data.models.AssemblyScanSnapshot
 import com.kkc.sheettracker.data.models.AssemblyScanState
@@ -80,6 +81,8 @@ class AssemblyScanCoordinator(
             ?.filter { it.isDirectory && File(it, "CNC").isDirectory }
             ?.mapNotNull { jobDir ->
                 runCatching {
+                    val deploymentGate = DeploymentGateRules.evaluate(jobDir, isDebugBuild = BuildConfig.DEBUG)
+                    if (!deploymentGate.includeJob) return@runCatching null
                     val match = Regex("""^(\d+)\s*-\s*(.+)$""").find(jobDir.name) ?: return@runCatching null
                     val jobNumber = match.groupValues[1]
                     val jobName = match.groupValues[2].trim()
@@ -88,7 +91,8 @@ class AssemblyScanCoordinator(
                         folderName = jobDir.name,
                         jobNumber = jobNumber,
                         jobName = jobName,
-                        cabinetSheetIndex = sheetIndex
+                        cabinetSheetIndex = sheetIndex,
+                        hiddenFromProduction = deploymentGate.hiddenFromProduction
                     )
                 }.getOrNull()
             }

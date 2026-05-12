@@ -3,6 +3,7 @@ package com.kkc.sheettracker.data
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import com.google.gson.Gson
+import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.MaterialMetadata
@@ -162,12 +163,20 @@ class ScanCoordinator(
         val scanned = dir.listFiles()
             ?.filter { it.isDirectory && File(it, "CNC").isDirectory }
             ?.mapNotNull { jobDir ->
+                val deploymentGate = DeploymentGateRules.evaluate(jobDir, isDebugBuild = BuildConfig.DEBUG)
+                if (!deploymentGate.includeJob) return@mapNotNull null
                 val match = Regex("""^(\d+)\s*-\s*(.+)$""").find(jobDir.name)
                 if (match != null) {
                     val jobNumber = match.groupValues[1]
                     val jobName = match.groupValues[2].trim()
                     val materials = scanMaterials(jobDir.name, File(jobDir, "CNC"), jobNumber, issues)
-                    Job(jobDir.name, jobNumber, jobName, materials)
+                    Job(
+                        folderName = jobDir.name,
+                        jobNumber = jobNumber,
+                        jobName = jobName,
+                        materials = materials,
+                        hiddenFromProduction = deploymentGate.hiddenFromProduction
+                    )
                 } else {
                     null
                 }
@@ -343,6 +352,13 @@ class ScanCoordinator(
                 mix(json.name.hashCode().toLong())
                 mix(json.length())
                 mix(json.lastModified())
+            }
+
+            val deploymentGateFile = File(jobDir, ".metadata/deployment_gate.json")
+            mix(if (deploymentGateFile.isFile) 1L else 0L)
+            if (deploymentGateFile.isFile) {
+                mix(deploymentGateFile.length())
+                mix(deploymentGateFile.lastModified())
             }
         }
         return hash

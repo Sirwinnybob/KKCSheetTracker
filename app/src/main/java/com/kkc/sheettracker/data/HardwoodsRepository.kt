@@ -5,6 +5,7 @@ import android.os.ParcelFileDescriptor
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.data.models.BoardStockSource
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
@@ -32,6 +33,8 @@ class HardwoodsRepository(private var baseDir: File) {
         return baseDir.listFiles()
             ?.filter { it.isDirectory }
             ?.mapNotNull { jobDir ->
+                val deploymentGate = DeploymentGateRules.evaluate(jobDir, isDebugBuild = BuildConfig.DEBUG)
+                if (!deploymentGate.includeJob) return@mapNotNull null
                 val match = Regex("""^(\d+)\s*-\s*(.+)$""").find(jobDir.name) ?: return@mapNotNull null
                 val jobNumber = match.groupValues[1]
                 val jobName = match.groupValues[2].trim()
@@ -39,7 +42,8 @@ class HardwoodsRepository(private var baseDir: File) {
                     folderName = jobDir.name,
                     jobNumber = jobNumber,
                     jobName = jobName,
-                    index = loadHardwoodsIndex(jobDir.name)
+                    index = loadHardwoodsIndex(jobDir.name),
+                    hiddenFromProduction = deploymentGate.hiddenFromProduction
                 )
             }
             ?.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })

@@ -91,9 +91,12 @@ fun AssemblyDashboardScreen(
             val totalJobs = cards.size
             val totalCabinets = remember(cards) {
                 cards.sumOf { card ->
-                    assemblyStateStore.getCabinetSheetIndex(card.folderName)
-                        ?.documents?.assembly?.cabinetToPages?.keys?.size
-                        ?: 0
+                    val index = assemblyStateStore.getCabinetSheetIndex(card.folderName)
+                    val cabinets = index?.documents?.assembly?.virtualCombined?.cabinetToPages
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: index?.documents?.assembly?.cabinetToPages
+                        ?: emptyMap()
+                    cabinets.keys.size
                 }
             }
 

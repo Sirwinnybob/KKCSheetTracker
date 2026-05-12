@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.assembly
 
 import android.content.res.Configuration
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -120,6 +121,11 @@ fun AssemblyViewerScreen(
             ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY)
             ?: ""
     }
+    val assemblyVirtualTotalPages = remember(sheetIndex) {
+        val total = sheetIndex?.documents?.assembly?.virtualCombined?.totalVirtualPages ?: 0
+        total.coerceAtLeast(0)
+    }
+    val hasVirtualAssembly = assemblyVirtualTotalPages > 0
     val plansFilename = remember(sheetIndex, jobFolderName) {
         sheetIndex?.documents?.plansElevations?.pdfFilename?.takeIf { it.isNotBlank() }
             ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
@@ -172,6 +178,7 @@ fun AssemblyViewerScreen(
     var firstPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var secondPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var otherPickerTarget by remember { mutableStateOf<PaneSlot?>(null) }
+    var virtualAssemblyPickerTarget by remember { mutableStateOf<PaneSlot?>(null) }
     var serverPort by remember { mutableIntStateOf(0) }
     var viewerServerError by remember { mutableStateOf<String?>(null) }
     var detectedRoom by rememberSaveable(initialRoom) { mutableStateOf(initialRoom) }
@@ -212,18 +219,24 @@ fun AssemblyViewerScreen(
                 ?.takeIf { s -> s.isNotBlank() }
         }
 
+    val assemblyPageDetails = remember(sheetIndex) {
+        sheetIndex?.documents?.assembly?.virtualCombined?.pageDetails
+            ?.takeIf { it.isNotEmpty() }
+            ?: sheetIndex?.documents?.assembly?.pageDetails.orEmpty()
+    }
+
     fun roomForAssemblyPage(page: Int): String? =
-        extractRoomFolder(sheetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
+        extractRoomFolder(assemblyPageDetails[page.toString()]?.room)
 
     fun firstAlphabeticalRoomFromIndex(): Pair<String, Int>? {
-        return sheetIndex?.documents?.assembly?.pageDetails
-            ?.mapNotNull { (pageKey, detail) ->
+        return assemblyPageDetails
+            .mapNotNull { (pageKey, detail) ->
                 val page = pageKey.toIntOrNull() ?: return@mapNotNull null
                 val room = extractRoomFolder(detail.room) ?: return@mapNotNull null
                 room to page
             }
-            ?.sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
-            ?.firstOrNull()
+            .sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
+            .firstOrNull()
     }
 
     fun resolveRoomDae(room: String?): File? {
@@ -316,9 +329,20 @@ fun AssemblyViewerScreen(
         PaneSource.THREE_D -> "3D"
     }
 
+    fun resolvedAssemblyFilename(virtualPage: Int): String? {
+        val mapped = assemblyStateStore.resolveAssemblyPageSource(jobFolderName, virtualPage)
+        val mappedFilename = mapped?.pdfFilename?.takeIf { it.isNotBlank() }
+        return mappedFilename ?: assemblyFilename.takeIf { it.isNotBlank() }
+    }
+
+    fun resolvedAssemblySourcePage(virtualPage: Int): Int {
+        val mapped = assemblyStateStore.resolveAssemblyPageSource(jobFolderName, virtualPage)
+        return mapped?.page?.takeIf { it > 0 } ?: virtualPage
+    }
+
     fun sourceFilename(source: PaneSource, otherFilename: String?): String? = when (source) {
         PaneSource.PLANS -> plansFilename.takeIf { it.isNotBlank() }
-        PaneSource.ASSEMBLY -> assemblyFilename.takeIf { it.isNotBlank() }
+        PaneSource.ASSEMBLY -> resolvedAssemblyFilename(assemblyPage)
         PaneSource.DELIVERY -> deliveryFilename.takeIf { it.isNotBlank() }
         PaneSource.OTHER -> otherFilename?.takeIf { it.isNotBlank() }
         PaneSource.THREE_D -> null
@@ -326,7 +350,7 @@ fun AssemblyViewerScreen(
 
     fun sourcePage(source: PaneSource, otherPage: Int, deliveryPage: Int): Int = when (source) {
         PaneSource.PLANS -> plansPage
-        PaneSource.ASSEMBLY -> assemblyPage
+        PaneSource.ASSEMBLY -> resolvedAssemblySourcePage(assemblyPage)
         PaneSource.DELIVERY -> deliveryPage
         PaneSource.OTHER -> otherPage
         PaneSource.THREE_D -> 1
@@ -335,7 +359,19 @@ fun AssemblyViewerScreen(
     fun setSourcePage(source: PaneSource, nextPage: Int, setOther: (Int) -> Unit, setDelivery: (Int) -> Unit) {
         when (source) {
             PaneSource.PLANS -> plansPage = nextPage
-            PaneSource.ASSEMBLY -> assemblyPage = nextPage
+            PaneSource.ASSEMBLY -> {
+                if (hasVirtualAssembly) {
+                    assemblyPage = nextPage.coerceIn(1, assemblyVirtualTotalPages.coerceAtLeast(1))
+                } else {
+                    val sourceFilename = resolvedAssemblyFilename(assemblyPage).orEmpty()
+                    val virtualPage = assemblyStateStore.resolveVirtualAssemblyPage(
+                        jobFolderName = jobFolderName,
+                        sourcePdfFilename = sourceFilename,
+                        sourcePage = nextPage
+                    )
+                    assemblyPage = virtualPage ?: nextPage
+                }
+            }
             PaneSource.DELIVERY -> setDelivery(nextPage)
             PaneSource.OTHER -> setOther(nextPage)
             PaneSource.THREE_D -> Unit
@@ -439,9 +475,21 @@ fun AssemblyViewerScreen(
                                     setDelivery = { firstPaneDeliveryPage = it }
                                 )
                             },
-                            onTotalPagesChanged = { firstPaneTotalPages = it },
+                            onTotalPagesChanged = {
+                                firstPaneTotalPages = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                    assemblyVirtualTotalPages
+                                } else {
+                                    it
+                                }
+                            },
                             tocRequestToken = firstPaneTocRequestToken,
-                            onOpenToc = { firstPaneTocRequestToken++ },
+                            onOpenToc = {
+                                if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                    virtualAssemblyPickerTarget = PaneSlot.FIRST
+                                } else {
+                                    firstPaneTocRequestToken++
+                                }
+                            },
                             missingText = firstMissingText,
                             unreadableText = firstUnreadableText,
                             sourceControlsInline = {
@@ -483,9 +531,21 @@ fun AssemblyViewerScreen(
                                     setDelivery = { secondPaneDeliveryPage = it }
                                 )
                             },
-                            onTotalPagesChanged = { secondPaneTotalPages = it },
+                            onTotalPagesChanged = {
+                                secondPaneTotalPages = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                    assemblyVirtualTotalPages
+                                } else {
+                                    it
+                                }
+                            },
                             tocRequestToken = secondPaneTocRequestToken,
-                            onOpenToc = { secondPaneTocRequestToken++ },
+                            onOpenToc = {
+                                if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                    virtualAssemblyPickerTarget = PaneSlot.SECOND
+                                } else {
+                                    secondPaneTocRequestToken++
+                                }
+                            },
                             missingText = secondMissingText,
                             unreadableText = secondUnreadableText,
                             sourceControlsInline = {
@@ -532,9 +592,21 @@ fun AssemblyViewerScreen(
                                             setDelivery = { firstPaneDeliveryPage = it }
                                         )
                                     },
-                                    onTotalPagesChanged = { firstPaneTotalPages = it },
+                                    onTotalPagesChanged = {
+                                        firstPaneTotalPages = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                            assemblyVirtualTotalPages
+                                        } else {
+                                            it
+                                        }
+                                    },
                                     tocRequestToken = firstPaneTocRequestToken,
-                                    onOpenToc = { firstPaneTocRequestToken++ },
+                                    onOpenToc = {
+                                        if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                            virtualAssemblyPickerTarget = PaneSlot.FIRST
+                                        } else {
+                                            firstPaneTocRequestToken++
+                                        }
+                                    },
                                     missingText = firstMissingText,
                                     unreadableText = firstUnreadableText,
                                     sourceControlsInline = {
@@ -577,9 +649,21 @@ fun AssemblyViewerScreen(
                                             setDelivery = { secondPaneDeliveryPage = it }
                                         )
                                     },
-                                    onTotalPagesChanged = { secondPaneTotalPages = it },
+                                    onTotalPagesChanged = {
+                                        secondPaneTotalPages = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                            assemblyVirtualTotalPages
+                                        } else {
+                                            it
+                                        }
+                                    },
                                     tocRequestToken = secondPaneTocRequestToken,
-                                    onOpenToc = { secondPaneTocRequestToken++ },
+                                    onOpenToc = {
+                                        if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                            virtualAssemblyPickerTarget = PaneSlot.SECOND
+                                        } else {
+                                            secondPaneTocRequestToken++
+                                        }
+                                    },
                                     missingText = secondMissingText,
                                     unreadableText = secondUnreadableText,
                                     sourceControlsInline = {
@@ -689,6 +773,74 @@ fun AssemblyViewerScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(filename, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (virtualAssemblyPickerTarget != null && hasVirtualAssembly) {
+        val pages = remember(assemblyVirtualTotalPages) { (1..assemblyVirtualTotalPages).toList() }
+        ModalBottomSheet(onDismissRequest = { virtualAssemblyPickerTarget = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(620.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Sheet Navigator", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Combined FF/FL assembly pages",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(pages, key = { it }) { page ->
+                        val mapped = assemblyStateStore.resolveAssemblyPageSource(jobFolderName, page)
+                        val sourceLabel = mapped?.let { source ->
+                            val shortName = source.pdfFilename.substringBeforeLast(".pdf")
+                            "$shortName - Page ${source.page}"
+                        } ?: "Page $page"
+                        val selected = page == assemblyPage
+                        Surface(
+                            tonalElevation = if (selected) 3.dp else 1.dp,
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    assemblyPage = page
+                                    virtualAssemblyPickerTarget = null
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    "Sheet $page",
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    sourceLabel,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }

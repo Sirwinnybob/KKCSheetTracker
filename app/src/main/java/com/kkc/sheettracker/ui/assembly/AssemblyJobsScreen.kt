@@ -58,6 +58,7 @@ import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
+import com.kkc.sheettracker.ui.components.StatusChip
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -184,6 +185,13 @@ fun AssemblyJobsScreen(
                                 hidePrimaryProgressBar = true,
                                 showExpandToggle = false,
                                 headerActions = {
+                                    if (card.hiddenFromProduction) {
+                                        StatusChip(
+                                            text = "Hidden in Production",
+                                            backgroundColor = MaterialTheme.colorScheme.errorContainer,
+                                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
                                     if (hasDeliverySheet) {
                                         FilterChip(
                                             selected = false,

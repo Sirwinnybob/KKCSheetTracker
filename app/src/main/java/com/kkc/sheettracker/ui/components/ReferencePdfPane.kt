@@ -284,7 +284,11 @@ fun ReferencePdfPane(
     showHeaderRow: Boolean = true,
     showNavigationButtons: Boolean = true,
     innerPadding: Dp = 8.dp,
-    tocRequestToken: Int = 0
+    tocRequestToken: Int = 0,
+    displayPageOverride: Int? = null,
+    displayTotalPagesOverride: Int? = null,
+    onStepPage: ((Int) -> Unit)? = null,
+    onOpenSheetNavigator: (() -> Unit)? = null
 ) {
     val engine = remember(pdfFile?.absolutePath) { pdfFile?.takeIf { it.exists() }?.let { PdfRenderEngine(it) } }
     DisposableEffect(engine) {
@@ -312,9 +316,13 @@ fun ReferencePdfPane(
         onTotalPagesChanged(totalPages)
     }
 
-    LaunchedEffect(tocRequestToken, totalPages) {
-        if (tocRequestToken > 0 && totalPages > 0) {
-            showToc = true
+    LaunchedEffect(tocRequestToken, totalPages, onOpenSheetNavigator) {
+        if (tocRequestToken > 0) {
+            if (onOpenSheetNavigator != null) {
+                onOpenSheetNavigator()
+            } else if (totalPages > 0) {
+                showToc = true
+            }
         }
     }
 
@@ -392,7 +400,7 @@ fun ReferencePdfPane(
             }
     }
 
-    if (showToc) {
+    if (showToc && onOpenSheetNavigator == null) {
         ReferenceTocSheet(
             pageCount = totalPages,
             currentPage = currentPage,
@@ -421,12 +429,14 @@ fun ReferencePdfPane(
         }
     }
 
+    val displayPage = displayPageOverride ?: currentPage
+    val displayTotalPages = (displayTotalPagesOverride ?: totalPages).coerceAtLeast(0)
     Column(modifier = modifier.padding(innerPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showHeaderRow) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 showDocControls?.invoke(this)
                 Spacer(Modifier.weight(1f))
-                Text("Page $currentPage/$totalPages", style = MaterialTheme.typography.bodySmall)
+                Text("Page $displayPage/$displayTotalPages", style = MaterialTheme.typography.bodySmall)
             }
         }
 
@@ -512,8 +522,14 @@ fun ReferencePdfPane(
                                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     androidx.compose.material3.IconButton(
-                                        onClick = { onCurrentPageChange((currentPage - 1).coerceAtLeast(1)) },
-                                        enabled = totalPages > 0 && currentPage > 1,
+                                        onClick = {
+                                            if (onStepPage != null) {
+                                                onStepPage(-1)
+                                            } else {
+                                                onCurrentPageChange((currentPage - 1).coerceAtLeast(1))
+                                            }
+                                        },
+                                        enabled = displayTotalPages > 0 && displayPage > 1,
                                         modifier = Modifier.size(38.dp)
                                     ) {
                                         Icon(
@@ -523,8 +539,14 @@ fun ReferencePdfPane(
                                         )
                                     }
                                     androidx.compose.material3.IconButton(
-                                        onClick = { showToc = true },
-                                        enabled = totalPages > 0,
+                                        onClick = {
+                                            if (onOpenSheetNavigator != null) {
+                                                onOpenSheetNavigator()
+                                            } else {
+                                                showToc = true
+                                            }
+                                        },
+                                        enabled = displayTotalPages > 0,
                                         modifier = Modifier.size(38.dp)
                                     ) {
                                         Icon(
@@ -534,12 +556,18 @@ fun ReferencePdfPane(
                                         )
                                     }
                                     Text(
-                                        "$currentPage/${totalPages.coerceAtLeast(0)}",
+                                        "$displayPage/$displayTotalPages",
                                         style = MaterialTheme.typography.labelSmall
                                     )
                                     androidx.compose.material3.IconButton(
-                                        onClick = { onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1))) },
-                                        enabled = totalPages > 0 && currentPage < totalPages,
+                                        onClick = {
+                                            if (onStepPage != null) {
+                                                onStepPage(1)
+                                            } else {
+                                                onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1)))
+                                            }
+                                        },
+                                        enabled = displayTotalPages > 0 && displayPage < displayTotalPages,
                                         modifier = Modifier.size(38.dp)
                                     ) {
                                         Icon(

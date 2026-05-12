@@ -57,6 +57,7 @@ import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.CountStatusChip
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.ProgressCard
+import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -226,6 +227,13 @@ fun JobBrowserScreen(
                             materialSegments = materialSegments,
                             showExpandToggle = false,
                             headerActions = {
+                                if (job.hiddenFromProduction) {
+                                    StatusChip(
+                                        text = "Hidden in Production",
+                                        backgroundColor = MaterialTheme.colorScheme.errorContainer,
+                                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
                                 CountStatusChip(
                                     label = "Done",
                                     count = counts.complete,

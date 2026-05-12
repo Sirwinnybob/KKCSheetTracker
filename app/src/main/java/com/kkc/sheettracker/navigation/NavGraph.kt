@@ -1572,20 +1572,25 @@ private fun resolveDefaultThreeDTarget(
     val sheetIndex = jobRepository.getCabinetSheetIndex(jobFolderName)
     val assemblyDoc = sheetIndex?.documents?.assembly
     val plansDoc = sheetIndex?.documents?.plansElevations
+    val assemblyPageDetails = assemblyDoc?.virtualCombined?.pageDetails
+        ?.takeIf { it.isNotEmpty() }
+        ?: assemblyDoc?.pageDetails.orEmpty()
+    val assemblyCabinetToPages = assemblyDoc?.virtualCombined?.cabinetToPages
+        ?.takeIf { it.isNotEmpty() }
+        ?: assemblyDoc?.cabinetToPages.orEmpty()
 
-    val assemblyRooms = assemblyDoc?.pageDetails
-        ?.mapNotNull { (pageKey, detail) ->
+    val assemblyRooms = assemblyPageDetails
+        .mapNotNull { (pageKey, detail) ->
             val page = pageKey.toIntOrNull() ?: return@mapNotNull null
             val room = normalizeRoomFolderName(detail.room) ?: return@mapNotNull null
             room to page
         }
-        .orEmpty()
     val firstRoom = assemblyRooms
         .sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
         .firstOrNull()
 
     val firstAssemblyPage = firstRoom?.second
-        ?: assemblyDoc?.cabinetToPages?.values?.flatten()?.minOrNull()
+        ?: assemblyCabinetToPages.values.flatten().minOrNull()
         ?: 1
     val firstPlansPage = plansDoc?.cabinetToPages?.values?.flatten()?.minOrNull() ?: 1
 

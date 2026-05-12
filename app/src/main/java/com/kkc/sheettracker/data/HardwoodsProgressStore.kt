@@ -127,7 +127,11 @@ class HardwoodsProgressStore(
     private fun readProgressFromDir(dir: File): List<HardwoodTabletProgress> {
         if (!dir.exists()) return emptyList()
         return dir.listFiles()
-            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) }
+            ?.filter {
+                it.isFile &&
+                    it.extension.equals("json", ignoreCase = true) &&
+                    !it.name.startsWith(".")
+            }
             ?.mapNotNull { file ->
                 runCatching { gson.fromJson(file.readText(), HardwoodTabletProgress::class.java) }
                     .getOrNull()

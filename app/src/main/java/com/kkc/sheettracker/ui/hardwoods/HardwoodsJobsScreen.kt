@@ -53,6 +53,7 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.ProgressCard
+import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -142,6 +143,14 @@ fun HardwoodsJobsScreen(
                         val hasDeliverySheet = remember(job.folderName) {
                             jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
                         }
+                        val assemblyMode = remember(scanState.snapshot.generation, job.folderName) {
+                            jobRepository.getCabinetSheetIndex(job.folderName)
+                                ?.documents
+                                ?.assembly
+                                ?.mode
+                                ?.uppercase()
+                                .orEmpty()
+                        }
                         val history = remember(scanState.snapshot.generation, progressVersion, job.folderName) {
                             hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
                         }
@@ -176,9 +185,12 @@ fun HardwoodsJobsScreen(
                             skippedPieces = includedCounts.skippedPieces
                         )
                         val docCount = includedDocSummaries.size
+                        val expectedDocCount = if (assemblyMode == "FRAMELESS") 0 else 3
                         val subtitle = buildString {
                             append("${counts.donePieces}/${counts.totalPieces} done")
-                            if (docCount < 3) append(" • ${3 - docCount} docs missing")
+                            if (expectedDocCount > 0 && docCount < expectedDocCount) {
+                                append(" • ${expectedDocCount - docCount} docs missing")
+                            }
                         }
                         val docSegments = includedDocSummaries.map {
                             MaterialSegmentData(
@@ -206,6 +218,13 @@ fun HardwoodsJobsScreen(
                             materialSegments = docSegments,
                             showBottomProgressBar = true,
                             headerActions = {
+                                if (job.hiddenFromProduction) {
+                                    StatusChip(
+                                        text = "Hidden in Production",
+                                        backgroundColor = MaterialTheme.colorScheme.errorContainer,
+                                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
                                 if (history != null) {
                                     TextButton(onClick = { selectedHistoryJob = job.folderName }) {
                                         Text("History")

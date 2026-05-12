@@ -10,6 +10,7 @@ import com.kkc.sheettracker.data.models.AssemblyJob
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.AssemblySheetPart
+import com.kkc.sheettracker.data.models.AssemblyVirtualSourceRef
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 
 class AssemblyStateStore(
@@ -72,7 +73,8 @@ class AssemblyStateStore(
                         skippedPieces = hardwoodCounts.skippedPieces
                     )
                 },
-                hasBothModes = cncJob != null && hardwoodJob != null
+                hasBothModes = cncJob != null && hardwoodJob != null,
+                hiddenFromProduction = job.hiddenFromProduction
             )
         }
     }
@@ -80,25 +82,51 @@ class AssemblyStateStore(
     fun getCabinetJumpPages(jobFolderName: String, cabinetNumber: String): Pair<Int?, Int?> {
         val index = getCabinetSheetIndex(jobFolderName) ?: return null to null
         val normalized = cabinetNumber.trim()
-        val assemblyPage = index.documents.assembly.cabinetToPages[normalized]?.firstOrNull()
+        val assemblyPage = assemblyCabinetToPages(index)[normalized]?.firstOrNull()
         val plansPage = index.documents.plansElevations.cabinetToPages[normalized]?.firstOrNull()
         return assemblyPage to plansPage
     }
 
     fun getCabinetContext(jobFolderName: String, cabinetNumber: String): String {
         val index = getCabinetSheetIndex(jobFolderName) ?: return ""
-        val page = index.documents.assembly.cabinetToPages[cabinetNumber.trim()]?.firstOrNull() ?: return ""
-        val detail = index.documents.assembly.pageDetails[page.toString()] ?: return ""
+        val page = assemblyCabinetToPages(index)[cabinetNumber.trim()]?.firstOrNull() ?: return ""
+        val detail = assemblyPageDetails(index)[page.toString()] ?: return ""
         val room = detail.room?.trim().orEmpty()
         val wall = detail.wall?.trim().orEmpty()
         return listOf(room, wall).filter { it.isNotBlank() }.joinToString(" - ")
     }
 
+    fun resolveAssemblyPageSource(jobFolderName: String, assemblyPage: Int): AssemblyVirtualSourceRef? {
+        if (assemblyPage <= 0) return null
+        val index = getCabinetSheetIndex(jobFolderName) ?: return null
+        val virtual = index.documents.assembly.virtualCombined
+        val virtualRef = virtual?.virtualPageToSource?.get(assemblyPage.toString())
+        if (virtualRef != null) return virtualRef
+        val fallbackPdf = index.documents.assembly.pdfFilename
+        if (fallbackPdf.isBlank()) return null
+        return AssemblyVirtualSourceRef(
+            variant = "BASE",
+            pdfFilename = fallbackPdf,
+            page = assemblyPage,
+            cabinet = null
+        )
+    }
+
+    fun resolveVirtualAssemblyPage(jobFolderName: String, sourcePdfFilename: String, sourcePage: Int): Int? {
+        if (sourcePdfFilename.isBlank() || sourcePage <= 0) return null
+        val index = getCabinetSheetIndex(jobFolderName) ?: return null
+        val virtualMap = index.documents.assembly.virtualCombined?.virtualPageToSource ?: return null
+        val match = virtualMap.entries.firstOrNull { (_, source) ->
+            source.pdfFilename.equals(sourcePdfFilename, ignoreCase = true) && source.page == sourcePage
+        } ?: return null
+        return match.key.toIntOrNull()
+    }
+
     fun deriveCabinetParts(jobFolderName: String, cabinetNumber: String): AssemblyCabinetParts {
         val normalizedCab = cabinetNumber.trim()
         val index = getCabinetSheetIndex(jobFolderName)
-        val assemblyPages = index?.documents?.assembly?.cabinetToPages?.get(normalizedCab).orEmpty()
-        val assemblyPageDetails = index?.documents?.assembly?.pageDetails.orEmpty()
+        val assemblyPages = assemblyCabinetToPages(index)[normalizedCab].orEmpty()
+        val assemblyPageDetails = assemblyPageDetails(index)
 
         val sheetParts = assemblyPages.flatMap { page ->
             assemblyPageDetails[page.toString()]?.parts.orEmpty()
@@ -198,15 +226,17 @@ class AssemblyStateStore(
             val index = job.cabinetSheetIndex ?: return@forEach
             val assemblyDoc = index.documents.assembly
             val plansDoc = index.documents.plansElevations
+            val assemblyCabPages = assemblyCabinetToPages(index)
+            val assemblyDetails = assemblyPageDetails(index)
 
             val allCabinets = linkedSetOf<String>()
-            allCabinets.addAll(assemblyDoc.cabinetToPages.keys)
+            allCabinets.addAll(assemblyCabPages.keys)
             allCabinets.addAll(plansDoc.cabinetToPages.keys)
 
             allCabinets.forEach { cabinet ->
-                val assemblyPage = assemblyDoc.cabinetToPages[cabinet]?.firstOrNull()
+                val assemblyPage = assemblyCabPages[cabinet]?.firstOrNull()
                 val plansPage = plansDoc.cabinetToPages[cabinet]?.firstOrNull()
-                val detail = assemblyPage?.let { assemblyDoc.pageDetails[it.toString()] }
+                val detail = assemblyPage?.let { assemblyDetails[it.toString()] }
 
                 out += AssemblySearchEntry(
                     jobFolderName = job.folderName,
@@ -223,8 +253,8 @@ class AssemblyStateStore(
                 )
             }
 
-            assemblyDoc.pageDetails.forEach { (_, detail) ->
-                val assemblyPage = detail.cabinets.firstOrNull()?.let { assemblyDoc.cabinetToPages[it]?.firstOrNull() }
+            assemblyDetails.forEach { (_, detail) ->
+                val assemblyPage = detail.cabinets.firstOrNull()?.let { assemblyCabPages[it]?.firstOrNull() }
                 detail.cabinets.forEach { cabinet ->
                     val plansPage = plansDoc.cabinetToPages[cabinet]?.firstOrNull()
                     detail.parts.forEach { part ->
@@ -254,5 +284,19 @@ class AssemblyStateStore(
             .trim()
             .lowercase()
             .replace(Regex("\\s+"), " ")
+    }
+
+    private fun assemblyCabinetToPages(index: CabinetSheetIndex?): Map<String, List<Int>> {
+        if (index == null) return emptyMap()
+        val virtual = index.documents.assembly.virtualCombined?.cabinetToPages
+        if (!virtual.isNullOrEmpty()) return virtual
+        return index.documents.assembly.cabinetToPages
+    }
+
+    private fun assemblyPageDetails(index: CabinetSheetIndex?): Map<String, com.kkc.sheettracker.data.models.CabinetPageDetail> {
+        if (index == null) return emptyMap()
+        val virtual = index.documents.assembly.virtualCombined?.pageDetails
+        if (!virtual.isNullOrEmpty()) return virtual
+        return index.documents.assembly.pageDetails
     }
 }

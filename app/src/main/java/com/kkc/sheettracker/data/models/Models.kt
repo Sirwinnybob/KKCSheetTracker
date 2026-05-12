@@ -4,7 +4,8 @@ data class Job(
     val folderName: String,
     val jobNumber: String,
     val jobName: String,
-    val materials: List<Material> = emptyList()
+    val materials: List<Material> = emptyList(),
+    val hiddenFromProduction: Boolean = false
 ) {
     val totalSheets: Int get() = materials.sumOf { it.pageCount }
 }
@@ -114,18 +115,62 @@ data class CabinetPageDetail(
     val cabinets: List<String> = emptyList(),
     val room: String? = null,
     val wall: String? = null,
-    val parts: List<AssemblySheetPart> = emptyList()
+    val parts: List<AssemblySheetPart> = emptyList(),
+    val sourceVariant: String? = null,
+    val sourcePdfFilename: String? = null,
+    val sourcePage: Int? = null
 )
 
-data class ReferenceDocumentIndex(
+data class AssemblySourceDocumentIndex(
+    val variant: String = "",
     val pdfFilename: String = "",
     val cabinetToPages: Map<String, List<Int>> = emptyMap(),
     val pageDetails: Map<String, CabinetPageDetail> = emptyMap()
 )
 
+data class AssemblyVirtualEntry(
+    val variant: String = "",
+    val pdfFilename: String = "",
+    val page: Int = 0,
+    val virtualPage: Int = 0
+)
+
+data class AssemblyVirtualSourceRef(
+    val variant: String = "",
+    val pdfFilename: String = "",
+    val page: Int = 0,
+    val cabinet: String? = null
+)
+
+data class AssemblyVirtualCombinedIndex(
+    val cabinetOrder: List<String> = emptyList(),
+    val entriesByCabinet: Map<String, List<AssemblyVirtualEntry>> = emptyMap(),
+    val cabinetToPages: Map<String, List<Int>> = emptyMap(),
+    val virtualPageToSource: Map<String, AssemblyVirtualSourceRef> = emptyMap(),
+    val pageDetails: Map<String, CabinetPageDetail> = emptyMap(),
+    val totalVirtualPages: Int = 0
+)
+
+data class ReferenceDocumentIndex(
+    val pdfFilename: String = "",
+    val cabinetToPages: Map<String, List<Int>> = emptyMap(),
+    val pageDetails: Map<String, CabinetPageDetail> = emptyMap(),
+    val mode: String? = null,
+    val modeSource: String? = null,
+    val sources: List<AssemblySourceDocumentIndex> = emptyList(),
+    val virtualCombined: AssemblyVirtualCombinedIndex? = null
+)
+
+data class DeliveryDocumentIndex(
+    val pdfFilename: String = "",
+    val mode: String? = null,
+    val modeSource: String? = null
+)
+
 data class CabinetSheetIndexDocuments(
     val assembly: ReferenceDocumentIndex = ReferenceDocumentIndex(),
-    val plansElevations: ReferenceDocumentIndex = ReferenceDocumentIndex()
+    val plansElevations: ReferenceDocumentIndex = ReferenceDocumentIndex(),
+    val delivery: DeliveryDocumentIndex = DeliveryDocumentIndex()
 )
 
 data class CabinetSheetIndex(
@@ -159,7 +204,8 @@ data class AssemblyJob(
     val jobName: String,
     val cabinetSheetIndex: CabinetSheetIndex? = null,
     val cncSummary: AssemblyCncSummary? = null,
-    val hardwoodsSummary: AssemblyHardwoodsSummary? = null
+    val hardwoodsSummary: AssemblyHardwoodsSummary? = null,
+    val hiddenFromProduction: Boolean = false
 )
 
 data class AssemblyCncPart(
@@ -209,7 +255,8 @@ data class AssemblyJobCard(
     val jobName: String,
     val cncSummary: AssemblyCncSummary = AssemblyCncSummary(),
     val hardwoodsSummary: AssemblyHardwoodsSummary = AssemblyHardwoodsSummary(),
-    val hasBothModes: Boolean = false
+    val hasBothModes: Boolean = false,
+    val hiddenFromProduction: Boolean = false
 )
 
 data class AssemblySearchEntry(
@@ -336,7 +383,8 @@ data class HardwoodJob(
     val folderName: String,
     val jobNumber: String,
     val jobName: String,
-    val index: HardwoodCutlistIndex? = null
+    val index: HardwoodCutlistIndex? = null,
+    val hiddenFromProduction: Boolean = false
 )
 
 data class HardwoodSearchEntry(
