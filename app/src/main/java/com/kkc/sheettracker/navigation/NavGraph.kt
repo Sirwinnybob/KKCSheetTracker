@@ -33,6 +33,7 @@ import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
+import com.kkc.sheettracker.data.HoursStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
@@ -42,6 +43,8 @@ import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.ui.assembly.AssemblyDashboardScreen
+import com.kkc.sheettracker.ui.hours.HoursLoginDialog
+import com.kkc.sheettracker.ui.hours.HoursTrackerScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
 import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
@@ -79,6 +82,9 @@ fun AppNavigation(
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
     workMode: WorkMode,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
+    hoursStore: HoursStore,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -105,6 +111,9 @@ fun AppNavigation(
                 isDebugBuild = isDebugBuild,
                 isDarkTheme = isDarkTheme,
                 workMode = workMode,
+                employeeName = employeeName,
+                onEmployeeNameChanged = onEmployeeNameChanged,
+                hoursStore = hoursStore,
                 onThemeChanged = onThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
@@ -129,6 +138,9 @@ fun AppNavigation(
                 isDebugBuild = isDebugBuild,
                 isDarkTheme = isDarkTheme,
                 workMode = workMode,
+                employeeName = employeeName,
+                onEmployeeNameChanged = onEmployeeNameChanged,
+                hoursStore = hoursStore,
                 onThemeChanged = onThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
@@ -157,6 +169,9 @@ private fun MultiBackStackNavigation(
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
     workMode: WorkMode,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
+    hoursStore: HoursStore,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -190,11 +205,12 @@ private fun MultiBackStackNavigation(
     val jobsNavController = rememberNavController()
     val searchNavController = rememberNavController()
     val settingsNavController = rememberNavController()
+    val hoursNavController = rememberNavController()
     val homeTab = if (workMode == WorkMode.ASSEMBLY) TopLevelTab.JOBS else TopLevelTab.DASHBOARD
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
         } else {
             NavDestination.entries
         }
@@ -214,12 +230,14 @@ private fun MultiBackStackNavigation(
         dashboardNavController,
         jobsNavController,
         searchNavController,
-            settingsNavController
+        settingsNavController,
+        hoursNavController
     ) {
         NavigationCoordinator(
             dashboardNavController = dashboardNavController,
             jobsNavController = jobsNavController,
             searchNavController = searchNavController,
+            hoursNavController = hoursNavController,
             settingsNavController = settingsNavController,
             getHomeTab = { homeTab },
             getSelectedTab = { selectedTab },
@@ -334,6 +352,14 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
+                TabLayer(visible = selectedTab == TopLevelTab.HOURS) {
+                    HoursTabHost(
+                        navController = hoursNavController,
+                        hoursStore = hoursStore,
+                        employeeName = employeeName
+                    )
+                }
+
                 TabLayer(visible = selectedTab == TopLevelTab.SETTINGS) {
                     SettingsTabHost(
                         navController = settingsNavController,
@@ -342,6 +368,8 @@ private fun MultiBackStackNavigation(
                         isDebugBuild = isDebugBuild,
                         isDarkTheme = isDarkTheme,
                         workMode = workMode,
+                        employeeName = employeeName,
+                        onEmployeeNameChanged = onEmployeeNameChanged,
                         onThemeChanged = onThemeChanged,
                         onWorkModeChanged = onWorkModeChanged,
                         onReinstallLatest = onReinstallLatest,
@@ -891,6 +919,8 @@ private fun SettingsTabHost(
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
     workMode: WorkMode,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -944,6 +974,9 @@ private fun LegacySingleStackNavigation(
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
     workMode: WorkMode,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
+    hoursStore: HoursStore,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -978,7 +1011,7 @@ private fun LegacySingleStackNavigation(
     val startRoute = if (workMode == WorkMode.ASSEMBLY) "jobs" else "dashboard"
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
         } else {
             NavDestination.entries
         }
@@ -1014,6 +1047,7 @@ private fun LegacySingleStackNavigation(
                 currentRoute?.startsWith("viewer/") == true ||
                 currentRoute?.startsWith("referenceViewer/") == true -> NavDestination.JOBS
             currentRoute == "search" -> NavDestination.SEARCH
+            currentRoute == "hours" -> NavDestination.HOURS
             currentRoute == "settings" -> NavDestination.SETTINGS
             else -> if (workMode == WorkMode.ASSEMBLY) NavDestination.JOBS else NavDestination.DASHBOARD
         }
@@ -1491,6 +1525,27 @@ private fun LegacySingleStackNavigation(
                 }
             }
 
+            composable("hours") {
+                var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
+                var showLoginDialog by remember { mutableStateOf(sessionName == null) }
+
+                if (showLoginDialog || sessionName == null) {
+                    HoursLoginDialog(
+                        onLogin = { name ->
+                            sessionName = name
+                            showLoginDialog = false
+                        },
+                        onDismiss = { showLoginDialog = false }
+                    )
+                }
+                sessionName?.let { name ->
+                    HoursTrackerScreen(
+                        hoursStore = hoursStore,
+                        employeeName = name
+                    )
+                }
+            }
+
             composable("settings") {
                 SettingsScreen(
                     tabletId = tabletId,
@@ -1647,4 +1702,38 @@ private fun isCurrentViewerTarget(
     val currentPdf = args.getString("pdfFilename") ?: return false
     val currentPage = args.getInt("startPage")
     return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page
+}
+
+@Composable
+private fun HoursTabHost(
+    navController: NavHostController,
+    hoursStore: HoursStore,
+    employeeName: String
+) {
+    var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
+    var showLoginDialog by remember { mutableStateOf(sessionName == null) }
+
+    NavHost(
+        navController = navController,
+        startDestination = "hours",
+        modifier = Modifier.fillMaxSize()
+    ) {
+        composable("hours") {
+            if (showLoginDialog || sessionName == null) {
+                HoursLoginDialog(
+                    onLogin = { name ->
+                        sessionName = name
+                        showLoginDialog = false
+                    },
+                    onDismiss = { showLoginDialog = false }
+                )
+            }
+            sessionName?.let { name ->
+                HoursTrackerScreen(
+                    hoursStore = hoursStore,
+                    employeeName = name
+                )
+            }
+        }
+    }
 }
