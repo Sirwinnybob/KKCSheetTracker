@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.JobRepository
@@ -72,7 +73,10 @@ fun JobDetailScreen(
     onMaterialClick: (Material, Int) -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    isClockedInHere: Boolean = false,
+    onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
+    onLeaveWhileClockedIn: () -> Unit = {}
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -113,6 +117,12 @@ fun JobDetailScreen(
         }
     }
 
+    val isClockedInHereState = isClockedInHere
+    val onLeaveRef = onLeaveWhileClockedIn
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { if (isClockedInHereState) onLeaveRef() }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -125,6 +135,23 @@ fun JobDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+                actions = {
+                    val currentJob = job
+                    if (currentJob != null) {
+                        androidx.compose.material3.TextButton(
+                            onClick = { onClockIn(currentJob.jobNumber, currentJob.jobName) },
+                            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                                contentColor = androidx.compose.ui.graphics.Color(0xFF38A169)
+                            )
+                        ) {
+                            Text(
+                                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
             )
