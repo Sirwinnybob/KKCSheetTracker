@@ -61,7 +61,7 @@ fun AppBottomNavBar(
             tonalElevation = 2.dp
         ) {
             destinations.forEach { dest ->
-                if (dest == NavDestination.SETTINGS) {
+                if (dest == NavDestination.HOURS) {
                     NavigationBarItem(
                         selected = isCalculatorOpen,
                         onClick = onCalculatorClick,
@@ -133,7 +133,7 @@ private fun MinimizedNavBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             destinations.forEach { dest ->
-                if (dest == NavDestination.SETTINGS) {
+                if (dest == NavDestination.HOURS) {
                     Icon(
                         if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
                         contentDescription = "Calculator",

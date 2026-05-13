@@ -209,6 +209,10 @@ private fun MultiBackStackNavigation(
     val hoursNavController = rememberNavController()
     val homeTab = if (workMode == WorkMode.ASSEMBLY) TopLevelTab.JOBS else TopLevelTab.DASHBOARD
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
+    var previousTab by remember(workMode) { mutableStateOf(homeTab) }
+    androidx.compose.runtime.LaunchedEffect(selectedTab) {
+        if (selectedTab != TopLevelTab.HOURS) previousTab = selectedTab
+    }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
             listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
@@ -378,7 +382,8 @@ private fun MultiBackStackNavigation(
                     HoursTabHost(
                         navController = hoursNavController,
                         employeeName = employeeName,
-                        isTabSelected = selectedTab == TopLevelTab.HOURS
+                        isTabSelected = selectedTab == TopLevelTab.HOURS,
+                        onReturnToPreviousTab = { coordinator.navigateTopLevel(previousTab) }
                     )
                 }
 
@@ -1615,6 +1620,7 @@ private fun LegacySingleStackNavigation(
                 androidx.compose.runtime.LaunchedEffect(Unit) {
                     if (legacySessionName != null) {
                         launchTimecardApp(context, legacySessionName)
+                        navController.popBackStack()
                     } else {
                         legacyShowDialog = true
                     }
@@ -1626,6 +1632,7 @@ private fun LegacySingleStackNavigation(
                             legacySessionName = name
                             legacyShowDialog = false
                             launchTimecardApp(context, name)
+                            navController.popBackStack()
                         },
                         onDismiss = { legacyShowDialog = false }
                     )
@@ -1804,7 +1811,8 @@ private fun isCurrentViewerTarget(
 private fun HoursTabHost(
     navController: NavHostController,
     employeeName: String,
-    isTabSelected: Boolean
+    isTabSelected: Boolean,
+    onReturnToPreviousTab: () -> Unit
 ) {
     val context = LocalContext.current
     var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
@@ -1814,6 +1822,7 @@ private fun HoursTabHost(
         if (isTabSelected) {
             if (sessionName != null) {
                 launchTimecardApp(context, sessionName)
+                onReturnToPreviousTab()
             } else {
                 showLoginDialog = true
             }
@@ -1826,6 +1835,7 @@ private fun HoursTabHost(
                 sessionName = name
                 showLoginDialog = false
                 launchTimecardApp(context, name)
+                onReturnToPreviousTab()
             },
             onDismiss = { showLoginDialog = false }
         )
