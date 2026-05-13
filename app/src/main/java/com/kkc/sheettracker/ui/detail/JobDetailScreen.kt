@@ -94,7 +94,17 @@ fun JobDetailScreen(
     val hasDeliverySheet = remember(jobFolderName) {
         jobRepository.getJobPdfCatalog(jobFolderName).deliverySheet != null
     }
+    val hasAssemblySheet = remember(jobFolderName) {
+        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
+    }
+    val hasPlansElevations = remember(jobFolderName) {
+        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
+    }
+    val hasThreeDAssets = remember(jobFolderName) {
+        jobRepository.hasThreeDAssets(jobFolderName)
+    }
     val listState = rememberLazyListState()
+    var suppressLeavePrompt by remember { mutableStateOf(false) }
 
     LaunchedEffect(scanState.snapshot.generation, jobFolderName) {
         withContext(Dispatchers.IO) {
@@ -124,7 +134,7 @@ fun JobDetailScreen(
     androidx.compose.runtime.DisposableEffect(isClockedInHere) {
         val shouldNotify = isClockedInHere
         val notifyFn = onLeaveWhileClockedIn
-        onDispose { if (shouldNotify) notifyFn() }
+        onDispose { if (shouldNotify && !suppressLeavePrompt) notifyFn() }
     }
 
     Scaffold(
@@ -187,27 +197,45 @@ fun JobDetailScreen(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
-                            onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }
-                        ) {
-                            Text("View Assembly")
+                        if (hasAssemblySheet) {
+                            Button(
+                                onClick = {
+                                    suppressLeavePrompt = true
+                                    onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1)
+                                }
+                            ) {
+                                Text("View Assembly")
+                            }
                         }
-                        Button(
-                            onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }
-                        ) {
-                            Text("View Plans & Elevations")
+                        if (hasPlansElevations) {
+                            Button(
+                                onClick = {
+                                    suppressLeavePrompt = true
+                                    onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1)
+                                }
+                            ) {
+                                Text("View Plans & Elevations")
+                            }
                         }
                         if (hasDeliverySheet) {
                             Button(
-                                onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }
+                                onClick = {
+                                    suppressLeavePrompt = true
+                                    onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
+                                }
                             ) {
                                 Text("View Cover Sheet")
                             }
                         }
-                        Button(
-                            onClick = onOpenThreeD
-                        ) {
-                            Text("View 3D")
+                        if (hasThreeDAssets) {
+                            Button(
+                                onClick = {
+                                    suppressLeavePrompt = true
+                                    onOpenThreeD()
+                                }
+                            ) {
+                                Text("View 3D")
+                            }
                         }
                     }
                 }
@@ -258,7 +286,10 @@ fun JobDetailScreen(
                             CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
                         },
                         onToggleExpanded = {},
-                        onClick = { onMaterialClick(material, trackablePages.firstOrNull() ?: 1) }
+                        onClick = {
+                            suppressLeavePrompt = true
+                            onMaterialClick(material, trackablePages.firstOrNull() ?: 1)
+                        }
                     ) {
                         PageStatusBar(
                             pageCount = counts.total,

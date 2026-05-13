@@ -43,6 +43,7 @@ import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.data.EmployeeDirectory
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
@@ -222,6 +223,7 @@ private fun MultiBackStackNavigation(
     val homeTab = if (workMode == WorkMode.ASSEMBLY) TopLevelTab.JOBS else TopLevelTab.DASHBOARD
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
+    var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
@@ -264,9 +266,17 @@ private fun MultiBackStackNavigation(
         activity?.let { coordinator.onBackPressed(it) }
     }
 
+    val onClockInNow: (jobNumber: String, jobName: String, folderName: String, tabType: String, employee: String) -> Unit =
+        { jobNumber, jobName, folderName, tabType, employee ->
+            clockInState.clockIn(jobNumber, "$jobName ($employee)", folderName, tabType)
+        }
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
-            clockInState.clockIn(jobNumber, jobName, folderName, tabType)
+            if (employeeName.isBlank()) {
+                pendingClockIn = PendingClockIn(jobNumber, jobName, folderName, tabType)
+            } else {
+                onClockInNow(jobNumber, jobName, folderName, tabType, employeeName)
+            }
         }
     val onClockOut: () -> Unit = {
         val snap = clockInState.snapshot
@@ -445,11 +455,27 @@ private fun MultiBackStackNavigation(
 
             if (showHoursLoginDialog) {
                 HoursLoginDialog(
+                    initialInput = employeeName,
+                    suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
                     onLogin = { name ->
                         showHoursLoginDialog = false
-                        launchTimecardApp(context, name)
+                        launchTimecardApp(context, EmployeeDirectory.resolveNameOrPin(name))
                     },
                     onDismiss = { showHoursLoginDialog = false }
+                )
+            }
+            pendingClockIn?.let { pending ->
+                val selected = employeeName.takeIf { it.isNotBlank() }.orEmpty()
+                HoursLoginDialog(
+                    initialInput = selected,
+                    suggestions = EmployeeDirectory.suggestions(selected).map { "${it.name} (${it.pin})" },
+                    onLogin = { raw ->
+                        val resolved = EmployeeDirectory.resolveNameOrPin(raw)
+                        onEmployeeNameChanged(resolved)
+                        pendingClockIn = null
+                        onClockInNow(pending.jobNumber, pending.jobName, pending.folderName, pending.tabType, resolved)
+                    },
+                    onDismiss = { pendingClockIn = null }
                 )
             }
             pendingClockOut?.let { pending ->
@@ -1760,9 +1786,11 @@ private fun LegacySingleStackNavigation(
 
             if (showHoursLoginDialog) {
                 HoursLoginDialog(
+                    initialInput = employeeName,
+                    suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
                     onLogin = { name ->
                         showHoursLoginDialog = false
-                        launchTimecardApp(legacyContext, name)
+                        launchTimecardApp(legacyContext, EmployeeDirectory.resolveNameOrPin(name))
                     },
                     onDismiss = { showHoursLoginDialog = false }
                 )
@@ -1952,6 +1980,13 @@ private data class PendingClockOut(
     val startTimeMs: Long,
     val stopTimeMs: Long,
     val actualElapsedMs: Long
+)
+
+private data class PendingClockIn(
+    val jobNumber: String,
+    val jobName: String,
+    val folderName: String,
+    val tabType: String
 )
 
 @Composable

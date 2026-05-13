@@ -50,15 +50,14 @@ class JobRepository(private var baseDir: File) {
         val scanned = baseDir.listFiles()
             ?.filter { it.isDirectory && File(it, "CNC").isDirectory }
             ?.mapNotNull { jobDir ->
-                val match = Regex("""^(\d+)\s*-\s*(.+)$""").find(jobDir.name)
-                if (match != null) {
-                    val jobNumber = match.groupValues[1]
-                    val jobName = match.groupValues[2].trim()
-                    val materials = scanMaterials(File(jobDir, "CNC"), jobNumber)
-                    Job(jobDir.name, jobNumber, jobName, materials)
-                } else null
+                val parsed = parseJobFolderName(jobDir.name) ?: return@mapNotNull null
+                val materials = scanMaterials(File(jobDir, "CNC"), parsed.jobNumber)
+                Job(jobDir.name, parsed.jobNumber, parsed.jobName, materials)
             }
-            ?.sortedByDescending { it.jobNumber.toIntOrNull() ?: 0 }
+            ?.sortedWith { a, b ->
+                val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
+                if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
+            }
             ?: emptyList()
 
         synchronized(cacheLock) {
@@ -186,6 +185,28 @@ class JobRepository(private var baseDir: File) {
         } catch (_: Exception) {
             null
         }
+    }
+
+    fun hasReferenceDocument(jobFolderName: String, docType: ReferenceDocType): Boolean {
+        val filename = findReferencePdfFilename(jobFolderName, docType) ?: return false
+        return getJobRootPdfFile(
+            jobFolderName = jobFolderName,
+            pdfFilename = filename,
+            preferDarkMode = false
+        ) != null
+    }
+
+    fun hasThreeDAssets(jobFolderName: String): Boolean {
+        val threeDDir = File(baseDir, "$jobFolderName/3D")
+        if (!threeDDir.isDirectory) return false
+        return threeDDir.walkTopDown()
+            .maxDepth(2)
+            .any { file ->
+                file.isFile && (
+                    file.extension.equals("glb", ignoreCase = true) ||
+                        file.extension.equals("dae", ignoreCase = true)
+                    )
+            }
     }
 
     fun findReferencePdfFilename(jobFolderName: String, docType: ReferenceDocType): String? {

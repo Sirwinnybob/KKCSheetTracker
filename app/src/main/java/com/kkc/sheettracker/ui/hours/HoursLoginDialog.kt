@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.hours
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -13,10 +14,12 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun HoursLoginDialog(
+    initialInput: String = "",
+    suggestions: List<String> = emptyList(),
     onLogin: (name: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var input by remember { mutableStateOf("") }
+    var input by remember { mutableStateOf(initialInput) }
     val focusRequester = remember { FocusRequester() }
 
     AlertDialog(
@@ -43,6 +46,9 @@ fun HoursLoginDialog(
                     ),
                     shape = MaterialTheme.shapes.medium
                 )
+                suggestions.take(5).forEach { option ->
+                    TextButton(onClick = { input = option }) { Text(option) }
+                }
             }
         },
         confirmButton = {

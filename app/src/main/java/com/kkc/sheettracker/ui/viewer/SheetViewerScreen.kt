@@ -54,6 +54,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.IntSize
@@ -195,6 +198,7 @@ fun SheetViewerScreen(
     val appFlags = remember(appStateFlags) { appStateFlags.snapshot() }
     val useAppStateStatus = appFlags.viewerStatusEnabled
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
     val sharedPrefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
@@ -217,6 +221,8 @@ fun SheetViewerScreen(
 
     val initialPrefs = remember { loadTablePrefs() }
     var currentPage by remember { mutableIntStateOf(startPage) }
+    var lastPersistedViewPage by remember(jobFolderName, pdfFilename) { mutableIntStateOf(-1) }
+    var lastPersistedViewAtMs by remember(jobFolderName, pdfFilename) { mutableStateOf(0L) }
     var totalPages by remember { mutableIntStateOf(0) }
     var visiblePages by remember { mutableStateOf<List<Int>>(emptyList()) }
     var pageBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -250,6 +256,15 @@ fun SheetViewerScreen(
     var statusEffectCount by remember { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
     val cabinetSheetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
+    val hasAssemblyReference = remember(jobFolderName) {
+        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
+    }
+    val hasPlansReference = remember(jobFolderName) {
+        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
+    }
+    val hasThreeDAssets = remember(jobFolderName) {
+        jobRepository.hasThreeDAssets(jobFolderName)
+    }
 
     fun normalizeRoomFolder(roomText: String?): String? {
         val raw = roomText?.let {
@@ -379,6 +394,16 @@ fun SheetViewerScreen(
         )
     }
 
+    fun persistViewTouch(force: Boolean = false) {
+        val material = currentMaterial ?: return
+        if (material.fileFingerprint.isBlank()) return
+        val now = System.currentTimeMillis()
+        if (!force && currentPage == lastPersistedViewPage && now - lastPersistedViewAtMs < 1200L) return
+        progressStore.markSheetViewed(jobFolderName, pdfFilename, currentPage, material.fileFingerprint)
+        lastPersistedViewPage = currentPage
+        lastPersistedViewAtMs = now
+    }
+
     LaunchedEffect(
         numberColDp, widthColDp, lengthColDp, nameWeight, cabColDp, roomColDp,
         sortColumn, sortDirection
@@ -408,10 +433,14 @@ fun SheetViewerScreen(
         currentMaterial = nextMaterial
         visiblePages = nextMaterial?.visibleSheetPages().orEmpty()
         if (nextMaterial != null) {
+            val localTouchPage = progressStore
+                .getLocalMaterialLastTouches(jobFolderName)[pdfFilename]
+                ?.page
             if (visiblePages.isEmpty()) {
-                currentPage = startPage.coerceIn(1, nextMaterial.pageCount.coerceAtLeast(1))
+                val resolved = (localTouchPage ?: startPage).coerceIn(1, nextMaterial.pageCount.coerceAtLeast(1))
+                currentPage = resolved
             } else {
-                val requested = nextMaterial.resolveHeadPage(startPage)
+                val requested = nextMaterial.resolveHeadPage(localTouchPage ?: startPage)
                 currentPage = when {
                     requested in visiblePages -> requested
                     currentPage in visiblePages -> currentPage
@@ -444,6 +473,22 @@ fun SheetViewerScreen(
         if (currentPage in visiblePages) return@LaunchedEffect
         val headPage = material.resolveHeadPage(currentPage)
         currentPage = if (headPage in visiblePages) headPage else visiblePages.first()
+    }
+
+    LaunchedEffect(currentPage, fileFingerprint) {
+        if (fileFingerprint.isBlank()) return@LaunchedEffect
+        delay(250)
+        persistViewTouch(force = false)
+    }
+
+    DisposableEffect(lifecycleOwner, currentPage, fileFingerprint) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                persistViewTouch(force = true)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     suspend fun runOcrForPage(page: Int, expectedSet: Set<Int>): Map<Int, List<Rect>> {
@@ -1018,33 +1063,34 @@ fun SheetViewerScreen(
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip(
-                    selected = false,
-                    enabled = activeAssemblyPage != null,
-                    onClick = { activeAssemblyPage?.let { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, it) } },
-                    label = { Text(if (activeAssemblyPage != null) "Assembly" else "Assembly (N/A)") }
-                )
-                FilterChip(
-                    selected = false,
-                    enabled = activePlansPage != null,
-                    onClick = { activePlansPage?.let { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, it) } },
-                    label = { Text(if (activePlansPage != null) "Plans & Elevations" else "Plans (N/A)") }
-                )
-                FilterChip(
-                    selected = false,
-                    enabled = activeRoom != null,
-                    onClick = {
-                        if (activeRoom != null) {
+                if (hasAssemblyReference && activeAssemblyPage != null) {
+                    FilterChip(
+                        selected = false,
+                        onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, activeAssemblyPage) },
+                        label = { Text("Assembly") }
+                    )
+                }
+                if (hasPlansReference && activePlansPage != null) {
+                    FilterChip(
+                        selected = false,
+                        onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, activePlansPage) },
+                        label = { Text("Plans & Elevations") }
+                    )
+                }
+                if (hasThreeDAssets && activeRoom != null) {
+                    FilterChip(
+                        selected = false,
+                        onClick = {
                             onOpenThreeDTarget(
                                 activeCabinet?.toString(),
                                 activeAssemblyPage,
                                 activePlansPage,
                                 activeRoom
                             )
-                        }
-                    },
-                    label = { Text(if (activeRoom != null) "3D" else "3D (N/A)") }
-                )
+                        },
+                        label = { Text("3D") }
+                    )
+                }
             }
 
             val bitmap = if (showFullPdfPage) pageBitmap else (diagramBitmap ?: pageBitmap)
@@ -1187,12 +1233,16 @@ fun SheetViewerScreen(
         val plansPage = cabinetNumber?.let { cab ->
             cabinetSheetIndex?.documents?.plansElevations?.cabinetToPages?.get(cab.toString())?.firstOrNull()
         }
-        val roomFolder = normalizeRoomFolder(selectedPart?.room)
+        val roomFolder = if (hasThreeDAssets) {
+            normalizeRoomFolder(selectedPart?.room)
             ?: roomInCurrentSheetView()
             ?: assemblyPage?.let { page ->
                 normalizeRoomFolder(cabinetSheetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
             }
             ?: firstAlphabeticalRoomFromIndex()?.first
+        } else {
+            null
+        }
         AlertDialog(
             onDismissRequest = { showReferenceDocDialog = false },
             title = { Text("Open Reference Sheet") },
@@ -1213,33 +1263,31 @@ fun SheetViewerScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Button(
-                        onClick = {
-                            if (assemblyPage != null) {
+                    if (hasAssemblyReference && assemblyPage != null) {
+                        Button(
+                            onClick = {
                                 showReferenceDocDialog = false
                                 onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, assemblyPage)
-                            }
-                        },
-                        enabled = assemblyPage != null,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (assemblyPage != null) "Assembly Sheets (Page $assemblyPage)" else "Assembly Sheets (Not found)")
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Assembly Sheets (Page $assemblyPage)")
+                        }
                     }
-                    Button(
-                        onClick = {
-                            if (plansPage != null) {
+                    if (hasPlansReference && plansPage != null) {
+                        Button(
+                            onClick = {
                                 showReferenceDocDialog = false
                                 onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, plansPage)
-                            }
-                        },
-                        enabled = plansPage != null,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (plansPage != null) "Plans & Elevations (Page $plansPage)" else "Plans & Elevations (Not found)")
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Plans & Elevations (Page $plansPage)")
+                        }
                     }
-                    Button(
-                        onClick = {
-                            if (roomFolder != null) {
+                    if (hasThreeDAssets && roomFolder != null) {
+                        Button(
+                            onClick = {
                                 showReferenceDocDialog = false
                                 onOpenThreeDTarget(
                                     cabinetNumber?.toString(),
@@ -1247,12 +1295,11 @@ fun SheetViewerScreen(
                                     plansPage,
                                     roomFolder
                                 )
-                            }
-                        },
-                        enabled = roomFolder != null,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (roomFolder != null) "View 3D Room" else "View 3D Room (Not found)")
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("View 3D Room")
+                        }
                     }
                     if (isDarkTheme) {
                         Text(

@@ -386,6 +386,7 @@ class ProgressStore(
         }
 
         when (action.action) {
+            "view" -> Unit
             "complete", "uncomplete" -> {
                 val value = action.action == "complete"
                 if (fp == null) {
@@ -481,6 +482,11 @@ class ProgressStore(
     fun unmarkSheetSkipped(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
         if (readOnly) return
         appendAction(jobFolderName, pdfFilename, page, "unskip", fileFingerprint)
+    }
+
+    fun markSheetViewed(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
+        if (readOnly) return
+        appendAction(jobFolderName, pdfFilename, page, "view", fileFingerprint)
     }
 
     fun isSheetComplete(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String): Boolean {

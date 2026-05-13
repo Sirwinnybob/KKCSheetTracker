@@ -214,21 +214,32 @@ fun AssemblyViewerScreen(
         else jobRepository.getJobRootPdfFile(jobFolderName, plansFilename, preferDarkMode = isDarkTheme)
     }
 
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
+    val resumePrefix = remember(jobFolderName) { "assembly_resume_v1_${jobFolderName}" }
     var assemblyPage by rememberSaveable(assemblyPdfFile?.absolutePath, startPageAssembly) {
-        mutableIntStateOf(startPageAssembly.coerceAtLeast(1))
+        mutableIntStateOf(prefs.getInt("${resumePrefix}_assembly_page", startPageAssembly).coerceAtLeast(1))
     }
     var plansPage by rememberSaveable(plansPdfFile?.absolutePath, startPagePlans) {
-        mutableIntStateOf(startPagePlans.coerceAtLeast(1))
+        mutableIntStateOf(prefs.getInt("${resumePrefix}_plans_page", startPagePlans).coerceAtLeast(1))
     }
     var searchText by rememberSaveable { mutableStateOf("") }
     var lastSearchedCabinet by rememberSaveable { mutableStateOf("") }
     var contextLine by remember { mutableStateOf("") }
     var showPartsSheet by remember { mutableStateOf(false) }
     var fullscreenPane by rememberSaveable(initialSource) {
-        mutableStateOf(if (initialPaneSource == PaneSource.THREE_D) FullscreenPane.FIRST else FullscreenPane.NONE)
+        val saved = prefs.getString("${resumePrefix}_fullscreen", null)
+        mutableStateOf(
+            runCatching { saved?.let { FullscreenPane.valueOf(it) } }.getOrNull()
+                ?: if (initialPaneSource == PaneSource.THREE_D) FullscreenPane.FIRST else FullscreenPane.NONE
+        )
     }
     var firstPaneSource by rememberSaveable(initialSource) {
-        mutableStateOf(initialPaneSource ?: PaneSource.PLANS)
+        val saved = prefs.getString("${resumePrefix}_first_source", null)
+        mutableStateOf(
+            runCatching { saved?.let { PaneSource.valueOf(it) } }.getOrNull()
+                ?: (initialPaneSource ?: PaneSource.PLANS)
+        )
     }
     var secondPaneSource by rememberSaveable { mutableStateOf(PaneSource.ASSEMBLY) }
     var firstPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
@@ -246,7 +257,14 @@ fun AssemblyViewerScreen(
     var viewerServerError by remember { mutableStateOf<String?>(null) }
     var detectedRoom by rememberSaveable(initialRoom) { mutableStateOf(initialRoom) }
 
-    val context = LocalContext.current
+    LaunchedEffect(assemblyPage, plansPage, firstPaneSource, fullscreenPane) {
+        prefs.edit()
+            .putInt("${resumePrefix}_assembly_page", assemblyPage)
+            .putInt("${resumePrefix}_plans_page", plansPage)
+            .putString("${resumePrefix}_first_source", firstPaneSource.name)
+            .putString("${resumePrefix}_fullscreen", fullscreenPane.name)
+            .apply()
+    }
     DisposableEffect(basePath, jobFolderName) {
         android.util.Log.d("AssemblyViewer", "DisposableEffect: basePath='$basePath' job='$jobFolderName'")
         if (basePath.isBlank()) {

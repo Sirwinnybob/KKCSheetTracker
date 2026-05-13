@@ -143,13 +143,8 @@ fun HardwoodsJobsScreen(
                         val hasDeliverySheet = remember(job.folderName) {
                             jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
                         }
-                        val assemblyMode = remember(scanState.snapshot.generation, job.folderName) {
-                            jobRepository.getCabinetSheetIndex(job.folderName)
-                                ?.documents
-                                ?.assembly
-                                ?.mode
-                                ?.uppercase()
-                                .orEmpty()
+                        val hasThreeDAssets = remember(job.folderName) {
+                            jobRepository.hasThreeDAssets(job.folderName)
                         }
                         val history = remember(scanState.snapshot.generation, progressVersion, job.folderName) {
                             hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
@@ -157,10 +152,30 @@ fun HardwoodsJobsScreen(
                         val summary = remember(progressVersion, job.index) {
                             progressStore.summarizeJob(job)
                         }
+                        val availableDocTypes = remember(job.index, job.folderName) {
+                            job.index?.documents
+                                .orEmpty()
+                                .filter { doc ->
+                                    doc.pdfFilename.isNotBlank() &&
+                                        jobRepository.getJobRootPdfFile(
+                                            jobFolderName = job.folderName,
+                                            pdfFilename = doc.pdfFilename,
+                                            preferDarkMode = false
+                                        ) != null
+                                }
+                                .map { it.docType }
+                                .toSet()
+                        }
                         val totalsDoneMap = remember(progressVersion, job.folderName) {
                             progressStore.getTotalsRip10DoneMap(job.folderName)
                         }
-                        val includedDocSummaries = summary.documents.filter { it.docType != com.kkc.sheettracker.data.models.HardwoodDocType.DOOR_LIST }
+                        val rowProgressMap = remember(progressVersion, job.folderName) {
+                            progressStore.getRowProgressMap(job.folderName)
+                        }
+                        val includedDocSummaries = summary.documents.filter {
+                            it.docType != com.kkc.sheettracker.data.models.HardwoodDocType.DOOR_LIST &&
+                                it.docType in availableDocTypes
+                        }
                         val includedCounts = includedDocSummaries.fold(HardwoodStatusCounts()) { acc, doc ->
                             HardwoodStatusCounts(
                                 totalPieces = acc.totalPieces + doc.counts.totalPieces,
@@ -169,12 +184,24 @@ fun HardwoodsJobsScreen(
                                 skippedPieces = acc.skippedPieces + doc.counts.skippedPieces
                             )
                         }
-                        val boardStockCounts = remember(job.index, totalsDoneMap, scanState.snapshot.basePath) {
-                            val rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index)
-                            val total = rows.sumOf { it.neededRips.coerceAtLeast(0) }
+                        val boardStockCounts = remember(job.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
+                            val rows = applySkippedPartRowsToBoardStockRows(
+                                rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index),
+                                index = job.index,
+                                rowProgressMap = rowProgressMap
+                            )
+                            val total = rows.sumOf { row ->
+                                val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
+                                val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
+                                val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
+                                if (skipped) 0 else row.neededRips.coerceAtLeast(0)
+                            }
                             val done = rows.sumOf { row ->
                                 val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
-                                (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
+                                val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
+                                val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
+                                val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
+                                if (skipped) 0 else (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
                             }
                             HardwoodStatusCounts(totalPieces = total, donePieces = done)
                         }
@@ -185,13 +212,7 @@ fun HardwoodsJobsScreen(
                             skippedPieces = includedCounts.skippedPieces
                         )
                         val docCount = includedDocSummaries.size
-                        val expectedDocCount = if (assemblyMode == "FRAMELESS") 0 else 3
-                        val subtitle = buildString {
-                            append("${counts.donePieces}/${counts.totalPieces} done")
-                            if (expectedDocCount > 0 && docCount < expectedDocCount) {
-                                append(" • ${expectedDocCount - docCount} docs missing")
-                            }
-                        }
+                        val subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done"
                         val docSegments = includedDocSummaries.map {
                             MaterialSegmentData(
                                 materialName = it.docType.uiLabel(),
@@ -245,11 +266,13 @@ fun HardwoodsJobsScreen(
                                             label = { Text("Cover Sheet") }
                                         )
                                     }
-                                    FilterChip(
-                                        selected = false,
-                                        onClick = { onView3D(job) },
-                                        label = { Text("View 3D") }
-                                    )
+                                    if (hasThreeDAssets) {
+                                        FilterChip(
+                                            selected = false,
+                                            onClick = { onView3D(job) },
+                                            label = { Text("View 3D") }
+                                        )
+                                    }
                                 }
                             },
                             onClick = { onJobClick(job) }
@@ -257,7 +280,7 @@ fun HardwoodsJobsScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 StatusSummaryRow(counts.toStatusCounts())
                                 Text(
-                                    "Cutlists: ${docCount}/3 + Rip Cut List",
+                                    "Cutlists: $docCount + Rip Cut List",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.Medium
@@ -291,10 +314,11 @@ fun HardwoodsJobsScreen(
 }
 
 internal fun HardwoodStatusCounts.toStatusCounts(): StatusCounts {
-    val complete = donePieces + badPieces
-    val notStarted = (totalPieces - complete - skippedPieces).coerceAtLeast(0)
+    val effectiveTotal = effectiveTotalPieces
+    val complete = (donePieces + badPieces).coerceAtMost(effectiveTotal)
+    val notStarted = (effectiveTotal - complete).coerceAtLeast(0)
     return StatusCounts(
-        total = totalPieces,
+        total = effectiveTotal,
         complete = complete,
         bad = badPieces,
         skipped = skippedPieces,

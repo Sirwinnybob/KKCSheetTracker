@@ -126,6 +126,7 @@ private class MigrationRunner(
     private val options: CliOptions
 ) {
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
+    private val eventLineGson: Gson = GsonBuilder().disableHtmlEscaping().create()
     private val startedAt: Instant = Instant.now()
     private val backupStamp: String = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
         .withZone(ZoneOffset.UTC)
@@ -870,10 +871,17 @@ private class MigrationRunner(
         eventsDir.toFile().mkdirs()
         streamsByTablet.forEach { (tabletId, stream) ->
             val target = eventsDir.resolve("$tabletId.ndjson")
-            val text = stream.joinToString(separator = "\n") { gson.toJson(it) } + if (stream.isNotEmpty()) "\n" else ""
+            val text = buildString {
+                stream.forEach { event ->
+                    append(encodeEventLine(event))
+                    append('\n')
+                }
+            }
             writeAtomic(target, text)
         }
     }
+
+    private fun encodeEventLine(event: MigrationEvent): String = eventLineGson.toJson(event)
 
     private fun backupModeSources(backupRoot: Path, sources: List<Path>, backupPrefix: String) {
         if (sources.isEmpty()) return

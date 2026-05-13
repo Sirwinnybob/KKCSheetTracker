@@ -445,10 +445,16 @@ data class HardwoodStatusCounts(
     val badPieces: Int = 0,
     val skippedPieces: Int = 0
 ) {
+    val effectiveTotalPieces: Int
+        get() = (totalPieces - skippedPieces).coerceAtLeast(0)
     val remainingPieces: Int
-        get() = (totalPieces - donePieces - skippedPieces).coerceAtLeast(0)
+        get() = (effectiveTotalPieces - donePieces).coerceAtLeast(0)
     val completionFraction: Float
-        get() = if (totalPieces <= 0) 0f else donePieces.toFloat() / totalPieces.toFloat()
+        get() = when {
+            totalPieces <= 0 -> 0f
+            effectiveTotalPieces <= 0 -> 1f
+            else -> donePieces.toFloat() / effectiveTotalPieces.toFloat()
+        }
 }
 
 data class HardwoodDocSummary(

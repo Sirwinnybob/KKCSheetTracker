@@ -165,23 +165,20 @@ class ScanCoordinator(
             ?.mapNotNull { jobDir ->
                 val deploymentGate = DeploymentGateRules.evaluate(jobDir, isDebugBuild = BuildConfig.DEBUG)
                 if (!deploymentGate.includeJob) return@mapNotNull null
-                val match = Regex("""^(\d+)\s*-\s*(.+)$""").find(jobDir.name)
-                if (match != null) {
-                    val jobNumber = match.groupValues[1]
-                    val jobName = match.groupValues[2].trim()
-                    val materials = scanMaterials(jobDir.name, File(jobDir, "CNC"), jobNumber, issues)
-                    Job(
-                        folderName = jobDir.name,
-                        jobNumber = jobNumber,
-                        jobName = jobName,
-                        materials = materials,
-                        hiddenFromProduction = deploymentGate.hiddenFromProduction
-                    )
-                } else {
-                    null
-                }
+                val parsed = parseJobFolderName(jobDir.name) ?: return@mapNotNull null
+                val materials = scanMaterials(jobDir.name, File(jobDir, "CNC"), parsed.jobNumber, issues)
+                Job(
+                    folderName = jobDir.name,
+                    jobNumber = parsed.jobNumber,
+                    jobName = parsed.jobName,
+                    materials = materials,
+                    hiddenFromProduction = deploymentGate.hiddenFromProduction
+                )
             }
-            ?.sortedByDescending { it.jobNumber.toIntOrNull() ?: 0 }
+            ?.sortedWith { a, b ->
+                val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
+                if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
+            }
             ?: emptyList()
 
         return scanned to issues

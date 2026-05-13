@@ -83,20 +83,21 @@ class AssemblyScanCoordinator(
                 runCatching {
                     val deploymentGate = DeploymentGateRules.evaluate(jobDir, isDebugBuild = BuildConfig.DEBUG)
                     if (!deploymentGate.includeJob) return@runCatching null
-                    val match = Regex("""^(\d+)\s*-\s*(.+)$""").find(jobDir.name) ?: return@runCatching null
-                    val jobNumber = match.groupValues[1]
-                    val jobName = match.groupValues[2].trim()
+                    val parsed = parseJobFolderName(jobDir.name) ?: return@runCatching null
                     val sheetIndex = jobRepository.getCabinetSheetIndex(jobDir.name)
                     AssemblyJob(
                         folderName = jobDir.name,
-                        jobNumber = jobNumber,
-                        jobName = jobName,
+                        jobNumber = parsed.jobNumber,
+                        jobName = parsed.jobName,
                         cabinetSheetIndex = sheetIndex,
                         hiddenFromProduction = deploymentGate.hiddenFromProduction
                     )
                 }.getOrNull()
             }
-            ?.sortedByDescending { it.jobNumber.toIntOrNull() ?: 0 }
+            ?.sortedWith { a, b ->
+                val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
+                if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
+            }
             ?.toList()
             ?: emptyList()
     }

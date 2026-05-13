@@ -182,15 +182,25 @@ fun HardwoodsWorkspaceScreen(
         scanState.snapshot.jobs.firstOrNull { it.folderName == jobFolderName }
     }
     val documents = remember(job?.index) { job?.index?.documents.orEmpty() }
+    val availableDocuments = remember(documents, jobFolderName, isDarkTheme) {
+        documents.filter { doc ->
+            doc.pdfFilename.isNotBlank() &&
+                jobRepository.getJobRootPdfFile(
+                    jobFolderName = jobFolderName,
+                    pdfFilename = doc.pdfFilename,
+                    preferDarkMode = isDarkTheme
+                ) != null
+        }
+    }
     var selectedDocType by remember(jobFolderName) { mutableStateOf(initialDocType) }
 
-    val availableDocTypes = remember(documents) { documents.map { it.docType }.toSet() }
+    val availableDocTypes = remember(availableDocuments) { availableDocuments.map { it.docType }.toSet() }
     if (selectedDocType !in availableDocTypes && availableDocTypes.isNotEmpty()) {
         selectedDocType = availableDocTypes.first()
     }
 
     val listState = rememberLazyListState()
-    val selectedDoc = remember(documents, selectedDocType) { documents.firstOrNull { it.docType == selectedDocType } }
+    val selectedDoc = remember(availableDocuments, selectedDocType) { availableDocuments.firstOrNull { it.docType == selectedDocType } }
     val selectedDocName = selectedDoc?.docType?.name.orEmpty()
     val rows = selectedDoc?.rows.orEmpty()
     val totals = selectedDoc?.totals.orEmpty()
@@ -230,8 +240,12 @@ fun HardwoodsWorkspaceScreen(
         }
         seen
     }
-    val boardStockRows = remember(scanState.snapshot.basePath, jobFolderName, job?.index) {
-        buildBoardStockRows(scanState.snapshot.basePath, jobFolderName, job?.index)
+    val boardStockRows = remember(scanState.snapshot.basePath, jobFolderName, job?.index, rowProgressMap) {
+        applySkippedPartRowsToBoardStockRows(
+            rows = buildBoardStockRows(scanState.snapshot.basePath, jobFolderName, job?.index),
+            index = job?.index,
+            rowProgressMap = rowProgressMap
+        )
     }
     val totalsDoneMap = remember(progressVersion, jobFolderName) {
         hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)
@@ -248,8 +262,8 @@ fun HardwoodsWorkspaceScreen(
             )
         }
     }
-    val pendingChangedByDoc = remember(documents, rowRevisionStateMap, rowProgressMap) {
-        documents.associate { doc ->
+    val pendingChangedByDoc = remember(availableDocuments, rowRevisionStateMap, rowProgressMap) {
+        availableDocuments.associate { doc ->
             val pending = doc.rows.filter { row ->
                 val state = rowRevisionStateMap[doc.docType.name to row.rowId] ?: return@filter false
                 if (state.latestRevision <= 0) return@filter false
@@ -322,7 +336,12 @@ fun HardwoodsWorkspaceScreen(
     var showReferencePane by remember(jobFolderName) { mutableStateOf(true) }
     val skippedCabinetMap = remember(progressVersion, jobFolderName) { hardwoodsProgressStore.getSkippedCabinetMap(jobFolderName) }
 
-    var referencePage by remember(jobFolderName) { mutableIntStateOf(1) }
+    val resumePrefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
+    val referenceResumeKey = remember(jobFolderName) { "hardwoods_reference_page_v1_${jobFolderName}" }
+    var referencePage by remember(jobFolderName) { mutableIntStateOf(resumePrefs.getInt(referenceResumeKey, 1).coerceAtLeast(1)) }
+    LaunchedEffect(referencePage, referenceResumeKey) {
+        resumePrefs.edit().putInt(referenceResumeKey, referencePage).apply()
+    }
     val cabinetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
     val assemblyCabinetToPages = remember(cabinetIndex) {
         cabinetIndex?.documents?.assembly?.virtualCombined?.cabinetToPages
@@ -658,25 +677,21 @@ fun HardwoodsWorkspaceScreen(
                     .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                    items(HardwoodDocType.entries, key = { it.name }) { docType ->
-                        val available = documents.any { it.docType == docType }
+                    items(HardwoodDocType.entries.filter { it in availableDocTypes }, key = { it.name }) { docType ->
                         FilterChip(
                             selected = !showRipCutList && !showChangedOnly && selectedDocType == docType,
                             onClick = {
-                                if (available) {
-                                    selectedDocType = docType
-                                    showRipCutList = false
-                                    showChangedOnly = false
-                                }
+                                selectedDocType = docType
+                                showRipCutList = false
+                                showChangedOnly = false
                             },
                             label = {
                                 Text(
-                                    if (available) docType.uiLabel() else "${docType.uiLabel()} (Missing)",
+                                    docType.uiLabel(),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                            },
-                            enabled = available
+                            }
                         )
                     }
                     item(key = "rip-cut-list") {
@@ -765,8 +780,13 @@ fun HardwoodsWorkspaceScreen(
                             val sectionStateKey = "${selectedDoc.docType.name}|$sectionKey"
                             val isCollapsed = sectionStateKey in collapsedPartSections
                             val sectionProgress = run {
-                                val totalPieces = sectionRows.sumOf { it.qty.coerceAtLeast(0) }
+                                val totalPieces = sectionRows.sumOf { row ->
+                                    val qty = row.qty.coerceAtLeast(0)
+                                    val skipped = rowProgressMap[selectedDoc.docType.name to row.rowId]?.skipped == true
+                                    if (skipped) 0 else qty
+                                }
                                 val donePieces = sectionRows.sumOf { row ->
+                                    if (rowProgressMap[selectedDoc.docType.name to row.rowId]?.skipped == true) return@sumOf 0
                                     val done = rowProgressMap[selectedDoc.docType.name to row.rowId]?.doneCount ?: 0
                                     done.coerceIn(0, row.qty.coerceAtLeast(0))
                                 }
@@ -1275,6 +1295,15 @@ private fun ReferencePane(
     onOpenIn3DApp: () -> Unit
 ) {
     val cabinetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
+    val hasAssemblyReference = remember(jobFolderName) {
+        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
+    }
+    val hasPlansReference = remember(jobFolderName) {
+        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
+    }
+    val hasThreeDAssets = remember(jobFolderName) {
+        jobRepository.hasThreeDAssets(jobFolderName)
+    }
     val docIndex = remember(cabinetIndex, referenceDocType) {
         when (referenceDocType) {
             ReferenceDocType.ASSEMBLY -> cabinetIndex?.documents?.assembly
@@ -1356,6 +1385,7 @@ private fun ReferencePane(
     }
 
     val docControls: @Composable RowScope.() -> Unit = {
+            if (hasAssemblyReference) {
             FilterChip(
                 selected = referenceDocType == ReferenceDocType.ASSEMBLY,
                 onClick = {
@@ -1364,6 +1394,8 @@ private fun ReferencePane(
                 },
                 label = { Text("Assembly") }
             )
+            }
+            if (hasPlansReference) {
             FilterChip(
                 selected = referenceDocType == ReferenceDocType.PLANS_ELEVATIONS,
                 onClick = {
@@ -1372,14 +1404,17 @@ private fun ReferencePane(
                 },
                 label = { Text("Plans & Elevations") }
             )
+            }
+            if (hasThreeDAssets) {
             FilterChip(
                 selected = jumpTarget == HardwoodsJumpTarget.THREE_D,
                 onClick = { onJumpTargetChange(HardwoodsJumpTarget.THREE_D) },
                 label = { Text("View 3D") }
             )
+            }
     }
 
-    if (jumpTarget == HardwoodsJumpTarget.THREE_D) {
+    if (jumpTarget == HardwoodsJumpTarget.THREE_D && hasThreeDAssets) {
         Model3DPane(
             modifier = modifier,
             folderName = jobFolderName,
@@ -1494,10 +1529,16 @@ private fun HardwoodsBoardStockList(
             val sectionKey = section.material
             val isCollapsed = sectionKey in collapsedSections
             val materialSkipped = progressStore.isBoardStockMaterialSkipped(jobFolderName, section.material)
-            val totalTarget = section.rows.sumOf { it.neededRips }
+            val totalTarget = section.rows.sumOf { line ->
+                val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
+                val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
+                if (lineSkipped) 0 else line.neededRips
+            }
             val totalDone = section.rows.sumOf { line ->
                 val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
-                (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
+                val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
+                val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
+                if (lineSkipped) 0 else (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
             }
             stickyHeader(key = "totals-section:$sectionKey") {
                 SectionProgressHeader(

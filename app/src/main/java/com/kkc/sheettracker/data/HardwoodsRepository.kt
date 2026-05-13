@@ -35,18 +35,19 @@ class HardwoodsRepository(private var baseDir: File) {
             ?.mapNotNull { jobDir ->
                 val deploymentGate = DeploymentGateRules.evaluate(jobDir, isDebugBuild = BuildConfig.DEBUG)
                 if (!deploymentGate.includeJob) return@mapNotNull null
-                val match = Regex("""^(\d+)\s*-\s*(.+)$""").find(jobDir.name) ?: return@mapNotNull null
-                val jobNumber = match.groupValues[1]
-                val jobName = match.groupValues[2].trim()
+                val parsed = parseJobFolderName(jobDir.name) ?: return@mapNotNull null
                 HardwoodJob(
                     folderName = jobDir.name,
-                    jobNumber = jobNumber,
-                    jobName = jobName,
+                    jobNumber = parsed.jobNumber,
+                    jobName = parsed.jobName,
                     index = loadHardwoodsIndex(jobDir.name),
                     hiddenFromProduction = deploymentGate.hiddenFromProduction
                 )
             }
-            ?.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+            ?.sortedWith { a, b ->
+                val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
+                if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
+            }
             ?: emptyList()
     }
 

@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.BuildConfig
+import com.kkc.sheettracker.data.EmployeeDirectory
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
@@ -52,24 +53,7 @@ fun SettingsScreen(
     var employeeNameDirty by remember { mutableStateOf(false) }
     var employeeNameSaved by remember { mutableStateOf(false) }
     var employeeDropdownExpanded by remember { mutableStateOf(false) }
-    val allEmployees = remember {
-        listOf(
-            "023" to "Jonathan Thornton",
-            "067" to "Jared Rosenburg",
-            "101" to "Chris Tennent",
-            "189" to "Kevin Leafdale",
-            "223" to "Barry Roper",
-            "345" to "Donald McEdward",
-            "389" to "Winston Ferguson",
-            "423" to "Michael Diekotto",
-            "467" to "Montgomery Blackburn",
-            "501" to "Cameron Baker",
-            "623" to "Tye Lewin",
-            "701" to "Nate Hoseteetter",
-            "901" to "Kevin Olson",
-            "989" to "Kevin Palmer"
-        )
-    }
+    val allEmployees = remember { EmployeeDirectory.records.map { it.pin to it.name } }
     val filteredEmployees = remember(editEmployeeName) {
         if (editEmployeeName.isBlank()) emptyList()
         else allEmployees.filter { (id, name) ->

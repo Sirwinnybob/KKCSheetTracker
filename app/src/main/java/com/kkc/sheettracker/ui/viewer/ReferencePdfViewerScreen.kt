@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -20,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.ReferenceDocType
 
@@ -33,6 +35,8 @@ fun ReferencePdfViewerScreen(
     isDarkTheme: Boolean,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
     val sheetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
     val documentIndex = remember(sheetIndex, docType) {
         when (docType) {
@@ -110,7 +114,13 @@ fun ReferencePdfViewerScreen(
         }
     }
 
-    var currentPage by remember(jobFolderName, docType, startPage) { mutableIntStateOf(startPage.coerceAtLeast(1)) }
+    val resumeKey = remember(jobFolderName, docType) { "reference_resume_v1_${jobFolderName}_${docType.name}" }
+    var currentPage by remember(jobFolderName, docType, startPage) {
+        mutableIntStateOf(prefs.getInt(resumeKey, startPage).coerceAtLeast(1))
+    }
+    LaunchedEffect(currentPage, resumeKey) {
+        prefs.edit().putInt(resumeKey, currentPage).apply()
+    }
 
     val defaultPdfFilename = remember(documentIndex, docType, jobFolderName) {
         documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }

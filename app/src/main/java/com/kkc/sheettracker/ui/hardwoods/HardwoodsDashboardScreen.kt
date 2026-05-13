@@ -88,7 +88,12 @@ fun HardwoodsDashboardScreen(
         jobs.map { job ->
             val base = progressStore.summarizeJob(job)
             val totalsDoneMap = progressStore.getTotalsRip10DoneMap(job.folderName)
-            val boardRows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index)
+            val rowProgressMap = progressStore.getRowProgressMap(job.folderName)
+            val boardRows = applySkippedPartRowsToBoardStockRows(
+                rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index),
+                index = job.index,
+                rowProgressMap = rowProgressMap
+            )
             val boardTotal = boardRows.sumOf { it.neededRips.coerceAtLeast(0) }
             val boardDone = boardRows.sumOf { row ->
                 val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)

@@ -189,6 +189,9 @@ fun JobBrowserScreen(
                         val hasDeliverySheet = remember(job.folderName) {
                             jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
                         }
+                        val hasThreeDAssets = remember(job.folderName) {
+                            jobRepository.hasThreeDAssets(job.folderName)
+                        }
                         val history = remember(scanState.snapshot.generation, progressVersion, job.folderName) {
                             hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
                         }
@@ -262,11 +265,13 @@ fun JobBrowserScreen(
                                         label = { Text("Cover Sheet") }
                                     )
                                 }
-                                FilterChip(
-                                    selected = false,
-                                    onClick = { onView3D(job) },
-                                    label = { Text("View 3D") }
-                                )
+                                if (hasThreeDAssets) {
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = { onView3D(job) },
+                                        label = { Text("View 3D") }
+                                    )
+                                }
                                 }
                             },
                             onToggleExpanded = {},

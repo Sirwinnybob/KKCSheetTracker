@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
@@ -75,6 +76,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -84,6 +87,12 @@ data class PdfViewportState(
     val panY: Float = 0f,
     val viewSize: IntSize = IntSize.Zero
 )
+
+internal enum class SideGutterTapRegion {
+    LEFT,
+    RIGHT,
+    NONE
+}
 
 sealed interface PdfRenderUiState {
     data object Loading : PdfRenderUiState
@@ -431,6 +440,16 @@ fun ReferencePdfPane(
 
     val displayPage = displayPageOverride ?: currentPage
     val displayTotalPages = (displayTotalPagesOverride ?: totalPages).coerceAtLeast(0)
+    val stepPage: (Int) -> Unit = { delta ->
+        if (delta < 0 && displayPage > 1) {
+            if (onStepPage != null) onStepPage(-1)
+            else onCurrentPageChange((currentPage - 1).coerceAtLeast(1))
+        } else if (delta > 0 && displayPage < displayTotalPages) {
+            if (onStepPage != null) onStepPage(1)
+            else onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1)))
+        }
+    }
+
     Column(modifier = modifier.padding(innerPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showHeaderRow) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -465,6 +484,7 @@ fun ReferencePdfPane(
                             onViewportStateChanged = { viewportState = it },
                             onInteractionChanged = { isInteracting = it },
                             pageAspectRatio = pageAspectRatio,
+                            onGutterTapStep = stepPage,
                             modifier = Modifier.fillMaxSize()
                         )
                         when (renderState) {
@@ -522,13 +542,7 @@ fun ReferencePdfPane(
                                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     androidx.compose.material3.IconButton(
-                                        onClick = {
-                                            if (onStepPage != null) {
-                                                onStepPage(-1)
-                                            } else {
-                                                onCurrentPageChange((currentPage - 1).coerceAtLeast(1))
-                                            }
-                                        },
+                                        onClick = { stepPage(-1) },
                                         enabled = displayTotalPages > 0 && displayPage > 1,
                                         modifier = Modifier.size(38.dp)
                                     ) {
@@ -560,13 +574,7 @@ fun ReferencePdfPane(
                                         style = MaterialTheme.typography.labelSmall
                                     )
                                     androidx.compose.material3.IconButton(
-                                        onClick = {
-                                            if (onStepPage != null) {
-                                                onStepPage(1)
-                                            } else {
-                                                onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1)))
-                                            }
-                                        },
+                                        onClick = { stepPage(1) },
                                         enabled = displayTotalPages > 0 && displayPage < displayTotalPages,
                                         modifier = Modifier.size(38.dp)
                                     ) {
@@ -594,6 +602,7 @@ private fun ZoomablePdfImage(
     onViewportStateChanged: (PdfViewportState) -> Unit,
     onInteractionChanged: (Boolean) -> Unit,
     pageAspectRatio: Float?,
+    onGutterTapStep: ((Int) -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
@@ -602,6 +611,8 @@ private fun ZoomablePdfImage(
     var panY by remember(pageKey) { mutableFloatStateOf(0f) }
     val minZoom = 1f
     val maxZoom = 14f
+    val tapSlopPx = LocalViewConfiguration.current.touchSlop
+    val gutterPanTolerancePx = 24f
 
     fun clampPan(targetZoom: Float, x: Float, y: Float): Pair<Float, Float> {
         if (viewSize == IntSize.Zero || targetZoom <= minZoom) return 0f to 0f
@@ -641,12 +652,27 @@ private fun ZoomablePdfImage(
             }
             .pointerInput(pageKey) {
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    val firstDown = awaitFirstDown(requireUnconsumed = false)
                     onInteractionChanged(true)
+                    var pointerCountMax = 1
+                    var maxMoveDistance = 0f
+                    var hadTransformInput = false
                     do {
                         val event = awaitPointerEvent()
+                        pointerCountMax = max(pointerCountMax, event.changes.count { it.pressed })
+                        val tracked = event.changes.firstOrNull { it.id == firstDown.id }
+                            ?: event.changes.firstOrNull { it.pressed }
+                            ?: event.changes.firstOrNull()
+                        if (tracked != null) {
+                            val dx = tracked.position.x - firstDown.position.x
+                            val dy = tracked.position.y - firstDown.position.y
+                            maxMoveDistance = max(maxMoveDistance, sqrt(dx * dx + dy * dy))
+                        }
                         val zoomChange = event.calculateZoom()
                         val panChange = event.calculatePan()
+                        if (abs(zoomChange - 1f) > 0.001f || abs(panChange.x) > 0.5f || abs(panChange.y) > 0.5f) {
+                            hadTransformInput = true
+                        }
                         val nextZoom = (zoom * zoomChange).coerceIn(minZoom, maxZoom)
                         val nextPanX = panX + panChange.x
                         val nextPanY = panY + panChange.y
@@ -658,6 +684,29 @@ private fun ZoomablePdfImage(
                     } while (event.changes.any { it.pressed })
                     onInteractionChanged(false)
                     emitViewport()
+
+                    val isSingleTap = pointerCountMax == 1 &&
+                        !hadTransformInput &&
+                        maxMoveDistance <= tapSlopPx
+                    if (isSingleTap && onGutterTapStep != null && isFitStateForSideGutterNavigation(
+                            zoom = zoom,
+                            panX = panX,
+                            panY = panY,
+                            panTolerancePx = gutterPanTolerancePx
+                        )
+                    ) {
+                        when (
+                            classifySideGutterTap(
+                                tapX = firstDown.position.x,
+                                viewSize = viewSize,
+                                pageAspectRatio = pageAspectRatio
+                            )
+                        ) {
+                            SideGutterTapRegion.LEFT -> onGutterTapStep(-1)
+                            SideGutterTapRegion.RIGHT -> onGutterTapStep(1)
+                            SideGutterTapRegion.NONE -> Unit
+                        }
+                    }
                 }
             }
     ) {
@@ -694,6 +743,52 @@ private fun ZoomablePdfImage(
             }
         }
     }
+}
+
+internal fun classifySideGutterTap(
+    tapX: Float,
+    viewSize: IntSize,
+    pageAspectRatio: Float?
+): SideGutterTapRegion {
+    if (viewSize.width <= 0 || viewSize.height <= 0) return SideGutterTapRegion.NONE
+    val aspect = pageAspectRatio?.takeIf { it > 0f } ?: return SideGutterTapRegion.NONE
+    val fitted = fittedPageBounds(viewSize, aspect) ?: return SideGutterTapRegion.NONE
+    if (fitted.hasNoSideGutters) return SideGutterTapRegion.NONE
+    return when {
+        tapX < fitted.left -> SideGutterTapRegion.LEFT
+        tapX > fitted.right -> SideGutterTapRegion.RIGHT
+        else -> SideGutterTapRegion.NONE
+    }
+}
+
+internal fun isFitStateForSideGutterNavigation(
+    zoom: Float,
+    panX: Float,
+    panY: Float,
+    panTolerancePx: Float
+): Boolean {
+    return zoom <= 1.02f &&
+        abs(panX) <= panTolerancePx &&
+        abs(panY) <= panTolerancePx
+}
+
+private data class FittedPageBounds(
+    val left: Float,
+    val right: Float,
+    val hasNoSideGutters: Boolean
+)
+
+private fun fittedPageBounds(viewSize: IntSize, aspect: Float): FittedPageBounds? {
+    if (viewSize.width <= 0 || viewSize.height <= 0 || aspect <= 0f) return null
+    val vw = viewSize.width.toFloat().coerceAtLeast(1f)
+    val vh = viewSize.height.toFloat().coerceAtLeast(1f)
+    val fitWidth = minOf(vw, vh * aspect)
+    val sideGutter = ((vw - fitWidth) / 2f).coerceAtLeast(0f)
+    return FittedPageBounds(
+        left = sideGutter,
+        right = sideGutter + fitWidth,
+        hasNoSideGutters = sideGutter <= 0.5f
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)

@@ -83,17 +83,37 @@ fun HardwoodsJobDetailScreen(
     val docsByType = remember(job.index) {
         job.index?.documents.orEmpty().associateBy { it.docType }
     }
+    val availableDocsByType = remember(docsByType, jobFolderName) {
+        docsByType.filterValues { doc ->
+            doc.pdfFilename.isNotBlank() &&
+                jobRepository.getJobRootPdfFile(
+                    jobFolderName = jobFolderName,
+                    pdfFilename = doc.pdfFilename,
+                    preferDarkMode = false
+                ) != null
+        }
+    }
     val hasDeliverySheet = remember(jobFolderName) {
         jobRepository.getJobPdfCatalog(jobFolderName).deliverySheet != null
+    }
+    val hasAssemblySheet = remember(jobFolderName) {
+        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
+    }
+    val hasPlansElevations = remember(jobFolderName) {
+        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
+    }
+    val hasThreeDAssets = remember(jobFolderName) {
+        jobRepository.hasThreeDAssets(jobFolderName)
     }
     val docSummariesByType = remember(summary.documents) {
         summary.documents.associateBy { it.docType }
     }
+    var suppressLeavePrompt by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.DisposableEffect(isClockedInHere) {
         val shouldNotify = isClockedInHere
         val notifyFn = onLeaveWhileClockedIn
-        onDispose { if (shouldNotify) notifyFn() }
+        onDispose { if (shouldNotify && !suppressLeavePrompt) notifyFn() }
     }
 
     Scaffold(
@@ -140,26 +160,44 @@ fun HardwoodsJobDetailScreen(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }) {
-                    Text("View Assembly")
+                if (hasAssemblySheet) {
+                    Button(onClick = {
+                        suppressLeavePrompt = true
+                        onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1)
+                    }) {
+                        Text("View Assembly")
+                    }
                 }
-                Button(onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }) {
-                    Text("View Plans & Elevations")
+                if (hasPlansElevations) {
+                    Button(onClick = {
+                        suppressLeavePrompt = true
+                        onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1)
+                    }) {
+                        Text("View Plans & Elevations")
+                    }
                 }
                 if (hasDeliverySheet) {
-                    Button(onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }) {
+                    Button(onClick = {
+                        suppressLeavePrompt = true
+                        onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
+                    }) {
                         Text("View Cover Sheet")
                     }
                 }
-                Button(onClick = onOpenThreeD) {
-                    Text("View 3D")
+                if (hasThreeDAssets) {
+                    Button(onClick = {
+                        suppressLeavePrompt = true
+                        onOpenThreeD()
+                    }) {
+                        Text("View 3D")
+                    }
                 }
             }
 
             val jobStatusCounts = summary.counts.toStatusCounts()
             ProgressCard(
                 title = "Hardwoods Progress",
-                subtitle = "${summary.counts.donePieces}/${summary.counts.totalPieces} done",
+                subtitle = "${summary.counts.donePieces}/${summary.counts.effectiveTotalPieces} done",
                 fraction = summary.counts.completionFraction,
                 expanded = progressExpanded,
                 segmentedStatusCounts = jobStatusCounts,
@@ -175,30 +213,46 @@ fun HardwoodsJobDetailScreen(
                 )
             }
 
-            val boardStockCounts = remember(job.index, totalsDoneMap, scanState.snapshot.basePath) {
-                val rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index)
-                val total = rows.sumOf { it.neededRips.coerceAtLeast(0) }
+            val boardStockCounts = remember(job.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
+                val rows = applySkippedPartRowsToBoardStockRows(
+                    rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index),
+                    index = job.index,
+                    rowProgressMap = rowProgressMap
+                )
+                val total = rows.sumOf { row ->
+                    val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
+                    val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
+                    val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
+                    if (skipped) 0 else row.neededRips.coerceAtLeast(0)
+                }
                 val done = rows.sumOf { row ->
                     val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
-                    (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
+                    val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
+                    val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
+                    val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
+                    if (skipped) 0 else (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
                 }
                 HardwoodStatusCounts(totalPieces = total, donePieces = done)
             }
             ProgressCard(
                 title = "Rip Cut List",
-                subtitle = "${boardStockCounts.donePieces}/${boardStockCounts.totalPieces} done",
+                subtitle = "${boardStockCounts.donePieces}/${boardStockCounts.effectiveTotalPieces} done",
                 fraction = boardStockCounts.completionFraction,
                 expanded = false,
                 segmentedStatusCounts = boardStockCounts.toStatusCounts(),
                 showBottomProgressBar = true,
                 onToggleExpanded = {},
-                onClick = onOpenRipCutList
+                onClick = {
+                    suppressLeavePrompt = true
+                    onOpenRipCutList()
+                }
             )
 
-            for (docType in HardwoodDocType.entries) {
-                val doc = docsByType[docType]
+            val visibleDocTypes = HardwoodDocType.entries.filter { it in availableDocsByType.keys }
+            for (docType in visibleDocTypes) {
+                val doc = availableDocsByType[docType] ?: continue
                 val docSummary = docSummariesByType[docType]
-                val available = doc != null
+                val available = true
                 val counts = docSummary?.counts ?: com.kkc.sheettracker.data.models.HardwoodStatusCounts()
                 val statusCounts = counts.toStatusCounts()
                 val materialSegments = if (available && docType != HardwoodDocType.DOOR_LIST) {
@@ -209,11 +263,7 @@ fun HardwoodsJobDetailScreen(
                 val expanded = docType.name in expandedDocs
                 ProgressCard(
                     title = docType.uiLabel(),
-                    subtitle = if (available) {
-                        "${counts.donePieces}/${counts.totalPieces} done • ${doc?.rows?.size ?: 0} rows"
-                    } else {
-                        "Not found"
-                    },
+                    subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done • ${doc.rows.size} rows",
                     fraction = if (!available) 0f else counts.completionFraction,
                     expanded = expanded,
                     segmentedStatusCounts = statusCounts,
@@ -227,18 +277,17 @@ fun HardwoodsJobDetailScreen(
                             expandedDocs + docType.name
                         }
                     },
-                    onClick = { if (available) onOpenWorkspace(docType) }
+                    onClick = {
+                        if (available) {
+                            suppressLeavePrompt = true
+                            onOpenWorkspace(docType)
+                        }
+                    }
                 ) {
                     StatusSummaryRow(statusCounts)
                     if (available) {
                         Text(
-                            "${doc?.totals?.size ?: 0} totals block" + if ((doc?.totals?.size ?: 0) == 1) "" else "s",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Text(
-                            "Open after index refresh includes this document.",
+                            "${doc.totals.size} totals block" + if (doc.totals.size == 1) "" else "s",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
