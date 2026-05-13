@@ -35,6 +35,7 @@ import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.models.RefreshReason
+import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.navigation.AppNavigation
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.sync.DataStoreSyncthingPreferencesStore
@@ -141,6 +142,7 @@ class MainActivity : ComponentActivity() {
         )
         scanCoordinator = ScanCoordinator(baseDir, jobRepository)
         appStateStore = AppStateStore(scanCoordinator, progressStore)
+        val clockInState = ClockInState.create(this)
         scanCoordinator.refresh(RefreshReason.APP_START, force = true)
 
         setContent {
@@ -181,6 +183,7 @@ class MainActivity : ComponentActivity() {
                             employeeName = name
                             prefs.edit().putString("employee_name", name).apply()
                         },
+                        clockInState = clockInState,
                         onThemeChanged = { dark ->
                             isDarkTheme = dark
                             prefs.edit().putBoolean("dark_theme", dark).apply()
