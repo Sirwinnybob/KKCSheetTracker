@@ -209,10 +209,7 @@ private fun MultiBackStackNavigation(
     val hoursNavController = rememberNavController()
     val homeTab = if (workMode == WorkMode.ASSEMBLY) TopLevelTab.JOBS else TopLevelTab.DASHBOARD
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
-    var previousTab by remember(workMode) { mutableStateOf(homeTab) }
-    androidx.compose.runtime.LaunchedEffect(selectedTab) {
-        if (selectedTab != TopLevelTab.HOURS) previousTab = selectedTab
-    }
+    var showHoursLoginDialog by remember { mutableStateOf(false) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
             listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
@@ -382,8 +379,7 @@ private fun MultiBackStackNavigation(
                     HoursTabHost(
                         navController = hoursNavController,
                         employeeName = employeeName,
-                        isTabSelected = selectedTab == TopLevelTab.HOURS,
-                        onReturnToPreviousTab = { coordinator.navigateTopLevel(previousTab) }
+                        isTabSelected = selectedTab == TopLevelTab.HOURS
                     )
                 }
 
@@ -421,9 +417,27 @@ private fun MultiBackStackNavigation(
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 onNavigate = { dest ->
-                    coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                    if (dest == NavDestination.HOURS) {
+                        if (employeeName.isNotBlank()) {
+                            launchTimecardApp(context, employeeName)
+                        } else {
+                            showHoursLoginDialog = true
+                        }
+                    } else {
+                        coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                    }
                 }
             )
+
+            if (showHoursLoginDialog) {
+                HoursLoginDialog(
+                    onLogin = { name ->
+                        showHoursLoginDialog = false
+                        launchTimecardApp(context, name)
+                    },
+                    onDismiss = { showHoursLoginDialog = false }
+                )
+            }
         }
 
         CalculatorOverlayHost(
@@ -1061,6 +1075,7 @@ private fun LegacySingleStackNavigation(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val startRoute = if (workMode == WorkMode.ASSEMBLY) "jobs" else "dashboard"
+    var showHoursLoginDialog by remember { mutableStateOf(false) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
             listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
@@ -1620,7 +1635,6 @@ private fun LegacySingleStackNavigation(
                 androidx.compose.runtime.LaunchedEffect(Unit) {
                     if (legacySessionName != null) {
                         launchTimecardApp(context, legacySessionName)
-                        navController.popBackStack()
                     } else {
                         legacyShowDialog = true
                     }
@@ -1632,7 +1646,6 @@ private fun LegacySingleStackNavigation(
                             legacySessionName = name
                             legacyShowDialog = false
                             launchTimecardApp(context, name)
-                            navController.popBackStack()
                         },
                         onDismiss = { legacyShowDialog = false }
                     )
@@ -1672,6 +1685,14 @@ private fun LegacySingleStackNavigation(
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 onNavigate = { dest ->
+                    if (dest == NavDestination.HOURS) {
+                        if (employeeName.isNotBlank()) {
+                            launchTimecardApp(legacyContext, employeeName)
+                        } else {
+                            showHoursLoginDialog = true
+                        }
+                        return@AppBottomNavBar
+                    }
                     if (currentRoute == dest.route) return@AppBottomNavBar
                     check(dest.route in visibleDestinations.map { it.route }) {
                         "Invalid top-level destination route: ${dest.route}"
@@ -1685,6 +1706,16 @@ private fun LegacySingleStackNavigation(
                     }
                 }
             )
+
+            if (showHoursLoginDialog) {
+                HoursLoginDialog(
+                    onLogin = { name ->
+                        showHoursLoginDialog = false
+                        launchTimecardApp(legacyContext, name)
+                    },
+                    onDismiss = { showHoursLoginDialog = false }
+                )
+            }
         }
 
         CalculatorOverlayHost(
@@ -1811,8 +1842,7 @@ private fun isCurrentViewerTarget(
 private fun HoursTabHost(
     navController: NavHostController,
     employeeName: String,
-    isTabSelected: Boolean,
-    onReturnToPreviousTab: () -> Unit
+    isTabSelected: Boolean
 ) {
     val context = LocalContext.current
     var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
@@ -1822,7 +1852,6 @@ private fun HoursTabHost(
         if (isTabSelected) {
             if (sessionName != null) {
                 launchTimecardApp(context, sessionName)
-                onReturnToPreviousTab()
             } else {
                 showLoginDialog = true
             }
@@ -1835,7 +1864,6 @@ private fun HoursTabHost(
                 sessionName = name
                 showLoginDialog = false
                 launchTimecardApp(context, name)
-                onReturnToPreviousTab()
             },
             onDismiss = { showLoginDialog = false }
         )
