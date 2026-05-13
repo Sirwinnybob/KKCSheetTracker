@@ -24,9 +24,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -39,6 +41,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.AppStateFeatureFlags
@@ -117,10 +121,10 @@ fun JobDetailScreen(
         }
     }
 
-    val isClockedInHereState = isClockedInHere
-    val onLeaveRef = onLeaveWhileClockedIn
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { if (isClockedInHereState) onLeaveRef() }
+    androidx.compose.runtime.DisposableEffect(isClockedInHere) {
+        val shouldNotify = isClockedInHere
+        val notifyFn = onLeaveWhileClockedIn
+        onDispose { if (shouldNotify) notifyFn() }
     }
 
     Scaffold(
@@ -140,15 +144,15 @@ fun JobDetailScreen(
                 actions = {
                     val currentJob = job
                     if (currentJob != null) {
-                        androidx.compose.material3.TextButton(
+                        TextButton(
                             onClick = { onClockIn(currentJob.jobNumber, currentJob.jobName) },
-                            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                                contentColor = androidx.compose.ui.graphics.Color(0xFF38A169)
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = Color(0xFF38A169)
                             )
                         ) {
                             Text(
                                 if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )
                         }
