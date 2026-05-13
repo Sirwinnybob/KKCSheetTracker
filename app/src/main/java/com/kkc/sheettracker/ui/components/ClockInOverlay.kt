@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,6 +52,25 @@ fun ClockInOverlay(
 ) {
     val snapshot = clockInState.snapshot
     if (!snapshot.isActive && !snapshot.pendingPrompt) return
+
+    // Floating draggable card
+    // These must be before any conditional early returns
+    var offsetX by remember { mutableFloatStateOf(24f) }
+    var offsetY by remember { mutableFloatStateOf(100f) }
+    var elapsedSeconds by remember { mutableLongStateOf(
+        if (snapshot.startTimeMs > 0L)
+            (System.currentTimeMillis() - snapshot.startTimeMs) / 1000L
+        else 0L
+    ) }
+
+    LaunchedEffect(snapshot.isActive) {
+        while (true) {
+            delay(1_000L)
+            elapsedSeconds = if (snapshot.startTimeMs > 0L)
+                (System.currentTimeMillis() - snapshot.startTimeMs) / 1000L
+            else 0L
+        }
+    }
 
     if (snapshot.pendingPrompt) {
         AlertDialog(
@@ -70,24 +90,6 @@ fun ClockInOverlay(
             }
         )
         return
-    }
-
-    // Floating draggable card
-    var offsetX by remember { mutableFloatStateOf(24f) }
-    var offsetY by remember { mutableFloatStateOf(100f) }
-    var elapsedSeconds by remember { mutableLongStateOf(
-        if (snapshot.startTimeMs > 0L)
-            (System.currentTimeMillis() - snapshot.startTimeMs) / 1000L
-        else 0L
-    ) }
-
-    LaunchedEffect(snapshot.isActive) {
-        while (snapshot.isActive) {
-            delay(1_000L)
-            elapsedSeconds = if (snapshot.startTimeMs > 0L)
-                (System.currentTimeMillis() - snapshot.startTimeMs) / 1000L
-            else 0L
-        }
     }
 
     val hours = elapsedSeconds / 3600
@@ -138,7 +140,8 @@ fun ClockInOverlay(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     elapsedDisplay,
