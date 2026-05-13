@@ -33,7 +33,6 @@ import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
-import com.kkc.sheettracker.data.HoursStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
@@ -44,7 +43,6 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.ui.assembly.AssemblyDashboardScreen
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
-import com.kkc.sheettracker.ui.hours.HoursTrackerScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
 import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
@@ -84,7 +82,6 @@ fun AppNavigation(
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
-    hoursStore: HoursStore,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -113,7 +110,6 @@ fun AppNavigation(
                 workMode = workMode,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
-                hoursStore = hoursStore,
                 onThemeChanged = onThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
@@ -140,7 +136,6 @@ fun AppNavigation(
                 workMode = workMode,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
-                hoursStore = hoursStore,
                 onThemeChanged = onThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
@@ -171,7 +166,6 @@ private fun MultiBackStackNavigation(
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
-    hoursStore: HoursStore,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -355,7 +349,6 @@ private fun MultiBackStackNavigation(
                 TabLayer(visible = selectedTab == TopLevelTab.HOURS) {
                     HoursTabHost(
                         navController = hoursNavController,
-                        hoursStore = hoursStore,
                         employeeName = employeeName,
                         isTabSelected = selectedTab == TopLevelTab.HOURS
                     )
@@ -979,7 +972,6 @@ private fun LegacySingleStackNavigation(
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
-    hoursStore: HoursStore,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -1060,9 +1052,6 @@ private fun LegacySingleStackNavigation(
         currentRoute?.startsWith("referenceViewer/") == true ||
         currentRoute?.startsWith("hardwoods/workspace/") == true ||
         currentRoute?.startsWith("assembly/viewer/") == true
-
-    var hoursSessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
-    var hoursShowLoginDialog by remember { mutableStateOf(hoursSessionName == null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -1532,21 +1521,30 @@ private fun LegacySingleStackNavigation(
             }
 
             composable("hours") {
-                if (hoursShowLoginDialog || hoursSessionName == null) {
+                val context = LocalContext.current
+                var legacySessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
+                var legacyShowDialog by remember { mutableStateOf(false) }
+
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    if (legacySessionName != null) {
+                        launchTimecardApp(context, legacySessionName)
+                    } else {
+                        legacyShowDialog = true
+                    }
+                }
+
+                if (legacyShowDialog) {
                     HoursLoginDialog(
                         onLogin = { name ->
-                            hoursSessionName = name
-                            hoursShowLoginDialog = false
+                            legacySessionName = name
+                            legacyShowDialog = false
+                            launchTimecardApp(context, name)
                         },
-                        onDismiss = { hoursShowLoginDialog = false }
+                        onDismiss = { legacyShowDialog = false }
                     )
                 }
-                hoursSessionName?.let { name ->
-                    HoursTrackerScreen(
-                        hoursStore = hoursStore,
-                        employeeName = name
-                    )
-                }
+
+                Box(modifier = Modifier.fillMaxSize())
             }
 
             composable("settings") {
@@ -1712,12 +1710,33 @@ private fun isCurrentViewerTarget(
 @Composable
 private fun HoursTabHost(
     navController: NavHostController,
-    hoursStore: HoursStore,
     employeeName: String,
     isTabSelected: Boolean
 ) {
+    val context = LocalContext.current
     var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
-    var showLoginDialog by remember { mutableStateOf(sessionName == null) }
+    var showLoginDialog by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(isTabSelected) {
+        if (isTabSelected) {
+            if (sessionName != null) {
+                launchTimecardApp(context, sessionName)
+            } else {
+                showLoginDialog = true
+            }
+        }
+    }
+
+    if (showLoginDialog) {
+        HoursLoginDialog(
+            onLogin = { name ->
+                sessionName = name
+                showLoginDialog = false
+                launchTimecardApp(context, name)
+            },
+            onDismiss = { showLoginDialog = false }
+        )
+    }
 
     NavHost(
         navController = navController,
@@ -1725,21 +1744,15 @@ private fun HoursTabHost(
         modifier = Modifier.fillMaxSize()
     ) {
         composable("hours") {
-            if (isTabSelected && (showLoginDialog || sessionName == null)) {
-                HoursLoginDialog(
-                    onLogin = { name ->
-                        sessionName = name
-                        showLoginDialog = false
-                    },
-                    onDismiss = { showLoginDialog = false }
-                )
-            }
-            sessionName?.let { name ->
-                HoursTrackerScreen(
-                    hoursStore = hoursStore,
-                    employeeName = name
-                )
-            }
+            Box(modifier = Modifier.fillMaxSize())
         }
     }
+}
+
+private fun launchTimecardApp(context: android.content.Context, autoLoginInput: String?) {
+    val intent = android.content.Intent().apply {
+        setClassName("com.example.timecard", "com.example.timecard.MainActivity")
+        if (autoLoginInput != null) putExtra("extra_auto_login", autoLoginInput)
+    }
+    context.startActivity(intent)
 }
