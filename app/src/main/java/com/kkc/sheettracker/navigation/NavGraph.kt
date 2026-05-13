@@ -2,9 +2,21 @@ package com.kkc.sheettracker.navigation
 
 import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
@@ -30,6 +42,7 @@ import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
+import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
@@ -42,12 +55,14 @@ import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.ui.assembly.AssemblyDashboardScreen
+import com.kkc.sheettracker.ui.hours.HoursLoginDialog
 import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
 import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
 import com.kkc.sheettracker.ui.browser.JobBrowserScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
 import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
+import com.kkc.sheettracker.ui.components.ClockInOverlay
 import com.kkc.sheettracker.ui.components.NavDestination
 import com.kkc.sheettracker.ui.components.rememberCalculatorOverlayState
 import com.kkc.sheettracker.ui.dashboard.DashboardScreen
@@ -79,6 +94,9 @@ fun AppNavigation(
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
     workMode: WorkMode,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
+    clockInState: ClockInState,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -105,6 +123,9 @@ fun AppNavigation(
                 isDebugBuild = isDebugBuild,
                 isDarkTheme = isDarkTheme,
                 workMode = workMode,
+                employeeName = employeeName,
+                onEmployeeNameChanged = onEmployeeNameChanged,
+                clockInState = clockInState,
                 onThemeChanged = onThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
@@ -129,6 +150,9 @@ fun AppNavigation(
                 isDebugBuild = isDebugBuild,
                 isDarkTheme = isDarkTheme,
                 workMode = workMode,
+                employeeName = employeeName,
+                onEmployeeNameChanged = onEmployeeNameChanged,
+                clockInState = clockInState,
                 onThemeChanged = onThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
@@ -157,6 +181,9 @@ private fun MultiBackStackNavigation(
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
     workMode: WorkMode,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
+    clockInState: ClockInState,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -171,6 +198,7 @@ private fun MultiBackStackNavigation(
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
+    val context = LocalContext.current
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsProgressStore = remember(basePath, tabletId, isViewOnlyMode) {
         HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
@@ -190,11 +218,14 @@ private fun MultiBackStackNavigation(
     val jobsNavController = rememberNavController()
     val searchNavController = rememberNavController()
     val settingsNavController = rememberNavController()
+    val hoursNavController = rememberNavController()
     val homeTab = if (workMode == WorkMode.ASSEMBLY) TopLevelTab.JOBS else TopLevelTab.DASHBOARD
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
+    var showHoursLoginDialog by remember { mutableStateOf(false) }
+    var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
         } else {
             NavDestination.entries
         }
@@ -214,12 +245,14 @@ private fun MultiBackStackNavigation(
         dashboardNavController,
         jobsNavController,
         searchNavController,
-            settingsNavController
+        settingsNavController,
+        hoursNavController
     ) {
         NavigationCoordinator(
             dashboardNavController = dashboardNavController,
             jobsNavController = jobsNavController,
             searchNavController = searchNavController,
+            hoursNavController = hoursNavController,
             settingsNavController = settingsNavController,
             getHomeTab = { homeTab },
             getSelectedTab = { selectedTab },
@@ -229,6 +262,26 @@ private fun MultiBackStackNavigation(
 
     BackHandler(enabled = activity != null) {
         activity?.let { coordinator.onBackPressed(it) }
+    }
+
+    val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
+        { jobNumber, jobName, folderName, tabType ->
+            clockInState.clockIn(jobNumber, jobName, folderName, tabType)
+        }
+    val onClockOut: () -> Unit = {
+        val snap = clockInState.snapshot
+        val stopTimeMs = System.currentTimeMillis()
+        val elapsedMs = clockInState.clockOut()
+        val elapsedHours = (Math.round(elapsedMs / 3600000.0 * 4) / 4.0).coerceAtLeast(0.25)
+        pendingClockOut = PendingClockOut(snap.jobName, snap.jobNumber, elapsedHours, snap.startTimeMs, stopTimeMs, elapsedMs)
+    }
+    val onReturnToJob: () -> Unit = {
+        val snap = clockInState.snapshot
+        when (snap.tabType) {
+            "hardwoods" -> coordinator.openHardwoodsJobInJobs(snap.folderName)
+            "assembly" -> coordinator.openAssemblyViewerInJobs(snap.folderName, 1, 1)
+            else -> coordinator.openJobDetailInJobs(snap.folderName)
+        }
     }
 
     androidx.compose.runtime.LaunchedEffect(workMode, basePath) {
@@ -291,6 +344,8 @@ private fun MultiBackStackNavigation(
                         assemblyScanCoordinator = assemblyScanCoordinator,
                         assemblyStateStore = assemblyStateStore,
                         basePath = basePath,
+                        clockInState = clockInState,
+                        onClockIn = onClockIn,
                         onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
                         onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) }
                     )
@@ -334,6 +389,14 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
+                TabLayer(visible = selectedTab == TopLevelTab.HOURS) {
+                    HoursTabHost(
+                        navController = hoursNavController,
+                        employeeName = employeeName,
+                        isTabSelected = selectedTab == TopLevelTab.HOURS
+                    )
+                }
+
                 TabLayer(visible = selectedTab == TopLevelTab.SETTINGS) {
                     SettingsTabHost(
                         navController = settingsNavController,
@@ -342,6 +405,8 @@ private fun MultiBackStackNavigation(
                         isDebugBuild = isDebugBuild,
                         isDarkTheme = isDarkTheme,
                         workMode = workMode,
+                        employeeName = employeeName,
+                        onEmployeeNameChanged = onEmployeeNameChanged,
                         onThemeChanged = onThemeChanged,
                         onWorkModeChanged = onWorkModeChanged,
                         onReinstallLatest = onReinstallLatest,
@@ -366,14 +431,52 @@ private fun MultiBackStackNavigation(
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 onNavigate = { dest ->
-                    coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                    if (dest == NavDestination.HOURS) {
+                        if (employeeName.isNotBlank()) {
+                            launchTimecardApp(context, employeeName)
+                        } else {
+                            showHoursLoginDialog = true
+                        }
+                    } else {
+                        coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                    }
                 }
             )
+
+            if (showHoursLoginDialog) {
+                HoursLoginDialog(
+                    onLogin = { name ->
+                        showHoursLoginDialog = false
+                        launchTimecardApp(context, name)
+                    },
+                    onDismiss = { showHoursLoginDialog = false }
+                )
+            }
+            pendingClockOut?.let { pending ->
+                ClockOutEditDialog(
+                    jobName = pending.jobName,
+                    initialHours = pending.hours,
+                    startTimeMs = pending.startTimeMs,
+                    stopTimeMs = pending.stopTimeMs,
+                    actualElapsedMs = pending.actualElapsedMs,
+                    onConfirm = { hours ->
+                        pendingClockOut = null
+                        launchTimecardApp(context, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                    },
+                    onDismiss = { pendingClockOut = null }
+                )
+            }
         }
 
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
+            modifier = Modifier.fillMaxSize()
+        )
+        ClockInOverlay(
+            clockInState = clockInState,
+            onClockOut = onClockOut,
+            onReturnToJob = onReturnToJob,
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -473,6 +576,8 @@ private fun JobsTabHost(
     assemblyScanCoordinator: AssemblyScanCoordinator,
     assemblyStateStore: AssemblyStateStore,
     basePath: String,
+    clockInState: ClockInState,
+    onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -604,6 +709,8 @@ private fun JobsTabHost(
             arguments = listOf(navArgument("folderName") { type = NavType.StringType })
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == folderName
             JobDetailScreen(
                 scanCoordinator = scanCoordinator,
                 appStateStore = appStateStore,
@@ -611,6 +718,15 @@ private fun JobsTabHost(
                 progressStore = progressStore,
                 appStateFlags = appStateFlags,
                 jobFolderName = folderName,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
+                onLeaveWhileClockedIn = {
+                    if (isClockedInHere) {
+                        val dest = navController.currentDestination?.route ?: ""
+                        val isCncSubScreen = dest.startsWith("viewer/") || dest.startsWith("referenceViewer/") || dest.startsWith("assembly/viewer/")
+                        if (!isCncSubScreen) clockInState.triggerPrompt()
+                    }
+                },
                 onMaterialClick = { material, startPage ->
                     navController.navigate(
                         "viewer/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(material.pdfFilename, "UTF-8")}/$startPage"
@@ -652,6 +768,9 @@ private fun JobsTabHost(
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
             val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
             val startPage = backStack.arguments?.getInt("startPage") ?: 1
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == folderName &&
+                clockInState.snapshot.tabType == "cnc"
             SheetViewerScreen(
                 scanCoordinator = scanCoordinator,
                 appStateStore = appStateStore,
@@ -662,6 +781,8 @@ private fun JobsTabHost(
                 pdfFilename = pdfFilename,
                 startPage = startPage,
                 isDarkTheme = isDarkTheme,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
                 onOpenReferenceDocument = { docType, startAt ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
                         launchSingleTop = true
@@ -712,11 +833,21 @@ private fun JobsTabHost(
             arguments = listOf(navArgument("folderName") { type = NavType.StringType })
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == folderName
             HardwoodsJobDetailScreen(
                 scanCoordinator = hardwoodsScanCoordinator,
                 progressStore = hardwoodsProgressStore,
                 jobRepository = jobRepository,
                 jobFolderName = folderName,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
+                onLeaveWhileClockedIn = {
+                    if (isClockedInHere) {
+                        val dest = navController.currentDestination?.route ?: ""
+                        if (!dest.startsWith("hardwoods/workspace/")) clockInState.triggerPrompt()
+                    }
+                },
                 onOpenWorkspace = { docType ->
                     navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
                         launchSingleTop = true
@@ -769,6 +900,9 @@ private fun JobsTabHost(
             val docType = runCatching { HardwoodDocType.valueOf(rawDocType) }.getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
             val rowIdArg = URLDecoder.decode(backStack.arguments?.getString("startPage") ?: "", "UTF-8")
             val rowId = rowIdArg.takeIf { it.isNotBlank() && it != "_" }
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == folderName &&
+                clockInState.snapshot.tabType == "hardwoods"
             HardwoodsWorkspaceScreen(
                 scanCoordinator = hardwoodsScanCoordinator,
                 hardwoodsRepository = hardwoodsRepository,
@@ -778,6 +912,8 @@ private fun JobsTabHost(
                 initialDocType = docType,
                 initialRowId = rowId,
                 isDarkTheme = isDarkTheme,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
                 onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
                     navController.navigate(
                         assemblyViewerRoute(
@@ -807,16 +943,18 @@ private fun JobsTabHost(
                 navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStack ->
-            val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
             val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
             val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
             val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
             val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
             val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == jobFolderName
             AssemblyViewerScreen(
                 jobRepository = jobRepository,
                 assemblyStateStore = assemblyStateStore,
-                jobFolderName = folderName,
+                jobFolderName = jobFolderName,
                 basePath = basePath,
                 startPageAssembly = startPageAssembly,
                 startPagePlans = startPagePlans,
@@ -824,6 +962,9 @@ private fun JobsTabHost(
                 initialCabinet = initialCabinet,
                 initialRoom = initialRoom,
                 isDarkTheme = isDarkTheme,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
+                onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -891,6 +1032,8 @@ private fun SettingsTabHost(
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
     workMode: WorkMode,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -925,7 +1068,9 @@ private fun SettingsTabHost(
                 onSyncthingApiKeySave = onSyncthingApiKeySave,
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
-                onBack = onBack
+                onBack = onBack,
+                employeeName = employeeName,
+                onEmployeeNameChanged = onEmployeeNameChanged,
             )
         }
     }
@@ -944,6 +1089,9 @@ private fun LegacySingleStackNavigation(
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
     workMode: WorkMode,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
+    clockInState: ClockInState,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -976,9 +1124,11 @@ private fun LegacySingleStackNavigation(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val startRoute = if (workMode == WorkMode.ASSEMBLY) "jobs" else "dashboard"
+    var showHoursLoginDialog by remember { mutableStateOf(false) }
+    var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
         } else {
             NavDestination.entries
         }
@@ -987,6 +1137,27 @@ private fun LegacySingleStackNavigation(
         if (isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page)) return
         navController.navigate(viewerRoute(jobFolderName, pdfFilename, page)) {
             launchSingleTop = true
+        }
+    }
+
+    val legacyContext = LocalContext.current
+    val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
+        { jobNumber, jobName, folderName, tabType ->
+            clockInState.clockIn(jobNumber, jobName, folderName, tabType)
+        }
+    val onClockOut: () -> Unit = {
+        val snap = clockInState.snapshot
+        val stopTimeMs = System.currentTimeMillis()
+        val elapsedMs = clockInState.clockOut()
+        val elapsedHours = (Math.round(elapsedMs / 3600000.0 * 4) / 4.0).coerceAtLeast(0.25)
+        pendingClockOut = PendingClockOut(snap.jobName, snap.jobNumber, elapsedHours, snap.startTimeMs, stopTimeMs, elapsedMs)
+    }
+    val onReturnToJob: () -> Unit = {
+        val snap = clockInState.snapshot
+        when (snap.tabType) {
+            "hardwoods" -> navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(snap.folderName, "UTF-8")}") { launchSingleTop = true }
+            "assembly" -> navController.navigate(assemblyViewerRoute(snap.folderName, 1, 1)) { launchSingleTop = true }
+            else -> navController.navigate("job/${java.net.URLEncoder.encode(snap.folderName, "UTF-8")}") { launchSingleTop = true }
         }
     }
 
@@ -1014,6 +1185,7 @@ private fun LegacySingleStackNavigation(
                 currentRoute?.startsWith("viewer/") == true ||
                 currentRoute?.startsWith("referenceViewer/") == true -> NavDestination.JOBS
             currentRoute == "search" -> NavDestination.SEARCH
+            currentRoute == "hours" -> NavDestination.HOURS
             currentRoute == "settings" -> NavDestination.SETTINGS
             else -> if (workMode == WorkMode.ASSEMBLY) NavDestination.JOBS else NavDestination.DASHBOARD
         }
@@ -1226,6 +1398,8 @@ private fun LegacySingleStackNavigation(
                 arguments = listOf(navArgument("folderName") { type = NavType.StringType })
             ) { backStack ->
                 val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                val isClockedInHere = clockInState.snapshot.isActive &&
+                    clockInState.snapshot.folderName == folderName
                 JobDetailScreen(
                     scanCoordinator = scanCoordinator,
                     appStateStore = appStateStore,
@@ -1233,6 +1407,9 @@ private fun LegacySingleStackNavigation(
                     progressStore = progressStore,
                     appStateFlags = appStateFlags,
                     jobFolderName = folderName,
+                    isClockedInHere = isClockedInHere,
+                    onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
+                    onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                     onMaterialClick = { material, startPage ->
                         openSheetLegacy(folderName, material.pdfFilename, startPage)
                     },
@@ -1330,11 +1507,16 @@ private fun LegacySingleStackNavigation(
                 arguments = listOf(navArgument("folderName") { type = NavType.StringType })
             ) { backStack ->
                 val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                val isClockedInHere = clockInState.snapshot.isActive &&
+                    clockInState.snapshot.folderName == folderName
                 HardwoodsJobDetailScreen(
                     scanCoordinator = hardwoodsScanCoordinator,
                     progressStore = hardwoodsProgressStore,
                     jobRepository = jobRepository,
                     jobFolderName = folderName,
+                    isClockedInHere = isClockedInHere,
+                    onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
+                    onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                     onOpenWorkspace = { docType ->
                         navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
                             launchSingleTop = true
@@ -1425,16 +1607,18 @@ private fun LegacySingleStackNavigation(
                     navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
                 )
             ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
                 val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
                 val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
                 val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
                 val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
                 val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
+                val isClockedInHere = clockInState.snapshot.isActive &&
+                    clockInState.snapshot.folderName == jobFolderName
                 AssemblyViewerScreen(
                     jobRepository = jobRepository,
                     assemblyStateStore = assemblyStateStore,
-                    jobFolderName = folderName,
+                    jobFolderName = jobFolderName,
                     basePath = basePath,
                     initialSource = initialSource,
                     initialCabinet = initialCabinet,
@@ -1442,6 +1626,9 @@ private fun LegacySingleStackNavigation(
                     startPageAssembly = startPageAssembly,
                     startPagePlans = startPagePlans,
                     isDarkTheme = isDarkTheme,
+                    isClockedInHere = isClockedInHere,
+                    onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
+                    onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -1491,6 +1678,33 @@ private fun LegacySingleStackNavigation(
                 }
             }
 
+            composable("hours") {
+                val context = LocalContext.current
+                var legacySessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
+                var legacyShowDialog by remember { mutableStateOf(false) }
+
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    if (legacySessionName != null) {
+                        launchTimecardApp(context, legacySessionName)
+                    } else {
+                        legacyShowDialog = true
+                    }
+                }
+
+                if (legacyShowDialog) {
+                    HoursLoginDialog(
+                        onLogin = { name ->
+                            legacySessionName = name
+                            legacyShowDialog = false
+                            launchTimecardApp(context, name)
+                        },
+                        onDismiss = { legacyShowDialog = false }
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxSize())
+            }
+
             composable("settings") {
                 SettingsScreen(
                     tabletId = tabletId,
@@ -1508,7 +1722,9 @@ private fun LegacySingleStackNavigation(
                     onSyncthingApiKeySave = onSyncthingApiKeySave,
                     onSyncthingCheckNow = onSyncthingCheckNow,
                     onSyncthingStartNow = onSyncthingStartNow,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    employeeName = employeeName,
+                    onEmployeeNameChanged = onEmployeeNameChanged,
                 )
             }
             }
@@ -1520,6 +1736,14 @@ private fun LegacySingleStackNavigation(
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 onNavigate = { dest ->
+                    if (dest == NavDestination.HOURS) {
+                        if (employeeName.isNotBlank()) {
+                            launchTimecardApp(legacyContext, employeeName)
+                        } else {
+                            showHoursLoginDialog = true
+                        }
+                        return@AppBottomNavBar
+                    }
                     if (currentRoute == dest.route) return@AppBottomNavBar
                     check(dest.route in visibleDestinations.map { it.route }) {
                         "Invalid top-level destination route: ${dest.route}"
@@ -1533,11 +1757,41 @@ private fun LegacySingleStackNavigation(
                     }
                 }
             )
+
+            if (showHoursLoginDialog) {
+                HoursLoginDialog(
+                    onLogin = { name ->
+                        showHoursLoginDialog = false
+                        launchTimecardApp(legacyContext, name)
+                    },
+                    onDismiss = { showHoursLoginDialog = false }
+                )
+            }
+            pendingClockOut?.let { pending ->
+                ClockOutEditDialog(
+                    jobName = pending.jobName,
+                    initialHours = pending.hours,
+                    startTimeMs = pending.startTimeMs,
+                    stopTimeMs = pending.stopTimeMs,
+                    actualElapsedMs = pending.actualElapsedMs,
+                    onConfirm = { hours ->
+                        pendingClockOut = null
+                        launchTimecardApp(legacyContext, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                    },
+                    onDismiss = { pendingClockOut = null }
+                )
+            }
         }
 
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
+            modifier = Modifier.fillMaxSize()
+        )
+        ClockInOverlay(
+            clockInState = clockInState,
+            onClockOut = onClockOut,
+            onReturnToJob = onReturnToJob,
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -1647,4 +1901,136 @@ private fun isCurrentViewerTarget(
     val currentPdf = args.getString("pdfFilename") ?: return false
     val currentPage = args.getInt("startPage")
     return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page
+}
+
+@Composable
+private fun HoursTabHost(
+    navController: NavHostController,
+    employeeName: String,
+    isTabSelected: Boolean
+) {
+    val context = LocalContext.current
+    var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
+    var showLoginDialog by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(isTabSelected) {
+        if (isTabSelected) {
+            if (sessionName != null) {
+                launchTimecardApp(context, sessionName)
+            } else {
+                showLoginDialog = true
+            }
+        }
+    }
+
+    if (showLoginDialog) {
+        HoursLoginDialog(
+            onLogin = { name ->
+                sessionName = name
+                showLoginDialog = false
+                launchTimecardApp(context, name)
+            },
+            onDismiss = { showLoginDialog = false }
+        )
+    }
+
+    NavHost(
+        navController = navController,
+        startDestination = "hours",
+        modifier = Modifier.fillMaxSize()
+    ) {
+        composable("hours") {
+            Box(modifier = Modifier.fillMaxSize())
+        }
+    }
+}
+
+private data class PendingClockOut(
+    val jobName: String,
+    val jobNumber: String,
+    val hours: Double,
+    val startTimeMs: Long,
+    val stopTimeMs: Long,
+    val actualElapsedMs: Long
+)
+
+@Composable
+private fun ClockOutEditDialog(
+    jobName: String,
+    initialHours: Double,
+    startTimeMs: Long,
+    stopTimeMs: Long,
+    actualElapsedMs: Long,
+    onConfirm: (Double) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var hours by remember { mutableStateOf(initialHours) }
+    val timeFmt = remember { java.text.DateFormat.getTimeInstance(java.text.DateFormat.MEDIUM) }
+    val startLabel = remember(startTimeMs) { timeFmt.format(java.util.Date(startTimeMs)) }
+    val stopLabel = remember(stopTimeMs) { timeFmt.format(java.util.Date(stopTimeMs)) }
+    val actualMins = (actualElapsedMs / 60000).toInt()
+    val durationLabel = if (actualMins >= 60) "%dh %dm".format(actualMins / 60, actualMins % 60) else "${actualMins}m"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Clock Out") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(jobName, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Start: $startLabel   Stop: $stopLabel   ($durationLabel actual)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { if (hours > 0.25) hours = Math.round((hours - 0.25) * 4) / 4.0 },
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text("−", style = MaterialTheme.typography.titleLarge)
+                    }
+                    Text(
+                        "%.2f hrs".format(hours),
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                    OutlinedButton(
+                        onClick = { hours = Math.round((hours + 0.25) * 4) / 4.0 },
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text("+", style = MaterialTheme.typography.titleLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(hours) }) { Text("Apply") }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onDismiss) { Text("Discard") }
+            }
+        }
+    )
+}
+
+private fun launchTimecardApp(
+    context: android.content.Context,
+    autoLoginInput: String?,
+    jobNumber: String? = null,
+    hours: String? = null
+) {
+    val intent = android.content.Intent().apply {
+        setClassName("com.example.timecard", "com.example.timecard.MainActivity")
+        if (autoLoginInput != null) putExtra("extra_auto_login", autoLoginInput)
+        if (jobNumber != null) putExtra("extra_job_number", jobNumber)
+        if (hours != null) putExtra("extra_hours", hours)
+    }
+    context.startActivity(intent)
 }

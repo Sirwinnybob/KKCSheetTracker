@@ -17,14 +17,19 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -59,7 +64,10 @@ fun HardwoodsJobDetailScreen(
     onOpenRipCutList: () -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    isClockedInHere: Boolean = false,
+    onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
+    onLeaveWhileClockedIn: () -> Unit = {}
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -82,6 +90,12 @@ fun HardwoodsJobDetailScreen(
         summary.documents.associateBy { it.docType }
     }
 
+    androidx.compose.runtime.DisposableEffect(isClockedInHere) {
+        val shouldNotify = isClockedInHere
+        val notifyFn = onLeaveWhileClockedIn
+        onDispose { if (shouldNotify) notifyFn() }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -94,6 +108,21 @@ fun HardwoodsJobDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+                actions = {
+                    Button(
+                        onClick = { onClockIn(job.jobNumber, job.jobName) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF38A169),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text(
+                            if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
                     }
                 }
             )

@@ -13,6 +13,7 @@ enum class TopLevelTab(val route: String) {
     DASHBOARD("dashboard"),
     JOBS("jobs"),
     SEARCH("search"),
+    HOURS("hours"),
     SETTINGS("settings");
 
     companion object {
@@ -21,6 +22,7 @@ enum class TopLevelTab(val route: String) {
                 NavDestination.DASHBOARD -> DASHBOARD
                 NavDestination.JOBS -> JOBS
                 NavDestination.SEARCH -> SEARCH
+                NavDestination.HOURS -> HOURS
                 NavDestination.SETTINGS -> SETTINGS
             }
         }
@@ -30,6 +32,7 @@ enum class TopLevelTab(val route: String) {
                 DASHBOARD -> NavDestination.DASHBOARD
                 JOBS -> NavDestination.JOBS
                 SEARCH -> NavDestination.SEARCH
+                HOURS -> NavDestination.HOURS
                 SETTINGS -> NavDestination.SETTINGS
             }
         }
@@ -40,6 +43,7 @@ class NavigationCoordinator(
     private val dashboardNavController: NavHostController,
     private val jobsNavController: NavHostController,
     private val searchNavController: NavHostController,
+    private val hoursNavController: NavHostController,
     private val settingsNavController: NavHostController,
     private val getHomeTab: () -> TopLevelTab,
     private val getSelectedTab: () -> TopLevelTab,
@@ -53,6 +57,7 @@ class NavigationCoordinator(
             TopLevelTab.DASHBOARD -> dashboardNavController
             TopLevelTab.JOBS -> jobsNavController
             TopLevelTab.SEARCH -> searchNavController
+            TopLevelTab.HOURS -> hoursNavController
             TopLevelTab.SETTINGS -> settingsNavController
         }
     }

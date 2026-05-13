@@ -41,11 +41,42 @@ fun SettingsScreen(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    employeeName: String,
+    onEmployeeNameChanged: (String) -> Unit,
 ) {
     var editTabletId by remember { mutableStateOf(tabletId) }
     var editBasePath by remember { mutableStateOf(basePath) }
     var editSyncthingApiKey by remember(syncthingApiKey) { mutableStateOf(syncthingApiKey) }
+    var editEmployeeName by remember { mutableStateOf(employeeName) }
+    var employeeNameDirty by remember { mutableStateOf(false) }
+    var employeeNameSaved by remember { mutableStateOf(false) }
+    var employeeDropdownExpanded by remember { mutableStateOf(false) }
+    val allEmployees = remember {
+        listOf(
+            "023" to "Jonathan Thornton",
+            "067" to "Jared Rosenburg",
+            "101" to "Chris Tennent",
+            "189" to "Kevin Leafdale",
+            "223" to "Barry Roper",
+            "345" to "Donald McEdward",
+            "389" to "Winston Ferguson",
+            "423" to "Michael Diekotto",
+            "467" to "Montgomery Blackburn",
+            "501" to "Cameron Baker",
+            "623" to "Tye Lewin",
+            "701" to "Nate Hoseteetter",
+            "901" to "Kevin Olson",
+            "989" to "Kevin Palmer"
+        )
+    }
+    val filteredEmployees = remember(editEmployeeName) {
+        if (editEmployeeName.isBlank()) emptyList()
+        else allEmployees.filter { (id, name) ->
+            name.contains(editEmployeeName, ignoreCase = true) ||
+            id.contains(editEmployeeName, ignoreCase = true)
+        }
+    }
     var tabletIdDirty by remember { mutableStateOf(false) }
     var basePathDirty by remember { mutableStateOf(false) }
     var syncthingApiKeyDirty by remember { mutableStateOf(false) }
@@ -69,6 +100,12 @@ fun SettingsScreen(
         if (syncthingApiKeySaved) {
             delay(1600)
             syncthingApiKeySaved = false
+        }
+    }
+    LaunchedEffect(employeeNameSaved) {
+        if (employeeNameSaved) {
+            delay(1600)
+            employeeNameSaved = false
         }
     }
 
@@ -136,6 +173,70 @@ fun SettingsScreen(
                 title = "Tablet",
                 accentColor = MaterialTheme.colorScheme.tertiary
             ) {
+                ExposedDropdownMenuBox(
+                    expanded = employeeDropdownExpanded && filteredEmployees.isNotEmpty(),
+                    onExpandedChange = { employeeDropdownExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = editEmployeeName,
+                        onValueChange = {
+                            editEmployeeName = it
+                            employeeNameDirty = it != employeeName
+                            employeeDropdownExpanded = it.isNotBlank()
+                        },
+                        label = { Text("Your Name / PIN") },
+                        supportingText = { Text("Used for auto-login to the Hours Tracker. Leave blank to be prompted each time.") },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable),
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.medium
+                    )
+                    if (filteredEmployees.isNotEmpty()) {
+                        ExposedDropdownMenu(
+                            expanded = employeeDropdownExpanded,
+                            onDismissRequest = { employeeDropdownExpanded = false }
+                        ) {
+                            filteredEmployees.forEach { (_, name) ->
+                                DropdownMenuItem(
+                                    text = { Text(name) },
+                                    onClick = {
+                                        editEmployeeName = name
+                                        employeeNameDirty = name != employeeName
+                                        employeeDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (employeeNameDirty || employeeNameSaved) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (employeeNameDirty) {
+                            Button(
+                                onClick = {
+                                    onEmployeeNameChanged(editEmployeeName.trim())
+                                    employeeNameDirty = false
+                                    employeeNameSaved = true
+                                },
+                                shape = MaterialTheme.shapes.medium
+                            ) {
+                                Text("Save Name")
+                            }
+                        }
+                        if (employeeNameSaved) {
+                            Text(
+                                "Saved",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = editTabletId,
                     onValueChange = {

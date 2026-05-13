@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -39,6 +40,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -52,10 +54,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
@@ -110,9 +114,17 @@ fun AssemblyViewerScreen(
     initialCabinet: String? = null,
     initialRoom: String? = null,
     isDarkTheme: Boolean,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    isClockedInHere: Boolean = false,
+    onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
+    onLeaveWhileClockedIn: () -> Unit = {}
 ) {
     val sheetIndex = remember(jobFolderName) { assemblyStateStore.getCabinetSheetIndex(jobFolderName) }
+    val assemblyJobInfo = remember(jobFolderName) {
+        assemblyStateStore.getJobs().firstOrNull { it.folderName == jobFolderName }
+    }
+    val clockInJobNumber = assemblyJobInfo?.jobNumber ?: jobFolderName
+    val clockInJobName = assemblyJobInfo?.jobName ?: ""
     fun parseInitialSource(raw: String?): PaneSource? = when (raw?.trim()?.lowercase()) {
         "3d", "three_d", "threed" -> PaneSource.THREE_D
         "assembly" -> PaneSource.ASSEMBLY
@@ -453,6 +465,12 @@ fun AssemblyViewerScreen(
         }
     }
 
+    androidx.compose.runtime.DisposableEffect(isClockedInHere) {
+        val shouldNotify = isClockedInHere
+        val notifyFn = onLeaveWhileClockedIn
+        onDispose { if (shouldNotify) notifyFn() }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
@@ -468,6 +486,21 @@ fun AssemblyViewerScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    Button(
+                        onClick = { onClockIn(clockInJobNumber, clockInJobName) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF38A169),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text(
+                            if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

@@ -84,4 +84,6 @@ dependencies {
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.1.0")
+    testImplementation("org.mockito:mockito-core:5.2.0")
 }
