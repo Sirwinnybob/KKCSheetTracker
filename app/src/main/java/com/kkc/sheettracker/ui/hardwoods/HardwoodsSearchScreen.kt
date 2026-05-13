@@ -45,6 +45,35 @@ import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 
+internal data class HardwoodsSearchMatches(
+    val results: List<HardwoodSearchEntry>,
+    val totalMatches: Int
+)
+
+internal fun computeHardwoodsSearchMatches(
+    allEntries: List<HardwoodSearchEntry>,
+    rawQuery: String,
+    maxResults: Int = 120
+): HardwoodsSearchMatches {
+    val query = rawQuery.trim()
+    if (query.isBlank()) return HardwoodsSearchMatches(emptyList(), 0)
+
+    val visibleResults = ArrayList<HardwoodSearchEntry>(maxResults.coerceAtMost(allEntries.size))
+    var totalMatches = 0
+    for (entry in allEntries) {
+        val isMatch = entry.description.contains(query, ignoreCase = true) ||
+            entry.jobFolderName.contains(query, ignoreCase = true) ||
+            entry.jobNumber.contains(query, ignoreCase = true) ||
+            entry.width.contains(query, ignoreCase = true) ||
+            entry.length.contains(query, ignoreCase = true) ||
+            entry.cabinetNumbers.any { it == query }
+        if (!isMatch) continue
+        totalMatches += 1
+        if (visibleResults.size < maxResults) visibleResults.add(entry)
+    }
+    return HardwoodsSearchMatches(results = visibleResults, totalMatches = totalMatches)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HardwoodsSearchScreen(
@@ -56,17 +85,9 @@ fun HardwoodsSearchScreen(
     val all = scanState.snapshot.searchIndex
     var query by rememberSaveable { mutableStateOf("") }
 
-    val results = remember(all, query) {
-        val q = query.trim()
-        if (q.isBlank()) emptyList() else all.filter { entry ->
-            entry.description.contains(q, ignoreCase = true) ||
-                entry.jobFolderName.contains(q, ignoreCase = true) ||
-                entry.jobNumber.contains(q, ignoreCase = true) ||
-                entry.width.contains(q, ignoreCase = true) ||
-                entry.length.contains(q, ignoreCase = true) ||
-                entry.cabinetNumbers.any { it == q }
-        }.take(120)
-    }
+    // Single-pass scan avoids doing the same full-list match twice on each query update.
+    val searchMatches = remember(all, query) { computeHardwoodsSearchMatches(allEntries = all, rawQuery = query) }
+    val results = searchMatches.results
 
     Scaffold(
         topBar = {
@@ -120,16 +141,8 @@ fun HardwoodsSearchScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         item {
-                            val totalMatches = all.count { entry ->
-                                entry.description.contains(query.trim(), ignoreCase = true) ||
-                                    entry.jobFolderName.contains(query.trim(), ignoreCase = true) ||
-                                    entry.jobNumber.contains(query.trim(), ignoreCase = true) ||
-                                    entry.width.contains(query.trim(), ignoreCase = true) ||
-                                    entry.length.contains(query.trim(), ignoreCase = true) ||
-                                    entry.cabinetNumbers.any { it == query.trim() }
-                            }
                             Text(
-                                "Showing ${results.size} of ${totalMatches.coerceAtLeast(results.size)} matches",
+                                "Showing ${results.size} of ${searchMatches.totalMatches.coerceAtLeast(results.size)} matches",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(vertical = 4.dp)
