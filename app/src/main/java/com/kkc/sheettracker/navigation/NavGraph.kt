@@ -2,9 +2,21 @@ package com.kkc.sheettracker.navigation
 
 import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
@@ -210,6 +222,7 @@ private fun MultiBackStackNavigation(
     val homeTab = if (workMode == WorkMode.ASSEMBLY) TopLevelTab.JOBS else TopLevelTab.DASHBOARD
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
+    var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
             listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
@@ -257,9 +270,10 @@ private fun MultiBackStackNavigation(
         }
     val onClockOut: () -> Unit = {
         val snap = clockInState.snapshot
+        val stopTimeMs = System.currentTimeMillis()
         val elapsedMs = clockInState.clockOut()
-        val elapsedHours = (elapsedMs / 3600000.0 * 4).toLong() / 4.0
-        launchTimecardApp(context, employeeName.ifBlank { null }, snap.jobNumber, elapsedHours.toString())
+        val elapsedHours = (Math.round(elapsedMs / 3600000.0 * 4) / 4.0).coerceAtLeast(0.25)
+        pendingClockOut = PendingClockOut(snap.jobName, snap.jobNumber, elapsedHours, snap.startTimeMs, stopTimeMs, elapsedMs)
     }
     val onReturnToJob: () -> Unit = {
         val snap = clockInState.snapshot
@@ -436,6 +450,20 @@ private fun MultiBackStackNavigation(
                         launchTimecardApp(context, name)
                     },
                     onDismiss = { showHoursLoginDialog = false }
+                )
+            }
+            pendingClockOut?.let { pending ->
+                ClockOutEditDialog(
+                    jobName = pending.jobName,
+                    initialHours = pending.hours,
+                    startTimeMs = pending.startTimeMs,
+                    stopTimeMs = pending.stopTimeMs,
+                    actualElapsedMs = pending.actualElapsedMs,
+                    onConfirm = { hours ->
+                        pendingClockOut = null
+                        launchTimecardApp(context, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                    },
+                    onDismiss = { pendingClockOut = null }
                 )
             }
         }
@@ -1097,6 +1125,7 @@ private fun LegacySingleStackNavigation(
     val currentRoute = backStackEntry?.destination?.route
     val startRoute = if (workMode == WorkMode.ASSEMBLY) "jobs" else "dashboard"
     var showHoursLoginDialog by remember { mutableStateOf(false) }
+    var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY) {
             listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
@@ -1118,9 +1147,10 @@ private fun LegacySingleStackNavigation(
         }
     val onClockOut: () -> Unit = {
         val snap = clockInState.snapshot
+        val stopTimeMs = System.currentTimeMillis()
         val elapsedMs = clockInState.clockOut()
-        val elapsedHours = (elapsedMs / 3600000.0 * 4).toLong() / 4.0
-        launchTimecardApp(legacyContext, employeeName.ifBlank { null }, snap.jobNumber, elapsedHours.toString())
+        val elapsedHours = (Math.round(elapsedMs / 3600000.0 * 4) / 4.0).coerceAtLeast(0.25)
+        pendingClockOut = PendingClockOut(snap.jobName, snap.jobNumber, elapsedHours, snap.startTimeMs, stopTimeMs, elapsedMs)
     }
     val onReturnToJob: () -> Unit = {
         val snap = clockInState.snapshot
@@ -1737,6 +1767,20 @@ private fun LegacySingleStackNavigation(
                     onDismiss = { showHoursLoginDialog = false }
                 )
             }
+            pendingClockOut?.let { pending ->
+                ClockOutEditDialog(
+                    jobName = pending.jobName,
+                    initialHours = pending.hours,
+                    startTimeMs = pending.startTimeMs,
+                    stopTimeMs = pending.stopTimeMs,
+                    actualElapsedMs = pending.actualElapsedMs,
+                    onConfirm = { hours ->
+                        pendingClockOut = null
+                        launchTimecardApp(legacyContext, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                    },
+                    onDismiss = { pendingClockOut = null }
+                )
+            }
         }
 
         CalculatorOverlayHost(
@@ -1899,6 +1943,81 @@ private fun HoursTabHost(
             Box(modifier = Modifier.fillMaxSize())
         }
     }
+}
+
+private data class PendingClockOut(
+    val jobName: String,
+    val jobNumber: String,
+    val hours: Double,
+    val startTimeMs: Long,
+    val stopTimeMs: Long,
+    val actualElapsedMs: Long
+)
+
+@Composable
+private fun ClockOutEditDialog(
+    jobName: String,
+    initialHours: Double,
+    startTimeMs: Long,
+    stopTimeMs: Long,
+    actualElapsedMs: Long,
+    onConfirm: (Double) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var hours by remember { mutableStateOf(initialHours) }
+    val timeFmt = remember { java.text.DateFormat.getTimeInstance(java.text.DateFormat.MEDIUM) }
+    val startLabel = remember(startTimeMs) { timeFmt.format(java.util.Date(startTimeMs)) }
+    val stopLabel = remember(stopTimeMs) { timeFmt.format(java.util.Date(stopTimeMs)) }
+    val actualMins = (actualElapsedMs / 60000).toInt()
+    val durationLabel = if (actualMins >= 60) "%dh %dm".format(actualMins / 60, actualMins % 60) else "${actualMins}m"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Clock Out") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(jobName, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Start: $startLabel   Stop: $stopLabel   ($durationLabel actual)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { if (hours > 0.25) hours = Math.round((hours - 0.25) * 4) / 4.0 },
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text("−", style = MaterialTheme.typography.titleLarge)
+                    }
+                    Text(
+                        "%.2f hrs".format(hours),
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                    OutlinedButton(
+                        onClick = { hours = Math.round((hours + 0.25) * 4) / 4.0 },
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text("+", style = MaterialTheme.typography.titleLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(hours) }) { Text("Apply") }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onDismiss) { Text("Discard") }
+            }
+        }
+    )
 }
 
 private fun launchTimecardApp(
