@@ -30,6 +30,7 @@ import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
+import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
@@ -49,6 +50,7 @@ import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
 import com.kkc.sheettracker.ui.browser.JobBrowserScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
 import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
+import com.kkc.sheettracker.ui.components.ClockInOverlay
 import com.kkc.sheettracker.ui.components.NavDestination
 import com.kkc.sheettracker.ui.components.rememberCalculatorOverlayState
 import com.kkc.sheettracker.ui.dashboard.DashboardScreen
@@ -82,6 +84,7 @@ fun AppNavigation(
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
+    clockInState: ClockInState,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -110,6 +113,7 @@ fun AppNavigation(
                 workMode = workMode,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
+                clockInState = clockInState,
                 onThemeChanged = onThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
@@ -136,6 +140,7 @@ fun AppNavigation(
                 workMode = workMode,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
+                clockInState = clockInState,
                 onThemeChanged = onThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
@@ -166,6 +171,7 @@ private fun MultiBackStackNavigation(
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
+    clockInState: ClockInState,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -180,6 +186,7 @@ private fun MultiBackStackNavigation(
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
+    val context = LocalContext.current
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsProgressStore = remember(basePath, tabletId, isViewOnlyMode) {
         HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
@@ -243,6 +250,25 @@ private fun MultiBackStackNavigation(
         activity?.let { coordinator.onBackPressed(it) }
     }
 
+    val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
+        { jobNumber, jobName, folderName, tabType ->
+            clockInState.clockIn(jobNumber, jobName, folderName, tabType)
+        }
+    val onClockOut: () -> Unit = {
+        val snap = clockInState.snapshot
+        val elapsedMs = clockInState.clockOut()
+        val elapsedHours = (elapsedMs / 3600000.0 * 4).toLong() / 4.0
+        launchTimecardApp(context, employeeName.ifBlank { null }, snap.jobNumber, elapsedHours.toString())
+    }
+    val onReturnToJob: () -> Unit = {
+        val snap = clockInState.snapshot
+        when (snap.tabType) {
+            "hardwoods" -> coordinator.openHardwoodsJobInJobs(snap.folderName)
+            "assembly" -> coordinator.openAssemblyViewerInJobs(snap.folderName, 1, 1)
+            else -> coordinator.openJobDetailInJobs(snap.folderName)
+        }
+    }
+
     androidx.compose.runtime.LaunchedEffect(workMode, basePath) {
         hardwoodsRepository.updateBaseDir(File(basePath))
         assemblyScanCoordinator.updateBasePath(basePath)
@@ -303,6 +329,8 @@ private fun MultiBackStackNavigation(
                         assemblyScanCoordinator = assemblyScanCoordinator,
                         assemblyStateStore = assemblyStateStore,
                         basePath = basePath,
+                        clockInState = clockInState,
+                        onClockIn = onClockIn,
                         onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
                         onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) }
                     )
@@ -396,6 +424,12 @@ private fun MultiBackStackNavigation(
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
+            modifier = Modifier.fillMaxSize()
+        )
+        ClockInOverlay(
+            clockInState = clockInState,
+            onClockOut = onClockOut,
+            onReturnToJob = onReturnToJob,
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -495,6 +529,8 @@ private fun JobsTabHost(
     assemblyScanCoordinator: AssemblyScanCoordinator,
     assemblyStateStore: AssemblyStateStore,
     basePath: String,
+    clockInState: ClockInState,
+    onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -626,6 +662,8 @@ private fun JobsTabHost(
             arguments = listOf(navArgument("folderName") { type = NavType.StringType })
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == folderName
             JobDetailScreen(
                 scanCoordinator = scanCoordinator,
                 appStateStore = appStateStore,
@@ -633,6 +671,9 @@ private fun JobsTabHost(
                 progressStore = progressStore,
                 appStateFlags = appStateFlags,
                 jobFolderName = folderName,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
+                onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                 onMaterialClick = { material, startPage ->
                     navController.navigate(
                         "viewer/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(material.pdfFilename, "UTF-8")}/$startPage"
@@ -734,11 +775,16 @@ private fun JobsTabHost(
             arguments = listOf(navArgument("folderName") { type = NavType.StringType })
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == folderName
             HardwoodsJobDetailScreen(
                 scanCoordinator = hardwoodsScanCoordinator,
                 progressStore = hardwoodsProgressStore,
                 jobRepository = jobRepository,
                 jobFolderName = folderName,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
+                onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                 onOpenWorkspace = { docType ->
                     navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
                         launchSingleTop = true
@@ -829,16 +875,18 @@ private fun JobsTabHost(
                 navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStack ->
-            val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
             val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
             val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
             val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
             val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
             val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == jobFolderName
             AssemblyViewerScreen(
                 jobRepository = jobRepository,
                 assemblyStateStore = assemblyStateStore,
-                jobFolderName = folderName,
+                jobFolderName = jobFolderName,
                 basePath = basePath,
                 startPageAssembly = startPageAssembly,
                 startPagePlans = startPagePlans,
@@ -846,6 +894,9 @@ private fun JobsTabHost(
                 initialCabinet = initialCabinet,
                 initialRoom = initialRoom,
                 isDarkTheme = isDarkTheme,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
+                onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -972,6 +1023,7 @@ private fun LegacySingleStackNavigation(
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
+    clockInState: ClockInState,
     onThemeChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
@@ -1015,6 +1067,26 @@ private fun LegacySingleStackNavigation(
         if (isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page)) return
         navController.navigate(viewerRoute(jobFolderName, pdfFilename, page)) {
             launchSingleTop = true
+        }
+    }
+
+    val legacyContext = LocalContext.current
+    val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
+        { jobNumber, jobName, folderName, tabType ->
+            clockInState.clockIn(jobNumber, jobName, folderName, tabType)
+        }
+    val onClockOut: () -> Unit = {
+        val snap = clockInState.snapshot
+        val elapsedMs = clockInState.clockOut()
+        val elapsedHours = (elapsedMs / 3600000.0 * 4).toLong() / 4.0
+        launchTimecardApp(legacyContext, employeeName.ifBlank { null }, snap.jobNumber, elapsedHours.toString())
+    }
+    val onReturnToJob: () -> Unit = {
+        val snap = clockInState.snapshot
+        when (snap.tabType) {
+            "hardwoods" -> navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(snap.folderName, "UTF-8")}") { launchSingleTop = true }
+            "assembly" -> navController.navigate(assemblyViewerRoute(snap.folderName, 1, 1)) { launchSingleTop = true }
+            else -> navController.navigate("job/${java.net.URLEncoder.encode(snap.folderName, "UTF-8")}") { launchSingleTop = true }
         }
     }
 
@@ -1255,6 +1327,8 @@ private fun LegacySingleStackNavigation(
                 arguments = listOf(navArgument("folderName") { type = NavType.StringType })
             ) { backStack ->
                 val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                val isClockedInHere = clockInState.snapshot.isActive &&
+                    clockInState.snapshot.folderName == folderName
                 JobDetailScreen(
                     scanCoordinator = scanCoordinator,
                     appStateStore = appStateStore,
@@ -1262,6 +1336,9 @@ private fun LegacySingleStackNavigation(
                     progressStore = progressStore,
                     appStateFlags = appStateFlags,
                     jobFolderName = folderName,
+                    isClockedInHere = isClockedInHere,
+                    onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
+                    onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                     onMaterialClick = { material, startPage ->
                         openSheetLegacy(folderName, material.pdfFilename, startPage)
                     },
@@ -1359,11 +1436,16 @@ private fun LegacySingleStackNavigation(
                 arguments = listOf(navArgument("folderName") { type = NavType.StringType })
             ) { backStack ->
                 val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                val isClockedInHere = clockInState.snapshot.isActive &&
+                    clockInState.snapshot.folderName == folderName
                 HardwoodsJobDetailScreen(
                     scanCoordinator = hardwoodsScanCoordinator,
                     progressStore = hardwoodsProgressStore,
                     jobRepository = jobRepository,
                     jobFolderName = folderName,
+                    isClockedInHere = isClockedInHere,
+                    onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
+                    onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                     onOpenWorkspace = { docType ->
                         navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
                             launchSingleTop = true
@@ -1454,16 +1536,18 @@ private fun LegacySingleStackNavigation(
                     navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
                 )
             ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
                 val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
                 val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
                 val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
                 val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
                 val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
+                val isClockedInHere = clockInState.snapshot.isActive &&
+                    clockInState.snapshot.folderName == jobFolderName
                 AssemblyViewerScreen(
                     jobRepository = jobRepository,
                     assemblyStateStore = assemblyStateStore,
-                    jobFolderName = folderName,
+                    jobFolderName = jobFolderName,
                     basePath = basePath,
                     initialSource = initialSource,
                     initialCabinet = initialCabinet,
@@ -1471,6 +1555,9 @@ private fun LegacySingleStackNavigation(
                     startPageAssembly = startPageAssembly,
                     startPagePlans = startPagePlans,
                     isDarkTheme = isDarkTheme,
+                    isClockedInHere = isClockedInHere,
+                    onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
+                    onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -1596,6 +1683,12 @@ private fun LegacySingleStackNavigation(
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
+            modifier = Modifier.fillMaxSize()
+        )
+        ClockInOverlay(
+            clockInState = clockInState,
+            onClockOut = onClockOut,
+            onReturnToJob = onReturnToJob,
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -1749,10 +1842,17 @@ private fun HoursTabHost(
     }
 }
 
-private fun launchTimecardApp(context: android.content.Context, autoLoginInput: String?) {
+private fun launchTimecardApp(
+    context: android.content.Context,
+    autoLoginInput: String?,
+    jobNumber: String? = null,
+    hours: String? = null
+) {
     val intent = android.content.Intent().apply {
         setClassName("com.example.timecard", "com.example.timecard.MainActivity")
         if (autoLoginInput != null) putExtra("extra_auto_login", autoLoginInput)
+        if (jobNumber != null) putExtra("extra_job_number", jobNumber)
+        if (hours != null) putExtra("extra_hours", hours)
     }
     context.startActivity(intent)
 }
