@@ -29,7 +29,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
-import com.kkc.sheettracker.data.HoursStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
@@ -142,7 +141,6 @@ class MainActivity : ComponentActivity() {
         )
         scanCoordinator = ScanCoordinator(baseDir, jobRepository)
         appStateStore = AppStateStore(scanCoordinator, progressStore)
-        val hoursStore = HoursStore(baseDir, tabletId)
         scanCoordinator.refresh(RefreshReason.APP_START, force = true)
 
         setContent {
@@ -183,7 +181,6 @@ class MainActivity : ComponentActivity() {
                             employeeName = name
                             prefs.edit().putString("employee_name", name).apply()
                         },
-                        hoursStore = hoursStore,
                         onThemeChanged = { dark ->
                             isDarkTheme = dark
                             prefs.edit().putBoolean("dark_theme", dark).apply()
