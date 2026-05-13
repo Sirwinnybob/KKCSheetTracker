@@ -692,7 +692,13 @@ private fun JobsTabHost(
                 jobFolderName = folderName,
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
-                onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
+                onLeaveWhileClockedIn = {
+                    if (isClockedInHere) {
+                        val dest = navController.currentDestination?.route ?: ""
+                        val isCncSubScreen = dest.startsWith("viewer/") || dest.startsWith("referenceViewer/") || dest.startsWith("assembly/viewer/")
+                        if (!isCncSubScreen) clockInState.triggerPrompt()
+                    }
+                },
                 onMaterialClick = { material, startPage ->
                     navController.navigate(
                         "viewer/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(material.pdfFilename, "UTF-8")}/$startPage"
@@ -734,6 +740,9 @@ private fun JobsTabHost(
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
             val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
             val startPage = backStack.arguments?.getInt("startPage") ?: 1
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == folderName &&
+                clockInState.snapshot.tabType == "cnc"
             SheetViewerScreen(
                 scanCoordinator = scanCoordinator,
                 appStateStore = appStateStore,
@@ -744,6 +753,8 @@ private fun JobsTabHost(
                 pdfFilename = pdfFilename,
                 startPage = startPage,
                 isDarkTheme = isDarkTheme,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
                 onOpenReferenceDocument = { docType, startAt ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
                         launchSingleTop = true
@@ -803,7 +814,12 @@ private fun JobsTabHost(
                 jobFolderName = folderName,
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
-                onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
+                onLeaveWhileClockedIn = {
+                    if (isClockedInHere) {
+                        val dest = navController.currentDestination?.route ?: ""
+                        if (!dest.startsWith("hardwoods/workspace/")) clockInState.triggerPrompt()
+                    }
+                },
                 onOpenWorkspace = { docType ->
                     navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
                         launchSingleTop = true
@@ -856,6 +872,9 @@ private fun JobsTabHost(
             val docType = runCatching { HardwoodDocType.valueOf(rawDocType) }.getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
             val rowIdArg = URLDecoder.decode(backStack.arguments?.getString("startPage") ?: "", "UTF-8")
             val rowId = rowIdArg.takeIf { it.isNotBlank() && it != "_" }
+            val isClockedInHere = clockInState.snapshot.isActive &&
+                clockInState.snapshot.folderName == folderName &&
+                clockInState.snapshot.tabType == "hardwoods"
             HardwoodsWorkspaceScreen(
                 scanCoordinator = hardwoodsScanCoordinator,
                 hardwoodsRepository = hardwoodsRepository,
@@ -865,6 +884,8 @@ private fun JobsTabHost(
                 initialDocType = docType,
                 initialRowId = rowId,
                 isDarkTheme = isDarkTheme,
+                isClockedInHere = isClockedInHere,
+                onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
                 onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
                     navController.navigate(
                         assemblyViewerRoute(

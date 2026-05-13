@@ -111,10 +111,11 @@ fun HardwoodsJobDetailScreen(
                     }
                 },
                 actions = {
-                    TextButton(
+                    Button(
                         onClick = { onClockIn(job.jobNumber, job.jobName) },
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = Color(0xFF38A169)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF38A169),
+                            contentColor = Color.White
                         )
                     ) {
                         Text(

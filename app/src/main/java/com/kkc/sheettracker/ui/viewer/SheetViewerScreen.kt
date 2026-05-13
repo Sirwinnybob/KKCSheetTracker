@@ -39,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
@@ -179,6 +181,8 @@ fun SheetViewerScreen(
     pdfFilename: String,
     startPage: Int,
     isDarkTheme: Boolean,
+    isClockedInHere: Boolean = false,
+    onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
     onBack: () -> Unit
@@ -793,6 +797,22 @@ fun SheetViewerScreen(
                     navigationIconContentColor = topBarTextColor
                 ),
                 actions = {
+                    val clockInJob = scanState.snapshot.jobs.find { it.folderName == jobFolderName }
+                    if (clockInJob != null) {
+                        Button(
+                            onClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF38A169),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text(
+                                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
                     Box {
                         IconButton(onClick = { showViewerMenu = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "Viewer actions")

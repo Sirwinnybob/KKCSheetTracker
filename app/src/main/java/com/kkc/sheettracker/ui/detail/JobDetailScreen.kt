@@ -144,10 +144,11 @@ fun JobDetailScreen(
                 actions = {
                     val currentJob = job
                     if (currentJob != null) {
-                        TextButton(
+                        Button(
                             onClick = { onClockIn(currentJob.jobNumber, currentJob.jobName) },
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = Color(0xFF38A169)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF38A169),
+                                contentColor = Color.White
                             )
                         ) {
                             Text(

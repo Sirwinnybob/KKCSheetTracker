@@ -489,10 +489,11 @@ fun AssemblyViewerScreen(
                     }
                 },
                 actions = {
-                    TextButton(
+                    Button(
                         onClick = { onClockIn(clockInJobNumber, clockInJobName) },
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = Color(0xFF38A169)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF38A169),
+                            contentColor = Color.White
                         )
                     ) {
                         Text(

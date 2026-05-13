@@ -84,6 +84,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
@@ -162,6 +163,8 @@ fun HardwoodsWorkspaceScreen(
     initialDocType: HardwoodDocType,
     initialRowId: String?,
     isDarkTheme: Boolean,
+    isClockedInHere: Boolean = false,
+    onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
     onBack: () -> Unit
 ) {
@@ -620,6 +623,22 @@ fun HardwoodsWorkspaceScreen(
                     }
                 },
                 actions = {
+                    val clockInJob = job
+                    if (clockInJob != null) {
+                        Button(
+                            onClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF38A169),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text(
+                                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
                     TextButton(onClick = { showReferencePane = !showReferencePane }) {
                         Text(if (showReferencePane) "Hide PDF" else "Show PDF")
                     }
