@@ -156,28 +156,24 @@ fun JobDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) },
-                            modifier = Modifier.weight(1f)
+                            onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }
                         ) {
                             Text("View Assembly")
                         }
                         Button(
-                            onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) },
-                            modifier = Modifier.weight(1f)
+                            onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }
                         ) {
                             Text("View Plans & Elevations")
                         }
                         if (hasDeliverySheet) {
                             Button(
-                                onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) },
-                                modifier = Modifier.weight(1f)
+                                onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }
                             ) {
                                 Text("View Cover Sheet")
                             }
                         }
                         Button(
-                            onClick = onOpenThreeD,
-                            modifier = Modifier.weight(1f)
+                            onClick = onOpenThreeD
                         ) {
                             Text("View 3D")
                         }
