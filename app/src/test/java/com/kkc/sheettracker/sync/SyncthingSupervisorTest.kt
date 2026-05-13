@@ -23,7 +23,8 @@ class SyncthingSupervisorTest {
                 watchdog = SyncthingWatchdogConfig(
                     intervalMs = 10_000L,
                     autoStartOnFailure = true,
-                    restartVerificationDelayMs = 10L
+                    restartVerificationDelayMs = 10L,
+                    failureConfirmationWindowMs = 10L
                 )
             ),
             preferencesStore = store,

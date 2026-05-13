@@ -1,0 +1,193 @@
+<h2>PC Admin — Full Layout (based on app design)</h2>
+<p class="subtitle">This mirrors the app's split-panel approach, adapted for a widescreen browser. Click an area to select what you want to refine.</p>
+
+<div class="mockup" style="max-width:960px;margin:0 auto;">
+  <div class="mockup-header">Full App Shell — CNC Sheet Viewer open</div>
+  <div class="mockup-body" style="padding:0;">
+    <div style="display:flex;height:580px;font-size:11px;background:#0f0f1a;border-radius:0 0 6px 6px;overflow:hidden;">
+
+      <!-- ═══ SIDEBAR ═══ -->
+      <div style="width:200px;background:#111827;border-right:1px solid #1f2937;display:flex;flex-direction:column;flex-shrink:0;">
+        <div style="padding:12px;border-bottom:1px solid #1f2937;">
+          <div style="color:#fff;font-size:13px;font-weight:700;letter-spacing:.5px;">KKC Admin</div>
+          <div style="color:#4b5563;font-size:9px;margin-top:2px;">admin-WORKSTATION</div>
+        </div>
+
+        <!-- Mode tabs -->
+        <div style="padding:8px;border-bottom:1px solid #1f2937;">
+          <div style="color:#6b7280;font-size:9px;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Mode</div>
+          <div style="background:#1d4ed8;color:#fff;padding:5px 8px;border-radius:4px;font-size:10px;margin-bottom:2px;display:flex;align-items:center;gap:5px;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#60a5fa;display:inline-block;"></span>CNC
+          </div>
+          <div style="color:#6b7280;padding:5px 8px;border-radius:4px;font-size:10px;margin-bottom:2px;">Hardwoods</div>
+          <div style="color:#6b7280;padding:5px 8px;border-radius:4px;font-size:10px;">Assembly</div>
+        </div>
+
+        <!-- Job list -->
+        <div style="flex:1;overflow-y:auto;padding:8px;">
+          <div style="color:#6b7280;font-size:9px;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Jobs</div>
+
+          <!-- Active job -->
+          <div style="background:#1e3a5f;border-left:3px solid #3b82f6;border-radius:4px;padding:6px 8px;margin-bottom:4px;">
+            <div style="color:#fff;font-size:10px;font-weight:600;">#1042 — Smith</div>
+            <div style="background:#0f2040;border-radius:2px;height:3px;margin-top:4px;">
+              <div style="background:#22c55e;width:67%;height:100%;border-radius:2px;"></div>
+            </div>
+            <div style="color:#22c55e;font-size:8px;margin-top:2px;">67% · 2 bad</div>
+          </div>
+
+          <div style="padding:6px 8px;margin-bottom:4px;border-radius:4px;">
+            <div style="color:#9ca3af;font-size:10px;">#1039 — Jones</div>
+            <div style="background:#1f2937;border-radius:2px;height:3px;margin-top:4px;">
+              <div style="background:#f59e0b;width:40%;height:100%;border-radius:2px;"></div>
+            </div>
+            <div style="color:#f59e0b;font-size:8px;margin-top:2px;">40%</div>
+          </div>
+
+          <div style="padding:6px 8px;margin-bottom:4px;border-radius:4px;">
+            <div style="color:#9ca3af;font-size:10px;">#1038 — Taylor</div>
+            <div style="background:#1f2937;border-radius:2px;height:3px;margin-top:4px;"></div>
+            <div style="color:#4b5563;font-size:8px;margin-top:2px;">Not started</div>
+          </div>
+
+          <div style="padding:6px 8px;margin-bottom:4px;border-radius:4px;">
+            <div style="color:#9ca3af;font-size:10px;">#1035 — Davis</div>
+            <div style="background:#1f2937;border-radius:2px;height:3px;margin-top:4px;">
+              <div style="background:#22c55e;width:100%;height:100%;border-radius:2px;"></div>
+            </div>
+            <div style="color:#22c55e;font-size:8px;margin-top:2px;">Complete ✓</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ MAIN AREA ═══ -->
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+
+        <!-- Top bar -->
+        <div style="background:#111827;border-bottom:1px solid #1f2937;padding:8px 14px;display:flex;align-items:center;gap:10px;">
+          <span style="color:#9ca3af;font-size:11px;">← Cabinet.pdf</span>
+          <span style="color:#374151;">·</span>
+          <span style="color:#93c5fd;font-size:11px;font-weight:600;">Page 3 / 8</span>
+          <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+            <div style="background:#166534;color:#86efac;padding:4px 10px;border-radius:4px;font-size:10px;font-weight:600;">✓ Mark Done</div>
+            <div style="background:#7f1d1d;color:#fca5a5;padding:4px 10px;border-radius:4px;font-size:10px;">⊘ Skip Sheet</div>
+            <div style="width:1px;height:16px;background:#1f2937;"></div>
+            <div style="background:#1f2937;color:#9ca3af;padding:4px 8px;border-radius:4px;font-size:10px;">◀</div>
+            <div style="background:#1f2937;color:#9ca3af;padding:4px 8px;border-radius:4px;font-size:10px;">▶</div>
+          </div>
+        </div>
+
+        <!-- Split: PDF left, parts right (mirrors AdaptiveSplitLayout) -->
+        <div style="flex:1;display:flex;min-height:0;">
+
+          <!-- PDF PANE -->
+          <div style="flex:1;background:#111;display:flex;align-items:center;justify-content:center;position:relative;border-right:1px solid #1f2937;">
+            <!-- Sheet bitmap simulation -->
+            <div style="width:280px;height:380px;background:#2d2d2d;border:1px solid #404040;border-radius:2px;position:relative;box-shadow:0 4px 20px rgba(0,0,0,.5);">
+              <!-- Part overlays -->
+              <div style="position:absolute;top:18px;left:14px;width:80px;height:55px;border:1.5px solid #3b82f6;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;font-size:9px;color:#93c5fd;">P1</div>
+              <div style="position:absolute;top:18px;left:104px;width:110px;height:38px;border:1.5px solid #3b82f6;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;font-size:9px;color:#93c5fd;">P2</div>
+              <div style="position:absolute;top:18px;left:224px;width:42px;height:80px;border:1.5px solid #ef4444;background:rgba(239,68,68,.15);display:flex;align-items:center;justify-content:center;font-size:9px;color:#fca5a5;">P3!</div>
+              <div style="position:absolute;top:84px;left:14px;width:60px;height:70px;border:1.5px solid #22c55e;background:rgba(34,197,94,.12);display:flex;align-items:center;justify-content:center;font-size:9px;color:#86efac;">P4 ✓</div>
+              <div style="position:absolute;top:84px;left:84px;width:130px;height:44px;border:1.5px solid #3b82f6;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;font-size:9px;color:#93c5fd;">P5</div>
+              <div style="position:absolute;top:164px;left:14px;width:252px;height:50px;border:1.5px solid #22c55e;background:rgba(34,197,94,.12);display:flex;align-items:center;justify-content:center;font-size:9px;color:#86efac;">P6 — Done ✓</div>
+              <div style="position:absolute;top:230px;left:14px;width:118px;height:60px;border:1.5px solid #3b82f6;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;font-size:9px;color:#93c5fd;">P7</div>
+              <div style="position:absolute;top:230px;left:148px;width:118px;height:60px;border:1.5px dashed #f59e0b;background:rgba(245,158,11,.08);display:flex;align-items:center;justify-content:center;font-size:9px;color:#fcd34d;">P8 skipped</div>
+              <div style="position:absolute;bottom:18px;left:14px;width:252px;height:44px;border:1.5px solid #3b82f6;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;font-size:9px;color:#93c5fd;">P9</div>
+            </div>
+            <!-- Page thumbnail strip at bottom -->
+            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(17,24,39,.95);border-top:1px solid #1f2937;padding:6px 10px;display:flex;gap:5px;overflow-x:auto;">
+              <div style="width:32px;height:40px;background:#22c55e;border-radius:2px;border:1px solid #16a34a;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:#000;font-weight:600;">1</div>
+              <div style="width:32px;height:40px;background:#22c55e;border-radius:2px;border:1px solid #16a34a;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:#000;font-weight:600;">2</div>
+              <div style="width:32px;height:40px;background:#1d4ed8;border-radius:2px;border:2px solid #3b82f6;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:#fff;font-weight:700;">3</div>
+              <div style="width:32px;height:40px;background:#1f2937;border-radius:2px;border:1px solid #374151;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:#9ca3af;">4</div>
+              <div style="width:32px;height:40px;background:#78350f;border-radius:2px;border:1px solid #92400e;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:#fcd34d;">5!</div>
+              <div style="width:32px;height:40px;background:#1f2937;border-radius:2px;border:1px solid #374151;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:#9ca3af;">6</div>
+              <div style="width:32px;height:40px;background:#1f2937;border-radius:2px;border:1px solid #374151;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:#9ca3af;">7</div>
+              <div style="width:32px;height:40px;background:#1f2937;border-radius:2px;border:1px solid #374151;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:#9ca3af;">8</div>
+            </div>
+          </div>
+
+          <!-- PARTS TABLE PANE (mirrors app's part table side panel) -->
+          <div style="width:240px;background:#111827;display:flex;flex-direction:column;flex-shrink:0;">
+            <!-- Header -->
+            <div style="padding:8px 10px;border-bottom:1px solid #1f2937;">
+              <div style="color:#e5e7eb;font-size:10px;font-weight:600;">Parts — Sheet 3</div>
+              <div style="display:flex;gap:4px;margin-top:4px;">
+                <div style="background:#166534;color:#86efac;padding:2px 6px;border-radius:10px;font-size:8px;">2 done</div>
+                <div style="background:#7f1d1d;color:#fca5a5;padding:2px 6px;border-radius:10px;font-size:8px;">1 bad</div>
+                <div style="background:#78350f;color:#fcd34d;padding:2px 6px;border-radius:10px;font-size:8px;">1 skip</div>
+              </div>
+            </div>
+            <!-- Sort header -->
+            <div style="display:flex;padding:4px 10px;border-bottom:1px solid #1f2937;color:#4b5563;font-size:8px;text-transform:uppercase;letter-spacing:.5px;">
+              <span style="flex:1;">#</span>
+              <span style="flex:3;">Name / Dim</span>
+              <span style="width:40px;text-align:center;">Status</span>
+            </div>
+            <!-- Part rows -->
+            <div style="flex:1;overflow-y:auto;">
+              <div style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #1f2937;border-left:2px solid #22c55e;">
+                <span style="flex:1;color:#9ca3af;font-size:9px;">P1</span>
+                <div style="flex:3;">
+                  <div style="color:#e5e7eb;font-size:9px;">Door Panel</div>
+                  <div style="color:#6b7280;font-size:8px;">14¾ × 28½</div>
+                </div>
+                <span style="width:40px;text-align:center;color:#22c55e;font-size:9px;">✓</span>
+              </div>
+              <div style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #1f2937;border-left:2px solid #9ca3af;">
+                <span style="flex:1;color:#9ca3af;font-size:9px;">P2</span>
+                <div style="flex:3;">
+                  <div style="color:#e5e7eb;font-size:9px;">Side Panel</div>
+                  <div style="color:#6b7280;font-size:8px;">22 × 34¼</div>
+                </div>
+                <span style="width:40px;text-align:center;color:#6b7280;font-size:9px;">—</span>
+              </div>
+              <div style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #1f2937;border-left:2px solid #ef4444;background:rgba(239,68,68,.05);">
+                <span style="flex:1;color:#fca5a5;font-size:9px;">P3</span>
+                <div style="flex:3;">
+                  <div style="color:#fca5a5;font-size:9px;">Top Rail ⚠</div>
+                  <div style="color:#6b7280;font-size:8px;">3½ × 16</div>
+                </div>
+                <div style="width:40px;text-align:center;">
+                  <div style="background:#7f1d1d;color:#fca5a5;padding:1px 4px;border-radius:2px;font-size:7px;text-align:center;">BAD</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #1f2937;border-left:2px solid #22c55e;">
+                <span style="flex:1;color:#9ca3af;font-size:9px;">P4</span>
+                <div style="flex:3;">
+                  <div style="color:#e5e7eb;font-size:9px;">Bottom</div>
+                  <div style="color:#6b7280;font-size:8px;">22 × 15¾</div>
+                </div>
+                <span style="width:40px;text-align:center;color:#22c55e;font-size:9px;">✓</span>
+              </div>
+              <div style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #1f2937;border-left:2px solid #9ca3af;">
+                <span style="flex:1;color:#9ca3af;font-size:9px;">P5</span>
+                <div style="flex:3;">
+                  <div style="color:#e5e7eb;font-size:9px;">Shelf</div>
+                  <div style="color:#6b7280;font-size:8px;">21¼ × 15¾</div>
+                </div>
+                <span style="width:40px;text-align:center;color:#6b7280;font-size:9px;">—</span>
+              </div>
+              <div style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #1f2937;border-left:2px solid #f59e0b;background:rgba(245,158,11,.05);">
+                <span style="flex:1;color:#fcd34d;font-size:9px;">P8</span>
+                <div style="flex:3;">
+                  <div style="color:#fcd34d;font-size:9px;">Kick Plate</div>
+                  <div style="color:#6b7280;font-size:8px;">3½ × 22</div>
+                </div>
+                <div style="width:40px;text-align:center;">
+                  <div style="background:#78350f;color:#fcd34d;padding:1px 4px;border-radius:2px;font-size:7px;text-align:center;">SKIP</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:16px;color:#6b7280;font-size:11px;text-align:center;">
+  This matches the app's split layout. The sidebar stays visible, top bar has Done/Skip, PDF fills the main pane, parts table on the right. Page thumbnail strip at bottom for quick navigation. Does this look right?
+</div>

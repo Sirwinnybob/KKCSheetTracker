@@ -21,6 +21,7 @@ import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSiz
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -50,6 +54,7 @@ import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
+import com.kkc.sheettracker.data.TrackerChangeMonitor
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.RefreshReason
@@ -107,8 +112,35 @@ fun AppNavigation(
     syncthingStatus: SyncthingStatusUiState,
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
-    onSyncthingStartNow: () -> Unit
+    onSyncthingStartNow: () -> Unit,
+    hardwoodsProgressStore: HardwoodsProgressStore? = null
 ) {
+    val sharedHardwoodsProgressStore = hardwoodsProgressStore ?: remember(basePath, tabletId, isViewOnlyMode) {
+        HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val trackerChangeMonitor = remember(basePath, progressStore, sharedHardwoodsProgressStore) {
+        // Read-only monitor: reacts to synced tracker file changes by invalidating in-memory caches only.
+        TrackerChangeMonitor(
+            baseDir = File(basePath),
+            progressStore = progressStore,
+            hardwoodsProgressStore = sharedHardwoodsProgressStore
+        )
+    }
+    DisposableEffect(lifecycleOwner, trackerChangeMonitor) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> trackerChangeMonitor.start()
+                Lifecycle.Event.ON_STOP -> trackerChangeMonitor.stop()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            trackerChangeMonitor.stop()
+        }
+    }
     val flags = remember(appStateFlags) { appStateFlags.snapshot() }
     key(workMode) {
         if (flags.navMultiStackEnabled) {
@@ -117,7 +149,7 @@ fun AppNavigation(
                 appStateStore = appStateStore,
                 jobRepository = jobRepository,
                 progressStore = progressStore,
-                isViewOnlyMode = isViewOnlyMode,
+                hardwoodsProgressStore = sharedHardwoodsProgressStore,
                 appStateFlags = appStateFlags,
                 tabletId = tabletId,
                 basePath = basePath,
@@ -144,7 +176,7 @@ fun AppNavigation(
                 appStateStore = appStateStore,
                 jobRepository = jobRepository,
                 progressStore = progressStore,
-                isViewOnlyMode = isViewOnlyMode,
+                hardwoodsProgressStore = sharedHardwoodsProgressStore,
                 appStateFlags = appStateFlags,
                 tabletId = tabletId,
                 basePath = basePath,
@@ -175,7 +207,7 @@ private fun MultiBackStackNavigation(
     appStateStore: AppStateStore,
     jobRepository: JobRepository,
     progressStore: ProgressStore,
-    isViewOnlyMode: Boolean,
+    hardwoodsProgressStore: HardwoodsProgressStore,
     appStateFlags: AppStateFeatureFlags,
     tabletId: String,
     basePath: String,
@@ -201,9 +233,6 @@ private fun MultiBackStackNavigation(
     val compactWidth = rememberCompactWidthClass()
     val context = LocalContext.current
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
-    val hardwoodsProgressStore = remember(basePath, tabletId, isViewOnlyMode) {
-        HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
-    }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
     val assemblyScanCoordinator = remember(basePath) { AssemblyScanCoordinator(File(basePath), jobRepository) }
     val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore) {
@@ -1108,7 +1137,7 @@ private fun LegacySingleStackNavigation(
     appStateStore: AppStateStore,
     jobRepository: JobRepository,
     progressStore: ProgressStore,
-    isViewOnlyMode: Boolean,
+    hardwoodsProgressStore: HardwoodsProgressStore,
     appStateFlags: AppStateFeatureFlags,
     tabletId: String,
     basePath: String,
@@ -1132,9 +1161,6 @@ private fun LegacySingleStackNavigation(
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
-    val hardwoodsProgressStore = remember(basePath, tabletId, isViewOnlyMode) {
-        HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
-    }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
     val assemblyScanCoordinator = remember(basePath) { AssemblyScanCoordinator(File(basePath), jobRepository) }
     val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore) {

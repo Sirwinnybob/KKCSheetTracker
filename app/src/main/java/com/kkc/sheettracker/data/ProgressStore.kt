@@ -137,11 +137,30 @@ class ProgressStore(
         bumpProgressVersion()
     }
 
+    fun invalidateJobIndexes(jobFolderNames: Collection<String>) {
+        if (jobFolderNames.isEmpty()) return
+        synchronized(indexLock) {
+            jobFolderNames.forEach { jobIndexes.remove(it) }
+        }
+        bumpProgressVersion()
+    }
+
     fun invalidateAllIndexes() {
         synchronized(indexLock) {
             jobIndexes.clear()
         }
         bumpProgressVersion()
+    }
+
+    fun invalidateFromTrackerFile(trackerFile: File): Boolean {
+        val trackerDir = trackerFile.parentFile ?: return false
+        if (!trackerDir.name.equals(".tracker", ignoreCase = true)) return false
+        val cncDir = trackerDir.parentFile ?: return false
+        if (!cncDir.name.equals("CNC", ignoreCase = true)) return false
+        val jobDir = cncDir.parentFile ?: return false
+        if (jobDir.name.isBlank()) return false
+        invalidateJobIndex(jobDir.name)
+        return true
     }
 
     private fun trackerDir(jobFolderName: String): File {
@@ -977,6 +996,12 @@ class ProgressStore(
     fun pruneLocalStateForJob(jobFolderName: String, materials: List<Material>) {
         if (readOnly) return
         val validFingerprintsByPdf = materials.associate { it.pdfFilename to it.fileFingerprint }
+        // This method runs from app-state derivation; precomputing the safe-name map avoids
+        // scanning every PDF key for every OCR directory (O(D*M) -> O(D+M)).
+        val originalPdfBySafeName = mutableMapOf<String, String>()
+        validFingerprintsByPdf.keys.forEach { originalPdf ->
+            originalPdfBySafeName.putIfAbsent(safeName(originalPdf), originalPdf)
+        }
 
         val draft = loadDraftState(jobFolderName)
         val filteredDraftEntries = draft.entries.filter { entry ->
@@ -991,7 +1016,7 @@ class ProgressStore(
         if (ocrJobDir.exists()) {
             ocrJobDir.listFiles()?.forEach { pdfDir ->
                 if (!pdfDir.isDirectory) return@forEach
-                val originalPdf = validFingerprintsByPdf.keys.firstOrNull { safeName(it) == pdfDir.name }
+                val originalPdf = originalPdfBySafeName[pdfDir.name]
                 if (originalPdf == null) {
                     pdfDir.deleteRecursively()
                     return@forEach

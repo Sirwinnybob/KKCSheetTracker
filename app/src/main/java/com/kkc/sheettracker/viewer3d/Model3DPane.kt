@@ -3,6 +3,7 @@ package com.kkc.sheettracker.viewer3d
 import android.annotation.SuppressLint
 import android.util.Log
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -23,13 +24,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.kkc.sheettracker.data.ViewerInteractionSignal
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -50,6 +54,15 @@ fun Model3DPane(
         val darkParam   = if (isDarkTheme) "1" else "0"
         "http://127.0.0.1:$serverPort/viewer.html?job=$encodedJob&room=$encodedRoom&dark=$darkParam"
     } else ""
+    val paneId = remember(encodedUrl) {
+        "pane_${encodedUrl.hashCode()}_${System.currentTimeMillis()}"
+    }
+    DisposableEffect(paneId) {
+        onDispose {
+            ViewerInteractionSignal.setPaneInteracting(paneId, false)
+            ViewerInteractionSignal.setPaneActive(paneId, false)
+        }
+    }
     Column(modifier = modifier) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -93,6 +106,7 @@ fun Model3DPane(
                         WebView(ctx).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
+                            addJavascriptInterface(Viewer3DBridge(paneId), "KKCViewerBridge")
                             webViewClient = WebViewClient()
                             webChromeClient = object : WebChromeClient() {
                                 override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
@@ -109,7 +123,11 @@ fun Model3DPane(
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
-                    onRelease = { it.destroy() }
+                    onRelease = {
+                        ViewerInteractionSignal.setPaneInteracting(paneId, false)
+                        ViewerInteractionSignal.setPaneActive(paneId, false)
+                        it.destroy()
+                    }
                 )
             }
         } else {
@@ -129,5 +147,19 @@ fun Model3DPane(
                 )
             }
         }
+    }
+}
+
+private class Viewer3DBridge(
+    private val paneId: String
+) {
+    @JavascriptInterface
+    fun setViewerActive(active: Boolean) {
+        ViewerInteractionSignal.setPaneActive(paneId, active)
+    }
+
+    @JavascriptInterface
+    fun setViewerInteracting(interacting: Boolean) {
+        ViewerInteractionSignal.setPaneInteracting(paneId, interacting)
     }
 }

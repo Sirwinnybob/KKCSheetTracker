@@ -26,12 +26,13 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val APP_STATE_TAG = "KKC_APP_STATE"
-private const val DASHBOARD_RECENT_LIMIT = 3
+private const val DASHBOARD_RECENT_LIMIT = 4
 
 class AppStateStore(
     private val scanCoordinator: ScanCoordinator,
@@ -75,7 +76,12 @@ class AppStateStore(
                 recomputeIntents.onStart { emit(System.currentTimeMillis()) }
             ) { scanState, progressVersion, _ ->
                 Triple(scanState, progressVersion, System.currentTimeMillis())
-            }.collectLatest { (scanState, progressVersion, _) ->
+            }
+                .distinctUntilChangedBy { (scanState, progressVersion, _) ->
+                    // Suppress redundant derive runs when invalidations resolve to the same state.
+                    "${scanState.snapshot.generation}|$progressVersion|${scanState.status}"
+                }
+                .collectLatest { (scanState, progressVersion, _) ->
                 _lastProgressVersion.value = progressVersion
                 val derivingStartedAt = System.currentTimeMillis()
                 _uiState.value = _uiState.value.copy(
@@ -119,7 +125,7 @@ class AppStateStore(
                         errorMessage = e.message ?: "Derivation error"
                     )
                 }
-            }
+                }
         }
     }
 
@@ -222,9 +228,15 @@ class AppStateStore(
                     val isPartiallyWorked = counts.total > 0 &&
                         (counts.complete + counts.skipped) < counts.total
                     if (isPartiallyWorked) {
-                        val clampedPage = nearestTrackablePage(touch.page, trackablePages(material))
-                        val pageMeta = material.metadata?.pages?.firstOrNull { it.pageNumber == clampedPage }
-                            ?: material.metadata?.pages?.getOrNull((clampedPage - 1).coerceAtLeast(0))
+                        val visiblePages = trackablePages(material)
+                        val clampedPage = nearestTrackablePage(touch.page, visiblePages)
+                        val nextIncompletePage = nextIncompletePage(
+                            trackablePages = visiblePages,
+                            pageStatusByNumber = materialDerivation.pageStatusByNumber,
+                            fallbackPage = clampedPage
+                        )
+                        val pageMeta = material.metadata?.pages?.firstOrNull { it.pageNumber == nextIncompletePage }
+                            ?: material.metadata?.pages?.getOrNull((nextIncompletePage - 1).coerceAtLeast(0))
                         recentInProgressMaterials += DashboardRecentMaterialItem(
                             jobFolderName = job.folderName,
                             jobNumber = job.jobNumber,
@@ -232,6 +244,7 @@ class AppStateStore(
                             pdfFilename = material.pdfFilename,
                             fileFingerprint = material.fileFingerprint,
                             lastTouchedPage = clampedPage,
+                            nextIncompletePage = nextIncompletePage,
                             lastTouchedAtMs = touch.touchedAtMs,
                             counts = counts,
                             completionFraction = materialUiModel.completionFraction,
@@ -378,6 +391,19 @@ class AppStateStore(
             .distinct()
             .sorted()
         return if (visibleFromMetadata.isNotEmpty()) visibleFromMetadata else (1..material.pageCount).toList()
+    }
+
+    private fun nextIncompletePage(
+        trackablePages: List<Int>,
+        pageStatusByNumber: Map<Int, SheetStatusSnapshot>,
+        fallbackPage: Int
+    ): Int {
+        return trackablePages.firstOrNull { page ->
+            when (pageStatusByNumber[page]?.status ?: SheetStatus.NOT_STARTED) {
+                SheetStatus.NOT_STARTED, SheetStatus.IN_PROGRESS -> true
+                SheetStatus.COMPLETE, SheetStatus.SKIPPED, SheetStatus.HAS_BAD_PARTS -> false
+            }
+        } ?: fallbackPage
     }
 
     private fun nearestTrackablePage(targetPage: Int, pages: List<Int>): Int {

@@ -49,15 +49,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val DASHBOARD_PARITY_TAG = "KKC_APP_STATE_PARITY_DASH"
-private const val DASHBOARD_RECENT_LIMIT = 3
-private const val RECENT_JOBS_LIMIT = 5
-
-private data class RecentJobEntry(
-    val folderName: String,
-    val jobNumber: String,
-    val jobName: String,
-    val lastTouchedAtMs: Long
-)
+private const val DASHBOARD_RECENT_LIMIT = 4
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +71,6 @@ fun DashboardScreen(
     val useAppState = appFlags.dashboardEnabled
     val jobs = scanState.snapshot.jobs
     var stats by remember { mutableStateOf(DashboardUiModel()) }
-    var recentJobs by remember { mutableStateOf<List<RecentJobEntry>>(emptyList()) }
     var showBadList by remember { mutableStateOf(false) }
     var showSkippedList by remember { mutableStateOf(false) }
     var isComputing by remember { mutableStateOf(!useAppState) }
@@ -93,13 +84,6 @@ fun DashboardScreen(
     LaunchedEffect(useAppState, scanState.snapshot.generation, progressVersion, appUiState.scanGeneration, appUiState.progressVersion) {
         if (useAppState) {
             stats = appDashboard
-            recentJobs = withContext(Dispatchers.IO) {
-                jobs.mapNotNull { job ->
-                    val lastMs = progressStore.getLocalMaterialLastTouches(job.folderName)
-                        .values.maxOfOrNull { it.touchedAtMs } ?: 0L
-                    if (lastMs > 0L) RecentJobEntry(job.folderName, job.jobNumber, job.jobName, lastMs) else null
-                }.sortedByDescending { it.lastTouchedAtMs }.take(RECENT_JOBS_LIMIT)
-            }
             isComputing = false
             return@LaunchedEffect
         }
@@ -132,8 +116,15 @@ fun DashboardScreen(
                         } else {
                             trackablePages.minByOrNull { kotlin.math.abs(it - touch.page) } ?: touch.page.coerceIn(1, material.pageCount.coerceAtLeast(1))
                         }
-                        val pageMeta = material.metadata?.pages?.firstOrNull { it.pageNumber == clampedPage }
-                            ?: material.metadata?.pages?.getOrNull((clampedPage - 1).coerceAtLeast(0))
+                        val nextIncompletePage = nextIncompletePage(
+                            trackablePages = trackablePages,
+                            progressStore = progressStore,
+                            jobFolderName = job.folderName,
+                            material = material,
+                            fallbackPage = clampedPage
+                        )
+                        val pageMeta = material.metadata?.pages?.firstOrNull { it.pageNumber == nextIncompletePage }
+                            ?: material.metadata?.pages?.getOrNull((nextIncompletePage - 1).coerceAtLeast(0))
                         recentItems += DashboardRecentMaterialItem(
                             jobFolderName = job.folderName,
                             jobNumber = job.jobNumber,
@@ -141,6 +132,7 @@ fun DashboardScreen(
                             pdfFilename = material.pdfFilename,
                             fileFingerprint = material.fileFingerprint,
                             lastTouchedPage = clampedPage,
+                            nextIncompletePage = nextIncompletePage,
                             lastTouchedAtMs = touch.touchedAtMs,
                             counts = materialCounts,
                             completionFraction = if (materialCounts.total > 0) materialCounts.complete.toFloat() / materialCounts.total.toFloat() else 0f,
@@ -192,32 +184,22 @@ fun DashboardScreen(
                     }
                 }
             }
-            val recentJobsList = jobs.mapNotNull { job ->
-                val lastMs = progressStore.getLocalMaterialLastTouches(job.folderName)
-                    .values.maxOfOrNull { it.touchedAtMs } ?: 0L
-                if (lastMs > 0L) RecentJobEntry(job.folderName, job.jobNumber, job.jobName, lastMs) else null
-            }.sortedByDescending { it.lastTouchedAtMs }.take(RECENT_JOBS_LIMIT)
-
-            Pair(
-                DashboardUiModel(
-                    totalJobs = jobs.size,
-                    totalSheets = totalSheets,
-                    completedSheets = completed,
-                    badPartsSheets = bad,
-                    skippedSheets = skipped,
-                    badItems = badItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
-                    skippedItems = skippedItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
-                    recentInProgressMaterials = recentItems
-                        .sortedByDescending { it.lastTouchedAtMs }
-                        .take(DASHBOARD_RECENT_LIMIT)
-                ),
-                recentJobsList
+            DashboardUiModel(
+                totalJobs = jobs.size,
+                totalSheets = totalSheets,
+                completedSheets = completed,
+                badPartsSheets = bad,
+                skippedSheets = skipped,
+                badItems = badItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
+                skippedItems = skippedItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
+                recentInProgressMaterials = recentItems
+                    .sortedByDescending { it.lastTouchedAtMs }
+                    .take(DASHBOARD_RECENT_LIMIT)
             )
         }
-        stats = legacyModel.first
-        recentJobs = legacyModel.second
+        stats = legacyModel
 
-        val legacyStats = legacyModel.first
+        val legacyStats = legacyModel
         if (appFlags.shadowEnabled) {
             val badParity = appDashboard.badItems.size == legacyStats.badItems.size
             val skippedParity = appDashboard.skippedItems.size == legacyStats.skippedItems.size
@@ -363,7 +345,7 @@ fun DashboardScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            "Recent In Progress",
+                            "Recent In-Progress Materials",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -374,7 +356,7 @@ fun DashboardScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             recentInProgress.forEach { item ->
-                                val thumbKey = "${item.jobFolderName}|${item.pdfFilename}|${item.lastTouchedPage}|${item.thumbnailPath.orEmpty()}"
+                                val thumbKey = "${item.jobFolderName}|${item.pdfFilename}|${item.nextIncompletePage}|${item.thumbnailPath.orEmpty()}"
                                 LaunchedEffect(thumbKey) {
                                     if (recentThumbCache.containsKey(thumbKey)) return@LaunchedEffect
                                     recentThumbCache[thumbKey] = withContext(Dispatchers.IO) {
@@ -385,7 +367,7 @@ fun DashboardScreen(
                                     item = item,
                                     thumbnail = recentThumbCache[thumbKey],
                                     onClick = {
-                                        onOpenSheet(item.jobFolderName, item.pdfFilename, item.lastTouchedPage)
+                                        onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage)
                                     }
                                 )
                             }
@@ -435,60 +417,6 @@ fun DashboardScreen(
                 }
             }
 
-            if (recentJobs.isNotEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            "Recent Jobs",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        recentJobs.forEachIndexed { index, entry ->
-                            if (index > 0) {
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                )
-                            }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onOpenJob(entry.folderName) }
-                                    .padding(vertical = 10.dp, horizontal = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        entry.folderName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        formatRelativeTime(entry.lastTouchedAtMs),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = "Open job",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -638,7 +566,7 @@ private fun renderPdfThumbnail(
         val pdfFile = jobRepository.getPdfFile(item.jobFolderName, item.pdfFilename)
         val fd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
         val renderer = PdfRenderer(fd)
-        val pageIndex = (item.lastTouchedPage - 1).coerceIn(0, (renderer.pageCount - 1).coerceAtLeast(0))
+        val pageIndex = (item.nextIncompletePage - 1).coerceIn(0, (renderer.pageCount - 1).coerceAtLeast(0))
         if (renderer.pageCount <= 0) {
             renderer.close()
             fd.close()
@@ -709,7 +637,7 @@ private fun RecentMaterialCard(
                 maxLines = 1
             )
             Text(
-                "${item.jobFolderName} • Sheet ${item.lastTouchedPage}",
+                "${item.jobFolderName} • Next sheet ${item.nextIncompletePage}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
@@ -765,6 +693,28 @@ private fun inferStatusFromCounts(counts: StatusCounts): SheetStatus {
     }
 }
 
+private fun nextIncompletePage(
+    trackablePages: List<Int>,
+    progressStore: ProgressStore,
+    jobFolderName: String,
+    material: com.kkc.sheettracker.data.models.Material,
+    fallbackPage: Int
+): Int {
+    return trackablePages.firstOrNull { page ->
+        when (
+            progressStore.getSheetStatus(
+                jobFolderName = jobFolderName,
+                pdfFilename = material.pdfFilename,
+                page = page,
+                fileFingerprint = material.fileFingerprint
+            )
+        ) {
+            SheetStatus.NOT_STARTED, SheetStatus.IN_PROGRESS -> true
+            SheetStatus.COMPLETE, SheetStatus.SKIPPED, SheetStatus.HAS_BAD_PARTS -> false
+        }
+    } ?: fallbackPage
+}
+
 @Composable
 private fun StatusPill(
     label: String,
@@ -814,25 +764,6 @@ private fun StatCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-}
-
-private fun formatRelativeTime(ms: Long): String {
-    if (ms <= 0L) return ""
-    val diffMs = System.currentTimeMillis() - ms
-    val minutes = diffMs / 60_000
-    val hours = diffMs / 3_600_000
-    val days = diffMs / 86_400_000
-    return when {
-        minutes < 1 -> "Just now"
-        minutes < 60 -> "$minutes min ago"
-        hours < 24 -> "$hours hr ago"
-        days == 1L -> "Yesterday"
-        days < 7 -> "$days days ago"
-        else -> {
-            val sdf = java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault())
-            sdf.format(java.util.Date(ms))
         }
     }
 }

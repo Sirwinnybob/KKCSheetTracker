@@ -1,0 +1,149 @@
+<h2>Admin Actions — Add Item Dialogs</h2>
+<p class="subtitle">The two core things you'll do in the admin app. Does the data captured look right?</p>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px;margin:0 auto;">
+
+  <!-- ADD RIP ITEM -->
+  <div>
+    <h3 style="margin-bottom:10px;">Add Custom Rip Item</h3>
+    <p class="subtitle" style="margin-bottom:12px;">Adds a MANUAL entry to the Hardwoods rip cut list — e.g. base, crown, scribe moulding</p>
+    <div style="background:#111827;border:1px solid #1f2937;border-radius:8px;overflow:hidden;font-size:11px;">
+      <div style="background:#1f2937;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;">
+        <span style="color:#e5e7eb;font-weight:600;font-size:12px;">+ Add Rip Item</span>
+        <span style="color:#6b7280;font-size:14px;cursor:pointer;">✕</span>
+      </div>
+      <div style="padding:14px;display:flex;flex-direction:column;gap:10px;">
+
+        <div>
+          <div style="color:#9ca3af;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;">Category Name</div>
+          <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:7px 10px;color:#e5e7eb;">Base Moulding</div>
+          <div style="color:#4b5563;font-size:9px;margin-top:2px;">e.g. Base, Crown, Scribe, Chair Rail</div>
+        </div>
+
+        <div>
+          <div style="color:#9ca3af;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;">Material</div>
+          <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:7px 10px;color:#e5e7eb;">Maple</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div>
+            <div style="color:#9ca3af;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;">Width</div>
+            <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:7px 10px;color:#e5e7eb;">3½"</div>
+          </div>
+          <div>
+            <div style="color:#9ca3af;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;">Rips Needed</div>
+            <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:7px 10px;color:#e5e7eb;">4</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="color:#9ca3af;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;">Notes <span style="color:#4b5563;">(optional)</span></div>
+          <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:7px 10px;color:#6b7280;font-style:italic;">Living room only</div>
+        </div>
+
+        <div style="display:flex;gap:8px;padding-top:4px;">
+          <div style="flex:1;background:#374151;color:#9ca3af;padding:8px;border-radius:4px;text-align:center;cursor:pointer;">Cancel</div>
+          <div style="flex:2;background:#1d4ed8;color:#fff;padding:8px;border-radius:4px;text-align:center;font-weight:600;cursor:pointer;">Add to Cut List</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:8px;padding:8px 10px;background:#0f2040;border:1px solid #1e3a5f;border-radius:4px;font-size:9px;color:#93c5fd;">
+      This item writes to <code>.metadata/hardwoods/manual-items.json</code> — synced to all tablets via Syncthing. Tablets show it in the rip cut list under "Custom Items".
+    </div>
+  </div>
+
+  <!-- ADD CHECKLIST ITEM -->
+  <div>
+    <h3 style="margin-bottom:10px;">Add Checklist Item</h3>
+    <p class="subtitle" style="margin-bottom:12px;">Adds a to-do that appears in the Checklist tab for this job. Check it off on any device and it's done.</p>
+    <div style="background:#111827;border:1px solid #1f2937;border-radius:8px;overflow:hidden;font-size:11px;">
+      <div style="background:#1f2937;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;">
+        <span style="color:#e5e7eb;font-weight:600;font-size:12px;">+ Add Checklist Item</span>
+        <span style="color:#6b7280;font-size:14px;cursor:pointer;">✕</span>
+      </div>
+      <div style="padding:14px;display:flex;flex-direction:column;gap:10px;">
+
+        <div>
+          <div style="color:#9ca3af;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;">Item</div>
+          <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:7px 10px;color:#e5e7eb;">Verify door swing direction with customer</div>
+        </div>
+
+        <div>
+          <div style="color:#9ca3af;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;">Applies to Modes</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <div style="background:#1d4ed8;color:#fff;padding:4px 10px;border-radius:4px;font-size:10px;display:flex;align-items:center;gap:4px;"><span>✓</span> CNC</div>
+            <div style="background:#1f2937;color:#6b7280;padding:4px 10px;border-radius:4px;font-size:10px;border:1px solid #374151;">Hardwoods</div>
+            <div style="background:#166534;color:#86efac;padding:4px 10px;border-radius:4px;font-size:10px;display:flex;align-items:center;gap:4px;"><span>✓</span> Assembly</div>
+          </div>
+          <div style="color:#4b5563;font-size:9px;margin-top:4px;">Shows in Checklist tab for selected modes. Click to toggle.</div>
+        </div>
+
+        <div>
+          <div style="color:#9ca3af;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;">Notes <span style="color:#4b5563;">(optional)</span></div>
+          <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:7px 10px;color:#6b7280;font-style:italic;">Check drawings page 3</div>
+        </div>
+
+        <div style="display:flex;gap:8px;padding-top:4px;">
+          <div style="flex:1;background:#374151;color:#9ca3af;padding:8px;border-radius:4px;text-align:center;cursor:pointer;">Cancel</div>
+          <div style="flex:2;background:#166534;color:#86efac;padding:8px;border-radius:4px;text-align:center;font-weight:600;cursor:pointer;">Add to Checklist</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:8px;padding:8px 10px;background:#052e16;border:1px solid #166534;border-radius:4px;font-size:9px;color:#86efac;">
+      Writes to <code>.metadata/checklist/items.json</code> — shared file, synced to all devices. Any device can check it off and it's done for everyone.
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:20px;max-width:900px;margin-left:auto;margin-right:auto;">
+  <h3 style="margin-bottom:10px;">Checklist Tab View (inside a job)</h3>
+  <div style="background:#111827;border:1px solid #1f2937;border-radius:8px;overflow:hidden;font-size:11px;">
+    <div style="background:#1f2937;padding:8px 14px;display:flex;align-items:center;gap:8px;">
+      <span style="color:#e5e7eb;font-weight:600;">Checklist — #1042 Smith Kitchen</span>
+      <span style="background:#374151;color:#9ca3af;font-size:9px;padding:1px 6px;border-radius:10px;">3 items · 1 done</span>
+      <div style="margin-left:auto;background:#1d4ed8;color:#fff;padding:3px 10px;border-radius:4px;font-size:9px;">+ Add Item</div>
+    </div>
+    <div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px;">
+
+      <!-- Done item -->
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#0f1f0f;border:1px solid #166534;border-radius:4px;opacity:.7;">
+        <div style="width:16px;height:16px;background:#166534;border-radius:3px;display:flex;align-items:center;justify-content:center;color:#86efac;font-size:10px;flex-shrink:0;">✓</div>
+        <div style="flex:1;">
+          <div style="color:#6b7280;font-size:10px;text-decoration:line-through;">Confirm material delivery with supplier</div>
+          <div style="color:#374151;font-size:8px;margin-top:1px;">Done by tablet-001 · 2h ago</div>
+        </div>
+        <div style="display:flex;gap:3px;">
+          <div style="background:#1f2937;color:#6b7280;padding:1px 5px;border-radius:3px;font-size:8px;">CNC</div>
+          <div style="background:#1f2937;color:#6b7280;padding:1px 5px;border-radius:3px;font-size:8px;">HW</div>
+        </div>
+      </div>
+
+      <!-- Pending items -->
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#111827;border:1px solid #374151;border-radius:4px;">
+        <div style="width:16px;height:16px;border:1.5px solid #374151;border-radius:3px;flex-shrink:0;"></div>
+        <div style="flex:1;">
+          <div style="color:#e5e7eb;font-size:10px;">Verify door swing direction with customer</div>
+          <div style="color:#4b5563;font-size:8px;margin-top:1px;">Check drawings page 3</div>
+        </div>
+        <div style="display:flex;gap:3px;">
+          <div style="background:#1e3a5f;color:#93c5fd;padding:1px 5px;border-radius:3px;font-size:8px;">CNC</div>
+          <div style="background:#166534;color:#86efac;padding:1px 5px;border-radius:3px;font-size:8px;">ASM</div>
+        </div>
+        <div style="color:#4b5563;font-size:10px;cursor:pointer;">✕</div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#111827;border:1px solid #374151;border-radius:4px;">
+        <div style="width:16px;height:16px;border:1.5px solid #374151;border-radius:3px;flex-shrink:0;"></div>
+        <div style="flex:1;">
+          <div style="color:#e5e7eb;font-size:10px;">Sand and finish island panels before delivery</div>
+        </div>
+        <div style="display:flex;gap:3px;">
+          <div style="background:#166534;color:#86efac;padding:1px 5px;border-radius:3px;font-size:8px;">ASM</div>
+        </div>
+        <div style="color:#4b5563;font-size:10px;cursor:pointer;">✕</div>
+      </div>
+
+    </div>
+  </div>
+</div>

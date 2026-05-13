@@ -667,6 +667,7 @@ data class DashboardRecentMaterialItem(
     val pdfFilename: String,
     val fileFingerprint: String,
     val lastTouchedPage: Int,
+    val nextIncompletePage: Int,
     val lastTouchedAtMs: Long,
     val counts: StatusCounts = StatusCounts(),
     val completionFraction: Float = 0f,

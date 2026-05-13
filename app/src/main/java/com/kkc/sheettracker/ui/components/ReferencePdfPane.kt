@@ -897,7 +897,7 @@ private fun trimTocCache(
     maxEntries: Int
 ) {
     while (cache.size > maxEntries && lruOrder.isNotEmpty()) {
-        val oldest = lruOrder.removeFirst()
+        val oldest = lruOrder.removeAt(0)
         cache.remove(oldest)
     }
 }

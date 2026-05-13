@@ -3,9 +3,30 @@ import { loadModel } from './modelLoader.js';
 // Resolved via importmap in viewer.html
 import * as THREE from 'three';
 
-let scene, camera, renderer, controls, composer, engine;
+let scene, camera, renderer, controls, engine;
 let zoomVelocity = 0;
 let loadedModel = null;
+const zoomDirection = new THREE.Vector3();
+const pointerMoveVector = new THREE.Vector2();
+
+function withViewerBridge(action) {
+    const bridge = window.KKCViewerBridge;
+    if (!bridge) return;
+    try {
+        action(bridge);
+    } catch (_) {
+        // Ignore bridge failures; viewer should still function if host bridge is absent.
+    }
+}
+
+function updateRenderVisibility() {
+    if (!engine) return;
+    if (document.hidden) {
+        engine.suspendRendering();
+    } else {
+        engine.resumeRendering();
+    }
+}
 
 function disposeModel(model) {
     if (!model) return;
@@ -89,26 +110,43 @@ async function init() {
         engine = new CoreEngine({
             containerId: 'canvas-container',
             isLightMode: lightMode,
+            onViewerActiveChanged: (active) => {
+                withViewerBridge((bridge) => bridge.setViewerActive(active));
+            },
+            onInteractionStateChanged: (interacting) => {
+                withViewerBridge((bridge) => bridge.setViewerInteracting(interacting));
+            },
             onBeforeRender: () => {
+                let moved = false;
                 if (zoomVelocity !== 0 && camera && controls) {
-                    const direction = new THREE.Vector3();
-                    camera.getWorldDirection(direction);
+                    camera.getWorldDirection(zoomDirection);
                     const dist = camera.position.distanceTo(controls.target);
                     if (!(zoomVelocity > 0 && dist < 0.5)) {
-                        camera.position.addScaledVector(direction, zoomVelocity * controls.zoomSpeed);
+                        camera.position.addScaledVector(zoomDirection, zoomVelocity * controls.zoomSpeed);
+                        moved = true;
                     }
                 }
+                return moved;
             }
         });
+
+        // Keep rendering fully paused while page is hidden to reduce battery use.
+        document.addEventListener('visibilitychange', updateRenderVisibility);
+        window.addEventListener('pagehide', updateRenderVisibility);
+        window.addEventListener('pageshow', updateRenderVisibility);
+        window.addEventListener('beforeunload', () => {
+            withViewerBridge((bridge) => {
+                bridge.setViewerInteracting(false);
+                bridge.setViewerActive(false);
+            });
+        });
+        updateRenderVisibility();
 
         scene    = engine.scene;
         camera   = engine.camera;
         renderer = engine.renderer;
         controls = engine.controls;
-        composer = engine.composer;
-
         // --- SINGLE TAP → PIVOT (consistent with Assimp app) ---
-        let tapPos = new THREE.Vector2();
         let pointerDownPos = new THREE.Vector2();
         let pointerHasMoved = false;
         const DRAG_THRESHOLD = 8;
@@ -121,7 +159,8 @@ async function init() {
 
         renderer.domElement.addEventListener('pointermove', (e) => {
             if (e.pointerType === 'touch' && !e.isPrimary) return;
-            if (pointerDownPos.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > DRAG_THRESHOLD) {
+            pointerMoveVector.set(e.clientX, e.clientY);
+            if (pointerDownPos.distanceTo(pointerMoveVector) > DRAG_THRESHOLD) {
                 pointerHasMoved = true;
             }
         });
@@ -155,6 +194,7 @@ async function init() {
             const center  = rect.height / 2;
             const rawInput = (center - relY) / center;
             zoomVelocity  = Math.sign(rawInput) * (rawInput * rawInput) * 0.15;
+            if (engine) engine.requestRender();
             if (joystickHandle) {
                 joystickHandle.style.top = `${relY - 18}px`;
                 const percent = Math.round(((rect.height - relY) / rect.height) * 100);
@@ -174,6 +214,7 @@ async function init() {
             joystickHandle.onpointerup = (e) => {
                 isDraggingJoystick = false;
                 zoomVelocity = 0;
+                if (engine) engine.requestRender();
                 if (joystickHandle) {
                     joystickHandle.style.top = (joystickContainer.offsetHeight / 2 - 18) + 'px';
                     joystickHandle.setAttribute('aria-valuenow', '50');
@@ -190,6 +231,7 @@ async function init() {
                 if (v !== 0) {
                     e.preventDefault();
                     zoomVelocity = Math.sign(v) * (v * v) * 0.15;
+                    if (engine) engine.requestRender();
                     const h = joystickContainer.offsetHeight || 160;
                     const t = (h / 2) - (v * (h / 2));
                     joystickHandle.style.top = `${t - 18}px`;
@@ -200,6 +242,7 @@ async function init() {
             joystickHandle.addEventListener('keyup', () => {
                 if (!isDraggingJoystick) {
                     zoomVelocity = 0;
+                    if (engine) engine.requestRender();
                     joystickHandle.style.top = (joystickContainer.offsetHeight / 2 - 18) + 'px';
                     joystickHandle.setAttribute('aria-valuenow', '50');
                 }
@@ -258,17 +301,14 @@ async function init() {
         loadedModel = model;
         scene.add(loadedModel);
         frameLoadedModel(loadedModel);
-
-        if (composer) composer.render();
-        else renderer.render(scene, camera);
+        if (engine) engine.requestRender();
 
         updateStatus("");
 
         setTimeout(() => {
             if (renderer && scene && camera) {
                 scene.traverse((obj) => { if (obj.isMesh && obj.material) obj.material.needsUpdate = true; });
-                if (composer) composer.render();
-                else renderer.render(scene, camera);
+                if (engine) engine.requestRender();
             }
         }, 100);
 

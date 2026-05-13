@@ -2,6 +2,7 @@ package com.kkc.sheettracker.sync
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 
 data class SyncthingInstallTarget(
     val packageName: String,
@@ -27,7 +28,12 @@ object SyncthingInstallResolver {
 
     private fun isInstalled(context: Context, packageName: String): Boolean {
         return try {
-            context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(packageName, 0)
+            }
             true
         } catch (_: Exception) {
             false

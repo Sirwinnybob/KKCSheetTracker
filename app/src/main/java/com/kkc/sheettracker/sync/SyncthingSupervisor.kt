@@ -48,6 +48,7 @@ class SyncthingSupervisor(
         )
     }
 ) {
+
     private val checkMutex = Mutex()
     private var settingsObserverJob: Job? = null
     private var watchdogJob: Job? = null
@@ -117,7 +118,11 @@ class SyncthingSupervisor(
             return
         }
         scope.launch {
-            runHealthCheck(currentApiKey, allowAutoStart = false)
+            runHealthCheck(
+                apiKey = currentApiKey,
+                allowAutoStart = false,
+                isAutomaticMonitoring = false
+            )
         }
     }
 
@@ -164,18 +169,32 @@ class SyncthingSupervisor(
     }
 
     private fun launchWatchdog(apiKey: String): Job = scope.launch {
-        runHealthCheck(apiKey, allowAutoStart = runtimeConfig.watchdog.autoStartOnFailure)
+        runHealthCheck(
+            apiKey = apiKey,
+            allowAutoStart = runtimeConfig.watchdog.autoStartOnFailure,
+            isAutomaticMonitoring = true
+        )
         while (true) {
             delay(runtimeConfig.watchdog.intervalMs)
-            runHealthCheck(apiKey, allowAutoStart = runtimeConfig.watchdog.autoStartOnFailure)
+            runHealthCheck(
+                apiKey = apiKey,
+                allowAutoStart = runtimeConfig.watchdog.autoStartOnFailure,
+                isAutomaticMonitoring = true
+            )
         }
     }
 
     private suspend fun runHealthCheck(
         apiKey: String,
-        allowAutoStart: Boolean
+        allowAutoStart: Boolean,
+        isAutomaticMonitoring: Boolean
     ) {
-        checkMutex.withLock {
+        data class PendingFailure(
+            val status: SyncthingServiceStatus,
+            val attemptedAt: Long?
+        )
+
+        val pendingFailure = checkMutex.withLock {
             _status.value = _status.value.copy(
                 status = SyncthingServiceStatus.CHECKING,
                 isMonitoring = true,
@@ -205,21 +224,64 @@ class SyncthingSupervisor(
                 val isRunningAfterStart = withContext(ioDispatcher) {
                     controller.isServiceRunning()
                 }
+                if (isRunningAfterStart) {
+                    _status.value = _status.value.copy(
+                        status = SyncthingServiceStatus.RUNNING,
+                        lastCheckedAtMs = System.currentTimeMillis(),
+                        lastStartAttemptAtMs = attemptedAt,
+                        hasApiKey = true,
+                        isMonitoring = true
+                    )
+                    null
+                } else if (isAutomaticMonitoring) {
+                    PendingFailure(
+                        status = SyncthingServiceStatus.START_FAILED,
+                        attemptedAt = attemptedAt
+                    )
+                } else {
+                    _status.value = _status.value.copy(
+                        status = SyncthingServiceStatus.START_FAILED,
+                        lastCheckedAtMs = System.currentTimeMillis(),
+                        lastStartAttemptAtMs = attemptedAt,
+                        hasApiKey = true,
+                        isMonitoring = true
+                    )
+                    null
+                }
+            } else {
+                if (isAutomaticMonitoring) {
+                    PendingFailure(
+                        status = SyncthingServiceStatus.NOT_RUNNING,
+                        attemptedAt = null
+                    )
+                } else {
+                    _status.value = _status.value.copy(
+                        status = SyncthingServiceStatus.NOT_RUNNING,
+                        lastCheckedAtMs = checkedAt,
+                        hasApiKey = true,
+                        isMonitoring = true
+                    )
+                    null
+                }
+            }
+        }
+
+        if (pendingFailure != null) {
+            // Automatic monitoring waits before surfacing failure to avoid transient false negatives.
+            delay(runtimeConfig.watchdog.failureConfirmationWindowMs)
+            val controller = managerFactory(apiKey)
+            val recovered = withContext(ioDispatcher) {
+                controller.isServiceRunning()
+            }
+            checkMutex.withLock {
                 _status.value = _status.value.copy(
-                    status = if (isRunningAfterStart) {
+                    status = if (recovered) {
                         SyncthingServiceStatus.RUNNING
                     } else {
-                        SyncthingServiceStatus.START_FAILED
+                        pendingFailure.status
                     },
                     lastCheckedAtMs = System.currentTimeMillis(),
-                    lastStartAttemptAtMs = attemptedAt,
-                    hasApiKey = true,
-                    isMonitoring = true
-                )
-            } else {
-                _status.value = _status.value.copy(
-                    status = SyncthingServiceStatus.NOT_RUNNING,
-                    lastCheckedAtMs = checkedAt,
+                    lastStartAttemptAtMs = pendingFailure.attemptedAt,
                     hasApiKey = true,
                     isMonitoring = true
                 )

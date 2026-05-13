@@ -18,7 +18,9 @@ export class CoreEngine {
             lightIntensity: 1.0,
             gloss: 0.10,
             colorTemp: 0.5,
-            onBeforeRender: null
+            onBeforeRender: null,
+            onInteractionStateChanged: null,
+            onViewerActiveChanged: null
         }, config);
 
         this.scene = new THREE.Scene();
@@ -26,9 +28,10 @@ export class CoreEngine {
 
         this.camera = new THREE.PerspectiveCamera(this.config.fov, window.innerWidth / window.innerHeight, 0.01, 5000);
 
+        // Keep this aligned with the known-smooth Assimp portal runtime.
         this.renderer = new THREE.WebGLRenderer({
             antialias: true,
-            powerPreference: "high-performance",
+            powerPreference: 'high-performance',
             logarithmicDepthBuffer: true,
             preserveDrawingBuffer: true
         });
@@ -51,9 +54,24 @@ export class CoreEngine {
         this.controls.listenToKeyEvents(window);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.25;
+        this.controls.addEventListener('start', () => {
+            if (typeof this.config.onInteractionStateChanged === 'function') {
+                this.config.onInteractionStateChanged(true);
+            }
+        });
+        this.controls.addEventListener('end', () => {
+            if (typeof this.config.onInteractionStateChanged === 'function') {
+                this.config.onInteractionStateChanged(false);
+            }
+        });
 
         this._setupLighting();
         this._setupPostProcessing(dpr);
+
+        this.isRunning = false;
+        this.isSuspended = false;
+        this.rafId = null;
+        this._animate = this._animate.bind(this);
 
         window.addEventListener('resize', this._onWindowResize.bind(this));
     }
@@ -63,25 +81,25 @@ export class CoreEngine {
         this.scene.add(new THREE.AmbientLight(0xffffff, li * 1.2));
 
         const makeCamLight = (intensity, px, py, pz) => {
-            const light  = new THREE.DirectionalLight(0xffffff, intensity);
+            const light = new THREE.DirectionalLight(0xffffff, intensity);
             const target = new THREE.Object3D();
             light.position.set(px, py, pz);
             this.camera.add(light);
             this.camera.add(target);
             light.target = target;
         };
-        makeCamLight(li * 0.5,  1,  1,  1);
+        makeCamLight(li * 0.5, 1, 1, 1);
 
         const makeSceneLight = (intensity, px, py, pz) => {
             const light = new THREE.DirectionalLight(0xffffff, intensity);
             light.position.set(px, py, pz);
             this.scene.add(light);
         };
-        makeSceneLight(li * 0.22,  2,  1,  0);
-        makeSceneLight(li * 0.22, -2,  1,  0);
-        makeSceneLight(li * 0.22,  0,  1,  2);
-        makeSceneLight(li * 0.22,  0,  1, -2);
-        makeSceneLight(li * 0.2,   0, -1,  0);
+        makeSceneLight(li * 0.22, 2, 1, 0);
+        makeSceneLight(li * 0.22, -2, 1, 0);
+        makeSceneLight(li * 0.22, 0, 1, 2);
+        makeSceneLight(li * 0.22, 0, 1, -2);
+        makeSceneLight(li * 0.2, 0, -1, 0);
     }
 
     _setupPostProcessing(dpr) {
@@ -90,11 +108,11 @@ export class CoreEngine {
 
         const KKCShader = {
             uniforms: {
-                "tDiffuse":    { value: null },
-                "uExposure":   { value: this.config.exposure },
-                "uSaturation": { value: this.config.saturation },
-                "uContrast":   { value: this.config.contrast },
-                "uColorTemp":  { value: this.config.colorTemp }
+                tDiffuse: { value: null },
+                uExposure: { value: this.config.exposure },
+                uSaturation: { value: this.config.saturation },
+                uContrast: { value: this.config.contrast },
+                uColorTemp: { value: this.config.colorTemp }
             },
             vertexShader: `
                 varying vec2 vUv;
@@ -117,14 +135,14 @@ export class CoreEngine {
                     float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
                     color = mix(vec3(luma), color, uSaturation);
 
-                    // Shadow lift: prevents dark textures from crushing to black at steep angles
+                    // Shadow lift: prevents dark textures from crushing to black at steep angles.
                     color = color * 0.92 + 0.08;
-                    // Smooth Contrast Curve
+                    // Smooth contrast curve.
                     color = smoothstep(0.5 - (0.5 / uContrast), 0.5 + (0.5 / uContrast), color);
 
-                    vec3 warm    = vec3(1.0, 0.9, 0.8);
+                    vec3 warm = vec3(1.0, 0.9, 0.8);
                     vec3 neutral = vec3(1.0, 1.0, 1.0);
-                    vec3 cool    = vec3(0.8, 0.9, 1.0);
+                    vec3 cool = vec3(0.8, 0.9, 1.0);
                     vec3 tempTint;
                     if (uColorTemp < 0.5) {
                         tempTint = mix(warm, neutral, uColorTemp * 2.0);
@@ -141,12 +159,11 @@ export class CoreEngine {
         this.composer.addPass(this.kkcShader);
 
         this.fxaaPass = new ShaderPass(FXAAShader);
-        this.fxaaPass.material.uniforms['resolution'].value.x = 1 / (window.innerWidth * dpr);
-        this.fxaaPass.material.uniforms['resolution'].value.y = 1 / (window.innerHeight * dpr);
+        this.fxaaPass.material.uniforms.resolution.value.x = 1 / (window.innerWidth * dpr);
+        this.fxaaPass.material.uniforms.resolution.value.y = 1 / (window.innerHeight * dpr);
         this.composer.addPass(this.fxaaPass);
 
-        const outputPass = new OutputPass();
-        this.composer.addPass(outputPass);
+        this.composer.addPass(new OutputPass());
     }
 
     _onWindowResize() {
@@ -161,8 +178,8 @@ export class CoreEngine {
         this.composer.setSize(width, height);
 
         if (this.fxaaPass) {
-            this.fxaaPass.material.uniforms['resolution'].value.x = 1 / (width * dpr);
-            this.fxaaPass.material.uniforms['resolution'].value.y = 1 / (height * dpr);
+            this.fxaaPass.material.uniforms.resolution.value.x = 1 / (width * dpr);
+            this.fxaaPass.material.uniforms.resolution.value.y = 1 / (height * dpr);
         }
     }
 
@@ -175,22 +192,62 @@ export class CoreEngine {
 
         if (this.fxaaPass) {
             const actualDpr = this.renderer.getPixelRatio();
-            this.fxaaPass.material.uniforms['resolution'].value.x = 1 / (width * actualDpr);
-            this.fxaaPass.material.uniforms['resolution'].value.y = 1 / (height * actualDpr);
+            this.fxaaPass.material.uniforms.resolution.value.x = 1 / (width * actualDpr);
+            this.fxaaPass.material.uniforms.resolution.value.y = 1 / (height * actualDpr);
         }
     }
 
+    requestRender() {
+        if (!this.isRunning || this.isSuspended || this.rafId !== null) return;
+        this.rafId = requestAnimationFrame(this._animate);
+    }
+
+    _animate(time) {
+        this.rafId = null;
+        if (!this.isRunning || this.isSuspended) return;
+
+        if (this.config.onBeforeRender) {
+            this.config.onBeforeRender(time);
+        }
+        if (this.controls) this.controls.update();
+        if (this.composer) this.composer.render();
+
+        this.rafId = requestAnimationFrame(this._animate);
+    }
+
+    suspendRendering() {
+        if (this.isSuspended) return;
+        this.isSuspended = true;
+        if (typeof this.config.onInteractionStateChanged === 'function') {
+            this.config.onInteractionStateChanged(false);
+        }
+        if (typeof this.config.onViewerActiveChanged === 'function') {
+            this.config.onViewerActiveChanged(false);
+        }
+        if (this.rafId !== null) {
+            cancelAnimationFrame(this.rafId);
+            this.rafId = null;
+        }
+    }
+
+    resumeRendering() {
+        if (!this.isSuspended) return;
+        this.isSuspended = false;
+        if (typeof this.config.onViewerActiveChanged === 'function') {
+            this.config.onViewerActiveChanged(true);
+        }
+        this.requestRender();
+    }
+
     start() {
-        const animate = (time) => {
-            requestAnimationFrame(animate);
-
-            if (this.config.onBeforeRender) {
-                this.config.onBeforeRender(time);
-            }
-
-            if (this.controls) this.controls.update();
-            if (this.composer) this.composer.render();
-        };
-        requestAnimationFrame(animate);
+        if (this.isRunning) return;
+        this.isRunning = true;
+        if (typeof this.config.onViewerActiveChanged === 'function') {
+            this.config.onViewerActiveChanged(!this.isSuspended);
+        }
+        if (!this.isSuspended) {
+            this.requestRender();
+        }
     }
 }
+

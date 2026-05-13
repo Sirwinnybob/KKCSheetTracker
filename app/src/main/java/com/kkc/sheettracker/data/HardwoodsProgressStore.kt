@@ -63,6 +63,35 @@ class HardwoodsProgressStore(
         _progressVersion.value = _progressVersion.value + 1L
     }
 
+    fun invalidateJobCache(jobFolderName: String) {
+        cacheByJob.remove(jobFolderName)
+        bumpProgressVersion()
+    }
+
+    fun invalidateJobCaches(jobFolderNames: Collection<String>) {
+        if (jobFolderNames.isEmpty()) return
+        jobFolderNames.forEach { cacheByJob.remove(it) }
+        bumpProgressVersion()
+    }
+
+    fun invalidateAllCaches() {
+        cacheByJob.clear()
+        bumpProgressVersion()
+    }
+
+    fun invalidateFromTrackerFile(trackerFile: File): Boolean {
+        val trackerDir = trackerFile.parentFile ?: return false
+        if (!trackerDir.name.equals(".tracker", ignoreCase = true)) return false
+        val hardwoodsDir = trackerDir.parentFile ?: return false
+        if (!hardwoodsDir.name.equals("hardwoods", ignoreCase = true)) return false
+        val metadataDir = hardwoodsDir.parentFile ?: return false
+        if (!metadataDir.name.equals(".metadata", ignoreCase = true)) return false
+        val jobDir = metadataDir.parentFile ?: return false
+        if (jobDir.name.isBlank()) return false
+        invalidateJobCache(jobDir.name)
+        return true
+    }
+
     private fun trackerDir(jobFolderName: String): File = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker")
     private fun tabletFile(jobFolderName: String): File = File(trackerDir(jobFolderName), "$tabletId.json")
     private fun boardStockMigrationMarkerFile(jobFolderName: String): File =

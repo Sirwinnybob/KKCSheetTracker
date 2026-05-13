@@ -38,9 +38,10 @@ data class SyncthingNetworkConfig(
 )
 
 data class SyncthingWatchdogConfig(
-    val intervalMs: Long = 60_000L,
+    val intervalMs: Long = 3_600_000L,
     val autoStartOnFailure: Boolean = true,
-    val restartVerificationDelayMs: Long = 2_000L
+    val restartVerificationDelayMs: Long = 2_000L,
+    val failureConfirmationWindowMs: Long = 30_000L
 )
 
 data class SyncthingRuntimeConfig(

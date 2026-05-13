@@ -338,6 +338,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (::syncthingSupervisor.isInitialized) {
+            syncthingSupervisor.checkNow()
+        }
         if (::scanCoordinator.isInitialized) {
             scanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = false)
         }
