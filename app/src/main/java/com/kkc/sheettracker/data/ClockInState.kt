@@ -35,6 +35,7 @@ class ClockInState(private val prefs: SharedPreferences) {
 
     /** Returns elapsed milliseconds, then clears state. */
     fun clockOut(): Long {
+        if (!snapshot.isActive) return 0L
         val elapsed = if (snapshot.startTimeMs > 0L)
             System.currentTimeMillis() - snapshot.startTimeMs else 0L
         snapshot = ClockInSnapshot()

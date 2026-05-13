@@ -47,7 +47,7 @@ class ClockInStateTest {
         state.clockIn("1234", "Job", "folder", "cnc")
         Thread.sleep(10)
         val elapsed = state.clockOut()
-        assertTrue(elapsed >= 0L)
+        assertTrue("elapsed should be positive", elapsed > 0L)
         assertFalse(state.snapshot.isActive)
     }
 
@@ -72,5 +72,37 @@ class ClockInStateTest {
         state.dismissPromptKeepActive()
         assertFalse(state.snapshot.pendingPrompt)
         assertTrue(state.snapshot.isActive)
+    }
+
+    @Test
+    fun `clockOut on inactive state returns 0 and does not throw`() {
+        val elapsed = state.clockOut()
+        assertEquals(0L, elapsed)
+        assertFalse(state.snapshot.isActive)
+    }
+
+    @Test
+    fun `load restores active session from persisted prefs`() {
+        val activePrefs: SharedPreferences = mock()
+        val activeEditor: SharedPreferences.Editor = mock()
+        whenever(activeEditor.putBoolean(any(), any())).thenReturn(activeEditor)
+        whenever(activeEditor.putString(any(), any())).thenReturn(activeEditor)
+        whenever(activeEditor.putLong(any(), any())).thenReturn(activeEditor)
+        whenever(activeEditor.clear()).thenReturn(activeEditor)
+        whenever(activePrefs.edit()).thenReturn(activeEditor)
+        whenever(activePrefs.getBoolean("is_active", false)).thenReturn(true)
+        whenever(activePrefs.getString("job_number", "")).thenReturn("5678")
+        whenever(activePrefs.getString("job_name", "")).thenReturn("Test Job")
+        whenever(activePrefs.getString("folder_name", "")).thenReturn("5678 Test Job")
+        whenever(activePrefs.getString("tab_type", "cnc")).thenReturn("hardwoods")
+        whenever(activePrefs.getLong("start_time_ms", 0L)).thenReturn(1000L)
+        whenever(activePrefs.getBoolean("pending_prompt", false)).thenReturn(false)
+
+        val loadedState = ClockInState(activePrefs)
+        assertTrue(loadedState.snapshot.isActive)
+        assertEquals("5678", loadedState.snapshot.jobNumber)
+        assertEquals("Test Job", loadedState.snapshot.jobName)
+        assertEquals("hardwoods", loadedState.snapshot.tabType)
+        assertEquals(1000L, loadedState.snapshot.startTimeMs)
     }
 }
