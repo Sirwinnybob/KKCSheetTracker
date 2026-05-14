@@ -6,6 +6,8 @@ import com.kkc.sheettracker.data.models.AssemblyScanSnapshot
 import com.kkc.sheettracker.data.models.AssemblyScanState
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +27,11 @@ class AssemblyScanCoordinator(
 
     @Volatile
     private var baseDir: File = initialBaseDir
+    @Volatile
+    private var unifiedEngine: UnifiedMetadataEngine = UnifiedMetadataEngineRegistry.getOrCreate(
+        baseDir = initialBaseDir,
+        isDebugBuild = BuildConfig.DEBUG
+    )
 
     private val _state = MutableStateFlow(
         AssemblyScanState(
@@ -37,6 +44,11 @@ class AssemblyScanCoordinator(
     fun updateBasePath(path: String) {
         baseDir = File(path)
         jobRepository.updateBaseDir(baseDir)
+        unifiedEngine = UnifiedMetadataEngineRegistry.getOrCreate(
+            baseDir = baseDir,
+            isDebugBuild = BuildConfig.DEBUG
+        )
+        unifiedEngine.updateBasePath(baseDir.absolutePath)
     }
 
     fun refresh(reason: RefreshReason, force: Boolean = false) {
@@ -75,30 +87,13 @@ class AssemblyScanCoordinator(
 
     private fun scanAssemblyJobs(): List<AssemblyJob> {
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
-
-        return baseDir.listFiles()
-            ?.asSequence()
-            ?.filter { it.isDirectory && File(it, "CNC").isDirectory }
-            ?.mapNotNull { jobDir ->
-                runCatching {
-                    val deploymentGate = DeploymentGateRules.evaluate(jobDir, isDebugBuild = BuildConfig.DEBUG)
-                    if (!deploymentGate.includeJob) return@runCatching null
-                    val parsed = parseJobFolderName(jobDir.name) ?: return@runCatching null
-                    val sheetIndex = jobRepository.getCabinetSheetIndex(jobDir.name)
-                    AssemblyJob(
-                        folderName = jobDir.name,
-                        jobNumber = parsed.jobNumber,
-                        jobName = parsed.jobName,
-                        cabinetSheetIndex = sheetIndex,
-                        hiddenFromProduction = deploymentGate.hiddenFromProduction
-                    )
-                }.getOrNull()
+        return unifiedEngine.listJobs()
+            .mapNotNull { info ->
+                runCatching { unifiedEngine.getAssemblySnapshot(info.folderName)?.job }.getOrNull()
             }
-            ?.sortedWith { a, b ->
+            .sortedWith { a, b ->
                 val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
                 if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
             }
-            ?.toList()
-            ?: emptyList()
     }
 }

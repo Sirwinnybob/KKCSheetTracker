@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
         syncthingSupervisor.startMonitoring()
 
         val baseDir = File(basePath)
-        val jobRepository = JobRepository(baseDir)
+        val jobRepository = JobRepository(baseDir, isDebugBuild = BuildConfig.DEBUG)
         val progressStore = ProgressStore(
             baseDir = baseDir,
             tabletId = tabletId,

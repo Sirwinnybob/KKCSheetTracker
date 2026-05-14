@@ -2,18 +2,31 @@ package com.kkc.sheettracker.data
 
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
-import com.google.gson.Gson
 import com.kkc.sheettracker.data.models.*
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import com.kkc.sheettracker.data.unified.UnifiedReferenceQuery
 import java.io.File
-import java.util.Locale
 
-class JobRepository(private var baseDir: File) {
-
-    private val gson = Gson()
+class JobRepository(
+    private var baseDir: File,
+    private val isDebugBuild: Boolean = false,
+    private var unifiedEngine: UnifiedMetadataEngine? = null
+) {
     private val cacheLock = Any()
     @Volatile private var cachedJobs: List<Job>? = null
     @Volatile private var cachedSearchIndex: List<PartSearchEntry>? = null
     @Volatile private var scanCoordinator: ScanCoordinator? = null
+
+    private fun engine(): UnifiedMetadataEngine {
+        val existing = unifiedEngine
+        if (existing != null) return existing
+        return UnifiedMetadataEngineRegistry.getOrCreate(
+            baseDir = baseDir,
+            isDebugBuild = isDebugBuild,
+            pdfPageCounter = ::countPdfPages
+        ).also { unifiedEngine = it }
+    }
 
     internal fun attachScanCoordinator(coordinator: ScanCoordinator) {
         scanCoordinator = coordinator
@@ -21,6 +34,7 @@ class JobRepository(private var baseDir: File) {
 
     fun updateBaseDir(newBaseDir: File) {
         baseDir = newBaseDir
+        unifiedEngine = null
         invalidateCache()
     }
 
@@ -29,6 +43,7 @@ class JobRepository(private var baseDir: File) {
             cachedJobs = null
             cachedSearchIndex = null
         }
+        unifiedEngine?.invalidateAll()
     }
 
     fun scanJobs(forceRefresh: Boolean = false): List<Job> {
@@ -47,18 +62,14 @@ class JobRepository(private var baseDir: File) {
 
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
 
-        val scanned = baseDir.listFiles()
-            ?.filter { it.isDirectory && File(it, "CNC").isDirectory }
-            ?.mapNotNull { jobDir ->
-                val parsed = parseJobFolderName(jobDir.name) ?: return@mapNotNull null
-                val materials = scanMaterials(File(jobDir, "CNC"), parsed.jobNumber)
-                Job(jobDir.name, parsed.jobNumber, parsed.jobName, materials)
+        val scanned = engine().listJobs()
+            .mapNotNull { info ->
+                engine().getCncSnapshot(info.folderName)?.job
             }
-            ?.sortedWith { a, b ->
+            .sortedWith { a, b ->
                 val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
                 if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
             }
-            ?: emptyList()
 
         synchronized(cacheLock) {
             cachedJobs = scanned
@@ -79,57 +90,13 @@ class JobRepository(private var baseDir: File) {
         }
 
         val jobs = scanJobs(forceRefresh = forceRefresh)
-        val index = mutableListOf<PartSearchEntry>()
-        for (job in jobs) {
-            for (mat in job.materials) {
-                val pages = mat.metadata?.pages ?: continue
-                for (page in pages) {
-                    if (page.hiddenInApp || page.trackingExcluded || page.isPartListContinuation) continue
-                    for (part in page.parts) {
-                        index.add(
-                            PartSearchEntry(
-                                jobFolderName = job.folderName,
-                                jobNumber = job.jobNumber,
-                                materialName = mat.materialName,
-                                pdfFilename = mat.pdfFilename,
-                                pageNumber = page.pageNumber,
-                                partNumber = part.number,
-                                partName = part.name,
-                                room = part.room,
-                                cabNumber = part.cabNumber
-                            )
-                        )
-                    }
-                }
-            }
+        val index = jobs.flatMap { job ->
+            engine().getCncSnapshot(job.folderName)?.searchIndex.orEmpty()
         }
         synchronized(cacheLock) {
             cachedSearchIndex = index
         }
         return index
-    }
-
-    private fun scanMaterials(cncDir: File, jobNumber: String): List<Material> {
-        if (!cncDir.exists()) return emptyList()
-
-        return cncDir.listFiles()
-            ?.filter { it.extension == "pdf" && "ALL SHEETS" !in it.name && it.name.startsWith("$jobNumber - ") }
-            ?.map { pdfFile ->
-                val materialName = pdfFile.nameWithoutExtension
-                    .removePrefix("$jobNumber - ")
-                val pageCount = countPdfPages(pdfFile)
-                val metadata = loadMetadata(cncDir, pdfFile.name)
-                val fingerprint = "${pdfFile.length()}_${pdfFile.lastModified()}"
-                Material(
-                    pdfFilename = pdfFile.name,
-                    materialName = materialName,
-                    pageCount = pageCount,
-                    fileFingerprint = fingerprint,
-                    metadata = metadata
-                )
-            }
-            ?.sortedBy { it.materialName }
-            ?: emptyList()
     }
 
     private fun countPdfPages(pdfFile: File): Int {
@@ -142,18 +109,6 @@ class JobRepository(private var baseDir: File) {
             count
         } catch (e: Exception) {
             0
-        }
-    }
-
-    private fun loadMetadata(cncDir: File, pdfFilename: String): MaterialMetadata? {
-        val jsonFilename = pdfFilename.removeSuffix(".pdf") + ".json"
-        val metadataFile = File(cncDir, ".metadata/$jsonFilename")
-        if (!metadataFile.exists()) return null
-
-        return try {
-            gson.fromJson(metadataFile.readText(), MaterialMetadata::class.java)
-        } catch (e: Exception) {
-            null
         }
     }
 
@@ -178,125 +133,22 @@ class JobRepository(private var baseDir: File) {
     }
 
     fun getCabinetSheetIndex(jobFolderName: String): CabinetSheetIndex? {
-        val indexFile = File(baseDir, "$jobFolderName/.metadata/cabinet_sheet_index.json")
-        if (!indexFile.exists() || !indexFile.isFile) return null
-        return try {
-            gson.fromJson(indexFile.readText(), CabinetSheetIndex::class.java)
-        } catch (_: Exception) {
-            null
-        }
+        return engine().getCabinetSheetIndex(jobFolderName).index
     }
 
     fun hasReferenceDocument(jobFolderName: String, docType: ReferenceDocType): Boolean {
-        val filename = findReferencePdfFilename(jobFolderName, docType) ?: return false
-        return getJobRootPdfFile(
-            jobFolderName = jobFolderName,
-            pdfFilename = filename,
-            preferDarkMode = false
-        ) != null
+        return engine().hasReferenceDocument(jobFolderName, UnifiedReferenceQuery(docType)).exists
     }
 
     fun hasThreeDAssets(jobFolderName: String): Boolean {
-        val threeDDir = File(baseDir, "$jobFolderName/3D")
-        if (!threeDDir.isDirectory) return false
-        return threeDDir.walkTopDown()
-            .maxDepth(2)
-            .any { file ->
-                file.isFile && (
-                    file.extension.equals("glb", ignoreCase = true) ||
-                        file.extension.equals("dae", ignoreCase = true)
-                    )
-            }
+        return engine().hasThreeDAssets(jobFolderName).exists
     }
 
     fun findReferencePdfFilename(jobFolderName: String, docType: ReferenceDocType): String? {
-        if (docType == ReferenceDocType.DELIVERY_SHEETS) {
-            return getJobPdfCatalog(jobFolderName).deliverySheet?.pdfFilename
-        }
-
-        val jobDir = File(baseDir, jobFolderName)
-        if (!jobDir.isDirectory) return null
-        val target = when (docType) {
-            ReferenceDocType.ASSEMBLY -> "assembly sheets"
-            ReferenceDocType.PLANS_ELEVATIONS -> "plans & elevations"
-            ReferenceDocType.DELIVERY_SHEETS -> "delivery sheets"
-        }
-
-        fun findIn(dir: File): String? {
-            val files = dir.listFiles() ?: return null
-            return files.firstOrNull { file ->
-                file.isFile &&
-                    file.extension.lowercase(Locale.US) == "pdf" &&
-                    file.name.lowercase(Locale.US).contains(target)
-            }?.name
-        }
-
-        return findIn(jobDir) ?: findIn(File(jobDir, "DARK MODE"))
+        return engine().findReferencePdfFilename(jobFolderName, UnifiedReferenceQuery(docType)).pdfFilename
     }
 
     fun getJobPdfCatalog(jobFolderName: String): JobPdfCatalog {
-        val jobDir = File(baseDir, jobFolderName)
-        if (!jobDir.isDirectory) return JobPdfCatalog()
-
-        val rootPdfs = jobDir.listFiles()
-            ?.asSequence()
-            ?.filter { file ->
-                file.isFile && file.extension.lowercase(Locale.US) == "pdf"
-            }
-            ?.sortedBy { it.name.lowercase(Locale.US) }
-            ?.toList()
-            .orEmpty()
-
-        val managed = mutableListOf<JobPdfRef>()
-        val other = mutableListOf<JobPdfRef>()
-        var deliverySheet: JobPdfRef? = null
-
-        rootPdfs.forEach { file ->
-            val lower = file.name.lowercase(Locale.US)
-            val managedLabel = when {
-                isDeliverySheetPdf(lower) -> "Delivery Sheets"
-                isAssemblySheetPdf(lower) -> "Assembly Sheets"
-                isPlansElevationsPdf(lower) -> "Plans & Elevations"
-                isDoorListPdf(lower) -> "Door List"
-                isCutListPdf(lower) -> "Cut List"
-                else -> null
-            }
-
-            if (managedLabel != null) {
-                val ref = JobPdfRef(pdfFilename = file.name, label = managedLabel)
-                managed += ref
-                if (managedLabel == "Delivery Sheets" && deliverySheet == null) {
-                    deliverySheet = ref
-                }
-            } else {
-                other += JobPdfRef(pdfFilename = file.name, label = file.nameWithoutExtension)
-            }
-        }
-
-        return JobPdfCatalog(
-            deliverySheet = deliverySheet,
-            managedDocs = managed,
-            otherDocs = other
-        )
-    }
-
-    private fun isAssemblySheetPdf(lowercaseFilename: String): Boolean {
-        return lowercaseFilename.contains("assembly sheets")
-    }
-
-    private fun isPlansElevationsPdf(lowercaseFilename: String): Boolean {
-        return lowercaseFilename.contains("plans & elevations") || lowercaseFilename.contains("plans and elevations")
-    }
-
-    private fun isDeliverySheetPdf(lowercaseFilename: String): Boolean {
-        return lowercaseFilename.contains("delivery sheets")
-    }
-
-    private fun isDoorListPdf(lowercaseFilename: String): Boolean {
-        return lowercaseFilename.contains("door list")
-    }
-
-    private fun isCutListPdf(lowercaseFilename: String): Boolean {
-        return lowercaseFilename.contains("cut list") || lowercaseFilename.contains("cutlist")
+        return engine().getPdfCatalog(jobFolderName).catalog
     }
 }

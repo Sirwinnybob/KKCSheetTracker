@@ -14,6 +14,8 @@ import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
 import com.kkc.sheettracker.data.models.HardwoodSearchEntry
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import java.io.File
 import kotlin.math.ceil
 import java.util.Locale
@@ -21,34 +23,31 @@ import java.util.Locale
 class HardwoodsRepository(private var baseDir: File) {
     private val gson = Gson()
     private val revisionFilePathSuffix = ".metadata/hardwoods/cutlist_revisions.json"
+    private var unifiedEngine: UnifiedMetadataEngine? = null
+
+    private fun engine(): UnifiedMetadataEngine {
+        val existing = unifiedEngine
+        if (existing != null) return existing
+        return UnifiedMetadataEngineRegistry.getOrCreate(
+            baseDir = baseDir,
+            isDebugBuild = BuildConfig.DEBUG
+        ).also { unifiedEngine = it }
+    }
 
     fun updateBaseDir(newBaseDir: File) {
         baseDir = newBaseDir
+        unifiedEngine = null
     }
 
     fun currentBasePath(): String = baseDir.absolutePath
 
     fun scanJobs(): List<HardwoodJob> {
-        if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
-        return baseDir.listFiles()
-            ?.filter { it.isDirectory }
-            ?.mapNotNull { jobDir ->
-                val deploymentGate = DeploymentGateRules.evaluate(jobDir, isDebugBuild = BuildConfig.DEBUG)
-                if (!deploymentGate.includeJob) return@mapNotNull null
-                val parsed = parseJobFolderName(jobDir.name) ?: return@mapNotNull null
-                HardwoodJob(
-                    folderName = jobDir.name,
-                    jobNumber = parsed.jobNumber,
-                    jobName = parsed.jobName,
-                    index = loadHardwoodsIndex(jobDir.name),
-                    hiddenFromProduction = deploymentGate.hiddenFromProduction
-                )
-            }
-            ?.sortedWith { a, b ->
+        return engine().listJobs()
+            .mapNotNull { info -> engine().getHardwoodsSnapshot(info.folderName)?.job }
+            .sortedWith { a, b ->
                 val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
                 if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
             }
-            ?: emptyList()
     }
 
     fun buildSearchIndex(jobs: List<HardwoodJob>): List<HardwoodSearchEntry> {
@@ -77,13 +76,7 @@ class HardwoodsRepository(private var baseDir: File) {
     }
 
     fun loadHardwoodsIndex(jobFolderName: String): HardwoodCutlistIndex? {
-        val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
-        if (!file.exists() || !file.isFile) return null
-        return try {
-            gson.fromJson(file.readText(), HardwoodCutlistIndex::class.java)
-        } catch (_: Exception) {
-            null
-        }
+        return engine().getHardwoodsSnapshot(jobFolderName)?.job?.index
     }
 
     fun loadHardwoodsRevisionHistory(jobFolderName: String): HardwoodRevisionHistory? {
@@ -160,48 +153,7 @@ class HardwoodsRepository(private var baseDir: File) {
     }
 
     fun loadBoardStock(jobFolderName: String): List<BoardStockRow> {
-        val index = loadHardwoodsIndex(jobFolderName) ?: return loadManualBoardStock(jobFolderName)
-        val aggregated = linkedMapOf<Triple<String, Double, BoardStockSource>, Double>()
-        index.documents.forEach { doc ->
-            val source = when (doc.docType) {
-                HardwoodDocType.FACE_FRAME_CUT_LIST -> BoardStockSource.FRAME
-                HardwoodDocType.NAILER_CUT_LIST -> BoardStockSource.NAILER
-                HardwoodDocType.DOOR_CUT_LIST -> BoardStockSource.DOOR
-                else -> null
-            } ?: return@forEach
-            doc.totals.forEach { block ->
-                val material = block.material.orEmpty().trim()
-                val maxSize = maxOf(block.widthValues.size, block.lengthValues.size)
-                for (i in 0 until maxSize) {
-                    val widthRaw = block.widthValues.getOrNull(i).orEmpty()
-                    val feet = parseFeet(block.lengthValues.getOrNull(i).orEmpty())
-                    val normalizedWidth = normalizeWidth(widthRaw)
-                    if (normalizedWidth == null || feet <= 0.0) continue
-                    val key = Triple(material, normalizedWidth, source)
-                    aggregated[key] = (aggregated[key] ?: 0.0) + feet
-                }
-            }
-        }
-
-        val rows = aggregated.map { (key, totalFeet) ->
-            BoardStockRow(
-                stableKey = "board_stock|${key.first}|${formatWidth(key.second)}|${key.third.name}",
-                material = key.first,
-                width = formatWidth(key.second),
-                normalizedWidth = key.second,
-                source = key.third,
-                sourceLabel = key.third.name,
-                totalFeet = totalFeet,
-                neededRips = ceil(totalFeet / 10.0).toInt()
-            )
-        }.toMutableList()
-
-        rows += loadManualBoardStock(jobFolderName)
-        return rows.sortedWith(
-            compareBy<BoardStockRow, String>(String.CASE_INSENSITIVE_ORDER) { it.material }
-                .thenByDescending { it.normalizedWidth }
-                .thenBy { sourcePriority(it.source) }
-        )
+        return engine().getBoardStockRows(jobFolderName, includeProgressOverlay = false).rows
     }
 
     private fun loadManualBoardStock(jobFolderName: String): List<BoardStockRow> {
