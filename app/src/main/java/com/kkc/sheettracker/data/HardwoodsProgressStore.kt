@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data
 
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocSummary
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
@@ -14,6 +15,8 @@ import com.kkc.sheettracker.data.models.HardwoodTabletProgress
 import com.kkc.sheettracker.data.models.HardwoodTotalsTallyKey
 import com.kkc.sheettracker.data.models.HardwoodTrackerActions
 import com.kkc.sheettracker.data.models.HardwoodTrackerAction
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -42,7 +45,8 @@ private data class CutlistLookup(
 class HardwoodsProgressStore(
     private val baseDir: File,
     private val tabletId: String,
-    private val readOnly: Boolean = false
+    private val readOnly: Boolean = false,
+    private var unifiedEngine: UnifiedMetadataEngine? = null
 ) {
     private data class JobCache(
         val localActions: MutableList<HardwoodTrackerAction>,
@@ -58,6 +62,19 @@ class HardwoodsProgressStore(
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeMutexByJob = ConcurrentHashMap<String, Mutex>()
     private val cacheByJob = ConcurrentHashMap<String, JobCache>()
+
+    private fun engine(): UnifiedMetadataEngine {
+        val existing = unifiedEngine
+        if (existing != null) return existing
+        return UnifiedMetadataEngineRegistry.getOrCreate(
+            baseDir = baseDir,
+            isDebugBuild = BuildConfig.DEBUG
+        ).also { unifiedEngine = it }
+    }
+
+    private fun loadCutlistIndexFromSnapshot(jobFolderName: String): HardwoodCutlistIndex? {
+        return engine().getHardwoodsSnapshot(jobFolderName)?.job?.index
+    }
 
     private fun bumpProgressVersion() {
         _progressVersion.value = _progressVersion.value + 1L
@@ -317,6 +334,10 @@ class HardwoodsProgressStore(
         return "board_stock_material_skip|${normalizeBoardStockMaterial(material)}"
     }
 
+    fun makeBoardStockMaterialSkipKey(material: String, source: String): String {
+        return "board_stock_material_skip|${normalizeBoardStockMaterial(material)}|${normalizeBoardStockSource(source)}"
+    }
+
     fun isBoardStockRipSkipped(
         jobFolderName: String,
         material: String,
@@ -350,8 +371,31 @@ class HardwoodsProgressStore(
         return (getTotalsRip10DoneMap(jobFolderName)[key] ?: 0) > 0
     }
 
+    fun isBoardStockMaterialSkipped(jobFolderName: String, material: String, source: String): Boolean {
+        val totals = getTotalsRip10DoneMap(jobFolderName)
+        val sourceKey = makeBoardStockMaterialSkipKey(material, source)
+        return if (totals.containsKey(sourceKey)) {
+            (totals[sourceKey] ?: 0) > 0
+        } else {
+            val legacyKey = makeBoardStockMaterialSkipKey(material)
+            (totals[legacyKey] ?: 0) > 0
+        }
+    }
+
     fun setBoardStockMaterialSkipped(jobFolderName: String, material: String, skipped: Boolean) {
         val key = makeBoardStockMaterialSkipKey(material)
+        appendAction(
+            jobFolderName = jobFolderName,
+            docType = "BOARD_STOCK_SKIP",
+            rowId = "",
+            totalsKey = key,
+            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = if (skipped) 1 else 0
+        )
+    }
+
+    fun setBoardStockMaterialSkipped(jobFolderName: String, material: String, source: String, skipped: Boolean) {
+        val key = makeBoardStockMaterialSkipKey(material, source)
         appendAction(
             jobFolderName = jobFolderName,
             docType = "BOARD_STOCK_SKIP",
@@ -529,10 +573,7 @@ class HardwoodsProgressStore(
     }
 
     private fun loadCutlistLookup(jobFolderName: String): CutlistLookup? {
-        val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
-        if (!file.exists() || !file.isFile) return null
-        val index = runCatching { gson.fromJson(file.readText(), HardwoodCutlistIndex::class.java) }.getOrNull()
-            ?: return null
+        val index = loadCutlistIndexFromSnapshot(jobFolderName) ?: return null
         val rows = mutableSetOf<HardwoodRowKey>()
         val cabinetsByRow = mutableMapOf<HardwoodRowKey, Set<String>>()
         index.documents.forEach { doc ->
@@ -649,11 +690,7 @@ class HardwoodsProgressStore(
         val docType = runCatching { HardwoodDocType.valueOf(parts[0]) }.getOrNull() ?: return null
         val blockIndex = parts[1].toIntOrNull() ?: return null
         val lineIndex = parts[2].toIntOrNull() ?: return null
-        val index = runCatching {
-            val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
-            if (!file.exists() || !file.isFile) return@runCatching null
-            gson.fromJson(file.readText(), HardwoodCutlistIndex::class.java)
-        }.getOrNull() ?: return null
+        val index = loadCutlistIndexFromSnapshot(jobFolderName) ?: return null
         val doc = index.documents.firstOrNull { it.docType == docType } ?: return null
         val block = doc.totals.getOrNull(blockIndex) ?: return null
         val material = block.material.orEmpty().trim()
@@ -683,8 +720,11 @@ class HardwoodsProgressStore(
                 makeBoardStockRipSkipKey(parts[1], width, parts[3])
             }
             "board_stock_material_skip" -> {
-                if (parts.size != 2) return null
-                makeBoardStockMaterialSkipKey(parts[1])
+                when (parts.size) {
+                    2 -> makeBoardStockMaterialSkipKey(parts[1])
+                    3 -> makeBoardStockMaterialSkipKey(parts[1], parts[2])
+                    else -> return null
+                }
             }
             else -> null
         }

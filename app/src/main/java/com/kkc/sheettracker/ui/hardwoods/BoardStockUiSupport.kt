@@ -10,6 +10,17 @@ import java.math.BigDecimal
 import java.util.Locale
 import kotlin.math.ceil
 
+internal data class BoardStockMaterialSection(
+    val material: String,
+    val rows: List<BoardStockRow>
+)
+
+internal data class BoardStockSourceSection(
+    val source: BoardStockSource,
+    val title: String,
+    val materials: List<BoardStockMaterialSection>
+)
+
 @Suppress("UNUSED_PARAMETER")
 internal fun buildBoardStockRows(
     basePath: String,
@@ -18,6 +29,45 @@ internal fun buildBoardStockRows(
 ): List<BoardStockRow> {
     val repository = HardwoodsRepository(java.io.File(basePath))
     return repository.loadBoardStock(jobFolderName)
+}
+
+internal fun buildBoardStockSourceSections(rows: List<BoardStockRow>): List<BoardStockSourceSection> {
+    if (rows.isEmpty()) return emptyList()
+    val bySource = rows.groupBy { it.source }
+    val sourceOrder = listOf(
+        BoardStockSource.FRAME,
+        BoardStockSource.NAILER,
+        BoardStockSource.DOOR,
+        BoardStockSource.MANUAL
+    )
+    return sourceOrder.mapNotNull { source ->
+        val sourceRows = bySource[source].orEmpty()
+        if (sourceRows.isEmpty()) return@mapNotNull null
+        val materials = sourceRows
+            .groupBy { it.material.ifBlank { "Unassigned" } }
+            .entries
+            .sortedBy { it.key.lowercase(Locale.US) }
+            .map { (material, groupedRows) ->
+                BoardStockMaterialSection(
+                    material = material,
+                    rows = groupedRows
+                )
+            }
+        BoardStockSourceSection(
+            source = source,
+            title = source.toRipListTitle(),
+            materials = materials
+        )
+    }
+}
+
+private fun BoardStockSource.toRipListTitle(): String {
+    return when (this) {
+        BoardStockSource.FRAME -> "Frame Rip List"
+        BoardStockSource.NAILER -> "Nailer Rip List"
+        BoardStockSource.DOOR -> "Door Rip List"
+        BoardStockSource.MANUAL -> "Manual Rips"
+    }
 }
 
 internal fun applySkippedPartRowsToBoardStockRows(

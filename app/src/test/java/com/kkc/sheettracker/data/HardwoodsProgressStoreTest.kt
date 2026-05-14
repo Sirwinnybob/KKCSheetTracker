@@ -214,6 +214,126 @@ class HardwoodsProgressStoreTest {
         assertNotNull(storeReloaded.getTotalsRip10DoneMap(jobFolderName)[canonicalSkip])
     }
 
+    @Test
+    fun sourceScopedMaterialSkipFallsBackToLegacyKeyWhenSourceKeyMissing() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex()
+        )
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = tabletId,
+            progress = HardwoodTabletProgress(
+                tabletId = tabletId,
+                actions = listOf(
+                    trackerAction(
+                        docType = "BOARD_STOCK_SKIP",
+                        rowId = "",
+                        action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+                        value = 1,
+                        totalsKey = "board_stock_material_skip| maple   select ",
+                        timestamp = "2026-05-01T00:00:01Z"
+                    )
+                )
+            )
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        assertTrue(store.isBoardStockMaterialSkipped(jobFolderName, "Maple Select", "FRAME"))
+        assertTrue(store.isBoardStockMaterialSkipped(jobFolderName, "Maple Select", "NAILER"))
+    }
+
+    @Test
+    fun sourceScopedMaterialSkipFalseOverridesLegacyTrue() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex()
+        )
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = tabletId,
+            progress = HardwoodTabletProgress(
+                tabletId = tabletId,
+                actions = listOf(
+                    trackerAction(
+                        docType = "BOARD_STOCK_SKIP",
+                        rowId = "",
+                        action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+                        value = 1,
+                        totalsKey = "board_stock_material_skip|MAPLE SELECT",
+                        timestamp = "2026-05-01T00:00:01Z"
+                    ),
+                    trackerAction(
+                        docType = "BOARD_STOCK_SKIP",
+                        rowId = "",
+                        action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+                        value = 0,
+                        totalsKey = "board_stock_material_skip|MAPLE SELECT| FRAME ",
+                        timestamp = "2026-05-01T00:00:02Z"
+                    )
+                )
+            )
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        assertFalse(store.isBoardStockMaterialSkipped(jobFolderName, "Maple Select", "FRAME"))
+        assertTrue(store.isBoardStockMaterialSkipped(jobFolderName, "Maple Select", "NAILER"))
+    }
+
+    @Test
+    fun sourceScopedMaterialSkipDoesNotAffectOtherSources() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex()
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        store.setBoardStockMaterialSkipped(jobFolderName, "Maple Select", "FRAME", true)
+
+        assertTrue(store.isBoardStockMaterialSkipped(jobFolderName, "Maple Select", "FRAME"))
+        assertFalse(store.isBoardStockMaterialSkipped(jobFolderName, "Maple Select", "DOOR"))
+    }
+
+    @Test
+    fun canonicalizesSourceScopedBoardStockMaterialSkipKeys() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex()
+        )
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = tabletId,
+            progress = HardwoodTabletProgress(
+                tabletId = tabletId,
+                actions = listOf(
+                    trackerAction(
+                        docType = "BOARD_STOCK_SKIP",
+                        rowId = "",
+                        action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+                        value = 1,
+                        totalsKey = "board_stock_material_skip| maple   select | frame ",
+                        timestamp = "2026-05-01T00:00:01Z"
+                    )
+                )
+            )
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val canonical = store.makeBoardStockMaterialSkipKey("Maple Select", "FRAME")
+        assertEquals(1, store.getTotalsRip10DoneMap(jobFolderName)[canonical])
+    }
+
     private fun trackerAction(
         docType: String,
         rowId: String,
