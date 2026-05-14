@@ -5,7 +5,10 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.atLeastOnce
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.times
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 class ClockInStateTest {
@@ -75,6 +78,58 @@ class ClockInStateTest {
     }
 
     @Test
+    fun `pause sets paused state and keeps active session`() {
+        state.clockIn("1234", "Job", "folder", "cnc")
+
+        state.pause()
+
+        assertTrue(state.snapshot.isActive)
+        assertTrue(state.snapshot.isPaused)
+        assertTrue(state.snapshot.pausedAtMs > 0L)
+    }
+
+    @Test
+    fun `resume clears paused state and accumulates paused duration`() {
+        state.clockIn("1234", "Job", "folder", "cnc")
+        state.pause()
+        Thread.sleep(10)
+
+        state.resume()
+
+        assertFalse(state.snapshot.isPaused)
+        assertEquals(0L, state.snapshot.pausedAtMs)
+        assertTrue(state.snapshot.accumulatedPausedMs > 0L)
+    }
+
+    @Test
+    fun `clockOut excludes paused duration from elapsed time`() {
+        state.clockIn("1234", "Job", "folder", "cnc")
+        Thread.sleep(30)
+        state.pause()
+        Thread.sleep(60)
+        state.resume()
+        Thread.sleep(30)
+
+        val elapsed = state.clockOut()
+
+        assertTrue("elapsed should include active time", elapsed >= 40L)
+        assertTrue("elapsed should exclude paused time", elapsed < 120L)
+    }
+
+    @Test
+    fun `clockOut while paused counts pause interval as inactive`() {
+        state.clockIn("1234", "Job", "folder", "cnc")
+        Thread.sleep(15)
+        state.pause()
+        Thread.sleep(60)
+
+        val elapsed = state.clockOut()
+
+        assertTrue("elapsed should include pre-pause active time", elapsed >= 10L)
+        assertTrue("elapsed should not include paused wait", elapsed < 60L)
+    }
+
+    @Test
     fun `clockOut on inactive state returns 0 and does not throw`() {
         val elapsed = state.clockOut()
         assertEquals(0L, elapsed)
@@ -97,6 +152,9 @@ class ClockInStateTest {
         whenever(activePrefs.getString("tab_type", "cnc")).thenReturn("hardwoods")
         whenever(activePrefs.getLong("start_time_ms", 0L)).thenReturn(1000L)
         whenever(activePrefs.getBoolean("pending_prompt", false)).thenReturn(false)
+        whenever(activePrefs.getBoolean("is_paused", false)).thenReturn(true)
+        whenever(activePrefs.getLong("paused_at_ms", 0L)).thenReturn(2_000L)
+        whenever(activePrefs.getLong("accumulated_paused_ms", 0L)).thenReturn(3_000L)
 
         val loadedState = ClockInState(activePrefs)
         assertTrue(loadedState.snapshot.isActive)
@@ -104,5 +162,21 @@ class ClockInStateTest {
         assertEquals("Test Job", loadedState.snapshot.jobName)
         assertEquals("hardwoods", loadedState.snapshot.tabType)
         assertEquals(1000L, loadedState.snapshot.startTimeMs)
+        assertTrue(loadedState.snapshot.isPaused)
+        assertEquals(2_000L, loadedState.snapshot.pausedAtMs)
+        assertEquals(3_000L, loadedState.snapshot.accumulatedPausedMs)
+    }
+
+    @Test
+    fun `pause and resume persist new pause fields`() {
+        state.clockIn("1234", "Job", "folder", "cnc")
+
+        state.pause()
+        state.resume()
+
+        verify(editor, atLeastOnce()).putBoolean("is_paused", true)
+        verify(editor, atLeastOnce()).putBoolean("is_paused", false)
+        verify(editor, atLeastOnce()).putLong("paused_at_ms", 0L)
+        verify(editor, atLeastOnce()).putLong(org.mockito.kotlin.eq("accumulated_paused_ms"), any())
     }
 }

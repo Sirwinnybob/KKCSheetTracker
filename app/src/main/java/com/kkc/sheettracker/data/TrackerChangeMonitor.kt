@@ -17,6 +17,7 @@ class TrackerChangeMonitor(
     private val progressStore: ProgressStore,
     private val hardwoodsProgressStore: HardwoodsProgressStore,
     private val viewerInteraction: StateFlow<Boolean> = ViewerInteractionSignal.isViewerInteracting,
+    private val onWatcherRefreshRequested: (() -> Unit)? = null,
     private val pollingIntervalMs: Long = POLLING_INTERVAL_MS
 ) {
     private enum class TrackerKind { CNC, HARDWOODS }
@@ -42,6 +43,7 @@ class TrackerChangeMonitor(
     private val lastInvalidationAtByKey = mutableMapOf<String, Long>()
     private val pendingByKey = LinkedHashMap<String, Invalidation>()
     private var flushJob: Job? = null
+    private var refreshDispatchJob: Job? = null
     private var interactionJob: Job? = null
     private var startupWarmupUntilMs = 0L
 
@@ -84,16 +86,16 @@ class TrackerChangeMonitor(
             interactionJob = null
             val flush = flushJob
             flushJob = null
+            val refreshDispatch = refreshDispatchJob
+            refreshDispatchJob = null
             trackedByPath.clear()
             signaturesByPath.clear()
             lastInvalidationAtByKey.clear()
             pendingByKey.clear()
             val observers = observersByPath.values.toList().also { observersByPath.clear() }
-            Triple(poll, interaction, flush) to observers
+            listOf(poll, interaction, flush, refreshDispatch) to observers
         }
-        jobsToStop.first.first?.cancel()
-        jobsToStop.first.second?.cancel()
-        jobsToStop.first.third?.cancel()
+        jobsToStop.first.forEach { it?.cancel() }
         jobsToStop.second.forEach { it.stopWatching() }
     }
 
@@ -314,6 +316,20 @@ class TrackerChangeMonitor(
             // Batch hardwood invalidation to trigger one progress version bump for this cycle.
             hardwoodsProgressStore.invalidateJobCaches(hardwoodJobs)
         }
+
+        scheduleFullRefreshDispatch()
+    }
+
+    private fun scheduleFullRefreshDispatch() {
+        if (onWatcherRefreshRequested == null) return
+        synchronized(lock) {
+            if (!started) return
+            refreshDispatchJob?.cancel()
+            refreshDispatchJob = scope.launch {
+                delay(FULL_REFRESH_COALESCE_MS)
+                onWatcherRefreshRequested.invoke()
+            }
+        }
     }
 
     private companion object {
@@ -322,6 +338,7 @@ class TrackerChangeMonitor(
         private const val STARTUP_WARMUP_MS = 1_500L
         private const val NORMAL_COALESCE_MS = 140L
         private const val INTERACTION_COALESCE_MS = 500L
+        private const val FULL_REFRESH_COALESCE_MS = 2_000L
         private const val OBSERVER_EVENTS = FileObserver.CLOSE_WRITE or
             FileObserver.CREATE or
             FileObserver.DELETE or

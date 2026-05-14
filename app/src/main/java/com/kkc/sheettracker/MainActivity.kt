@@ -29,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import com.kkc.sheettracker.clock.ClockInNotificationContract
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var scanCoordinator: ScanCoordinator
     private lateinit var appStateStore: AppStateStore
     private lateinit var syncthingSupervisor: SyncthingSupervisor
+    private lateinit var clockInState: ClockInState
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -142,7 +144,13 @@ class MainActivity : ComponentActivity() {
         )
         scanCoordinator = ScanCoordinator(baseDir, jobRepository)
         appStateStore = AppStateStore(scanCoordinator, progressStore)
-        val clockInState = ClockInState.create(this)
+        clockInState = ClockInState.create(this)
+        if (clockInState.snapshot.isActive) {
+            ClockInNotificationContract.startOrUpdateService(this)
+        } else {
+            ClockInNotificationContract.stopService(this)
+        }
+        handleNotificationIntent(intent)
         scanCoordinator.refresh(RefreshReason.APP_START, force = true)
 
         setContent {
@@ -346,6 +354,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
     override fun onDestroy() {
         if (::syncthingSupervisor.isInitialized) {
             syncthingSupervisor.close()
@@ -366,6 +380,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestStoragePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val notificationGranted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!notificationGranted) {
+                requestPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+            }
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
@@ -383,6 +407,18 @@ class MainActivity : ComponentActivity() {
             if (needed.isNotEmpty()) {
                 requestPermissionLauncher.launch(needed.toTypedArray())
             }
+        }
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        if (!::clockInState.isInitialized) return
+        if (ClockInNotificationContract.shouldOpenClockOutPrompt(intent)) {
+            clockInState.refreshFromDisk()
+            if (clockInState.snapshot.isActive) {
+                clockInState.triggerPrompt()
+                ClockInNotificationContract.startOrUpdateService(this)
+            }
+            intent?.removeExtra(ClockInNotificationContract.EXTRA_OPEN_CLOCK_OUT_PROMPT)
         }
     }
 }

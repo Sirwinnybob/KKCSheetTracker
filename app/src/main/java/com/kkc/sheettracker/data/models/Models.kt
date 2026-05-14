@@ -578,7 +578,8 @@ enum class RefreshReason {
     APP_FOREGROUND,
     USER_REFRESH,
     BASE_PATH_CHANGED,
-    VIEWER_RECOVERY
+    VIEWER_RECOVERY,
+    WATCHER_CHANGE
 }
 
 data class ScanSnapshot(

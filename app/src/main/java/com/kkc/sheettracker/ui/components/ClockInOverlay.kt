@@ -58,17 +58,15 @@ fun ClockInOverlay(
     var offsetX by remember { mutableFloatStateOf(24f) }
     var offsetY by remember { mutableFloatStateOf(100f) }
     var elapsedSeconds by remember { mutableLongStateOf(
-        if (snapshot.startTimeMs > 0L)
-            (System.currentTimeMillis() - snapshot.startTimeMs) / 1000L
-        else 0L
+        (clockInState.elapsedActiveMs() / 1000L).coerceAtLeast(0L)
     ) }
 
-    LaunchedEffect(snapshot.isActive) {
+    LaunchedEffect(snapshot.isActive, snapshot.isPaused) {
         while (true) {
-            delay(1_000L)
-            elapsedSeconds = if (snapshot.startTimeMs > 0L)
-                (System.currentTimeMillis() - snapshot.startTimeMs) / 1000L
-            else 0L
+            val live = clockInState.snapshot
+            if (!live.isActive) break
+            elapsedSeconds = (clockInState.elapsedActiveMs() / 1000L).coerceAtLeast(0L)
+            delay(if (live.isPaused) 250L else 1_000L)
         }
     }
 
@@ -96,6 +94,9 @@ fun ClockInOverlay(
     val minutes = (elapsedSeconds % 3600) / 60
     val seconds = elapsedSeconds % 60
     val elapsedDisplay = "%02d:%02d:%02d".format(hours, minutes, seconds)
+
+    val statusLabel = if (snapshot.isPaused) "Paused" else "Clocked In"
+    val statusColor = if (snapshot.isPaused) Color(0xFFD69E2E) else Color(0xFF38A169)
 
     Box(
         modifier = modifier
@@ -125,14 +126,14 @@ fun ClockInOverlay(
                         modifier = Modifier
                             .width(10.dp)
                             .height(10.dp)
-                            .background(Color(0xFF38A169), RoundedCornerShape(50))
+                            .background(statusColor, RoundedCornerShape(50))
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "Clocked In",
+                        statusLabel,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
-                        color = Color(0xFF38A169)
+                        color = statusColor
                     )
                 }
                 Text(
@@ -144,7 +145,7 @@ fun ClockInOverlay(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    elapsedDisplay,
+                    "Active $elapsedDisplay",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface

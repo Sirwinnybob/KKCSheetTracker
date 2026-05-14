@@ -13,7 +13,10 @@ data class ClockInSnapshot(
     val folderName: String = "",
     val tabType: String = "cnc",   // "cnc" | "hardwoods" | "assembly"
     val startTimeMs: Long = 0L,
-    val pendingPrompt: Boolean = false
+    val pendingPrompt: Boolean = false,
+    val isPaused: Boolean = false,
+    val pausedAtMs: Long = 0L,
+    val accumulatedPausedMs: Long = 0L
 )
 
 class ClockInState(private val prefs: SharedPreferences) {
@@ -28,7 +31,10 @@ class ClockInState(private val prefs: SharedPreferences) {
             folderName = folderName,
             tabType = tabType,
             startTimeMs = System.currentTimeMillis(),
-            pendingPrompt = false
+            pendingPrompt = false,
+            isPaused = false,
+            pausedAtMs = 0L,
+            accumulatedPausedMs = 0L
         )
         persist()
     }
@@ -36,11 +42,40 @@ class ClockInState(private val prefs: SharedPreferences) {
     /** Returns elapsed milliseconds, then clears state. */
     fun clockOut(): Long {
         if (!snapshot.isActive) return 0L
-        val elapsed = if (snapshot.startTimeMs > 0L)
-            System.currentTimeMillis() - snapshot.startTimeMs else 0L
+        val elapsed = elapsedActiveMs()
         snapshot = ClockInSnapshot()
         prefs.edit().clear().apply()
         return elapsed
+    }
+
+    fun pause() {
+        if (!snapshot.isActive || snapshot.isPaused) return
+        snapshot = snapshot.copy(
+            isPaused = true,
+            pausedAtMs = System.currentTimeMillis()
+        )
+        persist()
+    }
+
+    fun resume() {
+        val pausedAtMs = snapshot.pausedAtMs
+        if (!snapshot.isActive || !snapshot.isPaused || pausedAtMs <= 0L) return
+        val now = System.currentTimeMillis()
+        val pausedDelta = (now - pausedAtMs).coerceAtLeast(0L)
+        snapshot = snapshot.copy(
+            isPaused = false,
+            pausedAtMs = 0L,
+            accumulatedPausedMs = snapshot.accumulatedPausedMs + pausedDelta
+        )
+        persist()
+    }
+
+    fun elapsedActiveMs(nowMs: Long = System.currentTimeMillis()): Long {
+        return computeActiveElapsedMs(snapshot, nowMs)
+    }
+
+    fun refreshFromDisk() {
+        snapshot = load(prefs)
     }
 
     fun triggerPrompt() {
@@ -63,6 +98,9 @@ class ClockInState(private val prefs: SharedPreferences) {
             .putString(KEY_TAB_TYPE, snapshot.tabType)
             .putLong(KEY_START_TIME, snapshot.startTimeMs)
             .putBoolean(KEY_PENDING_PROMPT, snapshot.pendingPrompt)
+            .putBoolean(KEY_IS_PAUSED, snapshot.isPaused)
+            .putLong(KEY_PAUSED_AT_MS, snapshot.pausedAtMs)
+            .putLong(KEY_ACCUMULATED_PAUSED_MS, snapshot.accumulatedPausedMs)
             .apply()
     }
 
@@ -75,10 +113,27 @@ class ClockInState(private val prefs: SharedPreferences) {
         private const val KEY_TAB_TYPE = "tab_type"
         private const val KEY_START_TIME = "start_time_ms"
         private const val KEY_PENDING_PROMPT = "pending_prompt"
+        private const val KEY_IS_PAUSED = "is_paused"
+        private const val KEY_PAUSED_AT_MS = "paused_at_ms"
+        private const val KEY_ACCUMULATED_PAUSED_MS = "accumulated_paused_ms"
 
-        fun create(context: Context): ClockInState = ClockInState(
-            context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        )
+        @Volatile
+        private var sharedInstance: ClockInState? = null
+
+        fun create(context: Context): ClockInState {
+            val existing = sharedInstance
+            if (existing != null) return existing
+            return synchronized(this) {
+                val secondCheck = sharedInstance
+                if (secondCheck != null) {
+                    secondCheck
+                } else {
+                    ClockInState(
+                        context.applicationContext.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+                    ).also { sharedInstance = it }
+                }
+            }
+        }
 
         private fun load(prefs: SharedPreferences): ClockInSnapshot {
             if (!prefs.getBoolean(KEY_ACTIVE, false)) return ClockInSnapshot()
@@ -89,8 +144,22 @@ class ClockInState(private val prefs: SharedPreferences) {
                 folderName = prefs.getString(KEY_FOLDER_NAME, "") ?: "",
                 tabType = prefs.getString(KEY_TAB_TYPE, "cnc") ?: "cnc",
                 startTimeMs = prefs.getLong(KEY_START_TIME, 0L),
-                pendingPrompt = prefs.getBoolean(KEY_PENDING_PROMPT, false)
+                pendingPrompt = prefs.getBoolean(KEY_PENDING_PROMPT, false),
+                isPaused = prefs.getBoolean(KEY_IS_PAUSED, false),
+                pausedAtMs = prefs.getLong(KEY_PAUSED_AT_MS, 0L),
+                accumulatedPausedMs = prefs.getLong(KEY_ACCUMULATED_PAUSED_MS, 0L)
             )
+        }
+
+        private fun computeActiveElapsedMs(snapshot: ClockInSnapshot, nowMs: Long): Long {
+            if (!snapshot.isActive || snapshot.startTimeMs <= 0L) return 0L
+            val pausedSince = if (snapshot.isPaused && snapshot.pausedAtMs > 0L) {
+                (nowMs - snapshot.pausedAtMs).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            val totalPaused = snapshot.accumulatedPausedMs + pausedSince
+            return (nowMs - snapshot.startTimeMs - totalPaused).coerceAtLeast(0L)
         }
     }
 }

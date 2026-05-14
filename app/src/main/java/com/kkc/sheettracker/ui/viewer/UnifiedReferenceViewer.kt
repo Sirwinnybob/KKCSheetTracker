@@ -411,6 +411,7 @@ fun UnifiedReferenceViewer(
     onDisplayPageChange: (Int) -> Unit,
     defaultPdfFilename: String,
     pdfFileForFilename: (String) -> File?,
+    fileIdentitySeed: Long = 0L,
     virtualMapping: UnifiedVirtualPageMapping? = null,
     navigatorCabinetToPages: Map<String, List<Int>> = emptyMap(),
     navigatorPlanViewLabels: Map<Int, String> = emptyMap(),
@@ -446,7 +447,7 @@ fun UnifiedReferenceViewer(
     val resolvedPdfFilename = activeVirtualSource?.pdfFilename?.takeIf { it.isNotBlank() }
         ?: defaultPdfFilename
     val sourcePage = activeVirtualSource?.page?.takeIf { it > 0 } ?: clampedDisplayPage
-    val pdfFile = remember(resolvedPdfFilename) {
+    val pdfFile = remember(resolvedPdfFilename, fileIdentitySeed) {
         resolvedPdfFilename.takeIf { it.isNotBlank() }?.let(pdfFileForFilename)
     }
 

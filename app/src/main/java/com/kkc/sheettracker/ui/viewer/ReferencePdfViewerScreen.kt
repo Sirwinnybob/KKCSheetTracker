@@ -32,12 +32,13 @@ fun ReferencePdfViewerScreen(
     jobFolderName: String,
     docType: ReferenceDocType,
     startPage: Int,
+    refreshGeneration: Long = 0L,
     isDarkTheme: Boolean,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
-    val sheetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
+    val sheetIndex = remember(jobFolderName, refreshGeneration) { jobRepository.getCabinetSheetIndex(jobFolderName) }
     val documentIndex = remember(sheetIndex, docType) {
         when (docType) {
             ReferenceDocType.ASSEMBLY -> sheetIndex?.documents?.assembly
@@ -122,7 +123,7 @@ fun ReferencePdfViewerScreen(
         prefs.edit().putInt(resumeKey, currentPage).apply()
     }
 
-    val defaultPdfFilename = remember(documentIndex, docType, jobFolderName) {
+    val defaultPdfFilename = remember(documentIndex, docType, jobFolderName, refreshGeneration) {
         documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }
             ?: jobRepository.findReferencePdfFilename(jobFolderName, docType)
             ?: ""
@@ -170,6 +171,7 @@ fun ReferencePdfViewerScreen(
                     preferDarkMode = isDarkTheme
                 )
             },
+            fileIdentitySeed = refreshGeneration,
             virtualMapping = virtualMapping,
             navigatorCabinetToPages = navigatorCabinetToPages,
             navigatorPlanViewLabels = navigatorPlanViewLabels,

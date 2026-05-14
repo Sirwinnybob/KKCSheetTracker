@@ -110,6 +110,7 @@ import java.util.ArrayDeque
 
 private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 private const val OCR_TAG = "KKC_OCR"
+private const val VIEWER_REF_TAG = "KKC_VIEWER_REF"
 private const val VIEWER_PARITY_TAG = "KKC_APP_STATE_PARITY_VIEWER"
 private const val VIEWER_PREPARED_TAG = "KKC_PREPARED_STATE"
 private const val RENDER_CACHE_MAX_PAGES = 6
@@ -188,7 +189,8 @@ fun SheetViewerScreen(
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onMaterialUnavailable: () -> Unit = onBack
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -309,6 +311,8 @@ fun SheetViewerScreen(
     val renderCache = remember(jobFolderName, pdfFilename, fileFingerprint) { mutableMapOf<Int, RenderedSheetPage>() }
     val renderCacheOrder = remember(jobFolderName, pdfFilename, fileFingerprint) { ArrayDeque<Int>() }
     var previousMaterialIdentity by remember { mutableStateOf<String?>(null) }
+    var hasBoundInitialMaterial by remember(jobFolderName, pdfFilename) { mutableStateOf(false) }
+    var didRedirectForUnavailableMaterial by remember(jobFolderName, pdfFilename) { mutableStateOf(false) }
 
     fun touchRenderCache(page: Int) {
         renderCacheOrder.remove(page)
@@ -430,9 +434,21 @@ fun SheetViewerScreen(
             }
         }
         val nextMaterial = jobMaterials.firstOrNull { it.pdfFilename == pdfFilename }
+        val nextIdentity = nextMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+        val oldIdentity = previousMaterialIdentity
+        val isReplaced = hasBoundInitialMaterial && oldIdentity != null && nextIdentity != null && oldIdentity != nextIdentity
+        val isMissing = hasBoundInitialMaterial && job != null && nextMaterial == null
+        if ((isReplaced || isMissing) && !didRedirectForUnavailableMaterial) {
+            didRedirectForUnavailableMaterial = true
+            onMaterialUnavailable()
+            return@LaunchedEffect
+        }
+
         currentMaterial = nextMaterial
         visiblePages = nextMaterial?.visibleSheetPages().orEmpty()
         if (nextMaterial != null) {
+            hasBoundInitialMaterial = true
+            didRedirectForUnavailableMaterial = false
             val localTouchPage = progressStore
                 .getLocalMaterialLastTouches(jobFolderName)[pdfFilename]
                 ?.page
@@ -449,8 +465,6 @@ fun SheetViewerScreen(
             }
         }
 
-        val nextIdentity = nextMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-        val oldIdentity = previousMaterialIdentity
         if (oldIdentity != nextIdentity) {
             val reason = if (oldIdentity != null && nextIdentity != null) {
                 PreparedStateInvalidationReason.FingerprintChanged
@@ -900,12 +914,14 @@ fun SheetViewerScreen(
                     if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex > 0) {
                         currentPage = effectiveVisiblePages[currentVisibleIndex - 1]
                         selectedPartNumber = null
+                        selectedCabinetNumber = null
                     }
                 },
                 onNextPage = {
                     if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
                         currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
                         selectedPartNumber = null
+                        selectedCabinetNumber = null
                     }
                 },
                 onOpenToc = { showSheetToc = true },
@@ -954,6 +970,7 @@ fun SheetViewerScreen(
                         if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
                             currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
                             selectedPartNumber = null
+                            selectedCabinetNumber = null
                         }
                     }
                     if (BuildConfig.DEBUG) {
@@ -1056,6 +1073,28 @@ fun SheetViewerScreen(
                     normalizeRoomFolder(cabinetSheetIndex?.documents?.assembly?.pageDetails?.get(page.toString())?.room)
                 }
                 ?: firstAlphabeticalRoomFromIndex()?.first
+            LaunchedEffect(
+                selectedPartNumber,
+                selectedCabinetNumber,
+                activeCabinet,
+                activeAssemblyPage,
+                activePlansPage,
+                hasAssemblyReference,
+                hasPlansReference,
+                currentPage,
+                fileFingerprint
+            ) {
+                val selectedPartCab = selectedPartNumber?.let { selected ->
+                    parts.firstOrNull { it.number == selected }?.cabNumber
+                }
+                Log.d(
+                    VIEWER_REF_TAG,
+                    "ref_state page=$currentPage selectedPart=$selectedPartNumber selectedCabinet=$selectedCabinetNumber " +
+                        "selectedPartCab=$selectedPartCab activeCabinet=$activeCabinet hasAssembly=$hasAssemblyReference " +
+                        "assemblyPage=$activeAssemblyPage hasPlans=$hasPlansReference plansPage=$activePlansPage " +
+                        "plansChipVisible=${hasPlansReference && activePlansPage != null} fp=$fileFingerprint"
+                )
+            }
 
             Row(
                 modifier = Modifier
@@ -1112,13 +1151,29 @@ fun SheetViewerScreen(
                                 .fillMaxWidth()
                                     .padding(4.dp),
                                 onTapPart = { partNumber ->
-                                    selectedPartNumber = if (selectedPartNumber == partNumber) null else partNumber
-                                    selectedCabinetNumber = parts.firstOrNull { it.number == partNumber }?.cabNumber?.takeIf { it > 0 }
+                                    val isDeselecting = selectedPartNumber == partNumber
+                                    selectedPartNumber = if (isDeselecting) null else partNumber
+                                    selectedCabinetNumber = if (isDeselecting) {
+                                        null
+                                    } else {
+                                        parts.firstOrNull { it.number == partNumber }?.cabNumber?.takeIf { it > 0 }
+                                    }
+                                    val tappedCabinet = parts.firstOrNull { it.number == partNumber }?.cabNumber
+                                    Log.d(
+                                        VIEWER_REF_TAG,
+                                        "tap_part source=diagram part=$partNumber tappedCabinet=$tappedCabinet " +
+                                            "selectedPartNow=$selectedPartNumber selectedCabinetNow=$selectedCabinetNumber"
+                                    )
                                 },
                                 onLongPressPart = { partNumber ->
                                     val cabNumber = parts.firstOrNull { it.number == partNumber }?.cabNumber
                                     selectedPartNumber = partNumber
                                     selectedCabinetNumber = cabNumber?.takeIf { it > 0 }
+                                    Log.d(
+                                        VIEWER_REF_TAG,
+                                        "tap_part source=diagram_long_press part=$partNumber tappedCabinet=$cabNumber " +
+                                            "selectedPartNow=$selectedPartNumber selectedCabinetNow=$selectedCabinetNumber"
+                                    )
                                     showReferenceDocDialog = true
                                 }
                             )
@@ -1199,12 +1254,23 @@ fun SheetViewerScreen(
                     onResizeRoom = { delta -> roomColDp = (roomColDp + delta / 5f).coerceIn(100f, 300f) },
                     modifier = bottomModifier.fillMaxWidth(),
                     onPartClick = { part ->
-                        selectedPartNumber = if (selectedPartNumber == part.number) null else part.number
-                        selectedCabinetNumber = part.cabNumber.takeIf { it > 0 }
+                        val isDeselecting = selectedPartNumber == part.number
+                        selectedPartNumber = if (isDeselecting) null else part.number
+                        selectedCabinetNumber = if (isDeselecting) null else part.cabNumber.takeIf { it > 0 }
+                        Log.d(
+                            VIEWER_REF_TAG,
+                            "tap_part source=table_click part=${part.number} partCabinet=${part.cabNumber} " +
+                                "selectedPartNow=$selectedPartNumber selectedCabinetNow=$selectedCabinetNumber"
+                        )
                     },
                     onPartLongPress = { part ->
                         selectedPartNumber = part.number
                         selectedCabinetNumber = part.cabNumber.takeIf { it > 0 }
+                        Log.d(
+                            VIEWER_REF_TAG,
+                            "tap_part source=table_long_press part=${part.number} partCabinet=${part.cabNumber} " +
+                                "selectedPartNow=$selectedPartNumber selectedCabinetNow=$selectedCabinetNumber"
+                        )
                         showReferenceDocDialog = true
                     },
                     onToggleBadPart = { part ->
@@ -1331,6 +1397,7 @@ fun SheetViewerScreen(
             onSelectPage = { page ->
                 currentPage = page
                 selectedPartNumber = null
+                selectedCabinetNumber = null
                 showSheetToc = false
             },
             onDismiss = { showSheetToc = false }

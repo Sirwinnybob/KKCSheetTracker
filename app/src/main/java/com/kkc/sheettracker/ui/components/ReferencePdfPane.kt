@@ -299,7 +299,12 @@ fun ReferencePdfPane(
     onStepPage: ((Int) -> Unit)? = null,
     onOpenSheetNavigator: (() -> Unit)? = null
 ) {
-    val engine = remember(pdfFile?.absolutePath) { pdfFile?.takeIf { it.exists() }?.let { PdfRenderEngine(it) } }
+    val pdfIdentityKey = when {
+        pdfFile == null -> "missing"
+        !pdfFile.exists() -> "missing:${pdfFile.absolutePath}"
+        else -> "${pdfFile.absolutePath}|${pdfFile.length()}|${pdfFile.lastModified()}"
+    }
+    val engine = remember(pdfIdentityKey) { pdfFile?.takeIf { it.exists() }?.let { PdfRenderEngine(it) } }
     DisposableEffect(engine) {
         onDispose { engine?.close() }
     }

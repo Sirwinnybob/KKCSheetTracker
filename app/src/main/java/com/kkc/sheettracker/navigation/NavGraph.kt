@@ -22,6 +22,7 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +43,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.kkc.sheettracker.clock.ClockInNotificationContract
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
@@ -86,6 +88,7 @@ import com.kkc.sheettracker.ui.viewer.SheetViewerScreen
 import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
+import kotlinx.coroutines.flow.MutableStateFlow
 
 @Composable
 fun AppNavigation(
@@ -118,13 +121,19 @@ fun AppNavigation(
     val sharedHardwoodsProgressStore = hardwoodsProgressStore ?: remember(basePath, tabletId, isViewOnlyMode) {
         HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
     }
+    val watcherRefreshSignal = remember(basePath) { MutableStateFlow(0L) }
+    val watcherRefreshEpoch by watcherRefreshSignal.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
-    val trackerChangeMonitor = remember(basePath, progressStore, sharedHardwoodsProgressStore) {
-        // Read-only monitor: reacts to synced tracker file changes by invalidating in-memory caches only.
+    val trackerChangeMonitor = remember(basePath, progressStore, sharedHardwoodsProgressStore, watcherRefreshSignal) {
+        // Read-only monitor: reacts to synced tracker file changes by invalidating in-memory caches,
+        // then requests a coalesced full refresh.
         TrackerChangeMonitor(
             baseDir = File(basePath),
             progressStore = progressStore,
-            hardwoodsProgressStore = sharedHardwoodsProgressStore
+            hardwoodsProgressStore = sharedHardwoodsProgressStore,
+            onWatcherRefreshRequested = {
+                watcherRefreshSignal.value = System.currentTimeMillis()
+            }
         )
     }
     DisposableEffect(lifecycleOwner, trackerChangeMonitor) {
@@ -168,7 +177,8 @@ fun AppNavigation(
                 syncthingStatus = syncthingStatus,
                 onSyncthingApiKeySave = onSyncthingApiKeySave,
                 onSyncthingCheckNow = onSyncthingCheckNow,
-                onSyncthingStartNow = onSyncthingStartNow
+                onSyncthingStartNow = onSyncthingStartNow,
+                watcherRefreshEpoch = watcherRefreshEpoch
             )
         } else {
             LegacySingleStackNavigation(
@@ -195,7 +205,8 @@ fun AppNavigation(
                 syncthingStatus = syncthingStatus,
                 onSyncthingApiKeySave = onSyncthingApiKeySave,
                 onSyncthingCheckNow = onSyncthingCheckNow,
-                onSyncthingStartNow = onSyncthingStartNow
+                onSyncthingStartNow = onSyncthingStartNow,
+                watcherRefreshEpoch = watcherRefreshEpoch
             )
         }
     }
@@ -226,7 +237,8 @@ private fun MultiBackStackNavigation(
     syncthingStatus: SyncthingStatusUiState,
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
-    onSyncthingStartNow: () -> Unit
+    onSyncthingStartNow: () -> Unit,
+    watcherRefreshEpoch: Long
 ) {
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
@@ -298,6 +310,7 @@ private fun MultiBackStackNavigation(
     val onClockInNow: (jobNumber: String, jobName: String, folderName: String, tabType: String, employee: String) -> Unit =
         { jobNumber, jobName, folderName, tabType, employee ->
             clockInState.clockIn(jobNumber, "$jobName ($employee)", folderName, tabType)
+            ClockInNotificationContract.startOrUpdateService(context)
         }
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
@@ -311,6 +324,7 @@ private fun MultiBackStackNavigation(
         val snap = clockInState.snapshot
         val stopTimeMs = System.currentTimeMillis()
         val elapsedMs = clockInState.clockOut()
+        ClockInNotificationContract.stopService(context)
         val elapsedHours = (Math.round(elapsedMs / 3600000.0 * 4) / 4.0).coerceAtLeast(0.25)
         pendingClockOut = PendingClockOut(snap.jobName, snap.jobNumber, elapsedHours, snap.startTimeMs, stopTimeMs, elapsedMs)
     }
@@ -333,6 +347,24 @@ private fun MultiBackStackNavigation(
                 assemblyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
             }
             WorkMode.CNC -> Unit
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(watcherRefreshEpoch, basePath) {
+        if (watcherRefreshEpoch <= 0L) return@LaunchedEffect
+        when (workMode) {
+            WorkMode.CNC -> {
+                scanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                assemblyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+            }
+            WorkMode.HARDWOODS -> {
+                hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+            }
+            WorkMode.ASSEMBLY -> {
+                assemblyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+            }
         }
     }
 
@@ -857,6 +889,11 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
+                onMaterialUnavailable = {
+                    navController.navigate("job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                        launchSingleTop = true
+                    }
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -873,11 +910,13 @@ private fun JobsTabHost(
             val rawDocType = URLDecoder.decode(backStack.arguments?.getString("docType") ?: "", "UTF-8")
             val docType = runCatching { ReferenceDocType.valueOf(rawDocType) }.getOrDefault(ReferenceDocType.ASSEMBLY)
             val startPage = backStack.arguments?.getInt("startPage") ?: 1
+            val refreshGeneration = scanCoordinator.state.collectAsState().value.snapshot.generation
             ReferencePdfViewerScreen(
                 jobRepository = jobRepository,
                 jobFolderName = folderName,
                 docType = docType,
                 startPage = startPage,
+                refreshGeneration = refreshGeneration,
                 isDarkTheme = isDarkTheme,
                 onBack = { navController.popBackStack() }
             )
@@ -1156,7 +1195,8 @@ private fun LegacySingleStackNavigation(
     syncthingStatus: SyncthingStatusUiState,
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
-    onSyncthingStartNow: () -> Unit
+    onSyncthingStartNow: () -> Unit,
+    watcherRefreshEpoch: Long
 ) {
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
@@ -1196,11 +1236,13 @@ private fun LegacySingleStackNavigation(
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
             clockInState.clockIn(jobNumber, jobName, folderName, tabType)
+            ClockInNotificationContract.startOrUpdateService(legacyContext)
         }
     val onClockOut: () -> Unit = {
         val snap = clockInState.snapshot
         val stopTimeMs = System.currentTimeMillis()
         val elapsedMs = clockInState.clockOut()
+        ClockInNotificationContract.stopService(legacyContext)
         val elapsedHours = (Math.round(elapsedMs / 3600000.0 * 4) / 4.0).coerceAtLeast(0.25)
         pendingClockOut = PendingClockOut(snap.jobName, snap.jobNumber, elapsedHours, snap.startTimeMs, stopTimeMs, elapsedMs)
     }
@@ -1223,6 +1265,24 @@ private fun LegacySingleStackNavigation(
                 assemblyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
             }
             WorkMode.CNC -> Unit
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(watcherRefreshEpoch, basePath) {
+        if (watcherRefreshEpoch <= 0L) return@LaunchedEffect
+        when (workMode) {
+            WorkMode.CNC -> {
+                scanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                assemblyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+            }
+            WorkMode.HARDWOODS -> {
+                hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+            }
+            WorkMode.ASSEMBLY -> {
+                assemblyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+            }
         }
     }
 
@@ -1528,6 +1588,11 @@ private fun LegacySingleStackNavigation(
                             launchSingleTop = true
                         }
                     },
+                    onMaterialUnavailable = {
+                        navController.navigate("job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                            launchSingleTop = true
+                        }
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -1544,11 +1609,13 @@ private fun LegacySingleStackNavigation(
                 val rawDocType = URLDecoder.decode(backStack.arguments?.getString("docType") ?: "", "UTF-8")
                 val docType = runCatching { ReferenceDocType.valueOf(rawDocType) }.getOrDefault(ReferenceDocType.ASSEMBLY)
                 val startPage = backStack.arguments?.getInt("startPage") ?: 1
+                val refreshGeneration = scanCoordinator.state.collectAsState().value.snapshot.generation
                 ReferencePdfViewerScreen(
                     jobRepository = jobRepository,
                     jobFolderName = folderName,
                     docType = docType,
                     startPage = startPage,
+                    refreshGeneration = refreshGeneration,
                     isDarkTheme = isDarkTheme,
                     onBack = { navController.popBackStack() }
                 )
