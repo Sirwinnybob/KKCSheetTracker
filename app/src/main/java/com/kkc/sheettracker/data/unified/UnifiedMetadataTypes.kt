@@ -5,11 +5,13 @@ import com.kkc.sheettracker.data.models.AssemblyJob
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.HardwoodJob
+import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.JobPdfCatalog
 import com.kkc.sheettracker.data.models.PartSearchEntry
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.data.models.ScanIssue
 import com.kkc.sheettracker.data.models.SheetStatus
 
 data class UnifiedJobInfo(
@@ -21,11 +23,16 @@ data class UnifiedJobInfo(
 
 data class UnifiedCncSnapshot(
     val job: Job,
-    val searchIndex: List<PartSearchEntry>
+    val searchIndex: List<PartSearchEntry>,
+    val issues: List<ScanIssue> = emptyList()
 )
 
 data class UnifiedHardwoodsSnapshot(
     val job: HardwoodJob
+)
+
+data class UnifiedHardwoodsRevisionHistory(
+    val history: HardwoodRevisionHistory?
 )
 
 data class UnifiedAssemblySnapshot(
@@ -54,6 +61,11 @@ data class UnifiedBoardStockOverlayLookup(
 data class UnifiedMetadataSignature(
     val staticSignature: Long,
     val trackerSignature: Long
+)
+
+data class UnifiedPdfPageCountResult(
+    val pageCount: Int,
+    val errorDetail: String? = null
 )
 
 data class UnifiedReferenceLookup(

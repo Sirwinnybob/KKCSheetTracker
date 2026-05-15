@@ -225,8 +225,7 @@ class AppStateStore(
                 val touch = lastTouchesByPdf[material.pdfFilename]
                 if (touch != null) {
                     val counts = materialUiModel.counts
-                    val isPartiallyWorked = counts.total > 0 &&
-                        (counts.complete + counts.skipped) < counts.total
+                    val isPartiallyWorked = isRecentInProgressMaterial(counts)
                     if (isPartiallyWorked) {
                         val visiblePages = trackablePages(material)
                         val clampedPage = nearestTrackablePage(touch.page, visiblePages)

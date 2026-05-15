@@ -8,6 +8,7 @@ interface UnifiedMetadataEngine {
     fun listJobs(): List<UnifiedJobInfo>
     fun getCncSnapshot(jobFolderName: String): UnifiedCncSnapshot?
     fun getHardwoodsSnapshot(jobFolderName: String): UnifiedHardwoodsSnapshot?
+    fun getHardwoodsRevisionHistory(jobFolderName: String): UnifiedHardwoodsRevisionHistory
     fun getAssemblySnapshot(jobFolderName: String): UnifiedAssemblySnapshot?
 
     fun getCabinetSheetIndex(jobFolderName: String): UnifiedCabinetIndexLookup

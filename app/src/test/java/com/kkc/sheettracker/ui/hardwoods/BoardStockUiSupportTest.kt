@@ -59,7 +59,7 @@ class BoardStockUiSupportTest {
         val sections = buildBoardStockSourceSections(rows)
 
         assertEquals(
-            listOf("Frame Rip List", "Nailer Rip List", "Door Rip List", "Manual Rips"),
+            listOf("Face-Frame Rip List", "Nailer Rip List", "Door Rip List", "Manual Rips"),
             sections.map { it.title }
         )
     }

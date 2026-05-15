@@ -1,85 +1,126 @@
+param(
+    [string]$ProjectPath = "C:\Scripts\KKCSheetTracker",
+    [string]$AppModule = "app",
+    [string]$PackageName = "com.kkc.sheettracker",
+    [string]$RolloutChannel = "stable",
+    [string]$FeedRoot = "Y:\Ready Jobs\.appupdates\apps",
+    [switch]$SkipBuild
+)
+
 $ErrorActionPreference = "Stop"
 
-# Paths
-$projectPath = "C:\Scripts\KKCSheetTracker"
-$updateDir = "Y:\Ready Jobs\.Updates"
-$gradlew = "$projectPath\gradlew.bat"
-
-# 1. Build Release APK
-Write-Host "Building Release APK..." -ForegroundColor Cyan
-Set-Location $projectPath
-& $gradlew assembleRelease --rerun-tasks --no-build-cache
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Build failed!" -ForegroundColor Red
-    exit 1
-}
-
-# 2. Get Version Info
-$buildFile = "$projectPath\app\build.gradle.kts"
-$content = Get-Content $buildFile -Raw
-if ($content -match 'versionCode\s*=?\s*(\d+)') {
-    $versionCode = $matches[1]
-}
-else {
-    Write-Host "Could not parse versionCode!" -ForegroundColor Red
-    exit 1
-}
-if ($content -match 'versionName\s*=?\s*"([^"]+)"') {
-    $versionName = $matches[1]
-}
-else {
-    Write-Host "Could not parse versionName!" -ForegroundColor Red
-    exit 1
-}
-
-Write-Host "Detected Version: $versionName ($versionCode) [RELEASE]" -ForegroundColor Green
-
-# 3. Create Hidden Update Directory
-if (-not (Test-Path $updateDir)) {
-    Write-Host "Creating update directory: $updateDir" -ForegroundColor Cyan
-    New-Item -ItemType Directory -Force -Path $updateDir | Out-Null
-}
-
-if (Test-Path $updateDir) {
-    try {
-        $item = Get-Item $updateDir
-        if (($item.Attributes -band [System.IO.FileAttributes]::Hidden) -ne [System.IO.FileAttributes]::Hidden) {
-            $item.Attributes = $item.Attributes -bor [System.IO.FileAttributes]::Hidden
-        }
+function Parse-BuildValue {
+    param(
+        [string]$Content,
+        [string]$Pattern,
+        [string]$Label
+    )
+    if ($Content -match $Pattern) {
+        return $matches[1]
     }
-    catch {
-        Write-Host "Warning: Could not set Hidden attribute on $updateDir. Proceeding anyway." -ForegroundColor Yellow
+    throw "Could not parse $Label from build.gradle.kts"
+}
+
+function Ensure-Directory {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
     }
 }
-else {
-    Write-Host "Error: Failed to create $updateDir" -ForegroundColor Red
-    exit 1
+
+Set-Location $ProjectPath
+$gradlew = Join-Path $ProjectPath "gradlew.bat"
+$moduleBuildFile = Join-Path $ProjectPath "$AppModule\build.gradle.kts"
+$releaseApk = Join-Path $ProjectPath "$AppModule\build\outputs\apk\release\$AppModule-release.apk"
+$unsignedApk = Join-Path $ProjectPath "$AppModule\build\outputs\apk\release\$AppModule-release-unsigned.apk"
+
+if (-not $SkipBuild) {
+    Write-Host "Building $AppModule release APK..." -ForegroundColor Cyan
+    & $gradlew ":$AppModule`:assembleRelease" --rerun-tasks --no-build-cache
+    if ($LASTEXITCODE -ne 0) {
+        throw "Build failed"
+    }
 }
 
-# 4. Clean old KKC APKs only
-Write-Host "Cleaning up old KKC APKs in $updateDir..." -ForegroundColor Cyan
-Get-ChildItem -Path $updateDir -Filter "*.apk" |
-    Where-Object { $_.Name -match "kkc|sheet.?tracker|kkc-sheettracker" } |
-    Remove-Item -Force
+$buildContent = Get-Content -Path $moduleBuildFile -Raw
+$versionCode = [int64](Parse-BuildValue -Content $buildContent -Pattern 'versionCode\s*=?\s*(\d+)' -Label "versionCode")
+$versionName = Parse-BuildValue -Content $buildContent -Pattern 'versionName\s*=?\s*"([^"]+)"' -Label "versionName"
 
-# 5. Copy APK (signed preferred)
-$releaseApk = "$projectPath\app\build\outputs\apk\release\app-release.apk"
-$unsignedApk = "$projectPath\app\build\outputs\apk\release\app-release-unsigned.apk"
+$sourceApk = if (Test-Path -LiteralPath $releaseApk) { $releaseApk } elseif (Test-Path -LiteralPath $unsignedApk) { $unsignedApk } else { $null }
+if (-not $sourceApk) {
+    throw "Could not find release APK at $releaseApk or $unsignedApk"
+}
+
+Ensure-Directory -Path $FeedRoot
+$appFeedDir = Join-Path $FeedRoot $PackageName
+Ensure-Directory -Path $appFeedDir
+
 $safeVersionName = ($versionName -replace '[^0-9A-Za-z\.\-_]', '_')
-$targetApk = "$updateDir\kkc-sheettracker-v$safeVersionName-release.apk"
+$apkFileName = "$PackageName-v$safeVersionName-$versionCode.apk"
+$targetApk = Join-Path $appFeedDir $apkFileName
+$tempApk = "$targetApk.tmp"
 
-if (Test-Path $releaseApk) {
-    Write-Host "Copying signed APK to $targetApk" -ForegroundColor Cyan
-    Copy-Item $releaseApk $targetApk -Force
-    Write-Host "Success! KKC release update deployed." -ForegroundColor Green
+Copy-Item -LiteralPath $sourceApk -Destination $tempApk -Force
+Move-Item -LiteralPath $tempApk -Destination $targetApk -Force
+
+$sha256 = (Get-FileHash -LiteralPath $targetApk -Algorithm SHA256).Hash.ToLowerInvariant()
+
+$manifestPath = Join-Path $FeedRoot "manifest.json"
+$manifestTemp = "$manifestPath.tmp"
+$nowIso = (Get-Date).ToUniversalTime().ToString("o")
+
+if (Test-Path -LiteralPath $manifestPath) {
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -Depth 100
+} else {
+    $manifest = [pscustomobject]@{
+        schemaVersion = "v1"
+        generatedAt = $nowIso
+        apps = @()
+        history = @()
+    }
 }
-elseif (Test-Path $unsignedApk) {
-    Write-Host "Copying unsigned APK to $targetApk" -ForegroundColor Yellow
-    Copy-Item $unsignedApk $targetApk -Force
-    Write-Host "Success! KKC release update deployed (unsigned fallback)." -ForegroundColor Green
+
+if (-not $manifest.apps) { $manifest | Add-Member -NotePropertyName apps -NotePropertyValue @() -Force }
+if (-not $manifest.history) { $manifest | Add-Member -NotePropertyName history -NotePropertyValue @() -Force }
+if (-not $manifest.schemaVersion) { $manifest | Add-Member -NotePropertyName schemaVersion -NotePropertyValue "v1" -Force }
+
+$newEntry = [pscustomobject]@{
+    packageName = $PackageName
+    versionCode = $versionCode
+    versionName = $versionName
+    apkFile = $apkFileName
+    sha256 = $sha256
+    minRequiredVersionCode = $versionCode
+    rolloutChannel = $RolloutChannel
+    publishedAt = $nowIso
+    allowDowngrade = $false
 }
-else {
-    Write-Host "Release APK not found at $releaseApk or $unsignedApk" -ForegroundColor Red
-    exit 1
+
+$existingApps = @($manifest.apps)
+$retainedApps = @()
+foreach ($item in $existingApps) {
+    if ($item.packageName -eq $PackageName -and $item.rolloutChannel -eq $RolloutChannel) {
+        $manifest.history += $item
+    } else {
+        $retainedApps += $item
+    }
 }
+$retainedApps += $newEntry
+$manifest.apps = $retainedApps
+$manifest.generatedAt = $nowIso
+
+if ($manifest.history.Count -gt 200) {
+    $manifest.history = @($manifest.history | Select-Object -Last 200)
+}
+
+$manifestJson = $manifest | ConvertTo-Json -Depth 100
+Set-Content -LiteralPath $manifestTemp -Value $manifestJson -Encoding UTF8
+Move-Item -LiteralPath $manifestTemp -Destination $manifestPath -Force
+
+Write-Host "Published update:" -ForegroundColor Green
+Write-Host "  Package: $PackageName"
+Write-Host "  Version: $versionName ($versionCode)"
+Write-Host "  Channel: $RolloutChannel"
+Write-Host "  APK: $targetApk"
+Write-Host "  SHA256: $sha256"
+Write-Host "  Manifest: $manifestPath"

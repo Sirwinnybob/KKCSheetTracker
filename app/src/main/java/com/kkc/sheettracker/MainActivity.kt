@@ -47,6 +47,7 @@ import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingSupervisor
 import com.kkc.sheettracker.ui.migration.MigrationRequiredScreen
 import com.kkc.sheettracker.ui.theme.KKCTheme
+import com.kkc.sheettracker.update.DeviceOwnerUpdateFallback
 import com.kkc.sheettracker.update.UpdateManager
 import java.io.File
 import kotlinx.coroutines.launch
@@ -69,8 +70,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestStoragePermissions()
-        updateManager = UpdateManager(this)
-        updateManager.checkForUpdates()
 
         val prefs = getSharedPreferences("kkc_tracker", MODE_PRIVATE)
         var tabletId = prefs.getString("tablet_id", null)
@@ -81,6 +80,12 @@ class MainActivity : ComponentActivity() {
 
         val basePath = prefs.getString("base_path", null)
             ?: findDefaultBasePath()
+        val useLegacyUpdatePrompt = DeviceOwnerUpdateFallback(this)
+            .shouldUseLegacyPrompt(basePath = basePath, tabletId = tabletId)
+        updateManager = UpdateManager(this)
+        if (useLegacyUpdatePrompt) {
+            updateManager.checkForUpdates()
+        }
         val migrationMarkerPath = File(basePath, ".appupdates/migration_complete.json")
         val migrationReady = migrationMarkerPath.isFile
         val persistedViewOnlyOptIn = prefs.getBoolean("allow_view_only_without_migration", false)

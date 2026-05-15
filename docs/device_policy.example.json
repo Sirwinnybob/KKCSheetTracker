@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "v1",
+  "basePath": "/storage/emulated/0/Ready Jobs",
+  "updaterAgentPackage": "com.kkc.updateragent",
+  "silentInstallEnabled": true,
+  "pollIntervalMinutes": 15,
+  "maintenanceWindow": {
+    "startHourLocal": 12,
+    "endHourLocal": 14
+  },
+  "retryPolicy": {
+    "maxAttempts": 3,
+    "retryBackoffMinutes": 10
+  },
+  "managedPackages": [
+    {
+      "packageName": "com.kkc.sheettracker",
+      "rolloutChannel": "stable",
+      "installMode": "forced",
+      "minRequiredVersionCode": 3230,
+      "allowDowngrade": false,
+      "expectedSignerSha256": []
+    }
+  ]
+}

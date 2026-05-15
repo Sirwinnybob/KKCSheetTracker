@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KKC Updater Agent</string>
+    <string name="device_admin_description">Allows this updater to silently install approved company app updates on managed tablets.</string>
+</resources>

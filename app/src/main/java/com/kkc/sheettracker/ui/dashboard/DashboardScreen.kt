@@ -33,6 +33,7 @@ import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
+import com.kkc.sheettracker.data.isRecentInProgressMaterial
 import com.kkc.sheettracker.data.models.DashboardFlaggedSheetItem
 import com.kkc.sheettracker.data.models.DashboardRecentMaterialItem
 import com.kkc.sheettracker.data.models.DashboardUiModel
@@ -109,7 +110,7 @@ fun DashboardScreen(
                 for (material in job.materials) {
                     val materialCounts = progressStore.getMaterialStatusCounts(job.folderName, material)
                     val touch = touchesByPdf[material.pdfFilename]
-                    if (touch != null && materialCounts.total > 0 && (materialCounts.complete + materialCounts.skipped) < materialCounts.total) {
+                    if (touch != null && isRecentInProgressMaterial(materialCounts)) {
                         val trackablePages = progressStore.getMaterialTrackablePages(material)
                         val clampedPage = if (touch.page in trackablePages) {
                             touch.page

@@ -5,6 +5,7 @@ import android.os.ParcelFileDescriptor
 import com.kkc.sheettracker.data.models.*
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import com.kkc.sheettracker.data.unified.UnifiedPdfPageCountResult
 import com.kkc.sheettracker.data.unified.UnifiedReferenceQuery
 import java.io.File
 
@@ -24,7 +25,7 @@ class JobRepository(
         return UnifiedMetadataEngineRegistry.getOrCreate(
             baseDir = baseDir,
             isDebugBuild = isDebugBuild,
-            pdfPageCounter = ::countPdfPages
+            pdfPageCounter = ::countPdfPagesForEngine
         ).also { unifiedEngine = it }
     }
 
@@ -99,16 +100,16 @@ class JobRepository(
         return index
     }
 
-    private fun countPdfPages(pdfFile: File): Int {
+    private fun countPdfPagesForEngine(pdfFile: File): UnifiedPdfPageCountResult {
         return try {
             val fd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
             val renderer = PdfRenderer(fd)
             val count = renderer.pageCount
             renderer.close()
             fd.close()
-            count
+            UnifiedPdfPageCountResult(pageCount = count)
         } catch (e: Exception) {
-            0
+            UnifiedPdfPageCountResult(pageCount = 0, errorDetail = e.message)
         }
     }
 

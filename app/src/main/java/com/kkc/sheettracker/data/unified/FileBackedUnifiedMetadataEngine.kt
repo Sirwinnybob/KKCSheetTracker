@@ -17,6 +17,7 @@ import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJob
+import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.JobPdfCatalog
@@ -25,6 +26,8 @@ import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.MaterialMetadata
 import com.kkc.sheettracker.data.models.PartSearchEntry
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.data.models.ScanIssue
+import com.kkc.sheettracker.data.models.ScanIssueType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.parseJobFolderName
 import java.io.File
@@ -36,7 +39,7 @@ import kotlin.math.ceil
 class FileBackedUnifiedMetadataEngine(
     basePath: String,
     private val isDebugBuild: Boolean,
-    private val pdfPageCounter: (File) -> Int = { 0 }
+    private val pdfPageCounter: (File) -> UnifiedPdfPageCountResult = { UnifiedPdfPageCountResult(0) }
 ) : UnifiedMetadataEngine {
     private val gson = Gson()
     @Volatile
@@ -45,7 +48,9 @@ class FileBackedUnifiedMetadataEngine(
     private data class StaticJobData(
         val jobInfo: UnifiedJobInfo,
         val cncJob: Job?,
+        val cncIssues: List<ScanIssue>,
         val hardwoodJob: HardwoodJob?,
+        val hardwoodRevisionHistory: HardwoodRevisionHistory?,
         val assemblyJob: AssemblyJob?,
         val cabinetSheetIndex: CabinetSheetIndex?,
         val pdfCatalog: JobPdfCatalog,
@@ -107,13 +112,18 @@ class FileBackedUnifiedMetadataEngine(
         val staticData = loadStaticJobData(jobFolderName) ?: return null
         val cncJob = staticData.cncJob ?: return null
         val searchIndex = buildCncSearchIndex(cncJob)
-        return UnifiedCncSnapshot(job = cncJob, searchIndex = searchIndex)
+        return UnifiedCncSnapshot(job = cncJob, searchIndex = searchIndex, issues = staticData.cncIssues)
     }
 
     override fun getHardwoodsSnapshot(jobFolderName: String): UnifiedHardwoodsSnapshot? {
         val staticData = loadStaticJobData(jobFolderName) ?: return null
         val job = staticData.hardwoodJob ?: return null
         return UnifiedHardwoodsSnapshot(job = job)
+    }
+
+    override fun getHardwoodsRevisionHistory(jobFolderName: String): UnifiedHardwoodsRevisionHistory {
+        val staticData = loadStaticJobData(jobFolderName)
+        return UnifiedHardwoodsRevisionHistory(history = staticData?.hardwoodRevisionHistory)
     }
 
     override fun getAssemblySnapshot(jobFolderName: String): UnifiedAssemblySnapshot? {
@@ -332,9 +342,10 @@ class FileBackedUnifiedMetadataEngine(
             hiddenFromProduction = gate.hiddenFromProduction
         )
 
-        val cncJob = buildCncJob(jobInfo)
+        val cnc = buildCncJob(jobInfo)
         val cabinetSheetIndex = loadCabinetSheetIndex(jobFolderName)
         val hardwoodIndex = loadHardwoodIndex(jobFolderName)
+        val hardwoodRevisionHistory = loadHardwoodRevisionHistory(jobFolderName)
         val hardwoodJob = HardwoodJob(
             folderName = jobInfo.folderName,
             jobNumber = jobInfo.jobNumber,
@@ -354,8 +365,10 @@ class FileBackedUnifiedMetadataEngine(
 
         val next = StaticJobData(
             jobInfo = jobInfo,
-            cncJob = cncJob,
+            cncJob = cnc.job,
+            cncIssues = cnc.issues,
             hardwoodJob = hardwoodJob,
+            hardwoodRevisionHistory = hardwoodRevisionHistory,
             assemblyJob = assemblyJob,
             cabinetSheetIndex = cabinetSheetIndex,
             pdfCatalog = pdfCatalog,
@@ -365,19 +378,33 @@ class FileBackedUnifiedMetadataEngine(
         return next
     }
 
-    private fun buildCncJob(job: UnifiedJobInfo): Job {
+    private data class BuiltCncJob(
+        val job: Job,
+        val issues: List<ScanIssue>
+    )
+
+    private fun buildCncJob(job: UnifiedJobInfo): BuiltCncJob {
         val cncDir = File(baseDir, "${job.folderName}/CNC")
-        val materials = scanCncMaterials(job.folderName, cncDir, job.jobNumber)
-        return Job(
+        val issues = mutableListOf<ScanIssue>()
+        val materials = scanCncMaterials(job.folderName, cncDir, job.jobNumber, issues)
+        return BuiltCncJob(
+            job = Job(
             folderName = job.folderName,
             jobNumber = job.jobNumber,
             jobName = job.jobName,
             materials = materials,
             hiddenFromProduction = job.hiddenFromProduction
+            ),
+            issues = issues
         )
     }
 
-    private fun scanCncMaterials(jobFolderName: String, cncDir: File, jobNumber: String): List<Material> {
+    private fun scanCncMaterials(
+        jobFolderName: String,
+        cncDir: File,
+        jobNumber: String,
+        issues: MutableList<ScanIssue>
+    ): List<Material> {
         if (!cncDir.exists()) return emptyList()
         return cncDir.listFiles()
             ?.filter {
@@ -387,8 +414,32 @@ class FileBackedUnifiedMetadataEngine(
             }
             ?.map { pdfFile ->
                 val materialName = pdfFile.nameWithoutExtension.removePrefix("$jobNumber - ")
-                val metadata = loadCncMaterialMetadata(cncDir, pdfFile.name)
-                val pageCount = runCatching { pdfPageCounter(pdfFile) }.getOrDefault(metadata?.pages?.size ?: 0)
+                val metadata = loadCncMaterialMetadata(
+                    jobFolderName = jobFolderName,
+                    materialName = materialName,
+                    cncDir = cncDir,
+                    pdfFilename = pdfFile.name,
+                    issues = issues
+                )
+                val pageCountResult = runCatching { pdfPageCounter(pdfFile) }
+                    .getOrElse { UnifiedPdfPageCountResult(pageCount = metadata?.pages?.size ?: 0, errorDetail = it.message) }
+                if (!pageCountResult.errorDetail.isNullOrBlank()) {
+                    issues += ScanIssue(
+                        type = ScanIssueType.PAGE_COUNT_ERROR,
+                        jobFolderName = jobFolderName,
+                        materialName = materialName,
+                        pdfFilename = pdfFile.name,
+                        detail = pageCountResult.errorDetail
+                    )
+                    issues += ScanIssue(
+                        type = ScanIssueType.PDF_READ_ERROR,
+                        jobFolderName = jobFolderName,
+                        materialName = materialName,
+                        pdfFilename = pdfFile.name,
+                        detail = pageCountResult.errorDetail
+                    )
+                }
+                val pageCount = if (pageCountResult.pageCount > 0) pageCountResult.pageCount else (metadata?.pages?.size ?: 0)
                 Material(
                     pdfFilename = pdfFile.name,
                     materialName = materialName,
@@ -401,11 +452,35 @@ class FileBackedUnifiedMetadataEngine(
             ?: emptyList()
     }
 
-    private fun loadCncMaterialMetadata(cncDir: File, pdfFilename: String): MaterialMetadata? {
+    private fun loadCncMaterialMetadata(
+        jobFolderName: String,
+        materialName: String,
+        cncDir: File,
+        pdfFilename: String,
+        issues: MutableList<ScanIssue>
+    ): MaterialMetadata? {
         val jsonFilename = pdfFilename.removeSuffix(".pdf") + ".json"
         val metadataFile = File(cncDir, ".metadata/$jsonFilename")
-        if (!metadataFile.exists()) return null
-        return runCatching { gson.fromJson(metadataFile.readText(), MaterialMetadata::class.java) }.getOrNull()
+        if (!metadataFile.exists()) {
+            issues += ScanIssue(
+                type = ScanIssueType.MISSING_METADATA,
+                jobFolderName = jobFolderName,
+                materialName = materialName,
+                pdfFilename = pdfFilename
+            )
+            return null
+        }
+        return runCatching { gson.fromJson(metadataFile.readText(), MaterialMetadata::class.java) }
+            .onFailure { error ->
+                issues += ScanIssue(
+                    type = ScanIssueType.INVALID_METADATA_JSON,
+                    jobFolderName = jobFolderName,
+                    materialName = materialName,
+                    pdfFilename = pdfFilename,
+                    detail = error.message
+                )
+            }
+            .getOrNull()
     }
 
     private fun loadCabinetSheetIndex(jobFolderName: String): CabinetSheetIndex? {
@@ -418,6 +493,12 @@ class FileBackedUnifiedMetadataEngine(
         val indexFile = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
         if (!indexFile.exists() || !indexFile.isFile) return null
         return runCatching { gson.fromJson(indexFile.readText(), HardwoodCutlistIndex::class.java) }.getOrNull()
+    }
+
+    private fun loadHardwoodRevisionHistory(jobFolderName: String): HardwoodRevisionHistory? {
+        val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_revisions.json")
+        if (!file.exists() || !file.isFile) return null
+        return runCatching { gson.fromJson(file.readText(), HardwoodRevisionHistory::class.java) }.getOrNull()
     }
 
     private fun buildPdfCatalog(jobFolderName: String): JobPdfCatalog {
@@ -682,6 +763,8 @@ class FileBackedUnifiedMetadataEngine(
 
         val hardwoodIndex = File(jobDir, ".metadata/hardwoods/cutlist_index.json")
         mix(signatureForFile(hardwoodIndex))
+        val hardwoodRevision = File(jobDir, ".metadata/hardwoods/cutlist_revisions.json")
+        mix(signatureForFile(hardwoodRevision))
         val manualBoard = File(jobDir, ".metadata/hardwoods/board_stock_manual.json")
         mix(signatureForFile(manualBoard))
 

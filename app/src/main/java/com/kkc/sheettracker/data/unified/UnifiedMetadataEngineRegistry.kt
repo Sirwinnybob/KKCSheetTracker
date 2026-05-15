@@ -9,7 +9,7 @@ object UnifiedMetadataEngineRegistry {
     fun getOrCreate(
         baseDir: File,
         isDebugBuild: Boolean,
-        pdfPageCounter: (File) -> Int = { 0 }
+        pdfPageCounter: (File) -> UnifiedPdfPageCountResult = { UnifiedPdfPageCountResult(0) }
     ): UnifiedMetadataEngine {
         val key = "${baseDir.absolutePath}|$isDebugBuild"
         return byKey[key] ?: synchronized(this) {

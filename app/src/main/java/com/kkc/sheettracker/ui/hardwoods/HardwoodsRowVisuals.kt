@@ -63,11 +63,11 @@ fun hardwoodsRowVisualStyle(
         HardwoodsRowState.PARTIAL_SKIP -> status.skipBorder
     }
     val backgroundTint = when (state) {
-        HardwoodsRowState.COMPLETE -> status.completeBgRow
-        HardwoodsRowState.SKIPPED -> status.skipBgRow
-        HardwoodsRowState.PARTIAL_SKIP -> status.skipBgRow.copy(alpha = 0.65f)
-        HardwoodsRowState.IN_PROGRESS -> status.inProgressBorder.copy(alpha = 0.08f)
-        HardwoodsRowState.NOT_STARTED -> widthBand.copy(alpha = 0.06f)
+        HardwoodsRowState.COMPLETE -> status.completeBgRow.copy(alpha = 0.18f)
+        HardwoodsRowState.SKIPPED -> status.skipBgRow.copy(alpha = 0.22f)
+        HardwoodsRowState.PARTIAL_SKIP -> status.skipBgRow.copy(alpha = 0.30f)
+        HardwoodsRowState.IN_PROGRESS -> status.inProgressBorder.copy(alpha = 0.14f)
+        HardwoodsRowState.NOT_STARTED -> widthBand.copy(alpha = 0.11f)
     }
     val progressFill = when (state) {
         HardwoodsRowState.COMPLETE -> status.completeBorder

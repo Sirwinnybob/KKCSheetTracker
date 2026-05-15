@@ -26,7 +26,7 @@ class UnifiedMetadataEngineTest {
         val engine = FileBackedUnifiedMetadataEngine(
             basePath = baseDir.absolutePath,
             isDebugBuild = true,
-            pdfPageCounter = { 8 }
+            pdfPageCounter = { UnifiedPdfPageCountResult(8) }
         )
 
         val jobs = engine.listJobs()

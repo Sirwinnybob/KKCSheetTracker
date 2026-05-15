@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "v1",
+  "generatedAt": "2026-05-14T18:00:00Z",
+  "apps": [
+    {
+      "packageName": "com.kkc.sheettracker",
+      "versionCode": 3230,
+      "versionName": "3.2.3",
+      "apkFile": "com.kkc.sheettracker-v3.2.3-3230.apk",
+      "sha256": "replace-with-real-sha256",
+      "minRequiredVersionCode": 3230,
+      "rolloutChannel": "stable",
+      "publishedAt": "2026-05-14T18:00:00Z",
+      "allowDowngrade": false
+    }
+  ],
+  "history": []
+}

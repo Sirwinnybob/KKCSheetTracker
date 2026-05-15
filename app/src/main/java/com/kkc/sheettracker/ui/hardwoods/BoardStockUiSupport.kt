@@ -63,7 +63,7 @@ internal fun buildBoardStockSourceSections(rows: List<BoardStockRow>): List<Boar
 
 private fun BoardStockSource.toRipListTitle(): String {
     return when (this) {
-        BoardStockSource.FRAME -> "Frame Rip List"
+        BoardStockSource.FRAME -> "Face-Frame Rip List"
         BoardStockSource.NAILER -> "Nailer Rip List"
         BoardStockSource.DOOR -> "Door Rip List"
         BoardStockSource.MANUAL -> "Manual Rips"

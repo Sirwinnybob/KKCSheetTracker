@@ -1508,6 +1508,7 @@ private fun HardwoodsBoardStockList(
                 .toSet()
         )
     }
+    val childSectionIndent = 14.dp
     val widthBandPalette = statusColors.widthBandPalette
     val widthColorBands = remember(sections, widthBandPalette) {
         val seen = LinkedHashMap<String, Color>()
@@ -1535,6 +1536,7 @@ private fun HardwoodsBoardStockList(
             val sourceKey = sourceSection.source.name
             val sourceRows = sourceSection.materials.flatMap { it.rows }
             val sourceCollapsed = sourceKey in collapsedSourceSections
+            val parentSectionBottomBuffer = 14.dp
             val totalTarget = sourceRows.sumOf { line ->
                 val materialSkipped = progressStore.isBoardStockMaterialSkipped(
                     jobFolderName = jobFolderName,
@@ -1605,36 +1607,48 @@ private fun HardwoodsBoardStockList(
                         if (lineSkipped) 0 else (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
                     }
                     stickyHeader(key = "totals-material:$sourceKey:${materialSection.material}") {
-                        SectionProgressHeader(
-                            title = materialSection.material,
-                            itemCount = materialSection.rows.size,
-                            done = materialDone,
-                            total = materialTarget,
-                            dimmed = materialSkipped,
-                            skipped = materialSkipped,
-                            expanded = !materialCollapsed,
-                            onToggleExpanded = {
-                                collapsedMaterialSections = if (materialCollapsed) {
-                                    collapsedMaterialSections - materialKey
-                                } else {
-                                    collapsedMaterialSections + materialKey
-                                }
-                            },
-                            headerActions = {
-                                MaterialSkipPill(
-                                    skipped = materialSkipped,
-                                    onClick = {
-                                        progressStore.setBoardStockMaterialSkipped(
-                                            jobFolderName = jobFolderName,
-                                            material = materialSection.material,
-                                            source = sourceSection.source.name,
-                                            skipped = !materialSkipped
-                                        )
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = childSectionIndent),
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                            )
+                        ) {
+                            SectionProgressHeader(
+                                title = materialSection.material,
+                                itemCount = materialSection.rows.size,
+                                done = materialDone,
+                                total = materialTarget,
+                                dimmed = materialSkipped,
+                                skipped = materialSkipped,
+                                expanded = !materialCollapsed,
+                                onToggleExpanded = {
+                                    collapsedMaterialSections = if (materialCollapsed) {
+                                        collapsedMaterialSections - materialKey
+                                    } else {
+                                        collapsedMaterialSections + materialKey
                                     }
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                                },
+                                headerActions = {
+                                    MaterialSkipPill(
+                                        skipped = materialSkipped,
+                                        onClick = {
+                                            progressStore.setBoardStockMaterialSkipped(
+                                                jobFolderName = jobFolderName,
+                                                material = materialSection.material,
+                                                source = sourceSection.source.name,
+                                                skipped = !materialSkipped
+                                            )
+                                        }
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                     if (!materialCollapsed) {
                         items(materialSection.rows, key = { it.stableKey }) { line ->
@@ -1643,7 +1657,6 @@ private fun HardwoodsBoardStockList(
                             val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
                             val rawDone = (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
                             val done = rawDone
-                            val remaining = (line.neededRips - done).coerceAtLeast(0)
                             val widthBand = widthColorBands[normalizeWidthForGrouping(line.width)] ?: statusColors.notStarted
                             val rowState = when {
                                 lineSkipped -> ProgressState.SKIPPED
@@ -1656,6 +1669,7 @@ private fun HardwoodsBoardStockList(
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .padding(start = childSectionIndent)
                                     .heightIn(min = 48.dp)
                                     .drawBehind {
                                         drawLine(
@@ -1667,9 +1681,9 @@ private fun HardwoodsBoardStockList(
                                     },
                                 shape = RoundedCornerShape(6.dp),
                                 color = when {
-                                    materialSkipped -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f)
-                                    lineSkipped -> statusColors.completeBgRow.copy(alpha = 0.92f)
-                                    else -> MaterialTheme.colorScheme.surface
+                                    materialSkipped -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                    lineSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
+                                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
                                 },
                                 tonalElevation = 0.5.dp
                             ) {
@@ -1707,16 +1721,11 @@ private fun HardwoodsBoardStockList(
                                                 )
                                             }
                                             Text(
-                                                "Total ${formatLinearFeet(line.totalFeet)} ft • Remaining $remaining",
+                                                "Total ${formatLinearFeet(line.totalFeet)} ft",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                line.sourceLabel,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                         Button(
@@ -1807,6 +1816,13 @@ private fun HardwoodsBoardStockList(
                             }
                         }
                     }
+                }
+                item(key = "source-buffer:$sourceKey") {
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(parentSectionBottomBuffer)
+                    )
                 }
             }
         }
