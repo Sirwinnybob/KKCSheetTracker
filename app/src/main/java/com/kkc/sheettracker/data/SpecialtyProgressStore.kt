@@ -675,7 +675,11 @@ class SpecialtyProgressStore(
             if (!isChecklistIncludedForSpecialty(obj.get("modes"))) return@mapNotNull null
 
             val category = parseCategory(obj.getFirstNonBlankString("category"))
-            val stations = parseModeStations(obj.get("modes"))
+            // Prefer explicit stations field (SAW, EDGE_BANDER, ASSEMBLY set by admin);
+            // fall back to deriving stations from modes for legacy items with no stations field.
+            val explicitStations = parseStations(obj.get("stations"))
+            val stations = if (explicitStations.isNotEmpty()) explicitStations
+                else parseModeStations(obj.get("modes"))
 
             SpecialtyItem(
                 id = "checklist:$checklistId",
@@ -692,7 +696,14 @@ class SpecialtyProgressStore(
                 attachments = obj.getAttachmentLabels("attachments"),
                 autoDetected = false,
                 createdAt = obj.getNullableString("createdAt"),
-                createdBy = obj.getNullableString("createdBy")
+                createdBy = obj.getNullableString("createdBy"),
+                dimensions = obj.getNullableString("dimensions"),
+                quantity = runCatching {
+                    obj.get("quantity")?.let { e ->
+                        if (e.isJsonPrimitive && e.asJsonPrimitive.isNumber) e.asInt else null
+                    }
+                }.getOrNull(),
+                material = obj.getNullableString("material")
             )
         }
     }
