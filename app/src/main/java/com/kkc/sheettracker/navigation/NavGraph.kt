@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -56,6 +57,10 @@ import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
+import com.kkc.sheettracker.data.SpecialtyProgressStore
+import com.kkc.sheettracker.data.SpecialtyRepository
+import com.kkc.sheettracker.data.SpecialtyScanCoordinator
+import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.TrackerChangeMonitor
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
@@ -64,6 +69,7 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.ui.assembly.AssemblyDashboardScreen
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
+import com.kkc.sheettracker.ui.assembly.AssemblyJobDetailScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
 import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
@@ -80,15 +86,23 @@ import com.kkc.sheettracker.ui.hardwoods.HardwoodsJobDetailScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsJobsScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsSearchScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsWorkspaceScreen
+import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_RIP_CUT_LIST_ROW_ID
 import com.kkc.sheettracker.ui.search.SearchScreen
 import com.kkc.sheettracker.ui.settings.SettingsScreen
+import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
+import com.kkc.sheettracker.ui.specialty.SpecialtyDashboardScreen
+import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
+import com.kkc.sheettracker.ui.specialty.SpecialtyJobsScreen
 import com.kkc.sheettracker.ui.viewer.ReferencePdfViewerScreen
 import com.kkc.sheettracker.ui.viewer.SheetViewerScreen
 import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
 import kotlinx.coroutines.flow.MutableStateFlow
+
+private const val SPECIALTY_DOOR_PANELS_ROUTE_BASE = "specialty/door-panels"
+private const val SPECIALTY_DOOR_PANELS_ROUTE_PATTERN = "$SPECIALTY_DOOR_PANELS_ROUTE_BASE/{folderName}"
 
 @Composable
 fun AppNavigation(
@@ -116,21 +130,32 @@ fun AppNavigation(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    hardwoodsProgressStore: HardwoodsProgressStore? = null
+    hardwoodsProgressStore: HardwoodsProgressStore? = null,
+    specialtyProgressStore: SpecialtyProgressStore? = null
 ) {
     val sharedHardwoodsProgressStore = hardwoodsProgressStore ?: remember(basePath, tabletId, isViewOnlyMode) {
         HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
     }
+    val sharedSpecialtyProgressStore = specialtyProgressStore ?: remember(basePath, tabletId, isViewOnlyMode) {
+        SpecialtyProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
+    }
     val watcherRefreshSignal = remember(basePath) { MutableStateFlow(0L) }
     val watcherRefreshEpoch by watcherRefreshSignal.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
-    val trackerChangeMonitor = remember(basePath, progressStore, sharedHardwoodsProgressStore, watcherRefreshSignal) {
+    val trackerChangeMonitor = remember(
+        basePath,
+        progressStore,
+        sharedHardwoodsProgressStore,
+        sharedSpecialtyProgressStore,
+        watcherRefreshSignal
+    ) {
         // Read-only monitor: reacts to synced tracker file changes by invalidating in-memory caches,
         // then requests a coalesced full refresh.
         TrackerChangeMonitor(
             baseDir = File(basePath),
             progressStore = progressStore,
             hardwoodsProgressStore = sharedHardwoodsProgressStore,
+            specialtyProgressStore = sharedSpecialtyProgressStore,
             onWatcherRefreshRequested = {
                 watcherRefreshSignal.value = System.currentTimeMillis()
             }
@@ -159,6 +184,7 @@ fun AppNavigation(
                 jobRepository = jobRepository,
                 progressStore = progressStore,
                 hardwoodsProgressStore = sharedHardwoodsProgressStore,
+                specialtyProgressStore = sharedSpecialtyProgressStore,
                 appStateFlags = appStateFlags,
                 tabletId = tabletId,
                 basePath = basePath,
@@ -187,6 +213,7 @@ fun AppNavigation(
                 jobRepository = jobRepository,
                 progressStore = progressStore,
                 hardwoodsProgressStore = sharedHardwoodsProgressStore,
+                specialtyProgressStore = sharedSpecialtyProgressStore,
                 appStateFlags = appStateFlags,
                 tabletId = tabletId,
                 basePath = basePath,
@@ -219,6 +246,7 @@ private fun MultiBackStackNavigation(
     jobRepository: JobRepository,
     progressStore: ProgressStore,
     hardwoodsProgressStore: HardwoodsProgressStore,
+    specialtyProgressStore: SpecialtyProgressStore,
     appStateFlags: AppStateFeatureFlags,
     tabletId: String,
     basePath: String,
@@ -246,6 +274,10 @@ private fun MultiBackStackNavigation(
     val context = LocalContext.current
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
+    val specialtyRepository = remember(basePath, specialtyProgressStore) {
+        SpecialtyRepository(File(basePath), specialtyProgressStore)
+    }
+    val specialtyScanCoordinator = remember(specialtyRepository) { SpecialtyScanCoordinator(specialtyRepository) }
     val assemblyScanCoordinator = remember(basePath) { AssemblyScanCoordinator(File(basePath), jobRepository) }
     val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore) {
         AssemblyStateStore(
@@ -256,18 +288,24 @@ private fun MultiBackStackNavigation(
             hardwoodsProgressStore = hardwoodsProgressStore
         )
     }
+    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore) {
+        SpecialtyStateStore(
+            specialtyScanCoordinator = specialtyScanCoordinator,
+            specialtyProgressStore = specialtyProgressStore
+        )
+    }
     val dashboardNavController = rememberNavController()
     val jobsNavController = rememberNavController()
     val searchNavController = rememberNavController()
     val settingsNavController = rememberNavController()
     val hoursNavController = rememberNavController()
-    val homeTab = if (workMode == WorkMode.ASSEMBLY) TopLevelTab.JOBS else TopLevelTab.DASHBOARD
+    val homeTab = homeTopLevelTabForWorkMode(workMode)
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
-        if (workMode == WorkMode.ASSEMBLY) {
+        if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
             listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
         } else {
             NavDestination.entries
@@ -340,13 +378,24 @@ private fun MultiBackStackNavigation(
     androidx.compose.runtime.LaunchedEffect(workMode, basePath) {
         hardwoodsRepository.updateBaseDir(File(basePath))
         assemblyScanCoordinator.updateBasePath(basePath)
+        specialtyRepository.updateBaseDir(File(basePath))
+        specialtyScanCoordinator.updateBasePath(basePath)
         when (workMode) {
-            WorkMode.HARDWOODS -> hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+            WorkMode.CNC -> {
+                specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+            }
+            WorkMode.HARDWOODS -> {
+                hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+            }
             WorkMode.ASSEMBLY -> {
                 hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
                 assemblyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
             }
-            WorkMode.CNC -> Unit
+            WorkMode.SPECIALTY -> {
+                specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+            }
         }
     }
 
@@ -357,13 +406,19 @@ private fun MultiBackStackNavigation(
                 scanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
                 hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
                 assemblyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
             WorkMode.HARDWOODS -> {
                 hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
             WorkMode.ASSEMBLY -> {
                 assemblyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
                 hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+            }
+            WorkMode.SPECIALTY -> {
+                specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
         }
     }
@@ -384,11 +439,15 @@ private fun MultiBackStackNavigation(
                         hardwoodsProgressStore = hardwoodsProgressStore,
                         assemblyScanCoordinator = assemblyScanCoordinator,
                         assemblyStateStore = assemblyStateStore,
+                        specialtyStateStore = specialtyStateStore,
                         onNavigateToJobs = {
                             coordinator.navigateTopLevel(TopLevelTab.JOBS)
                         },
                         onOpenJobInJobs = { folderName ->
                             coordinator.openJobDetailInJobs(folderName)
+                        },
+                        onOpenSpecialtyJobInJobs = { folderName ->
+                            coordinator.openSpecialtyJobInJobs(folderName)
                         },
                         onOpenHardwoodsJobInJobs = { folderName ->
                             coordinator.openHardwoodsJobInJobs(folderName)
@@ -413,7 +472,9 @@ private fun MultiBackStackNavigation(
                         hardwoodsScanCoordinator = hardwoodsScanCoordinator,
                         hardwoodsProgressStore = hardwoodsProgressStore,
                         assemblyScanCoordinator = assemblyScanCoordinator,
+                        specialtyScanCoordinator = specialtyScanCoordinator,
                         assemblyStateStore = assemblyStateStore,
+                        specialtyStateStore = specialtyStateStore,
                         basePath = basePath,
                         clockInState = clockInState,
                         onClockIn = onClockIn,
@@ -432,6 +493,7 @@ private fun MultiBackStackNavigation(
                         hardwoodsScanCoordinator = hardwoodsScanCoordinator,
                         assemblyScanCoordinator = assemblyScanCoordinator,
                         assemblyStateStore = assemblyStateStore,
+                        specialtyStateStore = specialtyStateStore,
                         onCncResultClick = { folderName, pdfFilename, page ->
                             coordinator.openSheetInJobs(folderName, pdfFilename, page)
                         },
@@ -455,7 +517,7 @@ private fun MultiBackStackNavigation(
                             )
                         },
                         onBack = {
-                            coordinator.navigateTopLevel(TopLevelTab.DASHBOARD)
+                            coordinator.navigateTopLevel(homeTab)
                         }
                     )
                 }
@@ -489,7 +551,7 @@ private fun MultiBackStackNavigation(
                         onSyncthingCheckNow = onSyncthingCheckNow,
                         onSyncthingStartNow = onSyncthingStartNow,
                         onBack = {
-                            coordinator.navigateTopLevel(TopLevelTab.DASHBOARD)
+                            coordinator.navigateTopLevel(homeTab)
                         }
                     )
                 }
@@ -597,11 +659,14 @@ private fun DashboardTabHost(
     hardwoodsProgressStore: HardwoodsProgressStore,
     assemblyScanCoordinator: AssemblyScanCoordinator,
     assemblyStateStore: AssemblyStateStore,
+    specialtyStateStore: SpecialtyStateStore,
     onNavigateToJobs: () -> Unit,
     onOpenJobInJobs: (String) -> Unit,
+    onOpenSpecialtyJobInJobs: (String) -> Unit,
     onOpenHardwoodsJobInJobs: (String) -> Unit,
     onOpenSheet: (String, String, Int) -> Unit
 ) {
+    val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     NavHost(
         navController = navController,
         startDestination = "dashboard",
@@ -639,7 +704,18 @@ private fun DashboardTabHost(
                         assemblyStateStore = assemblyStateStore,
                         progressStore = progressStore,
                         hardwoodsProgressStore = hardwoodsProgressStore,
+                        specialtyStateStore = specialtyStateStore,
+                        specialtyProgressVersionHint = specialtyProgressVersion,
                         onNavigateToJobs = onNavigateToJobs
+                    )
+                }
+                WorkMode.SPECIALTY -> {
+                    SpecialtyDashboardScreen(
+                        specialtyStateStore = specialtyStateStore,
+                        onNavigateToJobs = onNavigateToJobs,
+                        onOpenJob = { folderName ->
+                            onOpenSpecialtyJobInJobs(folderName)
+                        }
                     )
                 }
             }
@@ -661,13 +737,16 @@ private fun JobsTabHost(
     hardwoodsScanCoordinator: HardwoodsScanCoordinator,
     hardwoodsProgressStore: HardwoodsProgressStore,
     assemblyScanCoordinator: AssemblyScanCoordinator,
+    specialtyScanCoordinator: SpecialtyScanCoordinator,
     assemblyStateStore: AssemblyStateStore,
+    specialtyStateStore: SpecialtyStateStore,
     basePath: String,
     clockInState: ClockInState,
     onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
+    val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     NavHost(
         navController = navController,
         startDestination = "jobs",
@@ -767,8 +846,10 @@ private fun JobsTabHost(
                         jobRepository = jobRepository,
                         progressStore = progressStore,
                         hardwoodsProgressStore = hardwoodsProgressStore,
+                        specialtyStateStore = specialtyStateStore,
+                        specialtyProgressVersionHint = specialtyProgressVersion,
                         onJobClick = { card ->
-                            navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
+                            navController.navigate(assemblyJobRoute(card.folderName)) {
                                 launchSingleTop = true
                             }
                         },
@@ -788,7 +869,44 @@ private fun JobsTabHost(
                         onSettingsClick = onSettingsClick
                     )
                 }
+                WorkMode.SPECIALTY -> {
+                    SpecialtyJobsScreen(
+                        specialtyScanCoordinator = specialtyScanCoordinator,
+                        specialtyStateStore = specialtyStateStore,
+                        onJobClick = { card ->
+                            navController.navigate(specialtyJobRoute(card.folderName)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onSearchClick = onSearchClick,
+                        onSettingsClick = onSettingsClick
+                    )
+                }
             }
+        }
+
+        composable(
+            "assembly/job/{folderName}",
+            arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+        ) { backStack ->
+            val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            AssemblyJobDetailScreen(
+                jobFolderName = folderName,
+                assemblyStateStore = assemblyStateStore,
+                specialtyStateStore = specialtyStateStore,
+                jobRepository = jobRepository,
+                onOpenSplitView = {
+                    navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
+                        launchSingleTop = true
+                    }
+                },
+                onJumpToCabinet = { cab ->
+                    navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
+                        launchSingleTop = true
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
         }
 
         composable(
@@ -803,6 +921,7 @@ private fun JobsTabHost(
                 appStateStore = appStateStore,
                 jobRepository = jobRepository,
                 progressStore = progressStore,
+                specialtyStateStore = specialtyStateStore,
                 appStateFlags = appStateFlags,
                 jobFolderName = folderName,
                 isClockedInHere = isClockedInHere,
@@ -842,6 +961,98 @@ private fun JobsTabHost(
                 },
                 onBack = { navController.popBackStack() }
             )
+        }
+
+        composable(
+            "specialty/job/{folderName}",
+            arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+        ) { backStack ->
+            val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            val hasDeliverySheet = remember(folderName) {
+                jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
+            }
+            val hasAssemblySheet = remember(folderName) {
+                jobRepository.hasReferenceDocument(folderName, ReferenceDocType.ASSEMBLY)
+            }
+            val hasPlansElevations = remember(folderName) {
+                jobRepository.hasReferenceDocument(folderName, ReferenceDocType.PLANS_ELEVATIONS)
+            }
+            val hasThreeDAssets = remember(folderName) {
+                jobRepository.hasThreeDAssets(folderName)
+            }
+            SpecialtyJobDetailScreen(
+                jobFolderName = folderName,
+                specialtyStateStore = specialtyStateStore,
+                hasAssemblySheet = hasAssemblySheet,
+                hasPlansElevations = hasPlansElevations,
+                hasDeliverySheet = hasDeliverySheet,
+                hasThreeDAssets = hasThreeDAssets,
+                onOpenReferenceDocument = { docType, startPage ->
+                    navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenThreeD = {
+                    val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                    navController.navigate(
+                        assemblyViewerRoute(
+                            jobFolderName = folderName,
+                            assemblyPage = target.assemblyPage,
+                            plansPage = target.plansPage,
+                            source = "3d",
+                            room = target.room
+                        )
+                    ) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenDoorPanels = {
+                    navController.navigate(
+                        hardwoodsWorkspaceRoute(
+                            folderName,
+                            HardwoodDocType.DOOR_CUT_LIST,
+                            HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                        )
+                    ) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenSplitView = {
+                    navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
+                        launchSingleTop = true
+                    }
+                },
+                onJumpToCabinet = { cab ->
+                    navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
+                        launchSingleTop = true
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            SPECIALTY_DOOR_PANELS_ROUTE_PATTERN,
+            arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+        ) { backStack ->
+            val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            androidx.compose.runtime.LaunchedEffect(folderName) {
+                navController.navigate(
+                    hardwoodsWorkspaceRoute(
+                        folderName,
+                        HardwoodDocType.DOOR_CUT_LIST,
+                        HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                    )
+                ) {
+                    launchSingleTop = true
+                }
+            }
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
         }
 
         composable(
@@ -932,6 +1143,7 @@ private fun JobsTabHost(
             HardwoodsJobDetailScreen(
                 scanCoordinator = hardwoodsScanCoordinator,
                 progressStore = hardwoodsProgressStore,
+                specialtyStateStore = specialtyStateStore,
                 jobRepository = jobRepository,
                 jobFolderName = folderName,
                 isClockedInHere = isClockedInHere,
@@ -1043,11 +1255,13 @@ private fun JobsTabHost(
             val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
             val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
             val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
+            val refreshGeneration = assemblyScanCoordinator.state.collectAsState().value.snapshot.generation
             val isClockedInHere = clockInState.snapshot.isActive &&
                 clockInState.snapshot.folderName == jobFolderName
             AssemblyViewerScreen(
                 jobRepository = jobRepository,
                 assemblyStateStore = assemblyStateStore,
+                specialtyStateStore = specialtyStateStore,
                 jobFolderName = jobFolderName,
                 basePath = basePath,
                 startPageAssembly = startPageAssembly,
@@ -1055,6 +1269,7 @@ private fun JobsTabHost(
                 initialSource = initialSource,
                 initialCabinet = initialCabinet,
                 initialRoom = initialRoom,
+                refreshGeneration = refreshGeneration,
                 isDarkTheme = isDarkTheme,
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
@@ -1075,11 +1290,13 @@ private fun SearchTabHost(
     hardwoodsScanCoordinator: HardwoodsScanCoordinator,
     assemblyScanCoordinator: AssemblyScanCoordinator,
     assemblyStateStore: AssemblyStateStore,
+    specialtyStateStore: SpecialtyStateStore,
     onCncResultClick: (String, String, Int) -> Unit,
     onHardwoodsResultClick: (String) -> Unit,
     onAssemblyResultClick: (AssemblySearchEntry) -> Unit,
     onBack: () -> Unit
 ) {
+    val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     NavHost(
         navController = navController,
         startDestination = "search",
@@ -1109,7 +1326,17 @@ private fun SearchTabHost(
                     AssemblySearchScreen(
                         assemblyScanCoordinator = assemblyScanCoordinator,
                         assemblyStateStore = assemblyStateStore,
+                        specialtyProgressVersionHint = specialtyProgressVersion,
                         onResultClick = onAssemblyResultClick,
+                        onBack = onBack
+                    )
+                }
+                WorkMode.SPECIALTY -> {
+                    SearchScreen(
+                        scanCoordinator = scanCoordinator,
+                        jobRepository = jobRepository,
+                        progressStore = progressStore,
+                        onResultClick = onCncResultClick,
                         onBack = onBack
                     )
                 }
@@ -1177,6 +1404,7 @@ private fun LegacySingleStackNavigation(
     jobRepository: JobRepository,
     progressStore: ProgressStore,
     hardwoodsProgressStore: HardwoodsProgressStore,
+    specialtyProgressStore: SpecialtyProgressStore,
     appStateFlags: AppStateFeatureFlags,
     tabletId: String,
     basePath: String,
@@ -1202,6 +1430,10 @@ private fun LegacySingleStackNavigation(
     val compactWidth = rememberCompactWidthClass()
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
+    val specialtyRepository = remember(basePath, specialtyProgressStore) {
+        SpecialtyRepository(File(basePath), specialtyProgressStore)
+    }
+    val specialtyScanCoordinator = remember(specialtyRepository) { SpecialtyScanCoordinator(specialtyRepository) }
     val assemblyScanCoordinator = remember(basePath) { AssemblyScanCoordinator(File(basePath), jobRepository) }
     val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore) {
         AssemblyStateStore(
@@ -1210,6 +1442,12 @@ private fun LegacySingleStackNavigation(
             hardwoodsScanCoordinator = hardwoodsScanCoordinator,
             progressStore = progressStore,
             hardwoodsProgressStore = hardwoodsProgressStore
+        )
+    }
+    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore) {
+        SpecialtyStateStore(
+            specialtyScanCoordinator = specialtyScanCoordinator,
+            specialtyProgressStore = specialtyProgressStore
         )
     }
     val navController = rememberNavController()
@@ -1258,13 +1496,24 @@ private fun LegacySingleStackNavigation(
     androidx.compose.runtime.LaunchedEffect(workMode, basePath) {
         hardwoodsRepository.updateBaseDir(File(basePath))
         assemblyScanCoordinator.updateBasePath(basePath)
+        specialtyRepository.updateBaseDir(File(basePath))
+        specialtyScanCoordinator.updateBasePath(basePath)
         when (workMode) {
-            WorkMode.HARDWOODS -> hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+            WorkMode.CNC -> {
+                specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+            }
+            WorkMode.HARDWOODS -> {
+                hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+            }
             WorkMode.ASSEMBLY -> {
                 hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
                 assemblyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
             }
-            WorkMode.CNC -> Unit
+            WorkMode.SPECIALTY -> {
+                specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
+            }
         }
     }
 
@@ -1275,22 +1524,32 @@ private fun LegacySingleStackNavigation(
                 scanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
                 hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
                 assemblyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
             WorkMode.HARDWOODS -> {
                 hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
             WorkMode.ASSEMBLY -> {
                 assemblyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
                 hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+                specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+            }
+            WorkMode.SPECIALTY -> {
+                specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
         }
     }
+
+    val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
 
     val currentNavDest = remember(currentRoute) {
         when {
             currentRoute == "dashboard" && workMode != WorkMode.ASSEMBLY -> NavDestination.DASHBOARD
             currentRoute?.startsWith("jobs") == true ||
             currentRoute?.startsWith("job/") == true ||
+                currentRoute?.startsWith("specialty/job/") == true ||
+                currentRoute?.startsWith("assembly/job/") == true ||
                 currentRoute?.startsWith("hardwoods/job/") == true ||
                 currentRoute?.startsWith("hardwoods/workspace/") == true ||
                 currentRoute?.startsWith("assembly/viewer/") == true ||
@@ -1361,8 +1620,25 @@ private fun LegacySingleStackNavigation(
                             assemblyStateStore = assemblyStateStore,
                             progressStore = progressStore,
                             hardwoodsProgressStore = hardwoodsProgressStore,
+                            specialtyStateStore = specialtyStateStore,
+                            specialtyProgressVersionHint = specialtyProgressVersion,
                             onNavigateToJobs = {
                                 navController.navigate("jobs") {
+                                    launchSingleTop = true
+                                }
+                            }
+                        )
+                    }
+                    WorkMode.SPECIALTY -> {
+                        SpecialtyDashboardScreen(
+                            specialtyStateStore = specialtyStateStore,
+                            onNavigateToJobs = {
+                                navController.navigate("jobs") {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onOpenJob = { folderName ->
+                                navController.navigate(specialtyJobRoute(folderName)) {
                                     launchSingleTop = true
                                 }
                             }
@@ -1473,8 +1749,10 @@ private fun LegacySingleStackNavigation(
                             jobRepository = jobRepository,
                             progressStore = progressStore,
                             hardwoodsProgressStore = hardwoodsProgressStore,
+                            specialtyStateStore = specialtyStateStore,
+                            specialtyProgressVersionHint = specialtyProgressVersion,
                             onJobClick = { card ->
-                                navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
+                                navController.navigate(assemblyJobRoute(card.folderName)) {
                                     launchSingleTop = true
                                 }
                             },
@@ -1487,6 +1765,27 @@ private fun LegacySingleStackNavigation(
                                 navController.navigate(
                                     referenceViewerRoute(card.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
                                 ) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onSearchClick = {
+                                navController.navigate("search") {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onSettingsClick = {
+                                navController.navigate("settings") {
+                                    launchSingleTop = true
+                                }
+                            }
+                        )
+                    }
+                    WorkMode.SPECIALTY -> {
+                        SpecialtyJobsScreen(
+                            specialtyScanCoordinator = specialtyScanCoordinator,
+                            specialtyStateStore = specialtyStateStore,
+                            onJobClick = { card ->
+                                navController.navigate(specialtyJobRoute(card.folderName)) {
                                     launchSingleTop = true
                                 }
                             },
@@ -1517,6 +1816,7 @@ private fun LegacySingleStackNavigation(
                     appStateStore = appStateStore,
                     jobRepository = jobRepository,
                     progressStore = progressStore,
+                    specialtyStateStore = specialtyStateStore,
                     appStateFlags = appStateFlags,
                     jobFolderName = folderName,
                     isClockedInHere = isClockedInHere,
@@ -1546,6 +1846,122 @@ private fun LegacySingleStackNavigation(
                     },
                     onBack = { navController.popBackStack() }
                 )
+            }
+
+            composable(
+                "specialty/job/{folderName}",
+                arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+            ) { backStack ->
+                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                val hasDeliverySheet = remember(folderName) {
+                    jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
+                }
+                val hasAssemblySheet = remember(folderName) {
+                    jobRepository.hasReferenceDocument(folderName, ReferenceDocType.ASSEMBLY)
+                }
+                val hasPlansElevations = remember(folderName) {
+                    jobRepository.hasReferenceDocument(folderName, ReferenceDocType.PLANS_ELEVATIONS)
+                }
+                val hasThreeDAssets = remember(folderName) {
+                    jobRepository.hasThreeDAssets(folderName)
+                }
+                SpecialtyJobDetailScreen(
+                    jobFolderName = folderName,
+                    specialtyStateStore = specialtyStateStore,
+                    hasAssemblySheet = hasAssemblySheet,
+                    hasPlansElevations = hasPlansElevations,
+                    hasDeliverySheet = hasDeliverySheet,
+                    hasThreeDAssets = hasThreeDAssets,
+                    onOpenReferenceDocument = { docType, startPage ->
+                        navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenThreeD = {
+                        val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                        navController.navigate(
+                            assemblyViewerRoute(
+                                jobFolderName = folderName,
+                                assemblyPage = target.assemblyPage,
+                                plansPage = target.plansPage,
+                                source = "3d",
+                                room = target.room
+                            )
+                        ) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenDoorPanels = {
+                        navController.navigate(
+                            hardwoodsWorkspaceRoute(
+                                folderName,
+                                HardwoodDocType.DOOR_CUT_LIST,
+                                HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                            )
+                        ) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenSplitView = {
+                        navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onJumpToCabinet = { cab ->
+                        navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(
+                "assembly/job/{folderName}",
+                arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+            ) { backStack ->
+                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                AssemblyJobDetailScreen(
+                    jobFolderName = folderName,
+                    assemblyStateStore = assemblyStateStore,
+                    specialtyStateStore = specialtyStateStore,
+                    jobRepository = jobRepository,
+                    onOpenSplitView = {
+                        navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onJumpToCabinet = { cab ->
+                        navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(
+                SPECIALTY_DOOR_PANELS_ROUTE_PATTERN,
+                arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+            ) { backStack ->
+                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                androidx.compose.runtime.LaunchedEffect(folderName) {
+                    navController.navigate(
+                        hardwoodsWorkspaceRoute(
+                            folderName,
+                            HardwoodDocType.DOOR_CUT_LIST,
+                            HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                        )
+                    ) {
+                        launchSingleTop = true
+                    }
+                }
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
             }
 
             composable(
@@ -1631,6 +2047,7 @@ private fun LegacySingleStackNavigation(
                 HardwoodsJobDetailScreen(
                     scanCoordinator = hardwoodsScanCoordinator,
                     progressStore = hardwoodsProgressStore,
+                    specialtyStateStore = specialtyStateStore,
                     jobRepository = jobRepository,
                     jobFolderName = folderName,
                     isClockedInHere = isClockedInHere,
@@ -1732,11 +2149,13 @@ private fun LegacySingleStackNavigation(
                 val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
                 val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
                 val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
+                val refreshGeneration = assemblyScanCoordinator.state.collectAsState().value.snapshot.generation
                 val isClockedInHere = clockInState.snapshot.isActive &&
                     clockInState.snapshot.folderName == jobFolderName
                 AssemblyViewerScreen(
                     jobRepository = jobRepository,
                     assemblyStateStore = assemblyStateStore,
+                    specialtyStateStore = specialtyStateStore,
                     jobFolderName = jobFolderName,
                     basePath = basePath,
                     initialSource = initialSource,
@@ -1744,6 +2163,7 @@ private fun LegacySingleStackNavigation(
                     initialRoom = initialRoom,
                     startPageAssembly = startPageAssembly,
                     startPagePlans = startPagePlans,
+                    refreshGeneration = refreshGeneration,
                     isDarkTheme = isDarkTheme,
                     isClockedInHere = isClockedInHere,
                     onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
@@ -1780,6 +2200,7 @@ private fun LegacySingleStackNavigation(
                         AssemblySearchScreen(
                             assemblyScanCoordinator = assemblyScanCoordinator,
                             assemblyStateStore = assemblyStateStore,
+                            specialtyProgressVersionHint = specialtyProgressVersion,
                             onResultClick = { result ->
                                 navController.navigate(
                                     assemblyViewerRoute(
@@ -1790,6 +2211,17 @@ private fun LegacySingleStackNavigation(
                                 ) {
                                     launchSingleTop = true
                                 }
+                            },
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    WorkMode.SPECIALTY -> {
+                        SearchScreen(
+                            scanCoordinator = scanCoordinator,
+                            jobRepository = jobRepository,
+                            progressStore = progressStore,
+                            onResultClick = { folderName, pdfFilename, page ->
+                                openSheetLegacy(folderName, pdfFilename, page)
                             },
                             onBack = { navController.popBackStack() }
                         )
@@ -1920,6 +2352,39 @@ private fun LegacySingleStackNavigation(
 
 private fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int): String {
     return "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
+}
+
+internal fun homeTopLevelTabForWorkMode(workMode: WorkMode): TopLevelTab {
+    return if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
+        TopLevelTab.JOBS
+    } else {
+        TopLevelTab.DASHBOARD
+    }
+}
+
+internal fun specialtyJobRoute(jobFolderName: String): String {
+    return "specialty/job/${URLEncoder.encode(jobFolderName, "UTF-8")}"
+}
+
+internal fun assemblyJobRoute(jobFolderName: String): String {
+    return "assembly/job/${URLEncoder.encode(jobFolderName, "UTF-8")}"
+}
+
+internal fun specialtyDoorPanelsRoute(jobFolderName: String): String {
+    return "$SPECIALTY_DOOR_PANELS_ROUTE_BASE/${URLEncoder.encode(jobFolderName, "UTF-8")}"
+}
+
+internal fun specialtySplitViewRoute(
+    jobFolderName: String,
+    assemblyPage: Int,
+    plansPage: Int,
+    room: String? = null
+): String {
+    return assemblyViewerRoute(
+        jobFolderName = jobFolderName,
+        assemblyPage = assemblyPage,
+        plansPage = plansPage
+    )
 }
 
 @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
