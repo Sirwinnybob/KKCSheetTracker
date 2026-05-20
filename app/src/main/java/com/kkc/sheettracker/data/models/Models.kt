@@ -685,3 +685,56 @@ data class DashboardUiModel(
     val skippedItems: List<DashboardFlaggedSheetItem> = emptyList(),
     val recentInProgressMaterials: List<DashboardRecentMaterialItem> = emptyList()
 )
+
+enum class SpecialtyItemCategory {
+    CUSTOM,
+    TO_ORDER
+}
+
+enum class SpecialtyStation {
+    CNC,
+    HARDWOODS,
+    SAW,
+    EDGE_BANDER,
+    ASSEMBLY,
+    SPECIALTY
+}
+
+data class SpecialtyItem(
+    val id: String = "",
+    val name: String = "",
+    val cabinetNumbers: List<String> = emptyList(),
+    val category: SpecialtyItemCategory = SpecialtyItemCategory.CUSTOM,
+    val stations: List<SpecialtyStation> = emptyList(),
+    val supplier: String? = null,
+    val model: String? = null,
+    val orderDate: String? = null,
+    val tracking: String? = null,
+    val orderUrl: String? = null,
+    val notes: String? = null,
+    val attachments: List<String> = emptyList(),
+    val autoDetected: Boolean = false,
+    val createdAt: String? = null,
+    val createdBy: String? = null,
+    val dimensions: String? = null,
+    val quantity: Int? = null,
+    val material: String? = null
+)
+
+data class SpecialtyCompletionState(
+    val completed: Boolean = false,
+    val completedAt: String? = null,
+    val completedBy: String? = null
+)
+
+data class SpecialtyTrackerProgress(
+    val tabletId: String = "",
+    val schemaVersion: Int = 2,
+    val itemCompletions: Map<String, Map<String, SpecialtyCompletionState>> = emptyMap()
+)
+
+data class SpecialtyResolvedItem(
+    val item: SpecialtyItem,
+    val completionByKey: Map<String, SpecialtyCompletionState> = emptyMap(),
+    val isComplete: Boolean = false
+)
