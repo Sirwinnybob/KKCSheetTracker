@@ -16,6 +16,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,6 +50,7 @@ import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StationProgress
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.ProgressCard
+import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,11 +63,16 @@ fun SpecialtyJobsScreen(
     onSettingsClick: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var sortByName by rememberSaveable { mutableStateOf(false) }
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
-    val cards = remember(scanState.snapshot.generation, progressVersion) {
-        specialtyStateStore.deriveJobCards()
-            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+    val cards = remember(scanState.snapshot.generation, progressVersion, sortByName) {
+        val all = specialtyStateStore.deriveJobCards()
+        if (sortByName) {
+            all.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        } else {
+            all // already in production order from listJobs
+        }
     }
     val filteredCards = remember(cards, query) {
         if (query.isBlank()) {
@@ -123,7 +133,16 @@ fun SpecialtyJobsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
+            SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
 
+            AnimatedContent(
+                targetState = sortByName,
+                transitionSpec = {
+                    val dir = if (targetState) 1 else -1
+                    slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
+                },
+                label = "sort_anim"
+            ) { _ ->
             when {
                 scanState.status == ScanStatus.LOADING && cards.isEmpty() -> {
                     Box(
@@ -164,10 +183,20 @@ fun SpecialtyJobsScreen(
                                 expanded = false,
                                 onToggleExpanded = {},
                                 onClick = { onJobClick(card) },
-                                showBottomProgressBar = true,
+                                showBottomProgressBar = false,
                                 segmentedStatusCounts = statusCounts,
                                 showExpandToggle = false,
                                 headerActions = {
+                                    if (sortByName) {
+                                        val pos = card.lineupPosition
+                                        if (pos != null) {
+                                            StatusChip(
+                                                text = "#$pos",
+                                                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
                                     if (card.hiddenFromProduction) {
                                         StatusChip(
                                             text = "Hidden in Production",
@@ -188,12 +217,23 @@ fun SpecialtyJobsScreen(
                                         card.stationProgress.isNotEmpty() -> {
                                             StationProgressBars(card.stationProgress)
                                         }
+                                        else -> {
+                                            // Items exist but no station tags — single overall bar
+                                            val fraction = card.completionFraction.coerceIn(0f, 1f)
+                                            LinearProgressIndicator(
+                                                progress = { fraction },
+                                                modifier = Modifier.fillMaxWidth().height(8.dp),
+                                                color = Color(0xFF7C3AED),
+                                                trackColor = Color(0xFF7C3AED).copy(alpha = 0.20f)
+                                            )
+                                        }
                                     }
                                 }
                             )
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -211,7 +251,7 @@ private fun StationProgressBars(stationProgress: List<StationProgress>) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "${sp.station} · ${sp.completed}/${sp.total}",
+                    text = "${stationDisplayName(sp.station)} · ${sp.completed}/${sp.total}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.width(110.dp)
@@ -227,6 +267,12 @@ private fun StationProgressBars(stationProgress: List<StationProgress>) {
             }
         }
     }
+}
+
+private fun stationDisplayName(station: String): String = when (station.uppercase()) {
+    "EDGE_BANDER" -> "EDGE BANDER"
+    "HARDWOODS" -> "HARDWOODS"
+    else -> station
 }
 
 private fun stationBarColor(station: String): Color = when (station.uppercase()) {
