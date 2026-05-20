@@ -184,6 +184,7 @@ fun SpecialtyJobsScreen(
                                 onToggleExpanded = {},
                                 onClick = { onJobClick(card) },
                                 showBottomProgressBar = false,
+                                hidePrimaryProgressBar = true,
                                 segmentedStatusCounts = statusCounts,
                                 showExpandToggle = false,
                                 headerActions = {
