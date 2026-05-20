@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Checkbox
@@ -85,14 +86,22 @@ fun SpecialtyJobDetailScreen(
     val completionOverrides = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
     val inFlightUpdates = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
     var toggleErrorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
+    var selectedStation by remember(jobFolderName) { mutableStateOf<SpecialtyStation?>(null) }
 
     val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
         specialtyStateStore.getResolvedItems(jobFolderName)
     }
-    val completedItems = resolvedItems.count { resolved ->
+    // Stations that actually have items — drives filter chip visibility
+    val availableStations = remember(resolvedItems) {
+        resolvedItems.flatMap { it.item.stations }.distinct().sortedBy { it.ordinal }
+    }
+    // SAW / EDGE_BANDER / ASSEMBLY are sub-stations within specialty mode, not top-level modes
+    val filteredItems = if (selectedStation == null) resolvedItems
+        else resolvedItems.filter { selectedStation in it.item.stations }
+    val completedItems = filteredItems.count { resolved ->
         isChecklistItemComplete(resolved, completionOverrides)
     }
-    val totalItems = resolvedItems.size
+    val totalItems = filteredItems.size
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -117,10 +126,14 @@ fun SpecialtyJobDetailScreen(
         ) {
             item(key = "summary") {
                 Text(
-                    text = if (totalItems == 0 && scanState.status != com.kkc.sheettracker.data.models.ScanStatus.READY) {
-                        "Specialty checklist details are loading."
-                    } else {
-                        "$completedItems / $totalItems items complete"
+                    text = when {
+                        selectedStation == null && resolvedItems.isEmpty() &&
+                                scanState.status != com.kkc.sheettracker.data.models.ScanStatus.READY ->
+                            "Specialty checklist details are loading."
+                        selectedStation != null ->
+                            "$completedItems / $totalItems ${stationFilterLabel(selectedStation!!)} items complete"
+                        else ->
+                            "$completedItems / $totalItems items complete"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -175,17 +188,47 @@ fun SpecialtyJobDetailScreen(
                 }
             }
 
-            if (resolvedItems.isEmpty()) {
+            // Station filter — SAW / EDGE BANDER / ASSEMBLY are sub-stations within specialty mode
+            if (availableStations.isNotEmpty()) {
+                item(key = "station-filter") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = selectedStation == null,
+                            onClick = { selectedStation = null },
+                            label = { Text("All") }
+                        )
+                        availableStations.forEach { station ->
+                            FilterChip(
+                                selected = selectedStation == station,
+                                onClick = {
+                                    selectedStation = if (selectedStation == station) null else station
+                                },
+                                label = { Text(stationFilterLabel(station)) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (filteredItems.isEmpty()) {
                 item(key = "empty") {
                     Text(
-                        "No specialty checklist items found.",
+                        if (selectedStation != null)
+                            "No ${stationFilterLabel(selectedStation!!)} items for this job."
+                        else
+                            "No specialty checklist items found.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             } else {
                 items(
-                    items = resolvedItems,
+                    items = filteredItems,
                     key = { resolved -> resolved.item.id }
                 ) { resolved ->
                     val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
@@ -545,6 +588,16 @@ internal fun finishInFlightUpdate(inFlightUpdates: MutableMap<String, Boolean>, 
 
 internal fun isToggleEnabled(controlId: String, inFlightUpdates: Map<String, Boolean>): Boolean {
     return inFlightUpdates[controlId] != true
+}
+
+/** Human-readable label for a station — used in filter chips and summary text. */
+private fun stationFilterLabel(station: SpecialtyStation): String = when (station) {
+    SpecialtyStation.SAW -> "Saw"
+    SpecialtyStation.EDGE_BANDER -> "Edge Bander"
+    SpecialtyStation.ASSEMBLY -> "Assembly"
+    SpecialtyStation.CNC -> "CNC"
+    SpecialtyStation.HARDWOODS -> "Hardwoods"
+    SpecialtyStation.SPECIALTY -> "Specialty"
 }
 
 @Composable
