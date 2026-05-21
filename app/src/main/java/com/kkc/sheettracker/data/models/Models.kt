@@ -5,7 +5,8 @@ data class Job(
     val jobNumber: String,
     val jobName: String,
     val materials: List<Material> = emptyList(),
-    val hiddenFromProduction: Boolean = false
+    val hiddenFromProduction: Boolean = false,
+    val lineupPosition: Int? = null
 ) {
     val totalSheets: Int get() = materials.sumOf { it.pageCount }
 }
@@ -205,7 +206,8 @@ data class AssemblyJob(
     val cabinetSheetIndex: CabinetSheetIndex? = null,
     val cncSummary: AssemblyCncSummary? = null,
     val hardwoodsSummary: AssemblyHardwoodsSummary? = null,
-    val hiddenFromProduction: Boolean = false
+    val hiddenFromProduction: Boolean = false,
+    val lineupPosition: Int? = null
 )
 
 data class AssemblyCncPart(
@@ -256,7 +258,8 @@ data class AssemblyJobCard(
     val cncSummary: AssemblyCncSummary = AssemblyCncSummary(),
     val hardwoodsSummary: AssemblyHardwoodsSummary = AssemblyHardwoodsSummary(),
     val hasBothModes: Boolean = false,
-    val hiddenFromProduction: Boolean = false
+    val hiddenFromProduction: Boolean = false,
+    val lineupPosition: Int? = null
 )
 
 data class AssemblySearchEntry(
@@ -384,7 +387,8 @@ data class HardwoodJob(
     val jobNumber: String,
     val jobName: String,
     val index: HardwoodCutlistIndex? = null,
-    val hiddenFromProduction: Boolean = false
+    val hiddenFromProduction: Boolean = false,
+    val lineupPosition: Int? = null
 )
 
 data class HardwoodSearchEntry(
@@ -639,7 +643,8 @@ data class MaterialUiModel(
     val materialName: String,
     val counts: StatusCounts = StatusCounts(),
     val completionFraction: Float = 0f,
-    val pageStatuses: List<SheetStatusSnapshot> = emptyList()
+    val pageStatuses: List<SheetStatusSnapshot> = emptyList(),
+    val pendingBadPartCount: Int = 0
 )
 
 data class JobUiModel(
@@ -700,6 +705,13 @@ enum class SpecialtyStation {
     SPECIALTY
 }
 
+data class SpecialtyItemAttachment(
+    val id: String,
+    val filename: String,
+    val originalName: String,
+    val mimeType: String? = null
+)
+
 data class SpecialtyItem(
     val id: String = "",
     val name: String = "",
@@ -712,7 +724,7 @@ data class SpecialtyItem(
     val tracking: String? = null,
     val orderUrl: String? = null,
     val notes: String? = null,
-    val attachments: List<String> = emptyList(),
+    val attachments: List<SpecialtyItemAttachment> = emptyList(),
     val autoDetected: Boolean = false,
     val createdAt: String? = null,
     val createdBy: String? = null,

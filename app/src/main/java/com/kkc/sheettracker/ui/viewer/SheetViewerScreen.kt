@@ -303,6 +303,9 @@ fun SheetViewerScreen(
 
     val pdfFile = remember { jobRepository.getPdfFile(jobFolderName, pdfFilename) }
     val fileFingerprint = currentMaterial?.fileFingerprint.orEmpty()
+    val pendingBadPartCount = remember(progressVersion, pdfFilename, fileFingerprint) {
+        progressStore.getPendingBadPartsForMaterial(jobFolderName, pdfFilename, fileFingerprint)
+    }
     val sheetFilesCache = remember(jobFolderName, pdfFilename, fileFingerprint) { mutableStateMapOf<Int, List<String>>() }
     val tocThumbCache = remember(jobFolderName, pdfFilename, fileFingerprint) { mutableStateMapOf<Int, Bitmap?>() }
     var tocSheetInfoByPage by remember(jobFolderName, pdfFilename, fileFingerprint) {
@@ -856,6 +859,22 @@ fun SheetViewerScreen(
                     navigationIconContentColor = topBarTextColor
                 ),
                 actions = {
+                    if (pendingBadPartCount > 0) {
+                        TextButton(
+                            onClick = {
+                                progressStore.submitPendingBadParts(jobFolderName, pdfFilename, fileFingerprint)
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = KKCThemeColors.statusColors.bad
+                            )
+                        ) {
+                            Text(
+                                text = "Report $pendingBadPartCount Bad Part${if (pendingBadPartCount == 1) "" else "s"}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
                     val clockInJob = scanState.snapshot.jobs.find { it.folderName == jobFolderName }
                     if (clockInJob != null) {
                         Button(

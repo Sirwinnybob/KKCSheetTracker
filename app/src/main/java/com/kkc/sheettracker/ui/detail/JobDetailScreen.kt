@@ -50,6 +50,7 @@ import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
+import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.MaterialUiModel
@@ -59,6 +60,8 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.CountStatusChip
 import com.kkc.sheettracker.ui.components.PageStatusBar
 import com.kkc.sheettracker.ui.components.ProgressCard
+import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
+import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -72,6 +75,7 @@ fun JobDetailScreen(
     appStateStore: AppStateStore,
     jobRepository: JobRepository,
     progressStore: ProgressStore,
+    specialtyStateStore: SpecialtyStateStore,
     appStateFlags: AppStateFeatureFlags,
     jobFolderName: String,
     onMaterialClick: (Material, Int) -> Unit,
@@ -80,7 +84,8 @@ fun JobDetailScreen(
     onBack: () -> Unit,
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
-    onLeaveWhileClockedIn: () -> Unit = {}
+    onLeaveWhileClockedIn: () -> Unit = {},
+    onSubmitPendingBadParts: ((Material) -> Unit)? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -240,6 +245,14 @@ fun JobDetailScreen(
                     }
                 }
 
+                item(key = "specialty-compact-section") {
+                    CompactSpecialtySection(
+                        jobFolderName = jobFolderName,
+                        specialtyStateStore = specialtyStateStore,
+                        mode = SpecialtySurfaceMode.CNC
+                    )
+                }
+
                 items(job.materials, key = { it.pdfFilename }) { material ->
                     val statusColors = KKCThemeColors.statusColors
                     val appMaterialModel: MaterialUiModel? = appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)]
@@ -267,6 +280,19 @@ fun JobDetailScreen(
                         appMaterialModel.completionFraction
                     } else if (counts.total <= 0) 0f
                     else counts.complete.toFloat() / counts.total.toFloat()
+                    val pendingBadPartCount = if (useAppState && appMaterialModel != null) {
+                        appMaterialModel.pendingBadPartCount
+                    } else remember(
+                        progressVersion,
+                        material.pdfFilename,
+                        material.fileFingerprint
+                    ) {
+                        progressStore.getPendingBadPartsForMaterial(
+                            jobFolderName,
+                            material.pdfFilename,
+                            material.fileFingerprint ?: ""
+                        )
+                    }
                     ProgressCard(
                         title = material.materialName,
                         subtitle = "${counts.complete}/${counts.total} complete",
@@ -284,6 +310,19 @@ fun JobDetailScreen(
                             )
                             CountStatusChip("Bad", counts.bad, statusColors.bad)
                             CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
+                            if (pendingBadPartCount > 0 && onSubmitPendingBadParts != null) {
+                                TextButton(
+                                    onClick = { onSubmitPendingBadParts(material) },
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = statusColors.bad
+                                    )
+                                ) {
+                                    Text(
+                                        text = "Report $pendingBadPartCount Bad Part${if (pendingBadPartCount == 1) "" else "s"}",
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+                            }
                         },
                         onToggleExpanded = {},
                         onClick = {

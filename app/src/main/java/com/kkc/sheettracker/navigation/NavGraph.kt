@@ -100,6 +100,9 @@ import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
 import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 private const val SPECIALTY_DOOR_PANELS_ROUTE_BASE = "specialty/door-panels"
 private const val SPECIALTY_DOOR_PANELS_ROUTE_PATTERN = "$SPECIALTY_DOOR_PANELS_ROUTE_BASE/{folderName}"
@@ -294,6 +297,28 @@ private fun MultiBackStackNavigation(
             specialtyProgressStore = specialtyProgressStore
         )
     }
+
+    val coroutineScope = rememberCoroutineScope()
+    DisposableEffect(progressStore, hardwoodsRepository, hardwoodsProgressStore, jobRepository) {
+        val listener = { jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String, isComplete: Boolean ->
+            coroutineScope.launch(Dispatchers.IO) {
+                com.kkc.sheettracker.data.syncCncToHardwoods(
+                    jobFolderName = jobFolderName,
+                    jobRepository = jobRepository,
+                    progressStore = progressStore,
+                    hardwoodsRepository = hardwoodsRepository,
+                    hardwoodsProgressStore = hardwoodsProgressStore
+                )
+            }
+            Unit
+        }
+        progressStore.onSheetStatusChangedListener = listener
+        onDispose {
+            if (progressStore.onSheetStatusChangedListener === listener) {
+                progressStore.onSheetStatusChangedListener = null
+            }
+        }
+    }
     val dashboardNavController = rememberNavController()
     val jobsNavController = rememberNavController()
     val searchNavController = rememberNavController()
@@ -394,6 +419,7 @@ private fun MultiBackStackNavigation(
                 specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
             }
             WorkMode.SPECIALTY -> {
+                hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
                 specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
             }
         }
@@ -418,6 +444,7 @@ private fun MultiBackStackNavigation(
                 specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
             WorkMode.SPECIALTY -> {
+                hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
                 specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
         }
@@ -873,6 +900,7 @@ private fun JobsTabHost(
                     SpecialtyJobsScreen(
                         specialtyScanCoordinator = specialtyScanCoordinator,
                         specialtyStateStore = specialtyStateStore,
+                        jobRepository = jobRepository,
                         onJobClick = { card ->
                             navController.navigate(specialtyJobRoute(card.folderName)) {
                                 launchSingleTop = true
@@ -958,6 +986,13 @@ private fun JobsTabHost(
                     ) {
                         launchSingleTop = true
                     }
+                },
+                onSubmitPendingBadParts = { material ->
+                    progressStore.submitPendingBadParts(
+                        jobFolderName = folderName,
+                        pdfFilename = material.pdfFilename,
+                        fileFingerprint = material.fileFingerprint ?: ""
+                    )
                 },
                 onBack = { navController.popBackStack() }
             )
@@ -1512,6 +1547,7 @@ private fun LegacySingleStackNavigation(
                 specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
             }
             WorkMode.SPECIALTY -> {
+                hardwoodsScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
                 specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = true)
             }
         }
@@ -1536,6 +1572,7 @@ private fun LegacySingleStackNavigation(
                 specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
             WorkMode.SPECIALTY -> {
+                hardwoodsScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
                 specialtyScanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
             }
         }
@@ -1784,6 +1821,7 @@ private fun LegacySingleStackNavigation(
                         SpecialtyJobsScreen(
                             specialtyScanCoordinator = specialtyScanCoordinator,
                             specialtyStateStore = specialtyStateStore,
+                            jobRepository = jobRepository,
                             onJobClick = { card ->
                                 navController.navigate(specialtyJobRoute(card.folderName)) {
                                     launchSingleTop = true
@@ -1843,6 +1881,13 @@ private fun LegacySingleStackNavigation(
                         ) {
                             launchSingleTop = true
                         }
+                    },
+                    onSubmitPendingBadParts = { material ->
+                        progressStore.submitPendingBadParts(
+                            jobFolderName = folderName,
+                            pdfFilename = material.pdfFilename,
+                            fileFingerprint = material.fileFingerprint ?: ""
+                        )
                     },
                     onBack = { navController.popBackStack() }
                 )

@@ -118,6 +118,9 @@ class ProgressStore(
     private val _progressVersion = MutableStateFlow(0L)
     val progressVersion: StateFlow<Long> = _progressVersion.asStateFlow()
 
+    @Volatile
+    var onSheetStatusChangedListener: ((jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String, isComplete: Boolean) -> Unit)? = null
+
     private companion object {
         private const val PREPARED_CACHE_MAX_ENTRIES = 24
     }
@@ -435,6 +438,7 @@ class ProgressStore(
                     partMap[partNum] = value
                 }
             }
+            "bad_part_submitted" -> Unit // reporting marker only — touch timestamp already updated above
         }
     }
 
@@ -486,11 +490,13 @@ class ProgressStore(
             appendAction(jobFolderName, pdfFilename, page, "bad_part", fileFingerprint, part = part)
         }
         clearDraftBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
+        onSheetStatusChangedListener?.invoke(jobFolderName, pdfFilename, page, fileFingerprint, true)
     }
 
     fun unmarkSheetComplete(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
         if (readOnly) return
         appendAction(jobFolderName, pdfFilename, page, "uncomplete", fileFingerprint)
+        onSheetStatusChangedListener?.invoke(jobFolderName, pdfFilename, page, fileFingerprint, false)
     }
 
     fun markSheetSkipped(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
@@ -629,6 +635,75 @@ class ProgressStore(
         val committed = getCommittedBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
         if (!includeDraft) return committed
         return committed + getDraftBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
+    }
+
+    /**
+     * Returns the count of bad parts on [pdfFilename]/[fileFingerprint] that have not yet been
+     * submitted for engineer notification. Includes both committed bad_part actions (no matching
+     * bad_part_submitted) AND draft bad parts (marked bad but sheet not yet completed), so the
+     * "Report Bad Parts" button appears as soon as any part is marked bad.
+     */
+    fun getPendingBadPartsForMaterial(
+        jobFolderName: String,
+        pdfFilename: String,
+        fileFingerprint: String
+    ): Int {
+        // Committed pending: bad_part actions with no corresponding bad_part_submitted
+        val allActions = loadAllProgress(jobFolderName)
+            .flatMap { it.actions }
+            .filter { it.file == pdfFilename && (it.fileFingerprint ?: "") == fileFingerprint }
+            .sortedBy { it.timestamp }
+        val pending = mutableSetOf<Pair<Int, Int>>() // (page, partNumber)
+        for (action in allActions) {
+            val partNum = action.part ?: continue
+            val pair = Pair(action.page, partNum)
+            when (action.action) {
+                "bad_part" -> pending.add(pair)
+                "unbad_part" -> pending.remove(pair)
+                "bad_part_submitted" -> pending.remove(pair)
+            }
+        }
+        // Draft pending: bad parts marked on incomplete sheets (not yet in tracker JSON)
+        val draftCount = loadDraftState(jobFolderName).entries
+            .filter { it.file == pdfFilename && it.fileFingerprint == fileFingerprint }
+            .sumOf { it.parts.size }
+        return pending.size + draftCount
+    }
+
+    /**
+     * Appends a "bad_part_submitted" action for every currently-pending bad part on
+     * [pdfFilename]/[fileFingerprint], signalling the Ready Jobs Watcher to alert the engineer.
+     */
+    fun submitPendingBadParts(
+        jobFolderName: String,
+        pdfFilename: String,
+        fileFingerprint: String
+    ) {
+        if (readOnly) return
+        val allActions = loadAllProgress(jobFolderName)
+            .flatMap { it.actions }
+            .filter { it.file == pdfFilename && (it.fileFingerprint ?: "") == fileFingerprint }
+            .sortedBy { it.timestamp }
+        val pending = mutableSetOf<Pair<Int, Int>>() // (page, partNumber)
+        for (action in allActions) {
+            val partNum = action.part ?: continue
+            val pair = Pair(action.page, partNum)
+            when (action.action) {
+                "bad_part" -> pending.add(pair)
+                "unbad_part" -> pending.remove(pair)
+                "bad_part_submitted" -> pending.remove(pair)
+            }
+        }
+        for ((page, partNum) in pending.sortedWith(compareBy({ it.first }, { it.second }))) {
+            appendAction(
+                jobFolderName = jobFolderName,
+                pdfFilename = pdfFilename,
+                page = page,
+                action = "bad_part_submitted",
+                fileFingerprint = fileFingerprint,
+                part = partNum
+            )
+        }
     }
 
     fun resolveBadPartsOnSheet(

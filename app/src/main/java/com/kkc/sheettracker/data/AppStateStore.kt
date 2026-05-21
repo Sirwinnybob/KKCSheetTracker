@@ -366,13 +366,20 @@ class AppStateStore(
             notStarted = notStarted
         )
 
+        val pendingBadPartCount = progressStore.getPendingBadPartsForMaterial(
+            jobFolderName = jobFolderName,
+            pdfFilename = material.pdfFilename,
+            fileFingerprint = fileFingerprint
+        )
+
         return MaterialDerivation(
             uiModel = MaterialUiModel(
                 pdfFilename = material.pdfFilename,
                 materialName = material.materialName,
                 counts = counts,
                 completionFraction = if (total > 0) complete.toFloat() / total.toFloat() else 0f,
-                pageStatuses = pageStatuses
+                pageStatuses = pageStatuses,
+                pendingBadPartCount = pendingBadPartCount
             ),
             sheetStatuses = keyedStatuses,
             pageStatusByNumber = pageStatusByNumber
