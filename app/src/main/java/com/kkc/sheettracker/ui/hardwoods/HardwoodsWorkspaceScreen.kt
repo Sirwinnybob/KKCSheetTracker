@@ -192,6 +192,7 @@ fun HardwoodsWorkspaceScreen(
     }
     val isRipCutEntry = initialRowId == HARDWOODS_RIP_CUT_LIST_ROW_ID
     val isDoorPanelsEntry = initialRowId == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+    val isSawRipEntry = initialRowId == HARDWOODS_SAW_RIP_LIST_ROW_ID
     var selectedDocType by remember(jobFolderName) { mutableStateOf(initialDocType) }
 
     val availableDocTypes = remember(availableDocuments) { availableDocuments.map { it.docType }.toSet() }
@@ -238,6 +239,12 @@ fun HardwoodsWorkspaceScreen(
                 showChangedOnly = false
                 useDoorPanelsSheetFilter.value = true
             }
+            isSawRipEntry -> {
+                selectedDocType = initialDocType
+                showRipCutList = true
+                showChangedOnly = false
+                useDoorPanelsSheetFilter.value = false
+            }
             isRipCutEntry -> {
                 selectedDocType = initialDocType
                 showRipCutList = true
@@ -270,8 +277,14 @@ fun HardwoodsWorkspaceScreen(
             rowProgressMap = rowProgressMap
         )
     }
-    val adminBoardStock = remember(scanState.snapshot.basePath, jobFolderName) {
+    val adminBoardStock = remember(scanState.snapshot.basePath, jobFolderName, isRipCutEntry, isSawRipEntry) {
         loadAdminBoardStock(baseDir = File(scanState.snapshot.basePath), jobFolderName = jobFolderName)
+            .filter { item ->
+                when {
+                    isSawRipEntry -> item.mode == "sheet"
+                    else          -> item.mode == "bd_ft"
+                }
+            }
     }
     val totalsDoneMap = remember(progressVersion, jobFolderName) {
         hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)
@@ -851,6 +864,8 @@ fun HardwoodsWorkspaceScreen(
                         jobFolderName = jobFolderName,
                         progressStore = hardwoodsProgressStore,
                         totalsDoneMap = totalsDoneMap,
+                        hideSections = isSawRipEntry,
+                        sectionTitle = if (isSawRipEntry) "Rip List" else "Board Stock",
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if (selectedDoc == null) {
@@ -1598,6 +1613,8 @@ private fun HardwoodsBoardStockList(
     jobFolderName: String,
     progressStore: HardwoodsProgressStore,
     totalsDoneMap: Map<String, Int>,
+    hideSections: Boolean = false,
+    sectionTitle: String = "Board Stock",
     modifier: Modifier = Modifier
 ) {
     val statusColors = KKCThemeColors.statusColors
@@ -1658,14 +1675,14 @@ private fun HardwoodsBoardStockList(
                 else rows.sumOf { item ->
                     if (item.feet == null) return@sumOf 0
                     val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(mat, item.id)] ?: 0) > 0
-                    if (itemSkipped) 0 else kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
+                    if (itemSkipped) 0 else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                 }
             }
             val adminTotalDone = adminGroups.sumOf { (mat, rows) ->
                 if (progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, mat)) 0
                 else rows.sumOf { item ->
                     if (item.feet == null) return@sumOf 0
-                    val boards = kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
+                    val boards = kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                     val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(mat, item.id)] ?: 0) > 0
                     if (itemSkipped) 0
                     else (totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(mat, item.id)] ?: 0).coerceIn(0, boards)
@@ -1673,7 +1690,7 @@ private fun HardwoodsBoardStockList(
             }
             stickyHeader(key = "admin-board-stock-source") {
                 SectionProgressHeader(
-                    title = "Board Stock",
+                    title = sectionTitle,
                     itemCount = adminItems.size,
                     done = adminTotalDone,
                     total = adminTotalTarget,
@@ -1698,11 +1715,11 @@ private fun HardwoodsBoardStockList(
                     val matTarget = if (matSkipped) 0 else groupItems.sumOf { item ->
                         if (item.feet == null) return@sumOf 0
                         val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
-                        if (itemSkipped) 0 else kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
+                        if (itemSkipped) 0 else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                     }
                     val matDone = if (matSkipped) 0 else groupItems.sumOf { item ->
                         if (item.feet == null) return@sumOf 0
-                        val boards = kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
+                        val boards = kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                         val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
                         if (itemSkipped) 0
                         else (totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(material, item.id)] ?: 0).coerceIn(0, boards)
@@ -1753,7 +1770,7 @@ private fun HardwoodsBoardStockList(
                         items(groupItems, key = { "admin-item:${it.id}" }) { item ->
                             val isNoneItem = item.feet == null
                             val boards = if (isNoneItem) 0
-                                         else kotlin.math.ceil(item.feet!! / 10.0).toInt().coerceAtLeast(0)
+                                         else kotlin.math.ceil(item.feet!! / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                             val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
                             val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
                             val itemSkipped = !isNoneItem && (matSkipped || ((totalsDoneMap[skipKey] ?: 0) > 0))
@@ -1921,7 +1938,7 @@ private fun HardwoodsBoardStockList(
             }
         }
         // ── Auto-calculated rip cut sections ──────────────────────────────────
-        sections.forEach { sourceSection ->
+        if (!hideSections) sections.forEach { sourceSection ->
             val sourceKey = sourceSection.source.name
             val sourceRows = sourceSection.materials.flatMap { it.rows }
             val sourceCollapsed = sourceKey in collapsedSourceSections
