@@ -89,6 +89,9 @@ import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.filterDoorCutRowsToSheets
+import com.kkc.sheettracker.data.loadHardwoodsCutlistIndexRawJson
+import com.kkc.sheettracker.data.parseDoorCutUnitTypeMetadata
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
@@ -111,6 +114,9 @@ import com.kkc.sheettracker.ui.viewer.extractRoomDisplayName
 import com.kkc.sheettracker.ui.viewer.sanitizeVirtualAssemblyData
 import com.kkc.sheettracker.viewer3d.Model3DPane
 import com.kkc.sheettracker.viewer3d.ViewerServer
+import androidx.compose.ui.text.style.TextAlign
+import com.kkc.sheettracker.data.loadAdminBoardStock
+import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -185,6 +191,8 @@ fun HardwoodsWorkspaceScreen(
                 ) != null
         }
     }
+    val isRipCutEntry = initialRowId == HARDWOODS_RIP_CUT_LIST_ROW_ID
+    val isDoorPanelsEntry = initialRowId == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
     var selectedDocType by remember(jobFolderName) { mutableStateOf(initialDocType) }
 
     val availableDocTypes = remember(availableDocuments) { availableDocuments.map { it.docType }.toSet() }
@@ -195,43 +203,66 @@ fun HardwoodsWorkspaceScreen(
     val listState = rememberLazyListState()
     val selectedDoc = remember(availableDocuments, selectedDocType) { availableDocuments.firstOrNull { it.docType == selectedDocType } }
     val selectedDocName = selectedDoc?.docType?.name.orEmpty()
-    val rows = selectedDoc?.rows.orEmpty()
+    val rawRows = selectedDoc?.rows.orEmpty()
     val totals = selectedDoc?.totals.orEmpty()
-    var showRipCutList by rememberSaveable(jobFolderName) { mutableStateOf(initialRowId == HARDWOODS_RIP_CUT_LIST_ROW_ID) }
-    var showChangedOnly by rememberSaveable(jobFolderName) { mutableStateOf(false) }
-    val partSections = remember(rows, totals) {
-        buildHardwoodsPartSections(rows, totals, HardwoodsRowSortMode.CutlistOrder)
+    var showRipCutList by rememberSaveable(jobFolderName) { mutableStateOf(isRipCutEntry) }
+    val useDoorPanelsSheetFilter = rememberSaveable(jobFolderName) {
+        mutableStateOf(isDoorPanelsEntry)
     }
-    val displayRows = remember(partSections) { partSections.flatMap { it.rows } }
-    val lazyIndexByRowId = remember(partSections) {
-        val indexById = mutableMapOf<String, Int>()
-        var index = 0
-        partSections.forEach { section ->
-            index += 1 // header row
-            section.rows.forEach { row ->
-                indexById[row.rowId] = index
-                index += 1
+    var doorPanelGroupMode by rememberSaveable(jobFolderName) {
+        mutableStateOf(DoorPanelGroupMode.ByMaterial)
+    }
+    val rows = remember(
+        rawRows,
+        selectedDocType,
+        useDoorPanelsSheetFilter.value,
+        scanState.snapshot.basePath,
+        jobFolderName
+    ) {
+        applyDoorPanelsSheetFilter(
+            rows = rawRows,
+            selectedDocType = selectedDocType,
+            enabled = useDoorPanelsSheetFilter.value,
+            rawCutlistIndexJson = loadHardwoodsCutlistIndexRawJson(
+                basePath = scanState.snapshot.basePath,
+                jobFolderName = jobFolderName
+            )
+        )
+    }
+    var showChangedOnly by rememberSaveable(jobFolderName) { mutableStateOf(false) }
+    LaunchedEffect(jobFolderName, initialDocType, initialRowId) {
+        when {
+            isDoorPanelsEntry -> {
+                // Door Panels must always enter on DOOR_CUT_LIST with sheet filter on.
+                selectedDocType = initialDocType
+                showRipCutList = false
+                showChangedOnly = false
+                useDoorPanelsSheetFilter.value = true
+            }
+            isRipCutEntry -> {
+                selectedDocType = initialDocType
+                showRipCutList = true
+                showChangedOnly = false
+                useDoorPanelsSheetFilter.value = false
+            }
+            else -> {
+                if (useDoorPanelsSheetFilter.value) {
+                    useDoorPanelsSheetFilter.value = false
+                }
             }
         }
-        indexById
     }
+    val isDoorPanelsActive = useDoorPanelsSheetFilter.value
     val rowProgressMap = remember(progressVersion, jobFolderName) { hardwoodsProgressStore.getRowProgressMap(jobFolderName) }
     val rowRevisionStateMap = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
         hardwoodsRepository.getRowRevisionStates(jobFolderName)
     }
-    var highlightedRowId by remember(jobFolderName, initialRowId) { mutableStateOf(initialRowId) }
-    val widthColorBands = remember(displayRows, statusColors.widthBandPalette) {
-        val palette = statusColors.widthBandPalette
-        val seen = LinkedHashMap<String, Color>()
-        var next = 0
-        displayRows.forEach { row ->
-            val key = normalizeWidthForGrouping(row.width)
-            if (key.isNotEmpty() && !seen.containsKey(key)) {
-                seen[key] = palette[next % palette.size]
-                next++
+    var highlightedRowId by remember(jobFolderName, initialRowId) {
+        mutableStateOf(
+            initialRowId.takeUnless {
+                it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
             }
-        }
-        seen
+        )
     }
     val boardStockRows = remember(scanState.snapshot.basePath, jobFolderName, job?.index, rowProgressMap) {
         applySkippedPartRowsToBoardStockRows(
@@ -240,20 +271,11 @@ fun HardwoodsWorkspaceScreen(
             rowProgressMap = rowProgressMap
         )
     }
+    val adminBoardStock = remember(scanState.snapshot.basePath, jobFolderName) {
+        loadAdminBoardStock(baseDir = File(scanState.snapshot.basePath), jobFolderName = jobFolderName)
+    }
     val totalsDoneMap = remember(progressVersion, jobFolderName) {
         hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)
-    }
-    val rowDisplayMap = remember(displayRows) {
-        displayRows.associate { row ->
-            val normalizedCabs = row.cabinets.map { it.trim() }.filter { it.isNotBlank() }.distinct()
-            row.rowId to HardwoodsRowUiModel(
-                row = row,
-                normalizedCabs = normalizedCabs,
-                isMultiCab = normalizedCabs.size > 1,
-                widthKey = normalizeWidthForGrouping(row.width),
-                cabDisplayText = formatCabinetDisplay(row.rawCabinetText, row.cabinets)
-            )
-        }
     }
     val pendingChangedByDoc = remember(availableDocuments, rowRevisionStateMap, rowProgressMap) {
         availableDocuments.associate { doc ->
@@ -275,17 +297,6 @@ fun HardwoodsWorkspaceScreen(
     LaunchedEffect(hasAnyPendingChanged) {
         if (!hasAnyPendingChanged && showChangedOnly) {
             showChangedOnly = false
-        }
-    }
-
-    LaunchedEffect(initialRowId, selectedDocType, partSections.size, displayRows.size) {
-        val target = initialRowId ?: return@LaunchedEffect
-        val idx = lazyIndexByRowId[target]
-        if (idx != null) {
-            listState.animateScrollToItem(idx)
-            highlightedRowId = target
-            delay(1800)
-            if (highlightedRowId == target) highlightedRowId = null
         }
     }
 
@@ -365,6 +376,75 @@ fun HardwoodsWorkspaceScreen(
             .replace(Regex("""\s+"""), " ")
             .trim()
             .takeIf { it.isNotBlank() }
+    }
+
+    // Cabinet number → normalized room name, built once from the assembly page index.
+    val cabinetToRoom = remember(assemblyCabinetToPages, assemblyPageDetails) {
+        assemblyCabinetToPages.mapValues { (_, pages) ->
+            pages.firstOrNull()
+                ?.let { page -> normalizeRoomFolder(assemblyPageDetails[page.toString()]?.room) }
+                ?: ""
+        }
+    }
+    val partSections = remember(rows, totals, isDoorPanelsActive, doorPanelGroupMode, cabinetToRoom) {
+        when {
+            isDoorPanelsActive && doorPanelGroupMode == DoorPanelGroupMode.ByCabinet ->
+                buildCabinetSections(rows)
+            isDoorPanelsActive && doorPanelGroupMode == DoorPanelGroupMode.ByRoom ->
+                buildRoomSections(rows, cabinetToRoom)
+            else ->
+                buildHardwoodsPartSections(rows, totals, HardwoodsRowSortMode.CutlistOrder)
+        }
+    }
+    val displayRows = remember(partSections) { partSections.flatMap { it.rows } }
+    val lazyIndexByRowId = remember(partSections) {
+        val indexById = mutableMapOf<String, Int>()
+        var index = 0
+        partSections.forEach { section ->
+            index += 1 // header row
+            section.rows.forEach { row ->
+                indexById[row.rowId] = index
+                index += 1
+            }
+        }
+        indexById
+    }
+    val widthColorBands = remember(displayRows, statusColors.widthBandPalette) {
+        val palette = statusColors.widthBandPalette
+        val seen = LinkedHashMap<String, Color>()
+        var next = 0
+        displayRows.forEach { row ->
+            val key = normalizeWidthForGrouping(row.width)
+            if (key.isNotEmpty() && !seen.containsKey(key)) {
+                seen[key] = palette[next % palette.size]
+                next++
+            }
+        }
+        seen
+    }
+    val rowDisplayMap = remember(displayRows) {
+        displayRows.associate { row ->
+            val normalizedCabs = row.cabinets.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            row.rowId to HardwoodsRowUiModel(
+                row = row,
+                normalizedCabs = normalizedCabs,
+                isMultiCab = normalizedCabs.size > 1,
+                widthKey = normalizeWidthForGrouping(row.width),
+                cabDisplayText = formatCabinetDisplay(row.rawCabinetText, row.cabinets)
+            )
+        }
+    }
+    LaunchedEffect(initialRowId, selectedDocType, partSections.size, displayRows.size) {
+        val target = initialRowId
+            ?.takeUnless { it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID }
+            ?: return@LaunchedEffect
+        val idx = lazyIndexByRowId[target]
+        if (idx != null) {
+            listState.animateScrollToItem(idx)
+            highlightedRowId = target
+            delay(1800)
+            if (highlightedRowId == target) highlightedRowId = null
+        }
     }
 
     fun firstAlphabeticalRoomFromIndex(): Pair<String, Int>? {
@@ -731,15 +811,56 @@ fun HardwoodsWorkspaceScreen(
                     thickness = 1.dp,
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (isDoorPanelsActive) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Group by:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 2.dp)
+                        )
+                        DoorPanelGroupMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = doorPanelGroupMode == mode,
+                                onClick = { doorPanelGroupMode = mode },
+                                label = {
+                                    Text(
+                                        when (mode) {
+                                            DoorPanelGroupMode.ByMaterial -> "Material"
+                                            DoorPanelGroupMode.ByCabinet -> "Cabinet #"
+                                            DoorPanelGroupMode.ByRoom -> "Room"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(6.dp))
                 if (showRipCutList) {
-                    HardwoodsBoardStockList(
-                        sections = buildBoardStockSourceSections(boardStockRows),
-                        jobFolderName = jobFolderName,
-                        progressStore = hardwoodsProgressStore,
-                        totalsDoneMap = totalsDoneMap,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (adminBoardStock.isNotEmpty()) {
+                            AdminBoardStockSection(
+                                items = adminBoardStock,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        HardwoodsBoardStockList(
+                            sections = buildBoardStockSourceSections(boardStockRows),
+                            jobFolderName = jobFolderName,
+                            progressStore = hardwoodsProgressStore,
+                            totalsDoneMap = totalsDoneMap,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 } else if (selectedDoc == null) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("No metadata for selected cut list", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1214,7 +1335,7 @@ private fun HardwoodsPartRow(
                         },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                         modifier = Modifier.heightIn(min = 32.dp)
-                    ) { Text("Jump", style = MaterialTheme.typography.labelSmall) }
+                    ) { Text("View", style = MaterialTheme.typography.labelSmall) }
                     if (visuals.skipOn) {
                         Button(
                             onClick = {
@@ -1985,6 +2106,57 @@ private fun buildHardwoodsPartSections(
     }
 }
 
+/** Groups door-panel rows into one section per cabinet number, sorted numerically. */
+private fun buildCabinetSections(rows: List<HardwoodCutlistRow>): List<HardwoodsPartSection> {
+    if (rows.isEmpty()) return emptyList()
+    val grouped = LinkedHashMap<String, MutableList<HardwoodCutlistRow>>()
+    rows.forEach { row ->
+        val firstCab = row.cabinets.firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
+            ?: row.rawCabinetText.split(",").firstOrNull()
+                ?.trim()?.replace(Regex("""\(.*"""), "")?.trim()?.takeIf { it.isNotBlank() }
+            ?: "—"
+        grouped.getOrPut(firstCab) { mutableListOf() }.add(row)
+    }
+    return grouped.entries
+        .sortedWith(compareBy { it.key.toIntOrNull() ?: Int.MAX_VALUE })
+        .map { (cab, groupedRows) ->
+            HardwoodsPartSection(
+                material = "Cabinet $cab",
+                pagesLabel = "",
+                rows = groupedRows.sortedWith(cutlistOrderComparator())
+            )
+        }
+}
+
+/** Groups door-panel rows into one section per room, using a cabinet→room lookup. */
+private fun buildRoomSections(
+    rows: List<HardwoodCutlistRow>,
+    cabinetToRoom: Map<String, String>
+): List<HardwoodsPartSection> {
+    if (rows.isEmpty()) return emptyList()
+    val grouped = LinkedHashMap<String, MutableList<HardwoodCutlistRow>>()
+    rows.forEach { row ->
+        val firstCab = row.cabinets.firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
+            ?: row.rawCabinetText.split(",").firstOrNull()
+                ?.trim()?.replace(Regex("""\(.*"""), "")?.trim()
+        val room = (firstCab?.let { cabinetToRoom[it] })?.takeIf { it.isNotBlank() }
+            ?: "Unassigned"
+        grouped.getOrPut(room) { mutableListOf() }.add(row)
+    }
+    return grouped.entries
+        .sortedBy { it.key }
+        .map { (room, groupedRows) ->
+            HardwoodsPartSection(
+                material = room,
+                pagesLabel = "",
+                rows = groupedRows.sortedWith(
+                    compareBy<HardwoodCutlistRow> { it.cabinets.firstOrNull()?.toIntOrNull() ?: Int.MAX_VALUE }
+                        .then(cutlistOrderComparator())
+                )
+            )
+        }
+}
+
 private fun dimensionPairKey(width: String, length: String): String {
     val w = dimensionKey(width)
     val l = dimensionKey(length)
@@ -2009,4 +2181,104 @@ private fun formatLinearFeet(value: Double): String {
         return whole.toInt().toString()
     }
     return "%.3f".format(safe).trimEnd('0').trimEnd('.')
+}
+
+internal fun applyDoorPanelsSheetFilter(
+    rows: List<HardwoodCutlistRow>,
+    selectedDocType: HardwoodDocType,
+    enabled: Boolean,
+    rawCutlistIndexJson: String?
+): List<HardwoodCutlistRow> {
+    if (!enabled || selectedDocType != HardwoodDocType.DOOR_CUT_LIST) return rows
+    val metadata = parseDoorCutUnitTypeMetadata(rawCutlistIndexJson)
+    return if (metadata.hasUnitTypeMetadata) {
+        filterDoorCutRowsToSheets(rows, metadata)
+    } else {
+        rows
+    }
+}
+
+@Composable
+private fun AdminBoardStockSection(
+    items: List<AdminBoardStockItem>,
+    modifier: Modifier = Modifier
+) {
+    if (items.isEmpty()) return
+
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            // Collapsible header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Board Stock",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = if (expanded) "▲" else "▼",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (expanded) {
+                Spacer(Modifier.height(4.dp))
+                val grouped = items
+                    .groupBy { it.material.ifBlank { "—" } }
+                    .entries
+                    .sortedBy { it.key.lowercase() }
+                grouped.forEach { (material, rows) ->
+                    Text(
+                        text = material,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 1.dp)
+                    )
+                    rows.forEach { row ->
+                        val boardsNeeded = if (row.feet <= 0.0) "—"
+                            else kotlin.math.ceil(row.feet / 10.0).toInt().toString()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 1.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = row.name.ifBlank { "—" },
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${row.feet.toInt()} ft",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                            Text(
+                                text = "$boardsNeeded boards",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.widthIn(min = 72.dp),
+                                textAlign = TextAlign.End
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+    }
 }
