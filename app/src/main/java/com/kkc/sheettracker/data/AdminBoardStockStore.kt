@@ -21,7 +21,13 @@ fun loadAdminBoardStock(baseDir: File, jobFolderName: String): List<AdminBoardSt
             val id       = obj.get("id")?.asString?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val name     = obj.get("name")?.asString?.trim().orEmpty()
             val material = obj.get("material")?.asString?.trim().orEmpty()
-            val feet     = obj.get("feet")?.asDouble ?: 0.0
+            // null in JSON = admin marked NONE; absent or 0 = blank (filtered out in UI)
+            val feetElement = obj.get("feet")
+            val feet: Double? = if (feetElement == null || feetElement.isJsonNull) null
+                                else feetElement.asDouble
+            // Hide items with blank feet (0 or missing) — admin hasn't filled them in yet.
+            // Items explicitly set to NONE (null) still show with a NONE label.
+            if (feet != null && feet <= 0.0) return@mapNotNull null
             AdminBoardStockItem(
                 id        = id,
                 material  = material,
