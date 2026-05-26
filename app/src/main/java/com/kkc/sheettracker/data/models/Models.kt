@@ -750,3 +750,12 @@ data class SpecialtyResolvedItem(
     val completionByKey: Map<String, SpecialtyCompletionState> = emptyMap(),
     val isComplete: Boolean = false
 )
+
+data class AdminBoardStockItem(
+    val id: String,
+    val material: String,
+    val name: String,
+    val feet: Double,
+    val createdAt: String = "",
+    val createdBy: String = ""
+)
