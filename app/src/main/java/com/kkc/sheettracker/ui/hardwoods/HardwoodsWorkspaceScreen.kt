@@ -1641,10 +1641,6 @@ private fun HardwoodsBoardStockList(
         seen
     }
 
-    // State for admin board stock collapse (source + per-material)
-    var adminSourceCollapsed by rememberSaveable(jobFolderName) { mutableStateOf(false) }
-    var adminCollapsedMaterials by rememberSaveable(jobFolderName) { mutableStateOf(emptySet<String>()) }
-
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(bottom = 18.dp),
@@ -1652,13 +1648,15 @@ private fun HardwoodsBoardStockList(
     ) {
         // ── Admin board stock section (server-entered items) ──────────────────
         if (adminItems.isNotEmpty()) {
+            val adminSourceKey = "ADMIN"
+            val adminSourceCollapsed = adminSourceKey in collapsedSourceSections
             val adminGroups = adminItems
                 .groupBy { it.material.ifBlank { "—" } }
                 .entries.sortedBy { it.key.lowercase() }
             val adminTotalTarget = adminGroups.sumOf { (mat, rows) ->
                 if (progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, mat)) 0
                 else rows.sumOf { item ->
-                    if (item.feet == null) return@sumOf 0  // NONE items excluded from totals
+                    if (item.feet == null) return@sumOf 0
                     val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(mat, item.id)] ?: 0) > 0
                     if (itemSkipped) 0 else kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
                 }
@@ -1666,7 +1664,7 @@ private fun HardwoodsBoardStockList(
             val adminTotalDone = adminGroups.sumOf { (mat, rows) ->
                 if (progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, mat)) 0
                 else rows.sumOf { item ->
-                    if (item.feet == null) return@sumOf 0  // NONE items excluded from totals
+                    if (item.feet == null) return@sumOf 0
                     val boards = kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
                     val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(mat, item.id)] ?: 0) > 0
                     if (itemSkipped) 0
@@ -1682,13 +1680,20 @@ private fun HardwoodsBoardStockList(
                     dimmed = false,
                     skipped = false,
                     expanded = !adminSourceCollapsed,
-                    onToggleExpanded = { adminSourceCollapsed = !adminSourceCollapsed },
+                    onToggleExpanded = {
+                        collapsedSourceSections = if (adminSourceCollapsed) {
+                            collapsedSourceSections - adminSourceKey
+                        } else {
+                            collapsedSourceSections + adminSourceKey
+                        }
+                    },
                     headerActions = null,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
             if (!adminSourceCollapsed) {
                 adminGroups.forEach { (material, groupItems) ->
+                    val adminMatKey = "ADMIN|$material"
                     val matSkipped = progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, material)
                     val matTarget = if (matSkipped) 0 else groupItems.sumOf { item ->
                         if (item.feet == null) return@sumOf 0
@@ -1702,13 +1707,12 @@ private fun HardwoodsBoardStockList(
                         if (itemSkipped) 0
                         else (totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(material, item.id)] ?: 0).coerceIn(0, boards)
                     }
-                    val matKey = "admin-mat-$material"
-                    val matCollapsed = matKey in adminCollapsedMaterials
+                    val matCollapsed = adminMatKey in collapsedMaterialSections
                     stickyHeader(key = "admin-mat-header:$material") {
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 14.dp),
+                                .padding(start = childSectionIndent),
                             shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
                             border = BorderStroke(
@@ -1725,10 +1729,11 @@ private fun HardwoodsBoardStockList(
                                 skipped = matSkipped,
                                 expanded = !matCollapsed,
                                 onToggleExpanded = {
-                                    adminCollapsedMaterials = if (matCollapsed)
-                                        adminCollapsedMaterials - matKey
-                                    else
-                                        adminCollapsedMaterials + matKey
+                                    collapsedMaterialSections = if (matCollapsed) {
+                                        collapsedMaterialSections - adminMatKey
+                                    } else {
+                                        collapsedMaterialSections + adminMatKey
+                                    }
                                 },
                                 headerActions = {
                                     MaterialSkipPill(
@@ -1766,7 +1771,7 @@ private fun HardwoodsBoardStockList(
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 14.dp)
+                                    .padding(start = childSectionIndent)
                                     .heightIn(min = 48.dp)
                                     .drawBehind {
                                         drawLine(
