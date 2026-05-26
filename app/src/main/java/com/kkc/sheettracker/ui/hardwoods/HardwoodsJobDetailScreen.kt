@@ -1,8 +1,16 @@
 package com.kkc.sheettracker.ui.hardwoods
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.widthIn
+import com.kkc.sheettracker.data.loadAdminBoardStock
+import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodJob
@@ -52,12 +61,15 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
+import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
+import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HardwoodsJobDetailScreen(
     scanCoordinator: HardwoodsScanCoordinator,
     progressStore: HardwoodsProgressStore,
+    specialtyStateStore: SpecialtyStateStore,
     jobRepository: JobRepository,
     jobFolderName: String,
     onOpenWorkspace: (HardwoodDocType) -> Unit,
@@ -104,6 +116,13 @@ fun HardwoodsJobDetailScreen(
     }
     val hasThreeDAssets = remember(jobFolderName) {
         jobRepository.hasThreeDAssets(jobFolderName)
+    }
+    val basePath = scanState.snapshot.basePath
+    val adminBoardStock = remember(jobFolderName, basePath) {
+        loadAdminBoardStock(
+            baseDir = java.io.File(basePath),
+            jobFolderName = jobFolderName
+        )
     }
     val docSummariesByType = remember(summary.documents) {
         summary.documents.associateBy { it.docType }
@@ -193,6 +212,12 @@ fun HardwoodsJobDetailScreen(
                     }
                 }
             }
+
+            CompactSpecialtySection(
+                jobFolderName = jobFolderName,
+                specialtyStateStore = specialtyStateStore,
+                mode = SpecialtySurfaceMode.HARDWOODS
+            )
 
             val jobStatusCounts = summary.counts.toStatusCounts()
             ProgressCard(
@@ -295,6 +320,9 @@ fun HardwoodsJobDetailScreen(
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
+            if (adminBoardStock.isNotEmpty()) {
+                AdminBoardStockCard(adminBoardStock)
+            }
         }
     }
 }
@@ -345,4 +373,88 @@ private fun normalizeRowProgress(qty: Int, progress: HardwoodRowProgress): Hardw
         }
     }
     return HardwoodRowProgress(doneCount = done, badCount = bad, skipped = progress.skipped)
+}
+
+@Composable
+private fun AdminBoardStockCard(items: List<AdminBoardStockItem>) {
+    if (items.isEmpty()) return
+
+    var expanded by rememberSaveable { mutableStateOf(true) }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        tonalElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Header row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Board Stock",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = if (expanded) "▲" else "▼",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (expanded) {
+                Spacer(Modifier.height(8.dp))
+
+                // Group by material, sorted A-Z
+                val grouped = items
+                    .groupBy { it.material.ifBlank { "—" } }
+                    .entries
+                    .sortedBy { it.key.lowercase() }
+
+                grouped.forEach { (material, rows) ->
+                    Text(
+                        text = material,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                    )
+                    rows.forEach { row ->
+                        val boardsNeeded = if (row.feet <= 0.0) "—"
+                            else kotlin.math.ceil(row.feet / 10.0).toInt().toString()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = row.name.ifBlank { "—" },
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${row.feet.toInt()} ft",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                            Text(
+                                text = "$boardsNeeded boards",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.widthIn(min = 72.dp),
+                                textAlign = TextAlign.End
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
