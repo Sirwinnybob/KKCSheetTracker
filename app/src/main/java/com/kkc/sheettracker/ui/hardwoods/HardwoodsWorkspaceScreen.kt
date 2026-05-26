@@ -266,7 +266,7 @@ fun HardwoodsWorkspaceScreen(
     var highlightedRowId by remember(jobFolderName, initialRowId) {
         mutableStateOf(
             initialRowId.takeUnless {
-                it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID || it == HARDWOODS_SAW_RIP_LIST_ROW_ID
             }
         )
     }
@@ -448,7 +448,7 @@ fun HardwoodsWorkspaceScreen(
     }
     LaunchedEffect(initialRowId, selectedDocType, partSections.size, displayRows.size) {
         val target = initialRowId
-            ?.takeUnless { it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID }
+            ?.takeUnless { it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID || it == HARDWOODS_SAW_RIP_LIST_ROW_ID }
             ?: return@LaunchedEffect
         val idx = lazyIndexByRowId[target]
         if (idx != null) {
