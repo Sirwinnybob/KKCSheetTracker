@@ -757,6 +757,8 @@ data class AdminBoardStockItem(
     val name: String,
     /** null = admin explicitly marked NONE (not needed); 0 = blank/unfilled (hidden on tablets) */
     val feet: Double?,
+    val mode: String = "bd_ft",
+    val ripLength: Int = 10,
     val createdAt: String = "",
     val createdBy: String = ""
 )
