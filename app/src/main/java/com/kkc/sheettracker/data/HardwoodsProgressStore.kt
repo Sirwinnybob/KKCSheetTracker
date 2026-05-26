@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -748,6 +749,58 @@ class HardwoodsProgressStore(
         return "board_stock|${normalizeBoardStockMaterial(material)}|$widthPart|${normalizeBoardStockSource(source)}"
     }
 
+    // ── Admin board stock (server-entered items) ─────────────────────────────
+
+    fun makeAdminBoardStockTallyKey(material: String, itemId: String): String =
+        "admin_board_stock|${normalizeBoardStockMaterial(material)}|$itemId|ADMIN"
+
+    fun makeAdminBoardStockSkipKey(material: String, itemId: String): String =
+        "admin_board_stock_skip|${normalizeBoardStockMaterial(material)}|$itemId|ADMIN"
+
+    private fun makeAdminBoardStockMaterialSkipKey(material: String): String =
+        "admin_board_stock_material_skip|${normalizeBoardStockMaterial(material)}|ADMIN"
+
+    fun isAdminBoardStockMaterialSkipped(jobFolderName: String, material: String): Boolean =
+        (getTotalsRip10DoneMap(jobFolderName)[makeAdminBoardStockMaterialSkipKey(material)] ?: 0) > 0
+
+    fun setAdminBoardStockMaterialSkipped(jobFolderName: String, material: String, skipped: Boolean) {
+        appendAction(
+            jobFolderName = jobFolderName,
+            docType = "BOARD_STOCK_SKIP",
+            rowId = "",
+            totalsKey = makeAdminBoardStockMaterialSkipKey(material),
+            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = if (skipped) 1 else 0
+        )
+    }
+
+    fun setAdminBoardStockDone(jobFolderName: String, material: String, itemId: String, doneCount: Int) {
+        val key = makeAdminBoardStockTallyKey(material, itemId)
+        val normalizedTarget = doneCount.coerceAtLeast(0)
+        val current = getTotalsRip10DoneMap(jobFolderName)[key] ?: 0
+        val delta = normalizedTarget - current
+        if (delta == 0) return
+        appendAction(
+            jobFolderName = jobFolderName,
+            docType = "BOARD_STOCK",
+            rowId = "",
+            totalsKey = key,
+            action = HardwoodTrackerActions.ADD_TOTALS_RIP10_DONE_COUNT,
+            value = delta
+        )
+    }
+
+    fun setAdminBoardStockSkipped(jobFolderName: String, material: String, itemId: String, skipped: Boolean) {
+        appendAction(
+            jobFolderName = jobFolderName,
+            docType = "BOARD_STOCK_SKIP",
+            rowId = "",
+            totalsKey = makeAdminBoardStockSkipKey(material, itemId),
+            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = if (skipped) 1 else 0
+        )
+    }
+
     private fun applyActionToCache(cache: JobCache, action: HardwoodTrackerAction) {
         decodeCabinetSkipRowId(action.rowId)?.let { decoded ->
             val key = action.docType to decoded.first
@@ -800,6 +853,19 @@ class HardwoodsProgressStore(
                     )
                 )
             }
+        }
+    }
+
+    /**
+     * Blocks the calling thread until all pending async disk writes have completed.
+     * Only intended for use in test/migration contexts (e.g. batch-sync JUnit test)
+     * where the JVM may exit before the IO coroutines finish writing tracker files.
+     * Do NOT call from production UI paths — use the async flow normally.
+     */
+    fun awaitPendingWrites() {
+        runBlocking {
+            val scopeJob = ioScope.coroutineContext[kotlinx.coroutines.Job]
+            scopeJob?.children?.toList()?.forEach { it.join() }
         }
     }
 }

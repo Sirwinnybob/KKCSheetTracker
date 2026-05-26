@@ -114,7 +114,6 @@ import com.kkc.sheettracker.ui.viewer.extractRoomDisplayName
 import com.kkc.sheettracker.ui.viewer.sanitizeVirtualAssemblyData
 import com.kkc.sheettracker.viewer3d.Model3DPane
 import com.kkc.sheettracker.viewer3d.ViewerServer
-import androidx.compose.ui.text.style.TextAlign
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import java.io.File
@@ -846,21 +845,14 @@ fun HardwoodsWorkspaceScreen(
                 }
                 Spacer(Modifier.height(6.dp))
                 if (showRipCutList) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        if (adminBoardStock.isNotEmpty()) {
-                            AdminBoardStockSection(
-                                items = adminBoardStock,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        HardwoodsBoardStockList(
-                            sections = buildBoardStockSourceSections(boardStockRows),
-                            jobFolderName = jobFolderName,
-                            progressStore = hardwoodsProgressStore,
-                            totalsDoneMap = totalsDoneMap,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                    HardwoodsBoardStockList(
+                        sections = buildBoardStockSourceSections(boardStockRows),
+                        adminItems = adminBoardStock,
+                        jobFolderName = jobFolderName,
+                        progressStore = hardwoodsProgressStore,
+                        totalsDoneMap = totalsDoneMap,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 } else if (selectedDoc == null) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("No metadata for selected cut list", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1602,13 +1594,14 @@ private fun MaterialSkipPill(
 @OptIn(ExperimentalFoundationApi::class)
 private fun HardwoodsBoardStockList(
     sections: List<BoardStockSourceSection>,
+    adminItems: List<AdminBoardStockItem> = emptyList(),
     jobFolderName: String,
     progressStore: HardwoodsProgressStore,
     totalsDoneMap: Map<String, Int>,
     modifier: Modifier = Modifier
 ) {
     val statusColors = KKCThemeColors.statusColors
-    if (sections.isEmpty()) {
+    if (sections.isEmpty() && adminItems.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             Text("No rip cut lines found", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -1648,11 +1641,244 @@ private fun HardwoodsBoardStockList(
         seen
     }
 
+    // State for admin board stock collapse (source + per-material)
+    var adminSourceCollapsed by rememberSaveable(jobFolderName) { mutableStateOf(false) }
+    var adminCollapsedMaterials by rememberSaveable(jobFolderName) { mutableStateOf(emptySet<String>()) }
+
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
+        // ── Admin board stock section (server-entered items) ──────────────────
+        if (adminItems.isNotEmpty()) {
+            val adminGroups = adminItems
+                .groupBy { it.material.ifBlank { "—" } }
+                .entries.sortedBy { it.key.lowercase() }
+            val adminTotalTarget = adminGroups.sumOf { (mat, rows) ->
+                if (progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, mat)) 0
+                else rows.sumOf { item ->
+                    val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(mat, item.id)] ?: 0) > 0
+                    if (itemSkipped) 0 else kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
+                }
+            }
+            val adminTotalDone = adminGroups.sumOf { (mat, rows) ->
+                if (progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, mat)) 0
+                else rows.sumOf { item ->
+                    val boards = kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
+                    val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(mat, item.id)] ?: 0) > 0
+                    if (itemSkipped) 0
+                    else (totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(mat, item.id)] ?: 0).coerceIn(0, boards)
+                }
+            }
+            stickyHeader(key = "admin-board-stock-source") {
+                SectionProgressHeader(
+                    title = "Board Stock",
+                    itemCount = adminItems.size,
+                    done = adminTotalDone,
+                    total = adminTotalTarget,
+                    dimmed = false,
+                    skipped = false,
+                    expanded = !adminSourceCollapsed,
+                    onToggleExpanded = { adminSourceCollapsed = !adminSourceCollapsed },
+                    headerActions = null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (!adminSourceCollapsed) {
+                adminGroups.forEach { (material, groupItems) ->
+                    val matSkipped = progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, material)
+                    val matTarget = if (matSkipped) 0 else groupItems.sumOf { item ->
+                        val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
+                        if (itemSkipped) 0 else kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
+                    }
+                    val matDone = if (matSkipped) 0 else groupItems.sumOf { item ->
+                        val boards = kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
+                        val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
+                        if (itemSkipped) 0
+                        else (totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(material, item.id)] ?: 0).coerceIn(0, boards)
+                    }
+                    val matKey = "admin-mat-$material"
+                    val matCollapsed = matKey in adminCollapsedMaterials
+                    stickyHeader(key = "admin-mat-header:$material") {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                            )
+                        ) {
+                            SectionProgressHeader(
+                                title = material,
+                                itemCount = groupItems.size,
+                                done = matDone,
+                                total = matTarget,
+                                dimmed = matSkipped,
+                                skipped = matSkipped,
+                                expanded = !matCollapsed,
+                                onToggleExpanded = {
+                                    adminCollapsedMaterials = if (matCollapsed)
+                                        adminCollapsedMaterials - matKey
+                                    else
+                                        adminCollapsedMaterials + matKey
+                                },
+                                headerActions = {
+                                    MaterialSkipPill(
+                                        skipped = matSkipped,
+                                        onClick = {
+                                            progressStore.setAdminBoardStockMaterialSkipped(
+                                                jobFolderName, material, !matSkipped
+                                            )
+                                        }
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                    if (!matCollapsed) {
+                        items(groupItems, key = { "admin-item:${it.id}" }) { item ->
+                            val boards = kotlin.math.ceil(item.feet / 10.0).toInt().coerceAtLeast(0)
+                            val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
+                            val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
+                            val itemSkipped = matSkipped || ((totalsDoneMap[skipKey] ?: 0) > 0)
+                            val done = if (itemSkipped) 0 else (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
+                            val rowState = when {
+                                itemSkipped -> ProgressState.SKIPPED
+                                boards <= 0 -> ProgressState.NOT_STARTED
+                                done >= boards -> ProgressState.COMPLETE
+                                done > 0 -> ProgressState.IN_PROGRESS
+                                else -> ProgressState.NOT_STARTED
+                            }
+                            val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 14.dp)
+                                    .heightIn(min = 48.dp)
+                                    .drawBehind {
+                                        drawLine(
+                                            color = dividerColor,
+                                            start = Offset(0f, size.height - 1f),
+                                            end = Offset(size.width, size.height - 1f),
+                                            strokeWidth = 1f
+                                        )
+                                    },
+                                shape = RoundedCornerShape(6.dp),
+                                color = when {
+                                    matSkipped -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                    itemSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
+                                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
+                                },
+                                tonalElevation = 0.5.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(3.dp)
+                                            .fillMaxHeight()
+                                            .background(statusColors.inProgress)
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                            Text(
+                                                item.name.ifBlank { "—" },
+                                                style = DimensionTextStyle,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                "Need $boards boards  ·  ${item.feet.toInt()} ft",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Button(
+                                            onClick = {
+                                                progressStore.setAdminBoardStockDone(
+                                                    jobFolderName, material, item.id, done - 1
+                                                )
+                                            },
+                                            enabled = !itemSkipped && done > 0,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = statusColors.bad,
+                                                contentColor = Color.White
+                                            ),
+                                            contentPadding = PaddingValues(0.dp),
+                                            modifier = Modifier.heightIn(min = 32.dp).widthIn(min = 32.dp)
+                                        ) { Icon(Icons.Default.Remove, contentDescription = "Done -", modifier = Modifier.size(14.dp)) }
+                                        ProgressPill(
+                                            done = done,
+                                            total = boards,
+                                            state = rowState,
+                                            skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f)
+                                        )
+                                        Button(
+                                            onClick = {
+                                                progressStore.setAdminBoardStockDone(
+                                                    jobFolderName, material, item.id, done + 1
+                                                )
+                                            },
+                                            enabled = !itemSkipped && done < boards,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = statusColors.completeBorder,
+                                                contentColor = Color.White
+                                            ),
+                                            contentPadding = PaddingValues(0.dp),
+                                            modifier = Modifier.heightIn(min = 32.dp).widthIn(min = 32.dp)
+                                        ) { Icon(Icons.Default.Add, contentDescription = "Done +", modifier = Modifier.size(14.dp)) }
+                                        if (!matSkipped) {
+                                            if (itemSkipped) {
+                                                Button(
+                                                    onClick = {
+                                                        progressStore.setAdminBoardStockSkipped(
+                                                            jobFolderName, material, item.id, false
+                                                        )
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = statusColors.skipBorder,
+                                                        contentColor = Color.White
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                    modifier = Modifier.heightIn(min = 32.dp)
+                                                ) {
+                                                    Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                                }
+                                            } else {
+                                                MaterialSkipPill(
+                                                    skipped = false,
+                                                    onClick = {
+                                                        progressStore.setAdminBoardStockSkipped(
+                                                            jobFolderName, material, item.id, true
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // ── Auto-calculated rip cut sections ──────────────────────────────────
         sections.forEach { sourceSection ->
             val sourceKey = sourceSection.source.name
             val sourceRows = sourceSection.materials.flatMap { it.rows }
@@ -2198,87 +2424,3 @@ internal fun applyDoorPanelsSheetFilter(
     }
 }
 
-@Composable
-private fun AdminBoardStockSection(
-    items: List<AdminBoardStockItem>,
-    modifier: Modifier = Modifier
-) {
-    if (items.isEmpty()) return
-
-    var expanded by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
-
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = modifier
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            // Collapsible header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Board Stock",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = if (expanded) "▲" else "▼",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            if (expanded) {
-                Spacer(Modifier.height(4.dp))
-                val grouped = items
-                    .groupBy { it.material.ifBlank { "—" } }
-                    .entries
-                    .sortedBy { it.key.lowercase() }
-                grouped.forEach { (material, rows) ->
-                    Text(
-                        text = material,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 1.dp)
-                    )
-                    rows.forEach { row ->
-                        val boardsNeeded = if (row.feet <= 0.0) "—"
-                            else kotlin.math.ceil(row.feet / 10.0).toInt().toString()
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 1.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = row.name.ifBlank { "—" },
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = "${row.feet.toInt()} ft",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
-                            Text(
-                                text = "$boardsNeeded boards",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.widthIn(min = 72.dp),
-                                textAlign = TextAlign.End
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-            }
-        }
-    }
-}
