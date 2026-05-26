@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.specialty
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -20,7 +22,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Checkbox
@@ -62,7 +63,7 @@ import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.StatusChip
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SpecialtyJobDetailScreen(
     jobFolderName: String,
@@ -74,6 +75,7 @@ fun SpecialtyJobDetailScreen(
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
     onOpenDoorPanels: () -> Unit,
+    onOpenSawRipList: () -> Unit,
     onOpenSplitView: () -> Unit,
     onJumpToCabinet: ((String) -> Unit)? = null,
     onBack: () -> Unit
@@ -86,22 +88,29 @@ fun SpecialtyJobDetailScreen(
     val completionOverrides = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
     val inFlightUpdates = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
     var toggleErrorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
-    var selectedStation by remember(jobFolderName) { mutableStateOf<SpecialtyStation?>(null) }
-
     val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
         specialtyStateStore.getResolvedItems(jobFolderName)
     }
-    // Stations that actually have items — drives filter chip visibility
-    val availableStations = remember(resolvedItems) {
-        resolvedItems.flatMap { it.item.stations }.distinct().sortedBy { it.ordinal }
+
+    // Group items into sections by station, in enum ordinal order; untagged items last.
+    val sections: List<Pair<SpecialtyStation?, List<SpecialtyResolvedItem>>> = remember(resolvedItems) {
+        val buckets = linkedMapOf<SpecialtyStation?, MutableList<SpecialtyResolvedItem>>()
+        SpecialtyStation.entries.forEach { buckets[it] = mutableListOf() }
+        buckets[null] = mutableListOf()
+        resolvedItems.forEach { resolved ->
+            if (resolved.item.stations.isEmpty()) {
+                buckets[null]!! += resolved
+            } else {
+                resolved.item.stations.forEach { station -> buckets[station]!! += resolved }
+            }
+        }
+        buckets.entries
+            .filter { (_, v) -> v.isNotEmpty() }
+            .map { (k, v) -> k to v.toList() }
     }
-    // SAW / EDGE_BANDER / ASSEMBLY are sub-stations within specialty mode, not top-level modes
-    val filteredItems = if (selectedStation == null) resolvedItems
-        else resolvedItems.filter { selectedStation in it.item.stations }
-    val completedItems = filteredItems.count { resolved ->
-        isChecklistItemComplete(resolved, completionOverrides)
-    }
-    val totalItems = filteredItems.size
+
+    val completedItems = resolvedItems.count { isChecklistItemComplete(it, completionOverrides) }
+    val totalItems = resolvedItems.size
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -126,14 +135,12 @@ fun SpecialtyJobDetailScreen(
         ) {
             item(key = "summary") {
                 Text(
-                    text = when {
-                        selectedStation == null && resolvedItems.isEmpty() &&
-                                scanState.status != com.kkc.sheettracker.data.models.ScanStatus.READY ->
-                            "Specialty checklist details are loading."
-                        selectedStation != null ->
-                            "$completedItems / $totalItems ${stationFilterLabel(selectedStation!!)} items complete"
-                        else ->
-                            "$completedItems / $totalItems items complete"
+                    text = if (resolvedItems.isEmpty() &&
+                        scanState.status != com.kkc.sheettracker.data.models.ScanStatus.READY
+                    ) {
+                        "Specialty checklist details are loading."
+                    } else {
+                        "$completedItems / $totalItems items complete"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -181,6 +188,12 @@ fun SpecialtyJobDetailScreen(
                     )
                     SpecialtyActionWidget(
                         modifier = Modifier.weight(1f),
+                        title = "Rip List",
+                        subtitle = "View sheet stock rip cuts",
+                        onClick = onOpenSawRipList
+                    )
+                    SpecialtyActionWidget(
+                        modifier = Modifier.weight(1f),
                         title = "Split View",
                         subtitle = "Open assembly + plans workspace",
                         onClick = onOpenSplitView
@@ -188,91 +201,74 @@ fun SpecialtyJobDetailScreen(
                 }
             }
 
-            // Station filter — SAW / EDGE BANDER / ASSEMBLY are sub-stations within specialty mode
-            if (availableStations.isNotEmpty()) {
-                item(key = "station-filter") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = selectedStation == null,
-                            onClick = { selectedStation = null },
-                            label = { Text("All") }
-                        )
-                        availableStations.forEach { station ->
-                            FilterChip(
-                                selected = selectedStation == station,
-                                onClick = {
-                                    selectedStation = if (selectedStation == station) null else station
-                                },
-                                label = { Text(stationFilterLabel(station)) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (filteredItems.isEmpty()) {
+            if (resolvedItems.isEmpty()) {
                 item(key = "empty") {
                     Text(
-                        if (selectedStation != null)
-                            "No ${stationFilterLabel(selectedStation!!)} items for this job."
-                        else
-                            "No specialty checklist items found.",
+                        "No specialty checklist items found.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             } else {
-                items(
-                    items = filteredItems,
-                    key = { resolved -> resolved.item.id }
-                ) { resolved ->
-                    val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
-                    SpecialtyChecklistRow(
-                        resolved = resolved,
-                        toggles = itemToggles,
-                        inFlightUpdates = inFlightUpdates,
-                        onJumpToCabinet = onJumpToCabinet,
-                        onPatchDims = { dims, qty, mat ->
-                            coroutineScope.launch {
-                                try {
-                                    specialtyStateStore.patchSpecialtyItemFields(jobFolderName, resolved.item.id, dims, qty, mat)
-                                } catch (_: Exception) {
-                                    snackbarHostState.showSnackbar("Failed to save dimensions.")
+                sections.forEach { (station, sectionItems) ->
+                    val sectionKey = station?.name ?: "other"
+                    stickyHeader(key = "section-$sectionKey") {
+                        val sectionDone = sectionItems.count { isChecklistItemComplete(it, completionOverrides) }
+                        SpecialtySectionHeader(
+                            label = station?.let { stationFilterLabel(it) } ?: "Other",
+                            completed = sectionDone,
+                            total = sectionItems.size
+                        )
+                    }
+                    items(
+                        items = sectionItems,
+                        key = { resolved -> "$sectionKey::${resolved.item.id}" }
+                    ) { resolved ->
+                        val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
+                        SpecialtyChecklistRow(
+                            resolved = resolved,
+                            toggles = itemToggles,
+                            inFlightUpdates = inFlightUpdates,
+                            onJumpToCabinet = onJumpToCabinet,
+                            basePath = scanState.snapshot.basePath,
+                            jobFolderName = jobFolderName,
+                            onPatchDims = { dims, qty, mat ->
+                                coroutineScope.launch {
+                                    try {
+                                        specialtyStateStore.patchSpecialtyItemFields(jobFolderName, resolved.item.id, dims, qty, mat)
+                                    } catch (_: Exception) {
+                                        snackbarHostState.showSnackbar("Failed to save dimensions.")
+                                    }
+                                }
+                            },
+                            onCheckedChange = { toggle, next ->
+                                val itemId = resolved.item.id
+                                val controlId = toggle.controlId
+                                val previous = completionOverrides[controlId] ?: toggle.checked
+                                completionOverrides[controlId] = next
+                                startInFlightUpdate(inFlightUpdates, controlId)
+                                coroutineScope.launch {
+                                    try {
+                                        specialtyStateStore.setItemCompletionKey(
+                                            jobFolderName = jobFolderName,
+                                            itemId = itemId,
+                                            completionKey = toggle.completionKey,
+                                            completed = next
+                                        )
+                                        completionOverrides.remove(controlId)
+                                        toggleErrorMessage = null
+                                    } catch (_: Exception) {
+                                        completionOverrides[controlId] = previous
+                                        val message = "Failed to update checklist item. Please retry."
+                                        toggleErrorMessage = message
+                                        snackbarHostState.showSnackbar(message)
+                                    } finally {
+                                        finishInFlightUpdate(inFlightUpdates, controlId)
+                                    }
                                 }
                             }
-                        },
-                        onCheckedChange = { toggle, next ->
-                            val itemId = resolved.item.id
-                            val controlId = toggle.controlId
-                            val previous = completionOverrides[controlId] ?: toggle.checked
-                            completionOverrides[controlId] = next
-                            startInFlightUpdate(inFlightUpdates, controlId)
-                            coroutineScope.launch {
-                                try {
-                                    specialtyStateStore.setItemCompletionKey(
-                                        jobFolderName = jobFolderName,
-                                        itemId = itemId,
-                                        completionKey = toggle.completionKey,
-                                        completed = next
-                                    )
-                                    completionOverrides.remove(controlId)
-                                    toggleErrorMessage = null
-                                } catch (_: Exception) {
-                                    completionOverrides[controlId] = previous
-                                    val message = "Failed to update checklist item. Please retry."
-                                    toggleErrorMessage = message
-                                    snackbarHostState.showSnackbar(message)
-                                } finally {
-                                    finishInFlightUpdate(inFlightUpdates, controlId)
-                                }
-                            }
-                        }
-                    )
+                        )
+                    }
                 }
             }
 
@@ -285,6 +281,42 @@ fun SpecialtyJobDetailScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SpecialtySectionHeader(
+    label: String,
+    completed: Int,
+    total: Int
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "$completed / $total",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (completed >= total && total > 0)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -330,8 +362,11 @@ internal fun SpecialtyChecklistRow(
     inFlightUpdates: Map<String, Boolean>,
     onCheckedChange: (SpecialtyChecklistToggle, Boolean) -> Unit,
     onJumpToCabinet: ((String) -> Unit)? = null,
-    onPatchDims: ((String?, Int?, String?) -> Unit)? = null
+    onPatchDims: ((String?, Int?, String?) -> Unit)? = null,
+    basePath: String = "",
+    jobFolderName: String = ""
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val item = resolved.item
     val title = specialtyItemTitle(item.cabinetNumbers, item.name)
     val completionKeys = completionKeysForItem(item)
@@ -389,11 +424,20 @@ internal fun SpecialtyChecklistRow(
         },
         headerActions = {
             if (item.cabinetNumbers.isNotEmpty() && onJumpToCabinet != null) {
-                TextButton(
-                    onClick = { onJumpToCabinet(item.cabinetNumbers.first()) }
+                Button(
+                    onClick = { onJumpToCabinet(item.cabinetNumbers.first()) },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.heightIn(min = 32.dp)
                 ) {
-                    Text("Jump")
+                    Text("View", style = MaterialTheme.typography.labelSmall)
                 }
+            }
+            if (item.category == com.kkc.sheettracker.data.models.SpecialtyItemCategory.TO_ORDER) {
+                StatusChip(
+                    text = "To Order",
+                    backgroundColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                )
             }
             item.stations.forEach { station ->
                 val chip = stationChipSpec(station)
@@ -448,16 +492,46 @@ internal fun SpecialtyChecklistRow(
                             expanded = attachmentsExpanded,
                             onDismissRequest = { attachmentsExpanded = false }
                         ) {
-                            item.attachments.forEach { attachment ->
+                            item.attachments.forEach { att ->
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            text = attachment,
+                                            text = att.originalName.ifBlank { att.filename },
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     },
-                                    onClick = { attachmentsExpanded = false }
+                                    onClick = {
+                                        attachmentsExpanded = false
+                                        if (basePath.isNotBlank() && jobFolderName.isNotBlank()) {
+                                            val rawItemId = item.id.removePrefix("checklist:")
+                                            val attDir = java.io.File(
+                                                basePath,
+                                                "$jobFolderName/.metadata/admin/checklist_attachments/$rawItemId"
+                                            )
+                                            // Try exact filename first, then fall back to any file containing the attachment ID
+                                            // (handles legacy uploads saved with an item-ID prefix)
+                                            val file = java.io.File(attDir, att.filename).takeIf { it.exists() }
+                                                ?: attDir.listFiles()?.firstOrNull { it.name.contains(att.id) }
+                                            if (file != null && file.exists()) {
+                                                try {
+                                                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                                                        context,
+                                                        "${context.packageName}.provider",
+                                                        file
+                                                    )
+                                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                                        setDataAndType(uri, att.mimeType ?: "application/octet-stream")
+                                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    android.util.Log.e("KKC", "Failed to open attachment: ${file.absolutePath}", e)
+                                                }
+                                            }
+                                        }
+                                    }
                                 )
                             }
                         }

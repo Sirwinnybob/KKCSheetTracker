@@ -88,6 +88,7 @@ import com.kkc.sheettracker.ui.hardwoods.HardwoodsSearchScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsWorkspaceScreen
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_RIP_CUT_LIST_ROW_ID
+import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_SAW_RIP_LIST_ROW_ID
 import com.kkc.sheettracker.ui.search.SearchScreen
 import com.kkc.sheettracker.ui.settings.SettingsScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
@@ -1052,6 +1053,15 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
+                onOpenSawRipList = {
+                    navController.navigate(
+                        hardwoodsWorkspaceRoute(
+                            folderName,
+                            HardwoodDocType.DOOR_CUT_LIST,
+                            HARDWOODS_SAW_RIP_LIST_ROW_ID
+                        )
+                    ) { launchSingleTop = true }
+                },
                 onOpenSplitView = {
                     navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
                         launchSingleTop = true
@@ -1945,6 +1955,15 @@ private fun LegacySingleStackNavigation(
                         ) {
                             launchSingleTop = true
                         }
+                    },
+                    onOpenSawRipList = {
+                        navController.navigate(
+                            hardwoodsWorkspaceRoute(
+                                folderName,
+                                HardwoodDocType.DOOR_CUT_LIST,
+                                HARDWOODS_SAW_RIP_LIST_ROW_ID
+                            )
+                        ) { launchSingleTop = true }
                     },
                     onOpenSplitView = {
                         navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
