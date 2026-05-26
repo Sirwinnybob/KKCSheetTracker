@@ -876,7 +876,7 @@ private fun JobsTabHost(
                         specialtyStateStore = specialtyStateStore,
                         specialtyProgressVersionHint = specialtyProgressVersion,
                         onJobClick = { card ->
-                            navController.navigate(assemblyJobRoute(card.folderName)) {
+                            navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
                                 launchSingleTop = true
                             }
                         },
@@ -1178,7 +1178,6 @@ private fun JobsTabHost(
             HardwoodsJobDetailScreen(
                 scanCoordinator = hardwoodsScanCoordinator,
                 progressStore = hardwoodsProgressStore,
-                specialtyStateStore = specialtyStateStore,
                 jobRepository = jobRepository,
                 jobFolderName = folderName,
                 isClockedInHere = isClockedInHere,
@@ -1789,7 +1788,7 @@ private fun LegacySingleStackNavigation(
                             specialtyStateStore = specialtyStateStore,
                             specialtyProgressVersionHint = specialtyProgressVersion,
                             onJobClick = { card ->
-                                navController.navigate(assemblyJobRoute(card.folderName)) {
+                                navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
                                     launchSingleTop = true
                                 }
                             },
@@ -2092,7 +2091,6 @@ private fun LegacySingleStackNavigation(
                 HardwoodsJobDetailScreen(
                     scanCoordinator = hardwoodsScanCoordinator,
                     progressStore = hardwoodsProgressStore,
-                    specialtyStateStore = specialtyStateStore,
                     jobRepository = jobRepository,
                     jobFolderName = folderName,
                     isClockedInHere = isClockedInHere,
