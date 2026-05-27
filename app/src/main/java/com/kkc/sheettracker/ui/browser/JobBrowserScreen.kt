@@ -15,9 +15,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -38,11 +40,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
+import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
@@ -53,10 +61,15 @@ import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.StatusCounts
+import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
+import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
+import com.kkc.sheettracker.ui.components.JobBoardGrid
+import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.CountStatusChip
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.ProgressCard
+import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +85,7 @@ fun JobBrowserScreen(
     hardwoodsRepository: HardwoodsRepository,
     jobRepository: JobRepository,
     progressStore: ProgressStore,
+    deliveryScheduleRepository: DeliveryScheduleRepository,
     appStateFlags: AppStateFeatureFlags,
     onJobClick: (Job) -> Unit,
     onOpenHardwoodsChange: (jobFolderName: String, docType: HardwoodDocType, rowId: String) -> Unit,
@@ -81,13 +95,20 @@ fun JobBrowserScreen(
     onSettingsClick: () -> Unit
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var sortByName by rememberSaveable { mutableStateOf(false) }
+    var boardView by rememberSaveable { mutableStateOf(false) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val listState = rememberLazyListState()
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
     val appJobModels by appStateStore.jobUiModels.collectAsState()
     val appUiState by appStateStore.uiState.collectAsState()
     val appFlags = remember(appStateFlags) { appStateFlags.snapshot() }
+    val deliverySchedule = remember(scanState.snapshot.generation) {
+        deliveryScheduleRepository.fetchSchedule()
+    }
+    var showScheduleDialog by remember { mutableStateOf(false) }
     val useAppState = appFlags.jobsEnabled
     val jobs = scanState.snapshot.jobs
     val isLoading = scanState.status == ScanStatus.LOADING && jobs.isEmpty()
@@ -99,7 +120,7 @@ fun JobBrowserScreen(
         }
     }
 
-    val filteredJobs = remember(jobs, searchQuery, progressVersion) {
+    val filteredJobs = remember(jobs, searchQuery, sortByName, progressVersion) {
         val base = if (searchQuery.isBlank()) {
             jobs
         } else {
@@ -108,7 +129,53 @@ fun JobBrowserScreen(
                     job.jobName.contains(searchQuery, ignoreCase = true)
             }
         }
-        base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        if (sortByName) {
+            base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        } else {
+            base // already in production order from listJobs
+        }
+    }
+
+    val jobUiStates = remember(filteredJobs, scanState.snapshot.generation, progressVersion, useAppState, appJobModelsByFolder) {
+        filteredJobs.map { job ->
+            val hasDeliverySheet = jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
+            val hasThreeDAssets = jobRepository.hasThreeDAssets(job.folderName)
+            val history = hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
+            val appModel = appJobModelsByFolder[job.folderName]
+            val counts = if (useAppState && appModel != null) {
+                appModel.counts
+            } else {
+                progressStore.getJobStatusCounts(job.folderName, job.materials)
+            }
+            val fraction = if (useAppState && appModel != null) {
+                appModel.completionFraction
+            } else if (counts.total <= 0) 0f
+            else counts.complete.toFloat() / counts.total.toFloat()
+            val materialSegments = if (useAppState && appModel != null) {
+                appModel.materials.map { material ->
+                    MaterialSegmentData(
+                        materialName = material.materialName,
+                        counts = material.counts
+                    )
+                }
+            } else {
+                job.materials.map { material ->
+                    MaterialSegmentData(
+                        materialName = material.materialName,
+                        counts = progressStore.getMaterialStatusCounts(job.folderName, material)
+                    )
+                }
+            }
+            JobBrowserItemUiState(
+                job = job,
+                hasDeliverySheet = hasDeliverySheet,
+                hasThreeDAssets = hasThreeDAssets,
+                history = history,
+                counts = counts,
+                completionFraction = fraction,
+                materialSegments = materialSegments
+            )
+        }
     }
 
     LaunchedEffect(useAppState, scanState.snapshot.generation, progressVersion, appUiState.scanGeneration, appUiState.progressVersion) {
@@ -138,6 +205,15 @@ fun JobBrowserScreen(
                 ),
                 actions = {
                     IconButton(onClick = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) { Icon(Icons.Default.Refresh, "Refresh") }
+                    IconButton(
+                        onClick = { boardView = !boardView },
+                        enabled = !sortByName
+                    ) {
+                        Icon(
+                            imageVector = if (boardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                            contentDescription = if (boardView) "List View" else "Board View"
+                        )
+                    }
                     IconButton(onClick = onSearchClick) { Icon(Icons.Default.Search, "Search") }
                     IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
                 }
@@ -155,6 +231,10 @@ fun JobBrowserScreen(
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )
+            SortToggleBar(
+                sortByName = sortByName,
+                onSortChange = { sortByName = it }
+            )
             Text(
                 text = if (searchQuery.isBlank()) {
                     "${jobs.size} jobs"
@@ -166,61 +246,61 @@ fun JobBrowserScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
 
-            if (isLoading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
-            } else if (filteredJobs.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "No jobs found",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
+            AnimatedContent(
+                targetState = sortByName to boardView,
+                transitionSpec = {
+                    val dir = if (targetState.first) 1 else -1
+                    slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
+                },
+                label = "sort_anim"
+            ) { (_, isBoardView) ->
+                if (isLoading) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                } else if (filteredJobs.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            "No jobs found",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else if (isBoardView) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        DeliveryScheduleWidget(
+                            schedule = deliverySchedule,
+                            onTap = { showScheduleDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        JobBoardGrid(
+                            items = filteredJobs.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName) },
+                            jobRepository = jobRepository,
+                            onItemClick = { boardItem ->
+                                filteredJobs.find { it.folderName == boardItem.folderName }
+                                    ?.let { onJobClick(it) }
+                            },
+                            modifier = Modifier.weight(1f),
+                            scanGeneration = scanState.snapshot.generation
+                        )
+                    }
+                } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(filteredJobs, key = { it.folderName }) { job ->
-                        val hasDeliverySheet = remember(job.folderName) {
-                            jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
-                        }
-                        val hasThreeDAssets = remember(job.folderName) {
-                            jobRepository.hasThreeDAssets(job.folderName)
-                        }
-                        val history = remember(scanState.snapshot.generation, progressVersion, job.folderName) {
-                            hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
-                        }
+                    items(jobUiStates, key = { it.job.folderName }) { uiState ->
+                        val job = uiState.job
+                        val hasDeliverySheet = uiState.hasDeliverySheet
+                        val hasThreeDAssets = uiState.hasThreeDAssets
+                        val history = uiState.history
+                        val counts = uiState.counts
+                        val fraction = uiState.completionFraction
+                        val materialSegments = uiState.materialSegments
                         val statusColors = KKCThemeColors.statusColors
-                        val appModel: JobUiModel? = appJobModelsByFolder[job.folderName]
-                        val counts: StatusCounts = if (useAppState && appModel != null) {
-                            appModel.counts
-                        } else {
-                            progressStore.getJobStatusCounts(job.folderName, job.materials)
-                        }
-                        val fraction = if (useAppState && appModel != null) {
-                            appModel.completionFraction
-                        } else if (counts.total <= 0) 0f
-                        else counts.complete.toFloat() / counts.total.toFloat()
-                        val materialSegments: List<MaterialSegmentData> = if (useAppState && appModel != null) {
-                            appModel.materials.map { material ->
-                                MaterialSegmentData(
-                                    materialName = material.materialName,
-                                    counts = material.counts
-                                )
-                            }
-                        } else {
-                            job.materials.map { material ->
-                                MaterialSegmentData(
-                                    materialName = material.materialName,
-                                    counts = progressStore.getMaterialStatusCounts(job.folderName, material)
-                                )
-                            }
-                        }
+
                         ProgressCard(
                             title = job.folderName,
                             subtitle = "${counts.complete}/${counts.total} complete",
@@ -230,6 +310,16 @@ fun JobBrowserScreen(
                             materialSegments = materialSegments,
                             showExpandToggle = false,
                             headerActions = {
+                                if (sortByName) {
+                                    val pos = job.lineupPosition
+                                    if (pos != null) {
+                                        StatusChip(
+                                            text = "#$pos",
+                                            backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
                                 if (job.hiddenFromProduction) {
                                     StatusChip(
                                         text = "Hidden in Production",
@@ -279,8 +369,20 @@ fun JobBrowserScreen(
                         )
                     }
                 }
+                }
             }
         }
+    }
+
+    if (showScheduleDialog) {
+        DeliveryScheduleDialog(
+            schedule = deliverySchedule,
+            onDismiss = { showScheduleDialog = false }
+        )
+    }
+
+    BackHandler(enabled = showScheduleDialog) {
+        showScheduleDialog = false
     }
 
     val historyJob = selectedHistoryJob
@@ -302,3 +404,13 @@ fun JobBrowserScreen(
         )
     }
 }
+
+data class JobBrowserItemUiState(
+    val job: Job,
+    val hasDeliverySheet: Boolean,
+    val hasThreeDAssets: Boolean,
+    val history: com.kkc.sheettracker.data.models.HardwoodRevisionHistory?,
+    val counts: StatusCounts,
+    val completionFraction: Float,
+    val materialSegments: List<MaterialSegmentData>
+)

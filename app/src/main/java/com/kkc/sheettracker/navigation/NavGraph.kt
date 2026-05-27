@@ -58,9 +58,11 @@ import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyProgressStore
+import com.kkc.sheettracker.data.SheetRipProgressStore
 import com.kkc.sheettracker.data.SpecialtyRepository
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyStateStore
+import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.data.TrackerChangeMonitor
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
@@ -292,10 +294,17 @@ private fun MultiBackStackNavigation(
             hardwoodsProgressStore = hardwoodsProgressStore
         )
     }
-    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore) {
+    val sheetRipProgressStore = remember(basePath) {
+        SheetRipProgressStore(File(basePath))
+    }
+    val deliveryScheduleRepository = remember(basePath) {
+        DeliveryScheduleRepository(File(basePath))
+    }
+    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, sheetRipProgressStore) {
         SpecialtyStateStore(
             specialtyScanCoordinator = specialtyScanCoordinator,
-            specialtyProgressStore = specialtyProgressStore
+            specialtyProgressStore = specialtyProgressStore,
+            sheetRipProgressStore = sheetRipProgressStore
         )
     }
 
@@ -505,6 +514,7 @@ private fun MultiBackStackNavigation(
                         specialtyStateStore = specialtyStateStore,
                         basePath = basePath,
                         clockInState = clockInState,
+                        deliveryScheduleRepository = deliveryScheduleRepository,
                         onClockIn = onClockIn,
                         onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
                         onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) }
@@ -770,6 +780,7 @@ private fun JobsTabHost(
     specialtyStateStore: SpecialtyStateStore,
     basePath: String,
     clockInState: ClockInState,
+    deliveryScheduleRepository: DeliveryScheduleRepository,
     onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
@@ -789,6 +800,7 @@ private fun JobsTabHost(
                         hardwoodsRepository = hardwoodsRepository,
                         jobRepository = jobRepository,
                         progressStore = progressStore,
+                        deliveryScheduleRepository = deliveryScheduleRepository,
                         appStateFlags = appStateFlags,
                         onJobClick = { job ->
                             navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
@@ -1488,20 +1500,27 @@ private fun LegacySingleStackNavigation(
             hardwoodsProgressStore = hardwoodsProgressStore
         )
     }
-    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore) {
+    val sheetRipProgressStore = remember(basePath) {
+        SheetRipProgressStore(File(basePath))
+    }
+    val deliveryScheduleRepository = remember(basePath) {
+        DeliveryScheduleRepository(File(basePath))
+    }
+    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, sheetRipProgressStore) {
         SpecialtyStateStore(
             specialtyScanCoordinator = specialtyScanCoordinator,
-            specialtyProgressStore = specialtyProgressStore
+            specialtyProgressStore = specialtyProgressStore,
+            sheetRipProgressStore = sheetRipProgressStore
         )
     }
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val startRoute = if (workMode == WorkMode.ASSEMBLY) "jobs" else "dashboard"
+    val startRoute = if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) "jobs" else "dashboard"
     var showHoursLoginDialog by remember { mutableStateOf(false) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
-        if (workMode == WorkMode.ASSEMBLY) {
+        if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
             listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
         } else {
             NavDestination.entries
@@ -1591,7 +1610,7 @@ private fun LegacySingleStackNavigation(
 
     val currentNavDest = remember(currentRoute) {
         when {
-            currentRoute == "dashboard" && workMode != WorkMode.ASSEMBLY -> NavDestination.DASHBOARD
+            currentRoute == "dashboard" && workMode != WorkMode.ASSEMBLY && workMode != WorkMode.SPECIALTY -> NavDestination.DASHBOARD
             currentRoute?.startsWith("jobs") == true ||
             currentRoute?.startsWith("job/") == true ||
                 currentRoute?.startsWith("specialty/job/") == true ||
@@ -1604,7 +1623,7 @@ private fun LegacySingleStackNavigation(
             currentRoute == "search" -> NavDestination.SEARCH
             currentRoute == "hours" -> NavDestination.HOURS
             currentRoute == "settings" -> NavDestination.SETTINGS
-            else -> if (workMode == WorkMode.ASSEMBLY) NavDestination.JOBS else NavDestination.DASHBOARD
+            else -> if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) NavDestination.JOBS else NavDestination.DASHBOARD
         }
     }
 
@@ -1702,6 +1721,7 @@ private fun LegacySingleStackNavigation(
                             hardwoodsRepository = hardwoodsRepository,
                             jobRepository = jobRepository,
                             progressStore = progressStore,
+                            deliveryScheduleRepository = deliveryScheduleRepository,
                             appStateFlags = appStateFlags,
                             onJobClick = { job ->
                                 navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}")
