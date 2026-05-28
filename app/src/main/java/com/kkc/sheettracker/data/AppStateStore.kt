@@ -49,6 +49,12 @@ class AppStateStore(
     private val _lastProgressVersion = MutableStateFlow(0L)
     val lastProgressVersion: StateFlow<Long> = _lastProgressVersion.asStateFlow()
 
+    private val _activeJobFolderName = MutableStateFlow<String?>(null)
+
+    fun notifyJobFocus(folderName: String?) {
+        _activeJobFolderName.value = folderName
+    }
+
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
     val dashboardUiModel: StateFlow<DashboardUiModel> = _dashboardUiModel.asStateFlow()
     val jobUiModels: StateFlow<List<JobUiModel>> = _jobUiModels.asStateFlow()
@@ -72,7 +78,7 @@ class AppStateStore(
                 scanCoordinator.state,
                 progressStore.progressVersion
                     .onStart { emit(progressStore.progressVersion.value) }
-                    .debounce(120L),
+                    .debounce { if (_activeJobFolderName.value != null) 3_000L else 120L },
                 recomputeIntents.onStart { emit(System.currentTimeMillis()) }
             ) { scanState, progressVersion, _ ->
                 Triple(scanState, progressVersion, System.currentTimeMillis())

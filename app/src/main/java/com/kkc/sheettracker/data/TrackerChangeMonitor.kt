@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.delay
@@ -16,11 +17,13 @@ class TrackerChangeMonitor(
     private val baseDir: File,
     private val progressStore: ProgressStore,
     private val hardwoodsProgressStore: HardwoodsProgressStore,
+    private val specialtyProgressStore: SpecialtyProgressStore? = null,
     private val viewerInteraction: StateFlow<Boolean> = ViewerInteractionSignal.isViewerInteracting,
+    private val activeJobFolderName: StateFlow<String?> = MutableStateFlow(null),
     private val onWatcherRefreshRequested: (() -> Unit)? = null,
     private val pollingIntervalMs: Long = POLLING_INTERVAL_MS
 ) {
-    private enum class TrackerKind { CNC, HARDWOODS }
+    private enum class TrackerKind { CNC, HARDWOODS, SPECIALTY, ORDER }
 
     private data class TrackedDir(
         val kind: TrackerKind,
@@ -96,7 +99,7 @@ class TrackerChangeMonitor(
             listOf(poll, interaction, flush, refreshDispatch) to observers
         }
         jobsToStop.first.forEach { it?.cancel() }
-        jobsToStop.second.forEach { it.stopWatching() }
+        jobsToStop.second.forEach { stopWatchingSafely(it) }
     }
 
     private fun refreshTrackedDirsLocked(): List<Invalidation> {
@@ -107,7 +110,7 @@ class TrackerChangeMonitor(
         removedPaths.forEach { path ->
             val removed = trackedByPath.remove(path)
             signaturesByPath.remove(path)
-            observersByPath.remove(path)?.stopWatching()
+            observersByPath.remove(path)?.let { stopWatchingSafely(it) }
             if (removed != null) {
                 invalidations += Invalidation(kind = removed.kind, jobFolderName = removed.jobFolderName)
             }
@@ -119,13 +122,15 @@ class TrackerChangeMonitor(
                 signaturesByPath.putIfAbsent(path, trackerSignature(tracked.dir))
                 val observer = createObserver(tracked)
                 observersByPath[path] = observer
-                observer.startWatching()
+                startWatchingSafely(observer)
+                invalidations += Invalidation(kind = tracked.kind, jobFolderName = tracked.jobFolderName)
             } else {
                 trackedByPath[path] = tracked
                 if (!observersByPath.containsKey(path)) {
                     val observer = createObserver(tracked)
                     observersByPath[path] = observer
-                    observer.startWatching()
+                    startWatchingSafely(observer)
+                    invalidations += Invalidation(kind = tracked.kind, jobFolderName = tracked.jobFolderName)
                 }
             }
         }
@@ -175,6 +180,20 @@ class TrackerChangeMonitor(
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
         val jobDirs = baseDir.listFiles()?.filter { it.isDirectory }.orEmpty()
         val tracked = mutableListOf<TrackedDir>()
+
+        // Watch baseDir for production_order.json changes
+        tracked += TrackedDir(kind = TrackerKind.ORDER, jobFolderName = "", dir = baseDir)
+
+        // Watch .metadata directory for delivery_schedule.json changes
+        val metadataDir = File(baseDir, ".metadata")
+        if (metadataDir.isDirectory) {
+            tracked += TrackedDir(
+                kind = TrackerKind.ORDER,
+                jobFolderName = "",
+                dir = metadataDir
+            )
+        }
+
         jobDirs.forEach { jobDir ->
             val jobFolderName = jobDir.name
             val cncTrackerDir = File(jobDir, "CNC/.tracker")
@@ -191,6 +210,14 @@ class TrackerChangeMonitor(
                     kind = TrackerKind.HARDWOODS,
                     jobFolderName = jobFolderName,
                     dir = hardwoodTrackerDir
+                )
+            }
+            val specialtyTrackerDir = File(jobDir, ".metadata/admin/.tracker")
+            if (specialtyTrackerDir.isDirectory) {
+                tracked += TrackedDir(
+                    kind = TrackerKind.SPECIALTY,
+                    jobFolderName = jobFolderName,
+                    dir = specialtyTrackerDir
                 )
             }
         }
@@ -217,21 +244,21 @@ class TrackerChangeMonitor(
 
     private fun queueInvalidations(invalidations: List<Invalidation>) {
         if (invalidations.isEmpty()) return
-        val now = System.currentTimeMillis()
-        val deduped = invalidations
-            .distinctBy { "${it.kind}|${it.jobFolderName.orEmpty()}" }
-            .filter { invalidation ->
-                val key = "${invalidation.kind}|${invalidation.jobFolderName.orEmpty()}"
-                val previous = lastInvalidationAtByKey[key] ?: 0L
-                if (now - previous < MIN_INVALIDATION_GAP_MS) {
-                    false
-                } else {
-                    lastInvalidationAtByKey[key] = now
-                    true
-                }
-            }
-        if (deduped.isEmpty()) return
         synchronized(lock) {
+            val now = System.currentTimeMillis()
+            val deduped = invalidations
+                .distinctBy { "${it.kind}|${it.jobFolderName.orEmpty()}" }
+                .filter { invalidation ->
+                    val key = "${invalidation.kind}|${invalidation.jobFolderName.orEmpty()}"
+                    val previous = lastInvalidationAtByKey[key] ?: 0L
+                    if (now - previous < MIN_INVALIDATION_GAP_MS) {
+                        false
+                    } else {
+                        lastInvalidationAtByKey[key] = now
+                        true
+                    }
+                }
+            if (deduped.isEmpty()) return
             deduped.forEach { invalidation ->
                 val key = "${invalidation.kind}|${invalidation.jobFolderName.orEmpty()}"
                 pendingByKey[key] = invalidation
@@ -241,14 +268,33 @@ class TrackerChangeMonitor(
     }
 
     private fun scheduleFlushLocked() {
-        if (!started || flushJob?.isActive == true) return
+        if (!started) return
         val now = System.currentTimeMillis()
         val inWarmup = now < startupWarmupUntilMs
+        val activeJob = activeJobFolderName.value
+        val hasActivePending = activeJob != null &&
+            pendingByKey.values.any { it.jobFolderName == activeJob }
+
         val delayMs = when {
             inWarmup -> (startupWarmupUntilMs - now).coerceAtLeast(50L)
-            viewerInteraction.value -> INTERACTION_COALESCE_MS
-            else -> NORMAL_COALESCE_MS
+            hasActivePending -> ACTIVE_JOB_COALESCE_MS          // 50ms — fast path for open job
+            activeJob != null -> BACKGROUND_JOB_COALESCE_MS     // 3000ms — lazy for other jobs
+            viewerInteraction.value -> INTERACTION_COALESCE_MS  // 500ms — existing behavior
+            else -> NORMAL_COALESCE_MS                          // 140ms — existing behavior
         }
+
+        val existingJob = flushJob
+        if (existingJob?.isActive == true) {
+            // If active-job changes arrived and the existing flush is slower, preempt it
+            if (hasActivePending) {
+                existingJob.cancel()
+                flushJob = null
+                // Fall through to schedule fast flush below
+            } else {
+                return // Existing flush schedule is fine for background changes
+            }
+        }
+
         flushJob = scope.launch {
             try {
                 delay(delayMs)
@@ -286,8 +332,10 @@ class TrackerChangeMonitor(
         if (invalidations.isEmpty()) return
         val cncJobs = LinkedHashSet<String>()
         val hardwoodJobs = LinkedHashSet<String>()
+        val specialtyJobs = LinkedHashSet<String>()
         var invalidateAllCnc = false
         var invalidateAllHardwoods = false
+        var invalidateAllSpecialty = false
         invalidations.forEach { invalidation ->
             when (invalidation.kind) {
                 TrackerKind.CNC -> {
@@ -299,6 +347,15 @@ class TrackerChangeMonitor(
                     val jobFolderName = invalidation.jobFolderName
                     if (jobFolderName.isNullOrBlank()) invalidateAllHardwoods = true
                     else hardwoodJobs += jobFolderName
+                }
+                TrackerKind.SPECIALTY -> {
+                    val jobFolderName = invalidation.jobFolderName
+                    if (jobFolderName.isNullOrBlank()) invalidateAllSpecialty = true
+                    else specialtyJobs += jobFolderName
+                }
+                TrackerKind.ORDER -> {
+                    // production_order.json changed — no progress cache to invalidate;
+                    // scheduleFullRefreshDispatch() below triggers coordinator re-scan.
                 }
             }
         }
@@ -317,6 +374,15 @@ class TrackerChangeMonitor(
             hardwoodsProgressStore.invalidateJobCaches(hardwoodJobs)
         }
 
+        specialtyProgressStore?.let { store ->
+            if (invalidateAllSpecialty) {
+                store.invalidateAllCaches()
+            } else if (specialtyJobs.isNotEmpty()) {
+                // Batch specialty invalidation to trigger one progress version bump for this cycle.
+                store.invalidateJobCaches(specialtyJobs)
+            }
+        }
+
         scheduleFullRefreshDispatch()
     }
 
@@ -332,12 +398,22 @@ class TrackerChangeMonitor(
         }
     }
 
+    private fun startWatchingSafely(observer: FileObserver) {
+        runCatching { observer.startWatching() }
+    }
+
+    private fun stopWatchingSafely(observer: FileObserver) {
+        runCatching { observer.stopWatching() }
+    }
+
     private companion object {
         private const val POLLING_INTERVAL_MS = 10_000L
         private const val MIN_INVALIDATION_GAP_MS = 750L
         private const val STARTUP_WARMUP_MS = 1_500L
         private const val NORMAL_COALESCE_MS = 140L
         private const val INTERACTION_COALESCE_MS = 500L
+        private const val ACTIVE_JOB_COALESCE_MS = 50L
+        private const val BACKGROUND_JOB_COALESCE_MS = 3_000L
         private const val FULL_REFRESH_COALESCE_MS = 2_000L
         private const val OBSERVER_EVENTS = FileObserver.CLOSE_WRITE or
             FileObserver.CREATE or

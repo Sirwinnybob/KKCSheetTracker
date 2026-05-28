@@ -40,9 +40,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -84,33 +87,39 @@ fun HardwoodsDashboardScreen(
     val jobs = scanState.snapshot.jobs
     val loading = scanState.status == ScanStatus.LOADING && jobs.isEmpty()
 
-    val summaries = remember(jobs, progressVersion) {
-        jobs.map { job ->
-            val base = progressStore.summarizeJob(job)
-            val totalsDoneMap = progressStore.getTotalsRip10DoneMap(job.folderName)
-            val rowProgressMap = progressStore.getRowProgressMap(job.folderName)
-            val boardRows = applySkippedPartRowsToBoardStockRows(
-                rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index),
-                index = job.index,
-                rowProgressMap = rowProgressMap
-            )
-            val boardTotal = boardRows.sumOf { it.neededRips.coerceAtLeast(0) }
-            val boardDone = boardRows.sumOf { row ->
-                val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
-                (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
+    val summaries by produceState(
+        initialValue = emptyList<HardwoodJobDashboardEntry>(),
+        key1 = jobs,
+        key2 = progressVersion,
+    ) {
+        value = withContext(Dispatchers.IO) {
+            jobs.map { job ->
+                val base = progressStore.summarizeJob(job)
+                val totalsDoneMap = progressStore.getTotalsRip10DoneMap(job.folderName)
+                val rowProgressMap = progressStore.getRowProgressMap(job.folderName)
+                val boardRows = applySkippedPartRowsToBoardStockRows(
+                    rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index),
+                    index = job.index,
+                    rowProgressMap = rowProgressMap
+                )
+                val boardTotal = boardRows.sumOf { it.neededRips.coerceAtLeast(0) }
+                val boardDone = boardRows.sumOf { row ->
+                    val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
+                    (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
+                }
+                HardwoodJobDashboardEntry(
+                    summary = base.copy(
+                        counts = HardwoodStatusCounts(
+                            totalPieces = base.counts.totalPieces + boardTotal,
+                            donePieces = base.counts.donePieces + boardDone,
+                            badPieces = base.counts.badPieces,
+                            skippedPieces = base.counts.skippedPieces
+                        )
+                    ),
+                    ripsDone = boardDone,
+                    ripsTotal = boardTotal
+                )
             }
-            HardwoodJobDashboardEntry(
-                summary = base.copy(
-                    counts = HardwoodStatusCounts(
-                        totalPieces = base.counts.totalPieces + boardTotal,
-                        donePieces = base.counts.donePieces + boardDone,
-                        badPieces = base.counts.badPieces,
-                        skippedPieces = base.counts.skippedPieces
-                    )
-                ),
-                ripsDone = boardDone,
-                ripsTotal = boardTotal
-            )
         }
     }
     val totalCounts = summaries.fold(HardwoodStatusCounts()) { acc, entry ->
@@ -125,11 +134,17 @@ fun HardwoodsDashboardScreen(
     val statusColors = KKCThemeColors.statusColors
     var showBadModal by rememberSaveable { mutableStateOf(false) }
     var showSkippedModal by rememberSaveable { mutableStateOf(false) }
-    val recentJobs = remember(jobs, progressVersion) {
-        jobs.map { job -> job to progressStore.getLocalLastTouchedAtMs(job.folderName) }
-            .filter { (_, ms) -> ms > 0L }
-            .sortedByDescending { (_, ms) -> ms }
-            .take(5)
+    val recentJobs by produceState(
+        initialValue = emptyList<Pair<HardwoodJob, Long>>(),
+        key1 = jobs,
+        key2 = progressVersion,
+    ) {
+        value = withContext(Dispatchers.IO) {
+            jobs.map { job -> job to progressStore.getLocalLastTouchedAtMs(job.folderName) }
+                .filter { (_, ms) -> ms > 0L }
+                .sortedByDescending { (_, ms) -> ms }
+                .take(5)
+        }
     }
 
     Scaffold(

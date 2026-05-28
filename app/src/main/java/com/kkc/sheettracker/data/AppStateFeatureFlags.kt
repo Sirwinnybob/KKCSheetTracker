@@ -18,7 +18,7 @@ class AppStateFeatureFlags(
     fun snapshot(): AppStateFlagsSnapshot {
         return AppStateFlagsSnapshot(
             shadowEnabled = prefs.getBoolean(KEY_SHADOW_ENABLED, isDebugBuild),
-            dashboardEnabled = prefs.getBoolean(KEY_DASHBOARD_ENABLED, false),
+            dashboardEnabled = prefs.getBoolean(KEY_DASHBOARD_ENABLED, true),
             jobsEnabled = prefs.getBoolean(KEY_JOBS_ENABLED, true),
             detailEnabled = prefs.getBoolean(KEY_DETAIL_ENABLED, false),
             viewerStatusEnabled = prefs.getBoolean(KEY_VIEWER_STATUS_ENABLED, false),

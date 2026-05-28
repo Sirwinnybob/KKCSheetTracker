@@ -176,20 +176,22 @@ fun JobBrowserScreen(
         }
     }
 
-    LaunchedEffect(useAppState, scanState.snapshot.generation, progressVersion, appUiState.scanGeneration, appUiState.progressVersion) {
-        if (!appFlags.shadowEnabled) return@LaunchedEffect
+    if (com.kkc.sheettracker.BuildConfig.DEBUG) {
+        LaunchedEffect(useAppState, scanState.snapshot.generation, progressVersion, appUiState.scanGeneration, appUiState.progressVersion) {
+            if (!appFlags.shadowEnabled) return@LaunchedEffect
 
-        val mismatch = jobs.firstOrNull { job ->
-            val app = appJobModelsByFolder[job.folderName] ?: return@firstOrNull true
-            val legacy = progressStore.getJobStatusCounts(job.folderName, job.materials)
-            app.counts != legacy
-        }
+            val mismatch = jobs.firstOrNull { job ->
+                val app = appJobModelsByFolder[job.folderName] ?: return@firstOrNull true
+                val legacy = progressStore.getJobStatusCounts(job.folderName, job.materials)
+                app.counts != legacy
+            }
 
-        if (mismatch != null) {
-            Log.w(
-                JOBS_PARITY_TAG,
-                "mismatch folder=${mismatch.folderName} appGen=${appUiState.scanGeneration} legacyGen=${scanState.snapshot.generation} appProgress=${appUiState.progressVersion} legacyProgress=$progressVersion"
-            )
+            if (mismatch != null) {
+                Log.w(
+                    JOBS_PARITY_TAG,
+                    "mismatch folder=${mismatch.folderName} appGen=${appUiState.scanGeneration} legacyGen=${scanState.snapshot.generation} appProgress=${appUiState.progressVersion} legacyProgress=$progressVersion"
+                )
+            }
         }
     }
 

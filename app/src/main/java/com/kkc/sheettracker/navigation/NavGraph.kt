@@ -147,6 +147,7 @@ fun AppNavigation(
     }
     val watcherRefreshSignal = remember(basePath) { MutableStateFlow(0L) }
     val watcherRefreshEpoch by watcherRefreshSignal.collectAsState()
+    val activeJobFolderName = remember { MutableStateFlow<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val trackerChangeMonitor = remember(
         basePath,
@@ -162,6 +163,7 @@ fun AppNavigation(
             progressStore = progressStore,
             hardwoodsProgressStore = sharedHardwoodsProgressStore,
             specialtyProgressStore = sharedSpecialtyProgressStore,
+            activeJobFolderName = activeJobFolderName,
             onWatcherRefreshRequested = {
                 watcherRefreshSignal.value = System.currentTimeMillis()
             }
@@ -210,7 +212,8 @@ fun AppNavigation(
                 onSyncthingApiKeySave = onSyncthingApiKeySave,
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
-                watcherRefreshEpoch = watcherRefreshEpoch
+                watcherRefreshEpoch = watcherRefreshEpoch,
+                activeJobFolderName = activeJobFolderName
             )
         } else {
             LegacySingleStackNavigation(
@@ -272,7 +275,8 @@ private fun MultiBackStackNavigation(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    watcherRefreshEpoch: Long
+    watcherRefreshEpoch: Long,
+    activeJobFolderName: MutableStateFlow<String?>
 ) {
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
@@ -356,6 +360,21 @@ private fun MultiBackStackNavigation(
                 jobsCurrentRoute?.startsWith("hardwoods/workspace/") == true ||
                 jobsCurrentRoute?.startsWith("assembly/viewer/") == true
             )
+
+    androidx.compose.runtime.LaunchedEffect(selectedTab, jobsBackStack) {
+        val route = jobsBackStack?.destination?.route ?: ""
+        val folderName = if (selectedTab == TopLevelTab.JOBS) {
+            val isJobRoute = route.startsWith("job/") ||
+                route.startsWith("hardwoods/job/") ||
+                route.startsWith("hardwoods/workspace/") ||
+                route.startsWith("assembly/job/") ||
+                route.startsWith("specialty/job/") ||
+                route.startsWith("viewer/")
+            if (isJobRoute) jobsBackStack?.arguments?.getString("folderName") else null
+        } else null
+        activeJobFolderName.value = folderName
+        appStateStore.notifyJobFocus(folderName)
+    }
 
     val coordinator = remember(
         dashboardNavController,
@@ -843,6 +862,7 @@ private fun JobsTabHost(
                         hardwoodsRepository = hardwoodsRepository,
                         progressStore = hardwoodsProgressStore,
                         jobRepository = jobRepository,
+                        deliveryScheduleRepository = deliveryScheduleRepository,
                         onJobClick = { job ->
                             navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
                                 launchSingleTop = true
@@ -887,6 +907,7 @@ private fun JobsTabHost(
                         progressStore = progressStore,
                         hardwoodsProgressStore = hardwoodsProgressStore,
                         specialtyStateStore = specialtyStateStore,
+                        deliveryScheduleRepository = deliveryScheduleRepository,
                         specialtyProgressVersionHint = specialtyProgressVersion,
                         onJobClick = { card ->
                             navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
@@ -914,6 +935,7 @@ private fun JobsTabHost(
                         specialtyScanCoordinator = specialtyScanCoordinator,
                         specialtyStateStore = specialtyStateStore,
                         jobRepository = jobRepository,
+                        deliveryScheduleRepository = deliveryScheduleRepository,
                         onJobClick = { card ->
                             navController.navigate(specialtyJobRoute(card.folderName)) {
                                 launchSingleTop = true
@@ -1768,6 +1790,7 @@ private fun LegacySingleStackNavigation(
                             hardwoodsRepository = hardwoodsRepository,
                             progressStore = hardwoodsProgressStore,
                             jobRepository = jobRepository,
+                            deliveryScheduleRepository = deliveryScheduleRepository,
                             onJobClick = { job ->
                                 navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}")
                             },
@@ -1816,6 +1839,7 @@ private fun LegacySingleStackNavigation(
                             progressStore = progressStore,
                             hardwoodsProgressStore = hardwoodsProgressStore,
                             specialtyStateStore = specialtyStateStore,
+                            deliveryScheduleRepository = deliveryScheduleRepository,
                             specialtyProgressVersionHint = specialtyProgressVersion,
                             onJobClick = { card ->
                                 navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
@@ -1851,6 +1875,7 @@ private fun LegacySingleStackNavigation(
                             specialtyScanCoordinator = specialtyScanCoordinator,
                             specialtyStateStore = specialtyStateStore,
                             jobRepository = jobRepository,
+                            deliveryScheduleRepository = deliveryScheduleRepository,
                             onJobClick = { card ->
                                 navController.navigate(specialtyJobRoute(card.folderName)) {
                                     launchSingleTop = true
