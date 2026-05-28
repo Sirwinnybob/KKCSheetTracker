@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -138,9 +139,6 @@ fun JobBrowserScreen(
 
     val jobUiStates = remember(filteredJobs, scanState.snapshot.generation, progressVersion, useAppState, appJobModelsByFolder) {
         filteredJobs.map { job ->
-            val hasDeliverySheet = jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
-            val hasThreeDAssets = jobRepository.hasThreeDAssets(job.folderName)
-            val history = hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
             val appModel = appJobModelsByFolder[job.folderName]
             val counts = if (useAppState && appModel != null) {
                 appModel.counts
@@ -168,12 +166,12 @@ fun JobBrowserScreen(
             }
             JobBrowserItemUiState(
                 job = job,
-                hasDeliverySheet = hasDeliverySheet,
-                hasThreeDAssets = hasThreeDAssets,
-                history = history,
                 counts = counts,
                 completionFraction = fraction,
-                materialSegments = materialSegments
+                materialSegments = materialSegments,
+                hasDeliverySheet = null,
+                hasThreeDAssets = null,
+                revisionCount = null
             )
         }
     }
@@ -246,6 +244,14 @@ fun JobBrowserScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
 
+            DeliveryScheduleWidget(
+                schedule = deliverySchedule,
+                onTap = { showScheduleDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+
             AnimatedContent(
                 targetState = sortByName to boardView,
                 transitionSpec = {
@@ -267,23 +273,16 @@ fun JobBrowserScreen(
                         )
                     }
                 } else if (isBoardView) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        DeliveryScheduleWidget(
-                            schedule = deliverySchedule,
-                            onTap = { showScheduleDialog = true },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        JobBoardGrid(
-                            items = filteredJobs.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName) },
-                            jobRepository = jobRepository,
-                            onItemClick = { boardItem ->
-                                filteredJobs.find { it.folderName == boardItem.folderName }
-                                    ?.let { onJobClick(it) }
-                            },
-                            modifier = Modifier.weight(1f),
-                            scanGeneration = scanState.snapshot.generation
-                        )
-                    }
+                    JobBoardGrid(
+                        items = filteredJobs.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName) },
+                        jobRepository = jobRepository,
+                        onItemClick = { boardItem ->
+                            filteredJobs.find { it.folderName == boardItem.folderName }
+                                ?.let { onJobClick(it) }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        scanGeneration = scanState.snapshot.generation
+                    )
                 } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -292,80 +291,16 @@ fun JobBrowserScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(jobUiStates, key = { it.job.folderName }) { uiState ->
-                        val job = uiState.job
-                        val hasDeliverySheet = uiState.hasDeliverySheet
-                        val hasThreeDAssets = uiState.hasThreeDAssets
-                        val history = uiState.history
-                        val counts = uiState.counts
-                        val fraction = uiState.completionFraction
-                        val materialSegments = uiState.materialSegments
-                        val statusColors = KKCThemeColors.statusColors
-
-                        ProgressCard(
-                            title = job.folderName,
-                            subtitle = "${counts.complete}/${counts.total} complete",
-                            fraction = fraction,
-                            expanded = false,
-                            segmentedStatusCounts = counts,
-                            materialSegments = materialSegments,
-                            showExpandToggle = false,
-                            headerActions = {
-                                if (sortByName) {
-                                    val pos = job.lineupPosition
-                                    if (pos != null) {
-                                        StatusChip(
-                                            text = "#$pos",
-                                            backgroundColor = MaterialTheme.colorScheme.primaryContainer,
-                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                }
-                                if (job.hiddenFromProduction) {
-                                    StatusChip(
-                                        text = "Hidden in Production",
-                                        backgroundColor = MaterialTheme.colorScheme.errorContainer,
-                                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                }
-                                CountStatusChip(
-                                    label = "Done",
-                                    count = counts.complete,
-                                    color = statusColors.completeBorder,
-                                    forceFilled = counts.total > 0 && counts.complete >= counts.total
-                                )
-                                CountStatusChip("Bad", counts.bad, statusColors.bad)
-                                CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
-                                if (history != null) {
-                                    TextButton(onClick = { selectedHistoryJob = job.folderName }) {
-                                        Text("History")
-                                    }
-                                }
-                            },
-                            inlineContent = {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                if (hasDeliverySheet) {
-                                    FilterChip(
-                                        selected = false,
-                                        onClick = { onViewCoverSheet(job) },
-                                        label = { Text("Cover Sheet") }
-                                    )
-                                }
-                                if (hasThreeDAssets) {
-                                    FilterChip(
-                                        selected = false,
-                                        onClick = { onView3D(job) },
-                                        label = { Text("View 3D") }
-                                    )
-                                }
-                                }
-                            },
-                            onToggleExpanded = {},
-                            onClick = { onJobClick(job) }
+                        JobBrowserRow(
+                            uiState = uiState,
+                            scanGeneration = scanState.snapshot.generation,
+                            jobRepository = jobRepository,
+                            hardwoodsRepository = hardwoodsRepository,
+                            onJobClick = onJobClick,
+                            onViewCoverSheet = onViewCoverSheet,
+                            onView3D = onView3D,
+                            onHistoryClick = { selectedHistoryJob = it },
+                            sortByName = sortByName,
                         )
                     }
                 }
@@ -407,10 +342,119 @@ fun JobBrowserScreen(
 
 data class JobBrowserItemUiState(
     val job: Job,
-    val hasDeliverySheet: Boolean,
-    val hasThreeDAssets: Boolean,
-    val history: com.kkc.sheettracker.data.models.HardwoodRevisionHistory?,
     val counts: StatusCounts,
     val completionFraction: Float,
-    val materialSegments: List<MaterialSegmentData>
+    val materialSegments: List<MaterialSegmentData>,
+    val hasDeliverySheet: Boolean?,   // null = not yet loaded
+    val hasThreeDAssets: Boolean?,    // null = not yet loaded
+    val revisionCount: Int?,          // null = not yet loaded; 0 = no history
 )
+
+private data class JobBadgeState(
+    val hasDeliverySheet: Boolean?,
+    val hasThreeDAssets: Boolean?,
+    val revisionCount: Int?,
+)
+
+@Composable
+private fun JobBrowserRow(
+    uiState: JobBrowserItemUiState,
+    scanGeneration: Long,
+    jobRepository: JobRepository,
+    hardwoodsRepository: HardwoodsRepository,
+    onJobClick: (Job) -> Unit,
+    onViewCoverSheet: (Job) -> Unit,
+    onView3D: (Job) -> Unit,
+    onHistoryClick: (String) -> Unit,
+    sortByName: Boolean,
+) {
+    val job = uiState.job
+
+    val badges by produceState(
+        initialValue = JobBadgeState(null, null, null),
+        key1 = job.folderName,
+        key2 = scanGeneration,
+    ) {
+        value = withContext(Dispatchers.IO) {
+            val hasDelivery = jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
+            val has3D = jobRepository.hasThreeDAssets(job.folderName)
+            val history = hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
+            JobBadgeState(
+                hasDeliverySheet = hasDelivery,
+                hasThreeDAssets = has3D,
+                revisionCount = history?.revisions?.size ?: 0,
+            )
+        }
+    }
+
+    val counts = uiState.counts
+    val statusColors = KKCThemeColors.statusColors
+
+    ProgressCard(
+        title = job.folderName,
+        subtitle = "${counts.complete}/${counts.total} complete",
+        fraction = uiState.completionFraction,
+        expanded = false,
+        segmentedStatusCounts = counts,
+        materialSegments = uiState.materialSegments,
+        showExpandToggle = false,
+        headerActions = {
+            if (sortByName) {
+                val pos = job.lineupPosition
+                if (pos != null) {
+                    StatusChip(
+                        text = "#$pos",
+                        backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+            if (job.hiddenFromProduction) {
+                StatusChip(
+                    text = "Hidden in Production",
+                    backgroundColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+            CountStatusChip(
+                label = "Done",
+                count = counts.complete,
+                color = statusColors.completeBorder,
+                forceFilled = counts.total > 0 && counts.complete >= counts.total
+            )
+            CountStatusChip("Bad", counts.bad, statusColors.bad)
+            CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
+            val rc = badges.revisionCount
+            if (rc != null && rc > 0) {
+                TextButton(onClick = { onHistoryClick(job.folderName) }) {
+                    Text("History")
+                }
+            }
+        },
+        inlineContent = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (badges.hasDeliverySheet == true) {
+                    FilterChip(
+                        selected = false,
+                        onClick = { onViewCoverSheet(job) },
+                        label = { Text("Cover Sheet") }
+                    )
+                }
+                if (badges.hasThreeDAssets == true) {
+                    FilterChip(
+                        selected = false,
+                        onClick = { onView3D(job) },
+                        label = { Text("View 3D") }
+                    )
+                }
+            }
+        },
+        onToggleExpanded = {},
+        onClick = { onJobClick(job) }
+    )
+}

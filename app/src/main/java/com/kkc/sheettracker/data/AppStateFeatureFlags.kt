@@ -19,7 +19,7 @@ class AppStateFeatureFlags(
         return AppStateFlagsSnapshot(
             shadowEnabled = prefs.getBoolean(KEY_SHADOW_ENABLED, isDebugBuild),
             dashboardEnabled = prefs.getBoolean(KEY_DASHBOARD_ENABLED, false),
-            jobsEnabled = prefs.getBoolean(KEY_JOBS_ENABLED, false),
+            jobsEnabled = prefs.getBoolean(KEY_JOBS_ENABLED, true),
             detailEnabled = prefs.getBoolean(KEY_DETAIL_ENABLED, false),
             viewerStatusEnabled = prefs.getBoolean(KEY_VIEWER_STATUS_ENABLED, false),
             navMultiStackEnabled = prefs.getBoolean(KEY_NAV_MULTISTACK_ENABLED, isDebugBuild)
