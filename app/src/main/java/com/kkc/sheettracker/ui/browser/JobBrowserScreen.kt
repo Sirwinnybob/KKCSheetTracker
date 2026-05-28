@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -441,30 +440,28 @@ private fun JobBrowserRow(
             }
         },
         inlineContent = {
-            if (badges == null) {
-                // Reserve chip-row height while loading — prevents layout shift on first entry
-                Spacer(modifier = Modifier.fillMaxWidth().height(36.dp))
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (badges.hasDeliverySheet == true) {
-                        FilterChip(
-                            selected = false,
-                            onClick = { onViewCoverSheet(job) },
-                            label = { Text("Cover Sheet") }
-                        )
-                    }
-                    if (badges.hasThreeDAssets == true) {
-                        FilterChip(
-                            selected = false,
-                            onClick = { onView3D(job) },
-                            label = { Text("View 3D") }
-                        )
-                    }
+            // Fixed height so all cards are the same size regardless of badge load state
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (badges?.hasDeliverySheet == true) {
+                    FilterChip(
+                        selected = false,
+                        onClick = { onViewCoverSheet(job) },
+                        label = { Text("Cover Sheet") }
+                    )
+                }
+                if (badges?.hasThreeDAssets == true) {
+                    FilterChip(
+                        selected = false,
+                        onClick = { onView3D(job) },
+                        label = { Text("View 3D") }
+                    )
                 }
             }
         },
