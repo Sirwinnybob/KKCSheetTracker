@@ -48,6 +48,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.BackHandler
 import com.kkc.sheettracker.data.AppStateFeatureFlags
@@ -432,11 +433,15 @@ private fun JobBrowserRow(
             )
             CountStatusChip("Bad", counts.bad, statusColors.bad)
             CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
-            val rc = badges?.revisionCount
-            if (rc != null && rc > 0) {
-                TextButton(onClick = { onHistoryClick(job.folderName) }) {
-                    Text("History")
-                }
+            // Always render so the row is always TextButton-height (40dp) — prevents
+            // animateContentSize from firing when History first becomes available
+            val hasHistory = badges?.revisionCount?.let { it > 0 } ?: false
+            TextButton(
+                onClick = { onHistoryClick(job.folderName) },
+                enabled = hasHistory,
+                modifier = Modifier.alpha(if (hasHistory) 1f else 0f)
+            ) {
+                Text("History")
             }
         },
         inlineContent = {
