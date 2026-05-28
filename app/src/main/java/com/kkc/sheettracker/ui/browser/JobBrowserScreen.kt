@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,8 +38,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -110,6 +112,8 @@ fun JobBrowserScreen(
         deliveryScheduleRepository.fetchSchedule()
     }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    // Persists badge data across LazyColumn item recycling — prevents height shift on re-scroll
+    val badgeCache = remember(scanState.snapshot.generation) { mutableStateMapOf<String, JobBadgeState>() }
     val useAppState = appFlags.jobsEnabled
     val jobs = scanState.snapshot.jobs
     val isLoading = scanState.status == ScanStatus.LOADING && jobs.isEmpty()
@@ -296,6 +300,7 @@ fun JobBrowserScreen(
                         JobBrowserRow(
                             uiState = uiState,
                             scanGeneration = scanState.snapshot.generation,
+                            badgeCache = badgeCache,
                             jobRepository = jobRepository,
                             hardwoodsRepository = hardwoodsRepository,
                             onJobClick = onJobClick,
@@ -362,6 +367,7 @@ private data class JobBadgeState(
 private fun JobBrowserRow(
     uiState: JobBrowserItemUiState,
     scanGeneration: Long,
+    badgeCache: MutableMap<String, JobBadgeState>,
     jobRepository: JobRepository,
     hardwoodsRepository: HardwoodsRepository,
     onJobClick: (Job) -> Unit,
@@ -372,12 +378,13 @@ private fun JobBrowserRow(
 ) {
     val job = uiState.job
 
-    val badges by produceState(
-        initialValue = JobBadgeState(null, null, null),
-        key1 = job.folderName,
-        key2 = scanGeneration,
-    ) {
-        value = withContext(Dispatchers.IO) {
+    // Read from the screen-level cache so state survives LazyColumn item recycling.
+    // On first entry: null (loading). On re-entry after scroll: immediate cached value.
+    val badges: JobBadgeState? = badgeCache[job.folderName]
+
+    LaunchedEffect(job.folderName, scanGeneration) {
+        if (badgeCache.containsKey(job.folderName)) return@LaunchedEffect
+        badgeCache[job.folderName] = withContext(Dispatchers.IO) {
             val hasDelivery = jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
             val has3D = jobRepository.hasThreeDAssets(job.folderName)
             val history = hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
@@ -426,7 +433,7 @@ private fun JobBrowserRow(
             )
             CountStatusChip("Bad", counts.bad, statusColors.bad)
             CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
-            val rc = badges.revisionCount
+            val rc = badges?.revisionCount
             if (rc != null && rc > 0) {
                 TextButton(onClick = { onHistoryClick(job.folderName) }) {
                     Text("History")
@@ -434,25 +441,30 @@ private fun JobBrowserRow(
             }
         },
         inlineContent = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (badges.hasDeliverySheet == true) {
-                    FilterChip(
-                        selected = false,
-                        onClick = { onViewCoverSheet(job) },
-                        label = { Text("Cover Sheet") }
-                    )
-                }
-                if (badges.hasThreeDAssets == true) {
-                    FilterChip(
-                        selected = false,
-                        onClick = { onView3D(job) },
-                        label = { Text("View 3D") }
-                    )
+            if (badges == null) {
+                // Reserve chip-row height while loading — prevents layout shift on first entry
+                Spacer(modifier = Modifier.fillMaxWidth().height(36.dp))
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (badges.hasDeliverySheet == true) {
+                        FilterChip(
+                            selected = false,
+                            onClick = { onViewCoverSheet(job) },
+                            label = { Text("Cover Sheet") }
+                        )
+                    }
+                    if (badges.hasThreeDAssets == true) {
+                        FilterChip(
+                            selected = false,
+                            onClick = { onView3D(job) },
+                            label = { Text("View 3D") }
+                        )
+                    }
                 }
             }
         },
