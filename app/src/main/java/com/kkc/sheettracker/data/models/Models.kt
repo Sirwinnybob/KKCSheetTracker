@@ -733,6 +733,25 @@ data class SpecialtyItem(
     val material: String? = null
 )
 
+data class TabletSpecialtyItem(
+    val id: String,                          // raw UUID — NO "tablet:" prefix stored in JSON
+    val name: String,
+    val category: SpecialtyItemCategory = SpecialtyItemCategory.CUSTOM,
+    val cabinetNumbers: List<String> = emptyList(),
+    val stations: List<SpecialtyStation> = emptyList(),
+    val dimensions: String? = null,
+    val quantity: Int? = null,
+    val material: String? = null,
+    val supplier: String? = null,
+    val modelNumber: String? = null,
+    val orderDate: String? = null,
+    val trackingNumber: String? = null,
+    val orderUrl: String? = null,
+    val notes: String? = null,
+    val createdAt: String = "",
+    val createdByDevice: String = ""
+)
+
 data class SpecialtyCompletionState(
     val completed: Boolean = false,
     val completedAt: String? = null,
