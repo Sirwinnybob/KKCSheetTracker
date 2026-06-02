@@ -7,6 +7,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.kkc.sheettracker.data.models.SpecialtyCompletionState
 import com.kkc.sheettracker.data.models.SpecialtyItem
+import com.kkc.sheettracker.data.models.SpecialtyItemAttachment
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
@@ -285,19 +286,22 @@ class SpecialtyProgressStore(
             val name = obj.getString("name")
             if (id.isBlank() || name.isBlank()) return@mapNotNull null
 
+            val explicitStations = parseStations(obj.get("stations"))
+            val stations = if (explicitStations.isNotEmpty()) explicitStations
+                else parseModeStations(obj.get("modes"))
             SpecialtyItem(
                 id = id,
                 name = name,
                 cabinetNumbers = obj.getFlexibleStringList("cabinetNumbers"),
                 category = parseCategory(obj.getString("category")),
-                stations = parseStations(obj.get("stations")),
+                stations = stations,
                 supplier = obj.getNullableString("supplier"),
                 model = obj.getFirstNonBlankString("model", "modelNumber"),
                 orderDate = obj.getNullableString("orderDate"),
                 tracking = obj.getFirstNonBlankString("tracking", "trackingNumber"),
                 orderUrl = obj.getNullableString("orderUrl"),
                 notes = obj.getNullableString("notes"),
-                attachments = obj.getAttachmentLabels("attachments"),
+                attachments = obj.getAttachments("attachments"),
                 autoDetected = obj.getBoolean("autoDetected"),
                 createdAt = obj.getNullableString("createdAt"),
                 createdBy = obj.getNullableString("createdBy"),
@@ -624,17 +628,35 @@ class SpecialtyProgressStore(
         }
         return ""
     }
-    private fun JsonObject.getAttachmentLabels(name: String): List<String> {
+    private fun JsonObject.getAttachments(name: String): List<SpecialtyItemAttachment> {
         val raw = get(name) ?: return emptyList()
         if (!raw.isJsonArray) return emptyList()
         return raw.asJsonArray.mapNotNull { element ->
             when {
                 element.isJsonNull -> null
-                element.isJsonPrimitive -> element.asStringOrNull()?.trim()?.takeIf { it.isNotBlank() }
+                element.isJsonPrimitive -> {
+                    val str = element.asStringOrNull()?.trim()?.takeIf { it.isNotBlank() }
+                        ?: return@mapNotNull null
+                    SpecialtyItemAttachment(
+                        id = str,
+                        filename = str,
+                        originalName = str,
+                        mimeType = null
+                    )
+                }
                 element.isJsonObject -> {
                     val obj = element.asJsonObject
-                    obj.getFirstNonBlankString("originalName", "filename", "name", "id")
-                        .takeIf { it.isNotBlank() }
+                    val id = obj.getNullableString("id")?.trim()?.takeIf { it.isNotBlank() }
+                        ?: return@mapNotNull null
+                    val filename = obj.getFirstNonBlankString("filename", "storedName")
+                    val originalName = obj.getFirstNonBlankString("originalName", "filename", "name", "id")
+                    if (filename.isBlank() && originalName.isBlank()) return@mapNotNull null
+                    SpecialtyItemAttachment(
+                        id = id,
+                        filename = filename.ifBlank { originalName },
+                        originalName = originalName.ifBlank { filename },
+                        mimeType = obj.getNullableString("mimeType")
+                    )
                 }
                 else -> null
             }
@@ -650,13 +672,63 @@ class SpecialtyProgressStore(
             .takeIf { it.exists() && it.isFile }
             ?.let { parseChecklistAsSpecialtyItems(it.readText()) }
             .orEmpty()
+        val tabletItems = loadTabletItems(jobFolderName)
 
-        if (specialtyItems.isEmpty()) return checklistItems
-        if (checklistItems.isEmpty()) return specialtyItems
+        val allItems = specialtyItems + checklistItems + tabletItems
+        if (allItems.isEmpty()) return emptyList()
 
-        return (specialtyItems + checklistItems)
+        return allItems
             .distinctBy { it.id }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+    }
+
+    private fun loadTabletItems(jobFolderName: String): List<SpecialtyItem> {
+        val dir = File(baseDir, "$jobFolderName/.metadata/admin")
+        if (!dir.isDirectory) return emptyList()
+        return dir.listFiles()
+            ?.filter { it.isFile && it.name.startsWith("tablet_items_") && it.extension.equals("json", ignoreCase = true) }
+            ?.sortedBy { it.name.lowercase(Locale.US) }
+            ?.flatMap { parseTabletItemsFile(it) }
+            .orEmpty()
+    }
+
+    private fun parseTabletItemsFile(file: File): List<SpecialtyItem> {
+        val raw = runCatching { file.readText() }.getOrNull() ?: return emptyList()
+        val root = runCatching { JsonParser.parseString(raw) }.getOrNull() ?: return emptyList()
+        val array = when {
+            root.isJsonArray -> root.asJsonArray
+            root.isJsonObject -> root.asJsonObject.getAsJsonArray("items")
+            else -> null
+        } ?: return emptyList()
+        return array.mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            val id = obj.getString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val name = obj.getString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            SpecialtyItem(
+                id = "tablet:$id",
+                name = name,
+                cabinetNumbers = obj.getFlexibleStringList("cabinetNumbers"),
+                category = parseCategory(obj.getString("category")),
+                stations = parseStations(obj.get("stations")),
+                supplier = obj.getNullableString("supplier"),
+                model = obj.getFirstNonBlankString("modelNumber", "model"),
+                orderDate = obj.getNullableString("orderDate"),
+                tracking = obj.getFirstNonBlankString("trackingNumber", "tracking"),
+                orderUrl = obj.getNullableString("orderUrl"),
+                notes = obj.getNullableString("notes"),
+                attachments = emptyList(),
+                autoDetected = false,
+                createdAt = obj.getNullableString("createdAt"),
+                createdBy = obj.getNullableString("createdByDevice"),
+                dimensions = obj.getNullableString("dimensions"),
+                quantity = runCatching {
+                    obj.get("quantity")?.let { e ->
+                        if (e.isJsonPrimitive && e.asJsonPrimitive.isNumber) e.asInt else null
+                    }
+                }.getOrNull(),
+                material = obj.getNullableString("material")
+            )
+        }
     }
 
     private fun parseChecklistAsSpecialtyItems(raw: String): List<SpecialtyItem> {
@@ -693,7 +765,7 @@ class SpecialtyProgressStore(
                 tracking = obj.getFirstNonBlankString("tracking", "trackingNumber"),
                 orderUrl = obj.getNullableString("orderUrl"),
                 notes = obj.getNullableString("notes"),
-                attachments = obj.getAttachmentLabels("attachments"),
+                attachments = obj.getAttachments("attachments"),
                 autoDetected = false,
                 createdAt = obj.getNullableString("createdAt"),
                 createdBy = obj.getNullableString("createdBy"),
