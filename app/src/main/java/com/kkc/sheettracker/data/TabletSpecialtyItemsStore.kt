@@ -81,12 +81,20 @@ class TabletSpecialtyItemsStore(
             "TO_ORDER" -> SpecialtyItemCategory.TO_ORDER
             else -> SpecialtyItemCategory.CUSTOM
         }
-        val stations = obj.get("stations")?.asJsonArray?.mapNotNull { el ->
-            runCatching { SpecialtyStation.valueOf(el.asString.trim().uppercase(Locale.US)) }.getOrNull()
-        }.orEmpty()
-        val cabinetNumbers = obj.get("cabinetNumbers")?.asJsonArray?.mapNotNull { el ->
-            runCatching { el.asString.trim().takeIf { it.isNotBlank() } }.getOrNull()
-        }.orEmpty()
+        val stations = obj.get("stations")
+            ?.takeIf { it.isJsonArray }
+            ?.asJsonArray
+            ?.mapNotNull { el ->
+                runCatching { SpecialtyStation.valueOf(el.asString.trim().uppercase(Locale.US)) }.getOrNull()
+            }
+            .orEmpty()
+        val cabinetNumbers = obj.get("cabinetNumbers")
+            ?.takeIf { it.isJsonArray }
+            ?.asJsonArray
+            ?.mapNotNull { el ->
+                runCatching { el.asString.trim().takeIf { it.isNotBlank() } }.getOrNull()
+            }
+            .orEmpty()
         return TabletSpecialtyItem(
             id = id,
             name = name,
@@ -146,6 +154,7 @@ class TabletSpecialtyItemsStore(
     private fun adminDir(jobFolderName: String) = File(baseDir, "$jobFolderName/.metadata/admin")
     private fun ownFile(jobFolderName: String) = File(adminDir(jobFolderName), "tablet_items_$tabletId.json")
 
-    private fun JsonObject.getStr(key: String): String = get(key)?.asString?.trim().orEmpty()
+    private fun JsonObject.getStr(key: String): String =
+        runCatching { get(key)?.asString?.trim() }.getOrNull().orEmpty()
     private fun JsonObject.getNullStr(key: String): String? = get(key)?.asString?.trim()?.takeIf { it.isNotBlank() }
 }
