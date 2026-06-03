@@ -86,7 +86,67 @@ class SupplyRepository(private val basePath: String) {
         return comment
     }
 
-    // Attachment file path for display (local Syncthing-synced storage)
+    fun createCategory(name: String): SupplyCategory {
+        supplyDir.mkdirs()
+        val existing = readJson<List<SupplyCategory>>(File(supplyDir, "categories.json")) ?: emptyList()
+        val cat = SupplyCategory(UUID.randomUUID().toString(), name.trim(), existing.size)
+        val updated = existing + cat
+        File(supplyDir, "categories.json").writeText(gson.toJson(updated))
+        return cat
+    }
+
+    fun createItem(
+        categoryId: String, name: String, notes: String?,
+        fields: Map<String, String>,
+        status: String = "IN STOCK",
+        tabletId: String = "tablet"
+    ): SupplyItem {
+        itemsDir.mkdirs()
+        val id = UUID.randomUUID().toString()
+        val now = java.time.Instant.now().toString()
+        val stored = StoredSupplyItem(
+            id = id, categoryId = categoryId, name = name,
+            notes = notes?.takeIf { it.isNotBlank() },
+            fields = fields, customFields = emptyMap(),
+            attachmentIds = emptyList(), createdAt = now, updatedAt = now
+        )
+        File(itemsDir, "$id.json").writeText(gson.toJson(stored))
+        if (status != "IN STOCK") {
+            setStatus(id, status, "", tabletId)
+        }
+        return stored.resolve()
+    }
+
+    fun updateItem(itemId: String, name: String, categoryId: String, notes: String?, fields: Map<String, String>): SupplyItem? {
+        val file = File(itemsDir, "$itemId.json")
+        val existing = readJson<StoredSupplyItem>(file) ?: return null
+        val updated = existing.copy(
+            name = name, categoryId = categoryId,
+            notes = notes?.takeIf { it.isNotBlank() },
+            fields = fields, updatedAt = java.time.Instant.now().toString()
+        )
+        file.writeText(gson.toJson(updated))
+        return updated.resolve()
+    }
+
+    fun addAttachment(itemId: String, attachment: SupplyAttachment, sourceFile: File): SupplyItem? {
+        val itemFile = File(itemsDir, "$itemId.json")
+        val existing = readJson<StoredSupplyItem>(itemFile) ?: return null
+        val destDir = File(supplyDir, "attachments/$itemId")
+        destDir.mkdirs()
+        sourceFile.copyTo(File(destDir, attachment.storedName), overwrite = true)
+        val updated = existing.copy(
+            attachmentIds = existing.attachmentIds + attachment,
+            updatedAt = java.time.Instant.now().toString()
+        )
+        itemFile.writeText(gson.toJson(updated))
+        return updated.resolve()
+    }
+
+    fun getAttachmentFile(itemId: String, storedName: String): File =
+        File(supplyDir, "attachments/$itemId/$storedName")
+
+    // Legacy path helper kept for any callers that use absolutePath string
     fun attachmentPath(itemId: String, storedName: String): String =
-        File(supplyDir, "attachments/$itemId/$storedName").absolutePath
+        getAttachmentFile(itemId, storedName).absolutePath
 }

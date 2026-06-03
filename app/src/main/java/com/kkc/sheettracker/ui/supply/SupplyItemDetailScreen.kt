@@ -1,5 +1,8 @@
 package com.kkc.sheettracker.ui.supply
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -7,24 +10,40 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.kkc.sheettracker.data.SupplyRepository
+import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.models.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.util.UUID
+
+private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,11 +52,17 @@ fun SupplyItemDetailScreen(
     basePath: String,
     tabletId: String,
     employeeName: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    subscriptionManager: SupplySubscriptionManager
 ) {
     val repository = remember(basePath) { SupplyRepository(basePath) }
     val coroutineScope = rememberCoroutineScope()
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    val subscriptionData by subscriptionManager.subscriptionData.collectAsState()
+    val isSubscribed = subscriptionData.subscribedItemIds.contains(itemId)
 
     var item by remember { mutableStateOf<SupplyItem?>(null) }
     var comments by remember { mutableStateOf<List<SupplyComment>>(emptyList()) }
@@ -46,8 +71,10 @@ fun SupplyItemDetailScreen(
     var commentText by remember { mutableStateOf("") }
     var commentAuthor by remember { mutableStateOf(employeeName) }
     var isSubmittingComment by remember { mutableStateOf(false) }
+    var isAddingAttachment by remember { mutableStateOf(false) }
+    var showAttachmentOptions by remember { mutableStateOf(false) }
+    var captureTargetFile by remember { mutableStateOf<File?>(null) }
 
-    // Status change bottom sheet
     var showStatusSheet by remember { mutableStateOf(false) }
     val statusSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -56,15 +83,11 @@ fun SupplyItemDetailScreen(
             isLoading = true
             errorMessage = null
             try {
-                val loadedItem = withContext(Dispatchers.IO) {
-                    repository.getItem(itemId)
-                }
+                val loadedItem = withContext(Dispatchers.IO) { repository.getItem(itemId) }
                 if (loadedItem == null) {
                     errorMessage = "Item not found"
                 } else {
-                    val loadedComments = withContext(Dispatchers.IO) {
-                        repository.getComments(itemId)
-                    }
+                    val loadedComments = withContext(Dispatchers.IO) { repository.getComments(itemId) }
                     item = loadedItem
                     comments = loadedComments
                 }
@@ -78,7 +101,86 @@ fun SupplyItemDetailScreen(
 
     LaunchedEffect(itemId) { loadData() }
 
+    // Refresh when returning from edit screen
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) loadData()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Camera launcher
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val file = captureTargetFile
+        if (success && file != null) {
+            coroutineScope.launch {
+                isAddingAttachment = true
+                runCatching {
+                    val uuid = UUID.randomUUID().toString()
+                    val attachment = SupplyAttachment(uuid, "photo_${System.currentTimeMillis()}.jpg", "$uuid.jpg")
+                    withContext(Dispatchers.IO) {
+                        repository.addAttachment(itemId, attachment, file)
+                        file.delete()
+                    }
+                    val updated = withContext(Dispatchers.IO) { repository.getItem(itemId) }
+                    if (updated != null) item = updated
+                }
+                captureTargetFile = null
+                isAddingAttachment = false
+            }
+        }
+    }
+
+    // Gallery launcher
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            isAddingAttachment = true
+            runCatching {
+                val uuid = UUID.randomUUID().toString()
+                val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                val ext = when {
+                    mimeType.contains("png") -> ".png"
+                    mimeType.contains("gif") -> ".gif"
+                    mimeType.contains("webp") -> ".webp"
+                    else -> ".jpg"
+                }
+                val storedName = "$uuid$ext"
+                val originalName = uri.lastPathSegment?.substringAfterLast('/') ?: "image$ext"
+                val attachment = SupplyAttachment(uuid, originalName, storedName)
+                val tempFile = File(context.cacheDir, "supply_temp/$storedName")
+                tempFile.parentFile?.mkdirs()
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        tempFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    repository.addAttachment(itemId, attachment, tempFile)
+                    tempFile.delete()
+                }
+                val updated = withContext(Dispatchers.IO) { repository.getItem(itemId) }
+                if (updated != null) item = updated
+            }
+            isAddingAttachment = false
+        }
+    }
+
+    fun launchCamera() {
+        val dir = File(context.cacheDir, "supply_temp")
+        dir.mkdirs()
+        val f = File(dir, "capture_${System.currentTimeMillis()}.jpg")
+        captureTargetFile = f
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", f)
+        cameraLauncher.launch(uri)
+    }
+
     val currentItem = item
+
+    LaunchedEffect(currentItem, comments) {
+        if (currentItem != null) {
+            subscriptionManager.dismissNotification(currentItem.id)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -95,6 +197,22 @@ fun SupplyItemDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(onClick = {
+                        coroutineScope.launch {
+                            subscriptionManager.toggleItemSubscription(itemId)
+                        }
+                    }) {
+                        Icon(
+                            imageVector = if (isSubscribed) Icons.Filled.Notifications else Icons.Outlined.Notifications,
+                            contentDescription = if (isSubscribed) "Unsubscribe from notifications" else "Subscribe to notifications",
+                            tint = if (isSubscribed) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                        )
+                    }
+                    IconButton(onClick = onEdit) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Edit item")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -105,19 +223,13 @@ fun SupplyItemDetailScreen(
         when {
             isLoading -> {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
+                    modifier = Modifier.fillMaxSize().padding(padding),
                     contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
+                ) { CircularProgressIndicator() }
             }
             errorMessage != null -> {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
+                    modifier = Modifier.fillMaxSize().padding(padding),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -138,9 +250,7 @@ fun SupplyItemDetailScreen(
                 val statusColor = supplyStatusColor(tier)
 
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
+                    modifier = Modifier.fillMaxSize().padding(padding),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -169,10 +279,7 @@ fun SupplyItemDetailScreen(
                     if (!currentItem.notes.isNullOrBlank()) {
                         item {
                             DetailSection(title = "Notes") {
-                                Text(
-                                    currentItem.notes,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                                Text(currentItem.notes, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -210,15 +317,36 @@ fun SupplyItemDetailScreen(
                     }
 
                     // Attachments
-                    if (currentItem.attachmentIds.isNotEmpty()) {
-                        item {
-                            DetailSection(title = "Attachments") {
-                                currentItem.attachmentIds.forEach { att ->
-                                    val url = repository.attachmentPath(currentItem.id, att.storedName)
+                    item {
+                        DetailSection(title = "Photos & Attachments") {
+                            // Existing attachments
+                            currentItem.attachmentIds.forEach { att ->
+                                val attFile = repository.getAttachmentFile(currentItem.id, att.storedName)
+                                val isImage = att.storedName.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
+                                if (isImage) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(attFile)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = att.originalName,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 280.dp)
+                                            .clip(MaterialTheme.shapes.medium),
+                                        contentScale = ContentScale.FillWidth
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        att.originalName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                } else {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
                                             att.originalName,
@@ -227,24 +355,47 @@ fun SupplyItemDetailScreen(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                        IconButton(
-                                            onClick = {
-                                                runCatching { uriHandler.openUri(url) }
-                                            }
-                                        ) {
-                                            Icon(
-                                                Icons.Filled.Download,
-                                                contentDescription = "Download ${att.originalName}",
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                            }
+
+                            // Add attachment buttons
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (isAddingAttachment) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { launchCamera() },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Add,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Camera", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { galleryLauncher.launch("image/*") },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Add,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Gallery", style = MaterialTheme.typography.labelMedium)
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Comments section header
+                    // Comments header
                     item {
                         Text("Comments", style = MaterialTheme.typography.titleMedium)
                         HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
@@ -307,13 +458,11 @@ fun SupplyItemDetailScreen(
                                                         repository.addComment(itemId, author, text, tabletId)
                                                     }
                                                     commentText = ""
-                                                    // Reload comments
                                                     val updated = withContext(Dispatchers.IO) {
                                                         repository.getComments(itemId)
                                                     }
                                                     comments = updated
                                                 } catch (_: Exception) {
-                                                    // Ignore — comment may have been saved even if response fails
                                                 } finally {
                                                     isSubmittingComment = false
                                                 }
@@ -336,7 +485,6 @@ fun SupplyItemDetailScreen(
                         }
                     }
 
-                    // Bottom padding
                     item { Spacer(modifier = Modifier.height(32.dp)) }
                 }
             }
@@ -434,9 +582,7 @@ private fun CommentCard(comment: SupplyComment) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Row(

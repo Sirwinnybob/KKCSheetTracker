@@ -39,8 +39,8 @@ enum class NavDestination(
     JOBS("jobs", "Jobs", Icons.Filled.List, Icons.Outlined.List),
     SEARCH("search", "Search", Icons.Filled.Search, Icons.Outlined.Search),
     HOURS("hours", "Hours", Icons.Filled.AccessTime, Icons.Outlined.AccessTime),
-    SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
-    SUPPLY("supply", "Supply", Icons.Filled.ShoppingCart, Icons.Outlined.ShoppingCart)
+    SUPPLY("supply", "Supply", Icons.Filled.ShoppingCart, Icons.Outlined.ShoppingCart),
+    SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 @Composable
@@ -51,6 +51,7 @@ fun AppBottomNavBar(
     isCalculatorOpen: Boolean,
     minimized: Boolean,
     destinations: List<NavDestination> = NavDestination.entries,
+    supplyNotificationCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -87,10 +88,19 @@ fun AppBottomNavBar(
                     selected = selected,
                     onClick = { onNavigate(dest) },
                     icon = {
-                        Icon(
-                            if (selected) dest.selectedIcon else dest.unselectedIcon,
-                            contentDescription = dest.label
-                        )
+                        val iconContent = @Composable {
+                            Icon(
+                                if (selected) dest.selectedIcon else dest.unselectedIcon,
+                                contentDescription = dest.label
+                            )
+                        }
+                        if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                            BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                                iconContent()
+                            }
+                        } else {
+                            iconContent()
+                        }
                     },
                     label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
                     colors = NavigationBarItemDefaults.colors(
@@ -109,7 +119,8 @@ fun AppBottomNavBar(
             onNavigate = onNavigate,
             onCalculatorClick = onCalculatorClick,
             isCalculatorOpen = isCalculatorOpen,
-            destinations = destinations
+            destinations = destinations,
+            supplyNotificationCount = supplyNotificationCount
         )
     }
 }
@@ -120,7 +131,8 @@ private fun MinimizedNavBar(
     onNavigate: (NavDestination) -> Unit,
     onCalculatorClick: () -> Unit,
     isCalculatorOpen: Boolean,
-    destinations: List<NavDestination>
+    destinations: List<NavDestination>,
+    supplyNotificationCount: Int
 ) {
     Surface(
         tonalElevation = 2.dp,
@@ -148,15 +160,24 @@ private fun MinimizedNavBar(
                     )
                 }
                 val selected = dest == currentDestination
-                Icon(
-                    if (selected) dest.selectedIcon else dest.unselectedIcon,
-                    contentDescription = dest.label,
-                    tint = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clickable { onNavigate(dest) }
-                )
+                val iconContent = @Composable {
+                    Icon(
+                        if (selected) dest.selectedIcon else dest.unselectedIcon,
+                        contentDescription = dest.label,
+                        tint = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { onNavigate(dest) }
+                    )
+                }
+                if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                    BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                        iconContent()
+                    }
+                } else {
+                    iconContent()
+                }
             }
         }
     }

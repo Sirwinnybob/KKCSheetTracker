@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <external-path name="external_files" path="." />
+    <cache-path name="supply_temp" path="supply_temp/" />
 </paths>
-

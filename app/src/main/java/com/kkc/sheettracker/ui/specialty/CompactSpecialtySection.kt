@@ -61,6 +61,7 @@ internal fun buildSpecialtySectionRows(
     if (resolvedItems.isEmpty()) return emptyList()
     val priorityStations = specialtyPriorityStationsForMode(mode)
     val (relevant, nonRelevant) = resolvedItems.partition { resolved ->
+        resolved.item.stations.contains(SpecialtyStation.DELIVERY) ||
         resolved.item.stations.any { station -> station in priorityStations }
     }
     return relevant.map { SpecialtySectionRowModel(it, true) } +

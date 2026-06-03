@@ -59,6 +59,7 @@ import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyProgressStore
 import com.kkc.sheettracker.data.SheetRipProgressStore
+import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.SpecialtyRepository
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyStateStore
@@ -96,6 +97,7 @@ import com.kkc.sheettracker.ui.search.SearchScreen
 import com.kkc.sheettracker.ui.settings.SettingsScreen
 import com.kkc.sheettracker.ui.supply.SupplyDashboardScreen
 import com.kkc.sheettracker.ui.supply.SupplyItemDetailScreen
+import com.kkc.sheettracker.ui.supply.SupplyItemEditScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDashboardScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
@@ -139,6 +141,7 @@ fun AppNavigation(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
+    supplySubscriptionManager: SupplySubscriptionManager,
     hardwoodsProgressStore: HardwoodsProgressStore? = null,
     specialtyProgressStore: SpecialtyProgressStore? = null
 ) {
@@ -216,7 +219,8 @@ fun AppNavigation(
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
                 watcherRefreshEpoch = watcherRefreshEpoch,
-                activeJobFolderName = activeJobFolderName
+                activeJobFolderName = activeJobFolderName,
+                supplySubscriptionManager = supplySubscriptionManager
             )
         } else {
             LegacySingleStackNavigation(
@@ -245,7 +249,8 @@ fun AppNavigation(
                 onSyncthingApiKeySave = onSyncthingApiKeySave,
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
-                watcherRefreshEpoch = watcherRefreshEpoch
+                watcherRefreshEpoch = watcherRefreshEpoch,
+                supplySubscriptionManager = supplySubscriptionManager
             )
         }
     }
@@ -279,8 +284,10 @@ private fun MultiBackStackNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     watcherRefreshEpoch: Long,
-    activeJobFolderName: MutableStateFlow<String?>
+    activeJobFolderName: MutableStateFlow<String?>,
+    supplySubscriptionManager: SupplySubscriptionManager
 ) {
+    val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
@@ -353,7 +360,7 @@ private fun MultiBackStackNavigation(
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS, NavDestination.SUPPLY)
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SUPPLY, NavDestination.SETTINGS)
         } else {
             NavDestination.entries
         }
@@ -466,6 +473,7 @@ private fun MultiBackStackNavigation(
 
     androidx.compose.runtime.LaunchedEffect(watcherRefreshEpoch, basePath) {
         if (watcherRefreshEpoch <= 0L) return@LaunchedEffect
+        supplySubscriptionManager.scanForUpdates()
         when (workMode) {
             WorkMode.CNC -> {
                 scanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
@@ -628,7 +636,8 @@ private fun MultiBackStackNavigation(
                         navController = supplyNavController,
                         basePath = basePath,
                         tabletId = tabletId,
-                        employeeName = employeeName
+                        employeeName = employeeName,
+                        subscriptionManager = supplySubscriptionManager
                     )
                 }
             }
@@ -639,6 +648,7 @@ private fun MultiBackStackNavigation(
                 destinations = visibleDestinations,
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
+                supplyNotificationCount = supplyNotificationCount,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
                         if (employeeName.isNotBlank()) {
@@ -1499,7 +1509,8 @@ private fun SupplyTabHost(
     navController: NavHostController,
     basePath: String,
     tabletId: String,
-    employeeName: String
+    employeeName: String,
+    subscriptionManager: SupplySubscriptionManager
 ) {
     NavHost(
         navController = navController,
@@ -1511,7 +1522,8 @@ private fun SupplyTabHost(
                 basePath = basePath,
                 tabletId = tabletId,
                 employeeName = employeeName,
-                navController = navController
+                navController = navController,
+                subscriptionManager = subscriptionManager
             )
         }
         composable(
@@ -1524,7 +1536,43 @@ private fun SupplyTabHost(
                 basePath = basePath,
                 tabletId = tabletId,
                 employeeName = employeeName,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onEdit = { navController.navigate("supply/item/$itemId/edit") },
+                subscriptionManager = subscriptionManager
+            )
+        }
+        composable(
+            "supply/item/{itemId}/edit",
+            arguments = listOf(navArgument("itemId") { type = NavType.StringType })
+        ) { entry ->
+            val itemId = entry.arguments?.getString("itemId") ?: return@composable
+            SupplyItemEditScreen(
+                itemId = itemId,
+                initialCategoryId = null,
+                basePath = basePath,
+                tabletId = tabletId,
+                employeeName = employeeName,
+                onBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() }
+            )
+        }
+        composable(
+            "supply/new/{categoryId}",
+            arguments = listOf(navArgument("categoryId") { type = NavType.StringType })
+        ) { entry ->
+            val categoryId = entry.arguments?.getString("categoryId") ?: return@composable
+            SupplyItemEditScreen(
+                itemId = null,
+                initialCategoryId = categoryId,
+                basePath = basePath,
+                tabletId = tabletId,
+                employeeName = employeeName,
+                onBack = { navController.popBackStack() },
+                onSaved = { newItemId ->
+                    navController.navigate("supply/item/$newItemId") {
+                        popUpTo("supply") { inclusive = false }
+                    }
+                }
             )
         }
     }
@@ -1557,8 +1605,10 @@ private fun LegacySingleStackNavigation(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    watcherRefreshEpoch: Long
+    watcherRefreshEpoch: Long,
+    supplySubscriptionManager: SupplySubscriptionManager
 ) {
+    val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
@@ -1664,6 +1714,7 @@ private fun LegacySingleStackNavigation(
 
     androidx.compose.runtime.LaunchedEffect(watcherRefreshEpoch, basePath) {
         if (watcherRefreshEpoch <= 0L) return@LaunchedEffect
+        supplySubscriptionManager.scanForUpdates()
         when (workMode) {
             WorkMode.CNC -> {
                 scanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
@@ -2422,6 +2473,16 @@ private fun LegacySingleStackNavigation(
                 Box(modifier = Modifier.fillMaxSize())
             }
 
+            composable("supply") {
+                SupplyTabHost(
+                    navController = rememberNavController(),
+                    basePath = basePath,
+                    tabletId = tabletId,
+                    employeeName = employeeName,
+                    subscriptionManager = supplySubscriptionManager
+                )
+            }
+
             composable("settings") {
                 SettingsScreen(
                     tabletId = tabletId,
@@ -2452,6 +2513,7 @@ private fun LegacySingleStackNavigation(
                 destinations = visibleDestinations,
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
+                supplyNotificationCount = supplyNotificationCount,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
                         if (employeeName.isNotBlank()) {

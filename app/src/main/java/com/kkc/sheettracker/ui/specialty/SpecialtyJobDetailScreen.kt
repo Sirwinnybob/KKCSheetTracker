@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -45,9 +46,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.foundation.layout.size
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.completionKeysForItem
+import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
@@ -110,6 +114,18 @@ fun SpecialtyJobDetailScreen(
     }
     val sheetRipDone = remember(scanState.snapshot.basePath, jobFolderName, sheetRipDoneVersion) {
         specialtyStateStore.loadSheetRipDone(jobFolderName)
+    }
+
+    // Refresh immediately on entry and every 30 seconds while this screen is open,
+    // so items added on the admin (server) appear without requiring a manual refresh.
+    LaunchedEffect(jobFolderName) {
+        specialtyStateStore.refresh(RefreshReason.APP_FOREGROUND, force = true)
+    }
+    LaunchedEffect(jobFolderName) {
+        while (true) {
+            delay(30_000L)
+            specialtyStateStore.refresh(RefreshReason.APP_FOREGROUND, force = true)
+        }
     }
 
     // Group items into sections by station, in enum ordinal order; untagged items last.
@@ -800,6 +816,7 @@ private fun stationChipSpec(station: SpecialtyStation): StationChipSpec {
         SpecialtyStation.EDGE_BANDER -> StationChipSpec("EDGE", scheme.tertiaryContainer, scheme.onTertiaryContainer)
         SpecialtyStation.ASSEMBLY -> StationChipSpec("ASM", scheme.secondaryContainer, scheme.onSecondaryContainer)
         SpecialtyStation.SPECIALTY -> StationChipSpec("SPEC", scheme.surfaceVariant, scheme.onSurfaceVariant)
+        SpecialtyStation.DELIVERY -> StationChipSpec("DELIVERY", Color(0xFFDCFCE7), Color(0xFF15803D))
     }
 }
 
@@ -885,6 +902,7 @@ private fun stationFilterLabel(station: SpecialtyStation): String = when (statio
     SpecialtyStation.CNC -> "CNC"
     SpecialtyStation.HARDWOODS -> "Hardwoods"
     SpecialtyStation.SPECIALTY -> "Specialty"
+    SpecialtyStation.DELIVERY -> "Delivery"
 }
 
 @Composable

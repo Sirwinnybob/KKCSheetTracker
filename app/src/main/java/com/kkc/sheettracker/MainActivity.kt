@@ -35,6 +35,8 @@ import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
+import com.kkc.sheettracker.data.SupplyRepository
+import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.navigation.AppNavigation
@@ -45,6 +47,7 @@ import com.kkc.sheettracker.sync.SyncthingIntentConfig
 import com.kkc.sheettracker.sync.SyncthingRuntimeConfig
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingSupervisor
+import androidx.lifecycle.lifecycleScope
 import com.kkc.sheettracker.ui.migration.MigrationRequiredScreen
 import com.kkc.sheettracker.ui.theme.KKCTheme
 import com.kkc.sheettracker.update.DeviceOwnerUpdateFallback
@@ -58,6 +61,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var appStateStore: AppStateStore
     private lateinit var syncthingSupervisor: SyncthingSupervisor
     private lateinit var clockInState: ClockInState
+    private lateinit var supplySubscriptionManager: SupplySubscriptionManager
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -149,6 +153,8 @@ class MainActivity : ComponentActivity() {
         )
         scanCoordinator = ScanCoordinator(baseDir, jobRepository)
         appStateStore = AppStateStore(scanCoordinator, progressStore)
+        val supplyRepository = SupplyRepository(basePath)
+        supplySubscriptionManager = SupplySubscriptionManager(applicationContext, supplyRepository)
         clockInState = ClockInState.create(this)
         if (clockInState.snapshot.isActive) {
             ClockInNotificationContract.startOrUpdateService(this)
@@ -192,6 +198,7 @@ class MainActivity : ComponentActivity() {
                         isDarkTheme = isDarkTheme,
                         workMode = workMode,
                         employeeName = employeeName,
+                        supplySubscriptionManager = supplySubscriptionManager,
                         onEmployeeNameChanged = { name ->
                             employeeName = name
                             prefs.edit().putString("employee_name", name).apply()
@@ -365,9 +372,21 @@ class MainActivity : ComponentActivity() {
         handleNotificationIntent(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::supplySubscriptionManager.isInitialized) {
+            lifecycleScope.launch {
+                supplySubscriptionManager.scanForUpdates()
+            }
+        }
+    }
+
     override fun onDestroy() {
         if (::syncthingSupervisor.isInitialized) {
             syncthingSupervisor.close()
+        }
+        if (::supplySubscriptionManager.isInitialized) {
+            supplySubscriptionManager.close()
         }
         super.onDestroy()
     }

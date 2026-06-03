@@ -21,6 +21,29 @@ class CompactSpecialtySectionLogicTest {
     }
 
     @Test
+    fun buildSpecialtySectionRows_deliveryTaggedItemsAreAlwaysRelevant() {
+        val items = listOf(
+            resolvedItem(id = "1", name = "Delivery Tagged", stations = listOf(SpecialtyStation.DELIVERY)),
+            resolvedItem(id = "2", name = "Cnc Item", stations = listOf(SpecialtyStation.CNC))
+        )
+
+        // Verify they are relevant in CNC mode
+        val cncRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.CNC)
+        assertEquals(2, cncRows.size)
+        assertTrue(cncRows.first { it.resolved.item.id == "1" }.isRelevantToMode)
+
+        // Verify they are relevant in ASSEMBLY mode
+        val assemblyRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.ASSEMBLY)
+        assertEquals(2, assemblyRows.size)
+        assertTrue(assemblyRows.first { it.resolved.item.id == "1" }.isRelevantToMode)
+
+        // Verify they are relevant in HARDWOODS mode
+        val hardwoodsRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.HARDWOODS)
+        assertEquals(2, hardwoodsRows.size)
+        assertTrue(hardwoodsRows.first { it.resolved.item.id == "1" }.isRelevantToMode)
+    }
+
+    @Test
     fun buildSpecialtySectionRows_hardwoodsMode_relevantItemsFloatToTopAndAllRemainVisible() {
         val items = listOf(
             resolvedItem(id = "1", name = "Assembly Only", stations = listOf(SpecialtyStation.ASSEMBLY)),

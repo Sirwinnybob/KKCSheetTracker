@@ -702,7 +702,8 @@ enum class SpecialtyStation {
     SAW,
     EDGE_BANDER,
     ASSEMBLY,
-    SPECIALTY
+    SPECIALTY,
+    DELIVERY
 }
 
 data class SpecialtyItemAttachment(

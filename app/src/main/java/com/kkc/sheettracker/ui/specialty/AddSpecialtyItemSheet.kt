@@ -44,6 +44,7 @@ private fun stationLabel(station: SpecialtyStation) = when (station) {
     SpecialtyStation.ASSEMBLY -> "Assembly"
     SpecialtyStation.HARDWOODS -> "Hardwoods"
     SpecialtyStation.SPECIALTY -> "Specialty"
+    SpecialtyStation.DELIVERY -> "Delivery"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

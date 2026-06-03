@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.SpecialtyJob
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
@@ -31,6 +32,11 @@ class SpecialtyStateStore(
 
     /** The deviceId of this tablet — used by the UI to identify own items. */
     val tabletId: String get() = tabletItemsStore.tabletId
+
+    /** Trigger a rescan of all job folders from disk (e.g. on screen entry or periodic polling). */
+    fun refresh(reason: RefreshReason = RefreshReason.APP_FOREGROUND, force: Boolean = true) {
+        specialtyScanCoordinator.refresh(reason, force)
+    }
 
     /** Creates or updates a tablet-created specialty item, then invalidates the cache. */
     suspend fun saveTabletItem(jobFolderName: String, item: TabletSpecialtyItem) =
