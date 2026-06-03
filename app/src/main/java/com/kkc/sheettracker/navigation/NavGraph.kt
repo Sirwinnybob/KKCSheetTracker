@@ -1652,7 +1652,7 @@ private fun LegacySingleStackNavigation(
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SUPPLY, NavDestination.SETTINGS)
         } else {
             NavDestination.entries
         }
@@ -1754,6 +1754,7 @@ private fun LegacySingleStackNavigation(
                 currentRoute?.startsWith("referenceViewer/") == true -> NavDestination.JOBS
             currentRoute == "search" -> NavDestination.SEARCH
             currentRoute == "hours" -> NavDestination.HOURS
+            currentRoute?.startsWith("supply") == true -> NavDestination.SUPPLY
             currentRoute == "settings" -> NavDestination.SETTINGS
             else -> if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) NavDestination.JOBS else NavDestination.DASHBOARD
         }
