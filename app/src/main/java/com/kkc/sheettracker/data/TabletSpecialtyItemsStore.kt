@@ -156,5 +156,6 @@ class TabletSpecialtyItemsStore(
 
     private fun JsonObject.getStr(key: String): String =
         runCatching { get(key)?.asString?.trim() }.getOrNull().orEmpty()
-    private fun JsonObject.getNullStr(key: String): String? = get(key)?.asString?.trim()?.takeIf { it.isNotBlank() }
+    private fun JsonObject.getNullStr(key: String): String? =
+        runCatching { get(key)?.asString?.trim() }.getOrNull()?.takeIf { it.isNotBlank() }
 }

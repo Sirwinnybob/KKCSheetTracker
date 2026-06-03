@@ -697,7 +697,9 @@ class SpecialtyProgressStore(
         val root = runCatching { JsonParser.parseString(raw) }.getOrNull() ?: return emptyList()
         val array = when {
             root.isJsonArray -> root.asJsonArray
-            root.isJsonObject -> root.asJsonObject.getAsJsonArray("items")
+            root.isJsonObject -> root.asJsonObject.get("items")
+                ?.takeIf { it.isJsonArray }
+                ?.asJsonArray
             else -> null
         } ?: return emptyList()
         return array.mapNotNull { element ->
