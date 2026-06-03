@@ -94,6 +94,8 @@ import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_RIP_CUT_LIST_ROW_ID
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_SAW_RIP_LIST_ROW_ID
 import com.kkc.sheettracker.ui.search.SearchScreen
 import com.kkc.sheettracker.ui.settings.SettingsScreen
+import com.kkc.sheettracker.ui.supply.SupplyDashboardScreen
+import com.kkc.sheettracker.ui.supply.SupplyItemDetailScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDashboardScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
@@ -138,7 +140,9 @@ fun AppNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     hardwoodsProgressStore: HardwoodsProgressStore? = null,
-    specialtyProgressStore: SpecialtyProgressStore? = null
+    specialtyProgressStore: SpecialtyProgressStore? = null,
+    adminServerUrl: String = "",
+    onAdminServerUrlChanged: (String) -> Unit = {}
 ) {
     val sharedHardwoodsProgressStore = hardwoodsProgressStore ?: remember(basePath, tabletId, isViewOnlyMode) {
         HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
@@ -214,7 +218,9 @@ fun AppNavigation(
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
                 watcherRefreshEpoch = watcherRefreshEpoch,
-                activeJobFolderName = activeJobFolderName
+                activeJobFolderName = activeJobFolderName,
+                adminServerUrl = adminServerUrl,
+                onAdminServerUrlChanged = onAdminServerUrlChanged
             )
         } else {
             LegacySingleStackNavigation(
@@ -277,7 +283,9 @@ private fun MultiBackStackNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     watcherRefreshEpoch: Long,
-    activeJobFolderName: MutableStateFlow<String?>
+    activeJobFolderName: MutableStateFlow<String?>,
+    adminServerUrl: String = "",
+    onAdminServerUrlChanged: (String) -> Unit = {}
 ) {
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
@@ -343,6 +351,14 @@ private fun MultiBackStackNavigation(
     val searchNavController = rememberNavController()
     val settingsNavController = rememberNavController()
     val hoursNavController = rememberNavController()
+    val supplyNavController = rememberNavController()
+    // Derive server URL from basePath UNC hostname, e.g. \\192.168.1.100\share -> http://192.168.1.100:3000
+    val resolvedAdminServerUrl = remember(basePath, adminServerUrl) {
+        adminServerUrl.ifBlank {
+            val uncMatch = Regex("^\\\\\\\\([^\\\\]+)\\\\").find(basePath)
+            if (uncMatch != null) "http://${uncMatch.groupValues[1]}:3000" else "http://localhost:3000"
+        }
+    }
     val homeTab = homeTopLevelTabForWorkMode(workMode)
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
@@ -350,7 +366,7 @@ private fun MultiBackStackNavigation(
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS, NavDestination.SUPPLY)
         } else {
             NavDestination.entries
         }
@@ -386,7 +402,8 @@ private fun MultiBackStackNavigation(
         jobsNavController,
         searchNavController,
         settingsNavController,
-        hoursNavController
+        hoursNavController,
+        supplyNavController
     ) {
         NavigationCoordinator(
             dashboardNavController = dashboardNavController,
@@ -394,6 +411,7 @@ private fun MultiBackStackNavigation(
             searchNavController = searchNavController,
             hoursNavController = hoursNavController,
             settingsNavController = settingsNavController,
+            supplyNavController = supplyNavController,
             getHomeTab = { homeTab },
             getSelectedTab = { selectedTab },
             setSelectedTab = { selectedTab = it }
@@ -614,7 +632,17 @@ private fun MultiBackStackNavigation(
                         onSyncthingStartNow = onSyncthingStartNow,
                         onBack = {
                             coordinator.navigateTopLevel(homeTab)
-                        }
+                        },
+                        adminServerUrl = adminServerUrl,
+                        onAdminServerUrlChanged = onAdminServerUrlChanged
+                    )
+                }
+
+                TabLayer(visible = selectedTab == TopLevelTab.SUPPLY) {
+                    SupplyTabHost(
+                        navController = supplyNavController,
+                        serverUrl = resolvedAdminServerUrl,
+                        employeeName = employeeName
                     )
                 }
             }
@@ -1448,7 +1476,9 @@ private fun SettingsTabHost(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    adminServerUrl: String = "",
+    onAdminServerUrlChanged: (String) -> Unit = {}
 ) {
     NavHost(
         navController = navController,
@@ -1475,6 +1505,41 @@ private fun SettingsTabHost(
                 onBack = onBack,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
+                adminServerUrl = adminServerUrl,
+                onAdminServerUrlChanged = onAdminServerUrlChanged,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SupplyTabHost(
+    navController: NavHostController,
+    serverUrl: String,
+    employeeName: String
+) {
+    NavHost(
+        navController = navController,
+        startDestination = "supply/dashboard",
+        modifier = Modifier.fillMaxSize()
+    ) {
+        composable("supply/dashboard") {
+            SupplyDashboardScreen(
+                serverUrl = serverUrl,
+                employeeName = employeeName,
+                navController = navController
+            )
+        }
+        composable(
+            "supply/item/{itemId}",
+            arguments = listOf(navArgument("itemId") { type = NavType.StringType })
+        ) { entry ->
+            val itemId = entry.arguments?.getString("itemId") ?: return@composable
+            SupplyItemDetailScreen(
+                itemId = itemId,
+                serverUrl = serverUrl,
+                employeeName = employeeName,
+                onBack = { navController.popBackStack() }
             )
         }
     }
@@ -1552,7 +1617,7 @@ private fun LegacySingleStackNavigation(
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS, NavDestination.SUPPLY)
         } else {
             NavDestination.entries
         }

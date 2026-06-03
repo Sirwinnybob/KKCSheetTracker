@@ -45,6 +45,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
+    adminServerUrl: String = "",
+    onAdminServerUrlChanged: (String) -> Unit = {},
 ) {
     var editTabletId by remember { mutableStateOf(tabletId) }
     var editBasePath by remember { mutableStateOf(basePath) }
@@ -61,6 +63,9 @@ fun SettingsScreen(
             id.contains(editEmployeeName, ignoreCase = true)
         }
     }
+    var editAdminServerUrl by remember { mutableStateOf(adminServerUrl) }
+    var adminServerUrlDirty by remember { mutableStateOf(false) }
+    var adminServerUrlSaved by remember { mutableStateOf(false) }
     var tabletIdDirty by remember { mutableStateOf(false) }
     var basePathDirty by remember { mutableStateOf(false) }
     var syncthingApiKeyDirty by remember { mutableStateOf(false) }
@@ -90,6 +95,12 @@ fun SettingsScreen(
         if (employeeNameSaved) {
             delay(1600)
             employeeNameSaved = false
+        }
+    }
+    LaunchedEffect(adminServerUrlSaved) {
+        if (adminServerUrlSaved) {
+            delay(1600)
+            adminServerUrlSaved = false
         }
     }
 
@@ -149,6 +160,11 @@ fun SettingsScreen(
                         selected = workMode == WorkMode.ASSEMBLY,
                         onClick = { onWorkModeChanged(WorkMode.ASSEMBLY) },
                         label = { Text("Assembly") }
+                    )
+                    FilterChip(
+                        selected = workMode == WorkMode.SPECIALTY,
+                        onClick = { onWorkModeChanged(WorkMode.SPECIALTY) },
+                        label = { Text("Specialty") }
                     )
                 }
             }
@@ -301,6 +317,47 @@ fun SettingsScreen(
                             }
                         }
                         if (basePathSaved) {
+                            Text(
+                                "Saved",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = editAdminServerUrl,
+                    onValueChange = {
+                        editAdminServerUrl = it
+                        adminServerUrlDirty = it != adminServerUrl
+                    },
+                    label = { Text("Admin Server URL") },
+                    supportingText = { Text("e.g. http://192.168.1.100:3000 (blank = auto-detect from base path)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium
+                )
+
+                if (adminServerUrlDirty || adminServerUrlSaved) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (adminServerUrlDirty) {
+                            Button(
+                                onClick = {
+                                    onAdminServerUrlChanged(editAdminServerUrl.trim())
+                                    adminServerUrlDirty = false
+                                    adminServerUrlSaved = true
+                                },
+                                shape = MaterialTheme.shapes.medium
+                            ) {
+                                Text("Save Server URL")
+                            }
+                        }
+                        if (adminServerUrlSaved) {
                             Text(
                                 "Saved",
                                 style = MaterialTheme.typography.labelMedium,

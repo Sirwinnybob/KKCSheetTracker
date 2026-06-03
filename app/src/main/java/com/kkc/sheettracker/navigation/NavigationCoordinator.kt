@@ -14,7 +14,8 @@ enum class TopLevelTab(val route: String) {
     JOBS("jobs"),
     SEARCH("search"),
     HOURS("hours"),
-    SETTINGS("settings");
+    SETTINGS("settings"),
+    SUPPLY("supply");
 
     companion object {
         fun fromDestination(destination: NavDestination): TopLevelTab {
@@ -24,6 +25,7 @@ enum class TopLevelTab(val route: String) {
                 NavDestination.SEARCH -> SEARCH
                 NavDestination.HOURS -> HOURS
                 NavDestination.SETTINGS -> SETTINGS
+                NavDestination.SUPPLY -> SUPPLY
             }
         }
 
@@ -34,6 +36,7 @@ enum class TopLevelTab(val route: String) {
                 SEARCH -> NavDestination.SEARCH
                 HOURS -> NavDestination.HOURS
                 SETTINGS -> NavDestination.SETTINGS
+                SUPPLY -> NavDestination.SUPPLY
             }
         }
     }
@@ -45,6 +48,7 @@ class NavigationCoordinator(
     private val searchNavController: NavHostController,
     private val hoursNavController: NavHostController,
     private val settingsNavController: NavHostController,
+    private val supplyNavController: NavHostController,
     private val getHomeTab: () -> TopLevelTab,
     private val getSelectedTab: () -> TopLevelTab,
     private val setSelectedTab: (TopLevelTab) -> Unit
@@ -59,6 +63,7 @@ class NavigationCoordinator(
             TopLevelTab.SEARCH -> searchNavController
             TopLevelTab.HOURS -> hoursNavController
             TopLevelTab.SETTINGS -> settingsNavController
+            TopLevelTab.SUPPLY -> supplyNavController
         }
     }
 
@@ -133,6 +138,18 @@ class NavigationCoordinator(
         Log.d(NAV_TAG, "hardwoods_open route=$targetRoute")
     }
 
+    fun openSpecialtyJobInJobs(jobFolderName: String) {
+        val targetRoute = "specialty/job/${URLEncoder.encode(jobFolderName, "UTF-8")}"
+        if (getSelectedTab() != TopLevelTab.JOBS) {
+            setSelectedTab(TopLevelTab.JOBS)
+            Log.d(NAV_TAG, "specialty_open_tab_switch target=jobs")
+        }
+        jobsNavController.navigate(targetRoute) {
+            launchSingleTop = true
+        }
+        Log.d(NAV_TAG, "specialty_open route=$targetRoute")
+    }
+
     fun openHardwoodsRouteInJobs(route: String) {
         if (getSelectedTab() != TopLevelTab.JOBS) {
             setSelectedTab(TopLevelTab.JOBS)
@@ -154,6 +171,18 @@ class NavigationCoordinator(
             launchSingleTop = true
         }
         Log.d(NAV_TAG, "assembly_viewer_open route=$targetRoute")
+    }
+
+    fun openAssemblyJobInJobs(jobFolderName: String) {
+        val targetRoute = "assembly/job/${URLEncoder.encode(jobFolderName, "UTF-8")}"
+        if (getSelectedTab() != TopLevelTab.JOBS) {
+            setSelectedTab(TopLevelTab.JOBS)
+            Log.d(NAV_TAG, "assembly_job_tab_switch target=jobs")
+        }
+        jobsNavController.navigate(targetRoute) {
+            launchSingleTop = true
+        }
+        Log.d(NAV_TAG, "assembly_job_open route=$targetRoute")
     }
 
     fun onBackPressed(activity: Activity) {

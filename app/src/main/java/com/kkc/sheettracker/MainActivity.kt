@@ -166,6 +166,7 @@ class MainActivity : ComponentActivity() {
                     WorkMode.fromStored(prefs.getString("work_mode", null))
                 )
             }
+            var adminServerUrl by rememberSaveable { mutableStateOf(prefs.getString("admin_server_url", "") ?: "") }
             val syncthingStatus by syncthingSupervisor.status.collectAsState()
             val syncthingApiKey by syncthingSupervisor.apiKey.collectAsState()
             val composeScope = rememberCoroutineScope()
@@ -226,6 +227,11 @@ class MainActivity : ComponentActivity() {
                         },
                         onSyncthingStartNow = {
                             syncthingSupervisor.startNow()
+                        },
+                        adminServerUrl = adminServerUrl,
+                        onAdminServerUrlChanged = { url ->
+                            adminServerUrl = url
+                            prefs.edit().putString("admin_server_url", url).apply()
                         }
                     )
 
