@@ -414,9 +414,13 @@ fun SpecialtyJobDetailScreen(
                 onDismiss = { showAddSheet = false; editingItem = null },
                 onSave = { item ->
                     coroutineScope.launch {
-                        specialtyStateStore.saveTabletItem(jobFolderName, item)
-                        showAddSheet = false
-                        editingItem = null
+                        try {
+                            specialtyStateStore.saveTabletItem(jobFolderName, item)
+                            showAddSheet = false
+                            editingItem = null
+                        } catch (e: Exception) {
+                            snackbarHostState.showSnackbar("Failed to save item: ${e.message}")
+                        }
                     }
                 }
             )
@@ -430,7 +434,7 @@ fun SpecialtyJobDetailScreen(
                 title = { Text("Delete Item") },
                 text = { Text("Delete this item? This cannot be undone.") },
                 confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = {
+                    TextButton(onClick = {
                         deleteTargetItemId = null
                         coroutineScope.launch {
                             specialtyStateStore.deleteTabletItem(jobFolderName, deletingItemId)
@@ -438,7 +442,7 @@ fun SpecialtyJobDetailScreen(
                     }) { Text("Delete") }
                 },
                 dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = { deleteTargetItemId = null }) { Text("Cancel") }
+                    TextButton(onClick = { deleteTargetItemId = null }) { Text("Cancel") }
                 }
             )
         }
