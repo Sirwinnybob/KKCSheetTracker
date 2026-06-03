@@ -30,11 +30,12 @@ import java.time.format.FormatStyle
 @Composable
 fun SupplyItemDetailScreen(
     itemId: String,
-    serverUrl: String,
+    basePath: String,
+    tabletId: String,
     employeeName: String,
     onBack: () -> Unit
 ) {
-    val repository = remember(serverUrl) { SupplyRepository(serverUrl) }
+    val repository = remember(basePath) { SupplyRepository(basePath) }
     val coroutineScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
 
@@ -58,11 +59,15 @@ fun SupplyItemDetailScreen(
                 val loadedItem = withContext(Dispatchers.IO) {
                     repository.getItem(itemId)
                 }
-                val loadedComments = withContext(Dispatchers.IO) {
-                    repository.getComments(itemId)
+                if (loadedItem == null) {
+                    errorMessage = "Item not found"
+                } else {
+                    val loadedComments = withContext(Dispatchers.IO) {
+                        repository.getComments(itemId)
+                    }
+                    item = loadedItem
+                    comments = loadedComments
                 }
-                item = loadedItem
-                comments = loadedComments
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Failed to load item"
             } finally {
@@ -209,7 +214,7 @@ fun SupplyItemDetailScreen(
                         item {
                             DetailSection(title = "Attachments") {
                                 currentItem.attachmentIds.forEach { att ->
-                                    val url = repository.attachmentUrl(currentItem.id, att.id)
+                                    val url = repository.attachmentPath(currentItem.id, att.storedName)
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
@@ -299,7 +304,7 @@ fun SupplyItemDetailScreen(
                                                 isSubmittingComment = true
                                                 try {
                                                     withContext(Dispatchers.IO) {
-                                                        repository.addComment(itemId, author, text)
+                                                        repository.addComment(itemId, author, text, tabletId)
                                                     }
                                                     commentText = ""
                                                     // Reload comments
@@ -365,14 +370,18 @@ fun SupplyItemDetailScreen(
                             coroutineScope.launch {
                                 statusSheetState.hide()
                                 showStatusSheet = false
-                                try {
-                                    val updated = withContext(Dispatchers.IO) {
-                                        repository.patchStatus(itemId, status)
+                                withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        repository.setStatus(
+                                            itemId, status,
+                                            employeeName.ifBlank { "Floor" }, tabletId
+                                        )
                                     }
-                                    item = updated
-                                } catch (_: Exception) {
-                                    // silently ignore
                                 }
+                                val updated = withContext(Dispatchers.IO) {
+                                    runCatching { repository.getItem(itemId) }.getOrNull()
+                                }
+                                if (updated != null) item = updated
                             }
                         },
                         icon = {

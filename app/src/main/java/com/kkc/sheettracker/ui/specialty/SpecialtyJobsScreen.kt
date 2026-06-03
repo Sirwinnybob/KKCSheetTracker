@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -43,29 +45,43 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StationProgress
 import com.kkc.sheettracker.data.models.StatusCounts
+import com.kkc.sheettracker.data.DeliveryScheduleRepository
+import com.kkc.sheettracker.ui.components.JobBoardGrid
+import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
+import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpecialtyJobsScreen(
     specialtyScanCoordinator: SpecialtyScanCoordinator,
     specialtyStateStore: SpecialtyStateStore,
+    jobRepository: JobRepository,
+    deliveryScheduleRepository: DeliveryScheduleRepository,
     onJobClick: (com.kkc.sheettracker.data.models.SpecialtyJobCard) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var sortByName by rememberSaveable { mutableStateOf(false) }
+    var boardView by rememberSaveable { mutableStateOf(false) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
+    val deliverySchedule = remember(scanState.snapshot.generation) {
+        deliveryScheduleRepository.fetchSchedule()
+    }
     val cards = remember(scanState.snapshot.generation, progressVersion, sortByName) {
         val all = specialtyStateStore.deriveJobCards()
         if (sortByName) {
@@ -102,6 +118,15 @@ fun SpecialtyJobsScreen(
                     IconButton(onClick = { specialtyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
+                    IconButton(
+                        onClick = { boardView = !boardView },
+                        enabled = !sortByName
+                    ) {
+                        Icon(
+                            imageVector = if (boardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                            contentDescription = if (boardView) "List View" else "Board View"
+                        )
+                    }
                     IconButton(onClick = onSearchClick) {
                         Icon(Icons.Default.Search, contentDescription = "Search")
                     }
@@ -135,14 +160,22 @@ fun SpecialtyJobsScreen(
             )
             SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
 
+            DeliveryScheduleWidget(
+                schedule = deliverySchedule,
+                onTap = { showScheduleDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+
             AnimatedContent(
-                targetState = sortByName,
+                targetState = sortByName to boardView,
                 transitionSpec = {
-                    val dir = if (targetState) 1 else -1
+                    val dir = if (targetState.first) 1 else -1
                     slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
                 },
                 label = "sort_anim"
-            ) { _ ->
+            ) { (_, isBoardView) ->
             when {
                 scanState.status == ScanStatus.LOADING && cards.isEmpty() -> {
                     Box(
@@ -159,6 +192,18 @@ fun SpecialtyJobsScreen(
                     ) {
                         Text("No jobs found")
                     }
+                }
+                isBoardView -> {
+                    JobBoardGrid(
+                        items = filteredCards.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName) },
+                        jobRepository = jobRepository,
+                        onItemClick = { boardItem ->
+                            filteredCards.find { it.folderName == boardItem.folderName }
+                                ?.let { onJobClick(it) }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        scanGeneration = scanState.snapshot.generation
+                    )
                 }
                 else -> {
                     LazyColumn(
@@ -237,6 +282,13 @@ fun SpecialtyJobsScreen(
             }
             }
         }
+    }
+
+    if (showScheduleDialog) {
+        DeliveryScheduleDialog(
+            schedule = deliverySchedule,
+            onDismiss = { showScheduleDialog = false }
+        )
     }
 }
 

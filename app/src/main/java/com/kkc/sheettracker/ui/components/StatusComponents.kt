@@ -133,6 +133,7 @@ fun ProgressCard(
     materialSegments: List<MaterialSegmentData>? = null,
     hidePrimaryProgressBar: Boolean = false,
     showExpandToggle: Boolean = true,
+    headerLeading: (@Composable ColumnScope.() -> Unit)? = null,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
     inlineContent: (@Composable ColumnScope.() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -154,6 +155,14 @@ fun ProgressCard(
                 .animateContentSize()
         ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (headerLeading != null) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            horizontalAlignment = Alignment.Start,
+                            content = headerLeading
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             title,

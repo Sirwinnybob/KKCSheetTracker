@@ -70,7 +70,7 @@ $manifestTemp = "$manifestPath.tmp"
 $nowIso = (Get-Date).ToUniversalTime().ToString("o")
 
 if (Test-Path -LiteralPath $manifestPath) {
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -Depth 100
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 } else {
     $manifest = [pscustomobject]@{
         schemaVersion = "v1"
@@ -117,6 +117,14 @@ $manifestJson = $manifest | ConvertTo-Json -Depth 100
 Set-Content -LiteralPath $manifestTemp -Value $manifestJson -Encoding UTF8
 Move-Item -LiteralPath $manifestTemp -Destination $manifestPath -Force
 
+# Auto-copy release APK to .Updates folder
+$updatesDir = Join-Path (Split-Path (Split-Path $FeedRoot -Parent) -Parent) ".Updates"
+if (Test-Path -LiteralPath $updatesDir) {
+    $legacyApkFileName = "kkc-sheettracker-v$safeVersionName-release.apk"
+    $legacyApkTarget = Join-Path $updatesDir $legacyApkFileName
+    Copy-Item -LiteralPath $sourceApk -Destination $legacyApkTarget -Force
+}
+
 Write-Host "Published update:" -ForegroundColor Green
 Write-Host "  Package: $PackageName"
 Write-Host "  Version: $versionName ($versionCode)"
@@ -124,3 +132,6 @@ Write-Host "  Channel: $RolloutChannel"
 Write-Host "  APK: $targetApk"
 Write-Host "  SHA256: $sha256"
 Write-Host "  Manifest: $manifestPath"
+if (Test-Path -LiteralPath $updatesDir) {
+    Write-Host "  Updates Folder Copy: $legacyApkTarget"
+}

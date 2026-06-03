@@ -173,10 +173,11 @@ class ScanCoordinator(
         unifiedEngine.listJobs().forEach { info ->
             if (!File(baseDir, "${info.folderName}/CNC").isDirectory) return@forEach
             val snapshot = unifiedEngine.getCncSnapshot(info.folderName) ?: return@forEach
-            jobs += snapshot.job
+            jobs += snapshot.job.copy(lineupPosition = info.lineupPosition)
             search += snapshot.searchIndex
             issues += snapshot.issues
         }
+        // Preserve production order (as set by listJobs) rather than sorting by folder name
         return Triple(jobs, search, issues)
     }
 

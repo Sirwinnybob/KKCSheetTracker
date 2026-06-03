@@ -4,11 +4,30 @@ data class SupplyCategory(val id: String, val name: String, val position: Int)
 
 data class SupplyAttachment(val id: String, val originalName: String, val storedName: String)
 
+// What's stored in items/{uuid}.json (no status)
+data class StoredSupplyItem(
+    val id: String,
+    val categoryId: String,
+    val name: String,
+    val notes: String?,
+    val fields: Map<String, String> = emptyMap(),
+    val customFields: Map<String, String> = emptyMap(),
+    val attachmentIds: List<SupplyAttachment> = emptyList(),
+    val createdAt: String = "",
+    val updatedAt: String = ""
+)
+
+// What's in status/{uuid}.*.json
+data class SupplyStatusRecord(val status: String, val by: String = "", val at: String = "")
+
+// Full resolved item (shown in UI)
 data class SupplyItem(
     val id: String,
     val categoryId: String,
     val name: String,
     val status: String,
+    val statusBy: String,
+    val statusAt: String,
     val notes: String?,
     val fields: Map<String, String>,
     val customFields: Map<String, String>,

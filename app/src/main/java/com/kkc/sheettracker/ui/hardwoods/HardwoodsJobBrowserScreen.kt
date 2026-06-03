@@ -14,6 +14,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -40,6 +44,8 @@ import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.ProgressCard
+import com.kkc.sheettracker.ui.components.SortToggleBar
+import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,13 +57,14 @@ fun HardwoodsJobBrowserScreen(
     onSettingsClick: () -> Unit
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var sortByName by rememberSaveable { mutableStateOf(false) }
     var expandedJobs by rememberSaveable { mutableStateOf(setOf<String>()) }
     val listState = rememberLazyListState()
     val scanState by scanCoordinator.state.collectAsState()
     val jobs = scanState.snapshot.jobs
     val isLoading = scanState.status == ScanStatus.LOADING && jobs.isEmpty()
 
-    val filteredJobs = remember(jobs, searchQuery) {
+    val filteredJobs = remember(jobs, searchQuery, sortByName) {
         val base = if (searchQuery.isBlank()) {
             jobs
         } else {
@@ -67,7 +74,11 @@ fun HardwoodsJobBrowserScreen(
                     job.folderName.contains(searchQuery, ignoreCase = true)
             }
         }
-        base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        if (sortByName) {
+            base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        } else {
+            base // already in production order from listJobs
+        }
     }
 
     Scaffold(
@@ -99,6 +110,7 @@ fun HardwoodsJobBrowserScreen(
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )
+            SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
             Text(
                 text = if (searchQuery.isBlank()) {
                     "${jobs.size} jobs"
@@ -110,6 +122,14 @@ fun HardwoodsJobBrowserScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
 
+            AnimatedContent(
+                targetState = sortByName,
+                transitionSpec = {
+                    val dir = if (targetState) 1 else -1
+                    slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
+                },
+                label = "sort_anim"
+            ) { _ ->
             if (isLoading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
@@ -155,6 +175,18 @@ fun HardwoodsJobBrowserScreen(
                                     expandedJobs + job.folderName
                                 }
                             },
+                            headerActions = {
+                                if (sortByName) {
+                                    val pos = job.lineupPosition
+                                    if (pos != null) {
+                                        StatusChip(
+                                            text = "#$pos",
+                                            backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
+                            },
                             onClick = { onJobClick(job) }
                         ) {
                             StatusSummaryRow(counts)
@@ -166,6 +198,7 @@ fun HardwoodsJobBrowserScreen(
                         }
                     }
                 }
+            }
             }
         }
     }

@@ -3,125 +3,90 @@ package com.kkc.sheettracker.data
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.kkc.sheettracker.data.models.*
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
+import java.io.File
+import java.util.UUID
 
-class SupplyRepository(private val serverUrl: String) {
+class SupplyRepository(private val basePath: String) {
 
+    private val supplyDir get() = File(basePath, ".supply")
+    private val itemsDir  get() = File(supplyDir, "items")
+    private val statusDir get() = File(supplyDir, "status")
+    private val commentsDir get() = File(supplyDir, "comments")
     private val gson = Gson()
 
-    private fun get(path: String): String {
-        val conn = URL("$serverUrl/api/supply$path").openConnection() as HttpURLConnection
-        conn.requestMethod = "GET"
-        conn.connectTimeout = 8000
-        conn.readTimeout = 8000
-        return try {
-            val code = conn.responseCode
-            if (code in 200..299) {
-                conn.inputStream.bufferedReader().readText()
-            } else {
-                val errBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
-                throw Exception("HTTP $code: $errBody")
-            }
-        } catch (e: Exception) {
-            throw Exception("GET $path failed: ${e.message}")
-        } finally {
-            conn.disconnect()
-        }
+    // ── Read helpers ──────────────────────────────────────────────────────────
+
+    private inline fun <reified T> readJson(file: File): T? {
+        if (!file.exists()) return null
+        return runCatching { gson.fromJson(file.readText(), object : TypeToken<T>() {}.type) as T }.getOrNull()
     }
 
-    private fun post(path: String, body: Any): String {
-        val conn = URL("$serverUrl/api/supply$path").openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.doOutput = true
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.connectTimeout = 8000
-        conn.readTimeout = 8000
-        return try {
-            OutputStreamWriter(conn.outputStream).use { it.write(gson.toJson(body)) }
-            val code = conn.responseCode
-            if (code in 200..299) {
-                conn.inputStream.bufferedReader().readText()
-            } else {
-                val errBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
-                throw Exception("HTTP $code: $errBody")
-            }
-        } catch (e: Exception) {
-            throw Exception("POST $path failed: ${e.message}")
-        } finally {
-            conn.disconnect()
-        }
+    // ── Status resolution ─────────────────────────────────────────────────────
+
+    private fun resolveStatus(itemId: String): SupplyStatusRecord {
+        val dir = statusDir
+        if (!dir.exists()) return SupplyStatusRecord("IN STOCK")
+        return dir.listFiles { f -> f.name.startsWith("$itemId.") && f.name.endsWith(".json") }
+            ?.mapNotNull { readJson<SupplyStatusRecord>(it) }
+            ?.maxByOrNull { it.at }
+            ?: SupplyStatusRecord("IN STOCK")
     }
 
-    private fun patch(path: String, body: Any): String {
-        val conn = URL("$serverUrl/api/supply$path").openConnection() as HttpURLConnection
-        conn.requestMethod = "PATCH"
-        conn.doOutput = true
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.connectTimeout = 8000
-        conn.readTimeout = 8000
-        return try {
-            OutputStreamWriter(conn.outputStream).use { it.write(gson.toJson(body)) }
-            val code = conn.responseCode
-            if (code in 200..299) {
-                conn.inputStream.bufferedReader().readText()
-            } else {
-                val errBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
-                throw Exception("HTTP $code: $errBody")
-            }
-        } catch (e: Exception) {
-            throw Exception("PATCH $path failed: ${e.message}")
-        } finally {
-            conn.disconnect()
-        }
+    private fun StoredSupplyItem.resolve(): SupplyItem {
+        val s = resolveStatus(id)
+        return SupplyItem(
+            id = id, categoryId = categoryId, name = name,
+            status = s.status, statusBy = s.by, statusAt = s.at,
+            notes = notes, fields = fields, customFields = customFields,
+            attachmentIds = attachmentIds, createdAt = createdAt, updatedAt = updatedAt
+        )
     }
 
-    private fun delete(path: String): String {
-        val conn = URL("$serverUrl/api/supply$path").openConnection() as HttpURLConnection
-        conn.requestMethod = "DELETE"
-        conn.connectTimeout = 8000
-        conn.readTimeout = 8000
-        return try {
-            val code = conn.responseCode
-            if (code in 200..299) {
-                conn.inputStream.bufferedReader().readText()
-            } else {
-                val errBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
-                throw Exception("HTTP $code: $errBody")
-            }
-        } catch (e: Exception) {
-            throw Exception("DELETE $path failed: ${e.message}")
-        } finally {
-            conn.disconnect()
-        }
-    }
+    // ── Public API ────────────────────────────────────────────────────────────
 
     fun getCategories(): List<SupplyCategory> =
-        gson.fromJson(get("/categories"), object : TypeToken<List<SupplyCategory>>() {}.type)
-
-    fun getItems(): List<SupplyItem> =
-        gson.fromJson(get("/items"), object : TypeToken<List<SupplyItem>>() {}.type)
-
-    fun getItem(itemId: String): SupplyItem =
-        gson.fromJson(get("/items/$itemId"), SupplyItem::class.java)
+        readJson<List<SupplyCategory>>(File(supplyDir, "categories.json")) ?: emptyList()
 
     fun getSchema(): List<SupplySchemaField> =
-        gson.fromJson(get("/schema"), object : TypeToken<List<SupplySchemaField>>() {}.type)
+        readJson<List<SupplySchemaField>>(File(supplyDir, "schema.json")) ?: emptyList()
 
-    fun patchStatus(itemId: String, status: String): SupplyItem =
-        gson.fromJson(patch("/items/$itemId/status", mapOf("status" to status)), SupplyItem::class.java)
+    fun getItems(): List<SupplyItem> {
+        if (!itemsDir.exists()) return emptyList()
+        return itemsDir.listFiles { f -> f.extension == "json" }
+            ?.mapNotNull { readJson<StoredSupplyItem>(it)?.resolve() }
+            ?: emptyList()
+    }
 
-    fun getComments(itemId: String): List<SupplyComment> =
-        gson.fromJson(get("/items/$itemId/comments"), object : TypeToken<List<SupplyComment>>() {}.type)
+    fun getItem(itemId: String): SupplyItem? =
+        readJson<StoredSupplyItem>(File(itemsDir, "$itemId.json"))?.resolve()
 
-    fun addComment(itemId: String, author: String, text: String): SupplyComment =
-        gson.fromJson(post("/items/$itemId/comments", mapOf("author" to author, "text" to text)), SupplyComment::class.java)
+    fun getComments(itemId: String): List<SupplyComment> {
+        val dir = File(commentsDir, itemId)
+        if (!dir.exists()) return emptyList()
+        return dir.listFiles { f -> f.extension == "json" }
+            ?.mapNotNull { readJson<SupplyComment>(it) }
+            ?.sortedBy { it.createdAt }
+            ?: emptyList()
+    }
 
-    fun createItem(categoryId: String, name: String): SupplyItem =
-        gson.fromJson(post("/items", mapOf("categoryId" to categoryId, "name" to name, "status" to "IN STOCK")), SupplyItem::class.java)
+    // ── Tablet writes ─────────────────────────────────────────────────────────
 
-    // Returns the attachment URL for displaying/downloading in a WebView or image loader
-    fun attachmentUrl(itemId: String, attId: String): String =
-        "$serverUrl/api/supply/items/$itemId/attachments/$attId"
+    fun setStatus(itemId: String, status: String, by: String, tabletId: String) {
+        statusDir.mkdirs()
+        val file = File(statusDir, "$itemId.$tabletId.json")
+        file.writeText(gson.toJson(SupplyStatusRecord(status, by, java.time.Instant.now().toString())))
+    }
+
+    fun addComment(itemId: String, author: String, text: String, tabletId: String): SupplyComment {
+        val dir = File(commentsDir, itemId)
+        dir.mkdirs()
+        val id = UUID.randomUUID().toString()
+        val comment = SupplyComment(id, author, text, java.time.Instant.now().toString())
+        File(dir, "$id.json").writeText(gson.toJson(comment))
+        return comment
+    }
+
+    // Attachment file path for display (local Syncthing-synced storage)
+    fun attachmentPath(itemId: String, storedName: String): String =
+        File(supplyDir, "attachments/$itemId/$storedName").absolutePath
 }

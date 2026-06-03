@@ -41,6 +41,7 @@ import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.ProgressStore
+import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
@@ -52,14 +53,26 @@ fun AssemblyDashboardScreen(
     assemblyStateStore: AssemblyStateStore,
     progressStore: ProgressStore,
     hardwoodsProgressStore: HardwoodsProgressStore,
+    specialtyStateStore: SpecialtyStateStore,
+    specialtyProgressVersionHint: Long = 0L,
     onNavigateToJobs: () -> Unit
 ) {
     val scanState by assemblyScanCoordinator.state.collectAsState()
     val cncProgressVersion by progressStore.progressVersion.collectAsState()
     val hardwoodProgressVersion by hardwoodsProgressStore.progressVersion.collectAsState()
+    val specialtyScanState by specialtyStateStore.scanState.collectAsState()
+    val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
 
     val cards = remember(scanState.snapshot.generation, cncProgressVersion, hardwoodProgressVersion) {
         assemblyStateStore.deriveJobCards()
+    }
+    val specialtyCards = remember(specialtyScanState.snapshot.generation, specialtyProgressVersion, specialtyProgressVersionHint) {
+        specialtyStateStore.deriveJobCards()
+    }
+    val specialtySummary = remember(specialtyCards) {
+        val totalSpecialtyItems = specialtyCards.sumOf { it.totalItems }
+        val completedSpecialtyItems = specialtyCards.sumOf { it.completedItems }
+        Triple(specialtyCards.size, completedSpecialtyItems, totalSpecialtyItems)
     }
 
     LaunchedEffect(Unit) {
@@ -113,6 +126,43 @@ fun AssemblyDashboardScreen(
                     TextButton(onClick = onNavigateToJobs) {
                         Text("Open Jobs")
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+                    }
+                }
+            }
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Specialty", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    when (specialtyScanState.status) {
+                        ScanStatus.LOADING -> {
+                            Text("Scanning specialty items...", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        ScanStatus.ERROR -> {
+                            Text(
+                                specialtyScanState.errorMessage ?: "Specialty scan failed",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        else -> {
+                            val (specialtyJobCount, completedSpecialtyItems, totalSpecialtyItems) = specialtySummary
+                            Text("Jobs with specialty: $specialtyJobCount", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Completed: $completedSpecialtyItems / $totalSpecialtyItems items",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (specialtyJobCount == 0) {
+                                Text(
+                                    "No specialty items found for current jobs",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -35,11 +35,11 @@ class HardwoodsRepository(private var baseDir: File) {
 
     fun scanJobs(): List<HardwoodJob> {
         return engine().listJobs()
-            .mapNotNull { info -> engine().getHardwoodsSnapshot(info.folderName)?.job }
-            .sortedWith { a, b ->
-                val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
-                if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
+            .mapNotNull { info ->
+                engine().getHardwoodsSnapshot(info.folderName)?.job
+                    ?.copy(lineupPosition = info.lineupPosition)
             }
+        // Preserve production order from listJobs; no secondary sort needed
     }
 
     fun buildSearchIndex(jobs: List<HardwoodJob>): List<HardwoodSearchEntry> {

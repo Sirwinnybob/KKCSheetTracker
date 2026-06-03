@@ -9,8 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,11 +27,12 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SupplyDashboardScreen(
-    serverUrl: String,
+    basePath: String,
+    tabletId: String,
     employeeName: String,
     navController: NavHostController
 ) {
-    val repository = remember(serverUrl) { SupplyRepository(serverUrl) }
+    val repository = remember(basePath) { SupplyRepository(basePath) }
     val coroutineScope = rememberCoroutineScope()
 
     var categories by remember { mutableStateOf<List<SupplyCategory>>(emptyList()) }
@@ -46,12 +45,6 @@ fun SupplyDashboardScreen(
     var statusSheetItem by remember { mutableStateOf<SupplyItem?>(null) }
     val statusSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    // New item creation dialog state
-    var showNewItemDialog by remember { mutableStateOf(false) }
-    var newItemName by remember { mutableStateOf("") }
-    var newItemCategoryId by remember { mutableStateOf("") }
-    var newItemCategoryExpanded by remember { mutableStateOf(false) }
-
     fun loadData() {
         coroutineScope.launch {
             isLoading = true
@@ -61,9 +54,6 @@ fun SupplyDashboardScreen(
                 val its = withContext(Dispatchers.IO) { repository.getItems() }
                 categories = cats.sortedBy { it.position }
                 items = its
-                if (newItemCategoryId.isBlank() && cats.isNotEmpty()) {
-                    newItemCategoryId = cats.first().id
-                }
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Failed to load supply data"
             } finally {
@@ -72,7 +62,7 @@ fun SupplyDashboardScreen(
         }
     }
 
-    LaunchedEffect(serverUrl) { loadData() }
+    LaunchedEffect(basePath) { loadData() }
 
     val pagerState = rememberPagerState(pageCount = { categories.size.coerceAtLeast(1) })
 
@@ -83,12 +73,7 @@ fun SupplyDashboardScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                actions = {
-                    IconButton(onClick = { showNewItemDialog = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = "New Item")
-                    }
-                }
+                )
             )
         }
     ) { padding ->
@@ -280,13 +265,20 @@ fun SupplyDashboardScreen(
                             coroutineScope.launch {
                                 statusSheetState.hide()
                                 statusSheetItem = null
-                                try {
-                                    val updated = withContext(Dispatchers.IO) {
-                                        repository.patchStatus(targetItem.id, status)
+                                withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        repository.setStatus(
+                                            targetItem.id, status,
+                                            employeeName.ifBlank { "Floor" }, tabletId
+                                        )
                                     }
+                                }
+                                // Re-read the item from disk so the resolved status is current
+                                val updated = withContext(Dispatchers.IO) {
+                                    runCatching { repository.getItem(targetItem.id) }.getOrNull()
+                                }
+                                if (updated != null) {
                                     items = items.map { if (it.id == updated.id) updated else it }
-                                } catch (_: Exception) {
-                                    // silently ignore — user can retry from detail
                                 }
                             }
                         },
@@ -304,92 +296,6 @@ fun SupplyDashboardScreen(
         }
     }
 
-    // New item creation dialog
-    if (showNewItemDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showNewItemDialog = false
-                newItemName = ""
-            },
-            title = { Text("New Supply Item") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ExposedDropdownMenuBox(
-                        expanded = newItemCategoryExpanded,
-                        onExpandedChange = { newItemCategoryExpanded = it }
-                    ) {
-                        OutlinedTextField(
-                            value = categories.find { it.id == newItemCategoryId }?.name ?: "Select category",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Category") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = newItemCategoryExpanded) },
-                            shape = MaterialTheme.shapes.medium
-                        )
-                        ExposedDropdownMenu(
-                            expanded = newItemCategoryExpanded,
-                            onDismissRequest = { newItemCategoryExpanded = false }
-                        ) {
-                            categories.forEach { cat ->
-                                DropdownMenuItem(
-                                    text = { Text(cat.name) },
-                                    onClick = {
-                                        newItemCategoryId = cat.id
-                                        newItemCategoryExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    OutlinedTextField(
-                        value = newItemName,
-                        onValueChange = { newItemName = it },
-                        label = { Text("Item Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = MaterialTheme.shapes.medium
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val catId = newItemCategoryId
-                        val name = newItemName.trim()
-                        if (catId.isNotBlank() && name.isNotBlank()) {
-                            coroutineScope.launch {
-                                try {
-                                    val created = withContext(Dispatchers.IO) {
-                                        repository.createItem(catId, name)
-                                    }
-                                    items = items + created
-                                    showNewItemDialog = false
-                                    newItemName = ""
-                                    navController.navigate("supply/item/${created.id}")
-                                } catch (e: Exception) {
-                                    errorMessage = e.message
-                                }
-                            }
-                        }
-                    },
-                    enabled = newItemName.isNotBlank() && newItemCategoryId.isNotBlank()
-                ) {
-                    Text("Create")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showNewItemDialog = false
-                    newItemName = ""
-                }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 }
 
 @Composable

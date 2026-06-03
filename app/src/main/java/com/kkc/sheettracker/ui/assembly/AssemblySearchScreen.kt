@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,34 +43,47 @@ import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.ScanStatus
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssemblySearchScreen(
     assemblyScanCoordinator: AssemblyScanCoordinator,
     assemblyStateStore: AssemblyStateStore,
+    specialtyProgressVersionHint: Long = 0L,
     onResultClick: (AssemblySearchEntry) -> Unit,
     onBack: () -> Unit
 ) {
     val scanState by assemblyScanCoordinator.state.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
 
-    val all = remember(scanState.snapshot.generation) {
+    val all = remember(scanState.snapshot.generation, specialtyProgressVersionHint) {
         assemblyStateStore.deriveSearchIndex()
     }
-    val results = remember(all, query) {
+    var results by remember { mutableStateOf<List<AssemblySearchEntry>>(emptyList()) }
+
+    LaunchedEffect(all, query) {
         val q = query.trim()
-        if (q.isBlank()) emptyList() else all.filter { entry ->
-            entry.jobFolderName.contains(q, ignoreCase = true) ||
-                entry.jobNumber.contains(q, ignoreCase = true) ||
-                entry.jobName.contains(q, ignoreCase = true) ||
-                entry.cabinetNumber.equals(q, ignoreCase = true) ||
-                entry.description.contains(q, ignoreCase = true) ||
-                entry.material.contains(q, ignoreCase = true) ||
-                entry.sectionType.contains(q, ignoreCase = true) ||
-                (entry.room?.contains(q, ignoreCase = true) == true) ||
-                (entry.wall?.contains(q, ignoreCase = true) == true)
-        }.take(180)
+        if (q.isBlank()) {
+            results = emptyList()
+            return@LaunchedEffect
+        }
+        delay(250)
+        withContext(Dispatchers.Default) {
+            results = all.filter { entry ->
+                entry.jobFolderName.contains(q, ignoreCase = true) ||
+                    entry.jobNumber.contains(q, ignoreCase = true) ||
+                    entry.jobName.contains(q, ignoreCase = true) ||
+                    entry.cabinetNumber.equals(q, ignoreCase = true) ||
+                    entry.description.contains(q, ignoreCase = true) ||
+                    entry.material.contains(q, ignoreCase = true) ||
+                    entry.sectionType.contains(q, ignoreCase = true) ||
+                    (entry.room?.contains(q, ignoreCase = true) == true) ||
+                    (entry.wall?.contains(q, ignoreCase = true) == true)
+            }.take(180)
+        }
     }
 
     Scaffold(

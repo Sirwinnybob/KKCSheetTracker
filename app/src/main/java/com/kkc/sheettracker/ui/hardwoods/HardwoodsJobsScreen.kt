@@ -13,9 +13,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -50,11 +56,17 @@ import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
+import com.kkc.sheettracker.data.DeliveryScheduleRepository
+import com.kkc.sheettracker.ui.components.JobBoardGrid
+import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
+import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
+import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +75,7 @@ fun HardwoodsJobsScreen(
     hardwoodsRepository: HardwoodsRepository,
     progressStore: HardwoodsProgressStore,
     jobRepository: JobRepository,
+    deliveryScheduleRepository: DeliveryScheduleRepository,
     onJobClick: (HardwoodJob) -> Unit,
     onOpenHardwoodsChange: (jobFolderName: String, docType: HardwoodDocType, rowId: String) -> Unit,
     onViewCoverSheet: (HardwoodJob) -> Unit,
@@ -71,20 +84,112 @@ fun HardwoodsJobsScreen(
     onSettingsClick: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var sortByName by rememberSaveable { mutableStateOf(false) }
+    var boardView by rememberSaveable { mutableStateOf(false) }
     var expandedJobs by rememberSaveable { mutableStateOf(setOf<String>()) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
     val jobs = scanState.snapshot.jobs
     val loading = scanState.status == ScanStatus.LOADING && jobs.isEmpty()
+    val deliverySchedule = remember(scanState.snapshot.generation) {
+        deliveryScheduleRepository.fetchSchedule()
+    }
 
-    val filtered = remember(jobs, query) {
+    val filtered = remember(jobs, query, sortByName) {
         val base = if (query.isBlank()) jobs else jobs.filter {
             it.jobNumber.contains(query, ignoreCase = true) ||
                 it.jobName.contains(query, ignoreCase = true) ||
                 it.folderName.contains(query, ignoreCase = true)
         }
-        base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        if (sortByName) {
+            base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        } else {
+            base // already in production order from listJobs
+        }
+    }
+
+    val hardwoodsUiStates = remember(filtered, scanState.snapshot.generation, progressVersion, scanState.snapshot.basePath) {
+        filtered.map { job ->
+            val hasDeliverySheet = jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
+            val hasThreeDAssets = jobRepository.hasThreeDAssets(job.folderName)
+            val history = hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
+            val summary = progressStore.summarizeJob(job)
+            val availableDocTypes = job.index?.documents
+                .orEmpty()
+                .filter { doc ->
+                    doc.pdfFilename.isNotBlank() &&
+                        jobRepository.getJobRootPdfFile(
+                            jobFolderName = job.folderName,
+                            pdfFilename = doc.pdfFilename,
+                            preferDarkMode = false
+                        ) != null
+                }
+                .map { it.docType }
+                .toSet()
+            val totalsDoneMap = progressStore.getTotalsRip10DoneMap(job.folderName)
+            val rowProgressMap = progressStore.getRowProgressMap(job.folderName)
+            val includedDocSummaries = summary.documents.filter {
+                it.docType != com.kkc.sheettracker.data.models.HardwoodDocType.DOOR_LIST &&
+                    it.docType in availableDocTypes
+            }
+            val includedCounts = includedDocSummaries.fold(HardwoodStatusCounts()) { acc, doc ->
+                HardwoodStatusCounts(
+                    totalPieces = acc.totalPieces + doc.counts.totalPieces,
+                    donePieces = acc.donePieces + doc.counts.donePieces,
+                    badPieces = acc.badPieces + doc.counts.badPieces,
+                    skippedPieces = acc.skippedPieces + doc.counts.skippedPieces
+                )
+            }
+            val boardStockRows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index)
+            val rows = applySkippedPartRowsToBoardStockRows(
+                rows = boardStockRows,
+                index = job.index,
+                rowProgressMap = rowProgressMap
+            )
+            val boardStockTotal = rows.sumOf { row ->
+                val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
+                val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
+                val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
+                if (skipped) 0 else row.neededRips.coerceAtLeast(0)
+            }
+            val boardStockDone = rows.sumOf { row ->
+                val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
+                val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
+                val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
+                val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
+                if (skipped) 0 else (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
+            }
+            val boardStockCounts = HardwoodStatusCounts(totalPieces = boardStockTotal, donePieces = boardStockDone)
+            val counts = HardwoodStatusCounts(
+                totalPieces = includedCounts.totalPieces + boardStockCounts.totalPieces,
+                donePieces = includedCounts.donePieces + boardStockCounts.donePieces,
+                badPieces = includedCounts.badPieces,
+                skippedPieces = includedCounts.skippedPieces
+            )
+            val docCount = includedDocSummaries.size
+            val docSegments = includedDocSummaries.map {
+                MaterialSegmentData(
+                    materialName = it.docType.uiLabel(),
+                    counts = it.counts.toStatusCounts()
+                )
+            } + MaterialSegmentData(
+                materialName = "Rip Cut List",
+                counts = boardStockCounts.toStatusCounts()
+            )
+            HardwoodsJobItemUiState(
+                job = job,
+                hasDeliverySheet = hasDeliverySheet,
+                hasThreeDAssets = hasThreeDAssets,
+                history = history,
+                counts = counts,
+                docCount = docCount,
+                docSegments = docSegments,
+                availableDocTypes = availableDocTypes
+            )
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -103,6 +208,15 @@ fun HardwoodsJobsScreen(
                     IconButton(onClick = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) {
                         Icon(Icons.Default.Refresh, "Refresh")
                     }
+                    IconButton(
+                        onClick = { boardView = !boardView },
+                        enabled = !sortByName
+                    ) {
+                        Icon(
+                            imageVector = if (boardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                            contentDescription = if (boardView) "List View" else "Board View"
+                        )
+                    }
                     IconButton(onClick = onSearchClick) { Icon(Icons.Default.Search, "Search") }
                     IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
                 }
@@ -120,7 +234,24 @@ fun HardwoodsJobsScreen(
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )
+            SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
 
+            DeliveryScheduleWidget(
+                schedule = deliverySchedule,
+                onTap = { showScheduleDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+
+            AnimatedContent(
+                targetState = sortByName to boardView,
+                transitionSpec = {
+                    val dir = if (targetState.first) 1 else -1
+                    slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
+                },
+                label = "sort_anim"
+            ) { (_, isBoardView) ->
             if (loading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
@@ -133,95 +264,33 @@ fun HardwoodsJobsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            } else if (isBoardView) {
+                JobBoardGrid(
+                    items = filtered.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName) },
+                    jobRepository = jobRepository,
+                    onItemClick = { boardItem ->
+                        filtered.find { it.folderName == boardItem.folderName }
+                            ?.let { onJobClick(it) }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    scanGeneration = scanState.snapshot.generation
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(filtered, key = { it.folderName }) { job ->
-                        val hasDeliverySheet = remember(job.folderName) {
-                            jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
-                        }
-                        val hasThreeDAssets = remember(job.folderName) {
-                            jobRepository.hasThreeDAssets(job.folderName)
-                        }
-                        val history = remember(scanState.snapshot.generation, progressVersion, job.folderName) {
-                            hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
-                        }
-                        val summary = remember(progressVersion, job.index) {
-                            progressStore.summarizeJob(job)
-                        }
-                        val availableDocTypes = remember(job.index, job.folderName) {
-                            job.index?.documents
-                                .orEmpty()
-                                .filter { doc ->
-                                    doc.pdfFilename.isNotBlank() &&
-                                        jobRepository.getJobRootPdfFile(
-                                            jobFolderName = job.folderName,
-                                            pdfFilename = doc.pdfFilename,
-                                            preferDarkMode = false
-                                        ) != null
-                                }
-                                .map { it.docType }
-                                .toSet()
-                        }
-                        val totalsDoneMap = remember(progressVersion, job.folderName) {
-                            progressStore.getTotalsRip10DoneMap(job.folderName)
-                        }
-                        val rowProgressMap = remember(progressVersion, job.folderName) {
-                            progressStore.getRowProgressMap(job.folderName)
-                        }
-                        val includedDocSummaries = summary.documents.filter {
-                            it.docType != com.kkc.sheettracker.data.models.HardwoodDocType.DOOR_LIST &&
-                                it.docType in availableDocTypes
-                        }
-                        val includedCounts = includedDocSummaries.fold(HardwoodStatusCounts()) { acc, doc ->
-                            HardwoodStatusCounts(
-                                totalPieces = acc.totalPieces + doc.counts.totalPieces,
-                                donePieces = acc.donePieces + doc.counts.donePieces,
-                                badPieces = acc.badPieces + doc.counts.badPieces,
-                                skippedPieces = acc.skippedPieces + doc.counts.skippedPieces
-                            )
-                        }
-                        val boardStockCounts = remember(job.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
-                            val rows = applySkippedPartRowsToBoardStockRows(
-                                rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index),
-                                index = job.index,
-                                rowProgressMap = rowProgressMap
-                            )
-                            val total = rows.sumOf { row ->
-                                val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
-                                val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
-                                val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
-                                if (skipped) 0 else row.neededRips.coerceAtLeast(0)
-                            }
-                            val done = rows.sumOf { row ->
-                                val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
-                                val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
-                                val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
-                                val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
-                                if (skipped) 0 else (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
-                            }
-                            HardwoodStatusCounts(totalPieces = total, donePieces = done)
-                        }
-                        val counts = HardwoodStatusCounts(
-                            totalPieces = includedCounts.totalPieces + boardStockCounts.totalPieces,
-                            donePieces = includedCounts.donePieces + boardStockCounts.donePieces,
-                            badPieces = includedCounts.badPieces,
-                            skippedPieces = includedCounts.skippedPieces
-                        )
-                        val docCount = includedDocSummaries.size
+                    items(hardwoodsUiStates, key = { it.job.folderName }) { uiState ->
+                        val job = uiState.job
+                        val hasDeliverySheet = uiState.hasDeliverySheet
+                        val hasThreeDAssets = uiState.hasThreeDAssets
+                        val history = uiState.history
+                        val counts = uiState.counts
+                        val docCount = uiState.docCount
+                        val docSegments = uiState.docSegments
+                        val availableDocTypes = uiState.availableDocTypes
                         val subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done"
-                        val docSegments = includedDocSummaries.map {
-                            MaterialSegmentData(
-                                materialName = it.docType.uiLabel(),
-                                counts = it.counts.toStatusCounts()
-                            )
-                        } + MaterialSegmentData(
-                            materialName = "Rip Cut List",
-                            counts = boardStockCounts.toStatusCounts()
-                        )
 
                         ProgressCard(
                             title = job.folderName,
@@ -239,6 +308,16 @@ fun HardwoodsJobsScreen(
                             materialSegments = docSegments,
                             showBottomProgressBar = true,
                             headerActions = {
+                                if (sortByName) {
+                                    val pos = job.lineupPosition
+                                    if (pos != null) {
+                                        StatusChip(
+                                            text = "#$pos",
+                                            backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
                                 if (job.hiddenFromProduction) {
                                     StatusChip(
                                         text = "Hidden in Production",
@@ -290,6 +369,7 @@ fun HardwoodsJobsScreen(
                     }
                 }
             }
+            }
         }
     }
 
@@ -311,6 +391,13 @@ fun HardwoodsJobsScreen(
             onDismiss = { selectedHistoryJob = null }
         )
     }
+
+    if (showScheduleDialog) {
+        DeliveryScheduleDialog(
+            schedule = deliverySchedule,
+            onDismiss = { showScheduleDialog = false }
+        )
+    }
 }
 
 internal fun HardwoodStatusCounts.toStatusCounts(): StatusCounts {
@@ -325,3 +412,14 @@ internal fun HardwoodStatusCounts.toStatusCounts(): StatusCounts {
         notStarted = notStarted
     )
 }
+
+data class HardwoodsJobItemUiState(
+    val job: HardwoodJob,
+    val hasDeliverySheet: Boolean,
+    val hasThreeDAssets: Boolean,
+    val history: com.kkc.sheettracker.data.models.HardwoodRevisionHistory?,
+    val counts: com.kkc.sheettracker.data.models.HardwoodStatusCounts,
+    val docCount: Int,
+    val docSegments: List<MaterialSegmentData>,
+    val availableDocTypes: Set<HardwoodDocType>
+)

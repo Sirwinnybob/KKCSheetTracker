@@ -14,11 +14,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.draw.alpha
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -44,6 +48,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -65,10 +72,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.AssemblyBomEntry
 import com.kkc.sheettracker.data.models.AssemblyCabinetParts
+import com.kkc.sheettracker.data.models.AssemblyCncPart
+import com.kkc.sheettracker.data.models.AssemblyHardwoodRow
+import androidx.compose.material3.Card
+import com.kkc.sheettracker.data.models.CabinetSheetIndex
+import com.kkc.sheettracker.data.models.JobPdfCatalog
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
@@ -80,7 +94,9 @@ import com.kkc.sheettracker.ui.viewer.sanitizeVirtualAssemblyData
 import com.kkc.sheettracker.viewer3d.Model3DPane
 import com.kkc.sheettracker.viewer3d.ViewerServer
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class FullscreenPane {
     NONE,
@@ -93,7 +109,8 @@ private enum class PaneSource {
     ASSEMBLY,
     DELIVERY,
     OTHER,
-    THREE_D
+    THREE_D,
+    CHECKLIST
 }
 
 private enum class PaneSlot {
@@ -106,6 +123,7 @@ private enum class PaneSlot {
 fun AssemblyViewerScreen(
     jobRepository: JobRepository,
     assemblyStateStore: AssemblyStateStore,
+    specialtyStateStore: SpecialtyStateStore,
     jobFolderName: String,
     basePath: String = "",
     startPageAssembly: Int,
@@ -113,13 +131,22 @@ fun AssemblyViewerScreen(
     initialSource: String? = null,
     initialCabinet: String? = null,
     initialRoom: String? = null,
+    refreshGeneration: Long = 0L,
     isDarkTheme: Boolean,
     onBack: () -> Unit,
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onLeaveWhileClockedIn: () -> Unit = {}
 ) {
-    val sheetIndex = remember(jobFolderName) { assemblyStateStore.getCabinetSheetIndex(jobFolderName) }
+    val sheetIndex by produceState<CabinetSheetIndex?>(
+        initialValue = null,
+        key1 = jobFolderName,
+        key2 = refreshGeneration
+    ) {
+        value = withContext(Dispatchers.IO) {
+            assemblyStateStore.getCabinetSheetIndex(jobFolderName)
+        }
+    }
     val assemblyJobInfo = remember(jobFolderName) {
         assemblyStateStore.getJobs().firstOrNull { it.folderName == jobFolderName }
     }
@@ -133,10 +160,16 @@ fun AssemblyViewerScreen(
     }
     val initialPaneSource = parseInitialSource(initialSource)
 
-    val assemblyFilename = remember(sheetIndex, jobFolderName) {
-        sheetIndex?.documents?.assembly?.pdfFilename?.takeIf { it.isNotBlank() }
-            ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY)
-            ?: ""
+    val assemblyFilename by produceState<String>(
+        initialValue = "",
+        key1 = sheetIndex,
+        key2 = jobFolderName,
+        key3 = refreshGeneration
+    ) {
+        value = sheetIndex?.documents?.assembly?.pdfFilename?.takeIf { it.isNotBlank() }
+            ?: withContext(Dispatchers.IO) {
+                jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY)
+            }.orEmpty()
     }
     val assemblyVirtualRawMap = remember(sheetIndex) {
         sheetIndex?.documents?.assembly?.virtualCombined?.virtualPageToSource
@@ -179,10 +212,16 @@ fun AssemblyViewerScreen(
             sheetIndex?.documents?.assembly?.cabinetToPages.orEmpty()
         }
     }
-    val plansFilename = remember(sheetIndex, jobFolderName) {
-        sheetIndex?.documents?.plansElevations?.pdfFilename?.takeIf { it.isNotBlank() }
-            ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
-            ?: ""
+    val plansFilename by produceState<String>(
+        initialValue = "",
+        key1 = sheetIndex,
+        key2 = jobFolderName,
+        key3 = refreshGeneration
+    ) {
+        value = sheetIndex?.documents?.plansElevations?.pdfFilename?.takeIf { it.isNotBlank() }
+            ?: withContext(Dispatchers.IO) {
+                jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
+            }.orEmpty()
     }
     val plansNavigatorPlanViewLabels = remember(sheetIndex) {
         val pageToRoom = sheetIndex?.documents?.plansElevations?.pageDetails
@@ -195,14 +234,20 @@ fun AssemblyViewerScreen(
             .toMap()
         buildPlanViewLabelsFromPageToRoom(pageToRoom)
     }
-    val pdfCatalog = remember(jobFolderName) {
-        jobRepository.getJobPdfCatalog(jobFolderName)
+    val pdfCatalog by produceState<JobPdfCatalog?>(
+        initialValue = null,
+        key1 = jobFolderName,
+        key2 = refreshGeneration
+    ) {
+        value = withContext(Dispatchers.IO) {
+            jobRepository.getJobPdfCatalog(jobFolderName)
+        }
     }
-    val deliveryFilename = remember(pdfCatalog.deliverySheet) {
-        pdfCatalog.deliverySheet?.pdfFilename.orEmpty()
+    val deliveryFilename = remember(pdfCatalog?.deliverySheet) {
+        pdfCatalog?.deliverySheet?.pdfFilename.orEmpty()
     }
-    val unmanagedOtherPdfNames = remember(pdfCatalog.otherDocs) {
-        pdfCatalog.otherDocs.map { it.pdfFilename }
+    val unmanagedOtherPdfNames = remember(pdfCatalog?.otherDocs) {
+        pdfCatalog?.otherDocs?.map { it.pdfFilename }.orEmpty()
     }
 
     val assemblyPdfFile = remember(jobFolderName, assemblyFilename, isDarkTheme) {
@@ -217,10 +262,10 @@ fun AssemblyViewerScreen(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
     val resumePrefix = remember(jobFolderName) { "assembly_resume_v1_${jobFolderName}" }
-    var assemblyPage by rememberSaveable(assemblyPdfFile?.absolutePath, startPageAssembly) {
+    var assemblyPage by rememberSaveable(startPageAssembly) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_assembly_page", startPageAssembly).coerceAtLeast(1))
     }
-    var plansPage by rememberSaveable(plansPdfFile?.absolutePath, startPagePlans) {
+    var plansPage by rememberSaveable(startPagePlans) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_plans_page", startPagePlans).coerceAtLeast(1))
     }
     var searchText by rememberSaveable { mutableStateOf("") }
@@ -386,7 +431,8 @@ fun AssemblyViewerScreen(
 
     LaunchedEffect(initialCabinet, initialRoom, initialPaneSource) {
         val shouldAutoJumpCabinet = initialPaneSource != PaneSource.THREE_D || initialRoom.isNullOrBlank()
-        if (shouldAutoJumpCabinet && !initialCabinet.isNullOrBlank() && lastSearchedCabinet.isBlank()) {
+        if (shouldAutoJumpCabinet && !initialCabinet.isNullOrBlank() &&
+            (lastSearchedCabinet.isBlank() || !initialCabinet.equals(lastSearchedCabinet, ignoreCase = true))) {
             searchText = initialCabinet
             jumpToCabinet(initialCabinet)
         }
@@ -408,6 +454,7 @@ fun AssemblyViewerScreen(
         PaneSource.DELIVERY -> "Delivery"
         PaneSource.OTHER -> "Other"
         PaneSource.THREE_D -> "3D"
+        PaneSource.CHECKLIST -> "Checklist"
     }
 
     fun sourceFilename(source: PaneSource, otherFilename: String?): String? = when (source) {
@@ -416,6 +463,7 @@ fun AssemblyViewerScreen(
         PaneSource.DELIVERY -> deliveryFilename.takeIf { it.isNotBlank() }
         PaneSource.OTHER -> otherFilename?.takeIf { it.isNotBlank() }
         PaneSource.THREE_D -> null
+        PaneSource.CHECKLIST -> null
     }
 
     fun sourcePage(source: PaneSource, otherPage: Int, deliveryPage: Int): Int = when (source) {
@@ -424,6 +472,7 @@ fun AssemblyViewerScreen(
         PaneSource.DELIVERY -> deliveryPage
         PaneSource.OTHER -> otherPage
         PaneSource.THREE_D -> 1
+        PaneSource.CHECKLIST -> 1
     }
 
     fun setSourcePage(source: PaneSource, nextPage: Int, setOther: (Int) -> Unit, setDelivery: (Int) -> Unit) {
@@ -439,6 +488,7 @@ fun AssemblyViewerScreen(
             PaneSource.DELIVERY -> setDelivery(nextPage)
             PaneSource.OTHER -> setOther(nextPage)
             PaneSource.THREE_D -> Unit
+            PaneSource.CHECKLIST -> Unit
         }
     }
 
@@ -454,6 +504,7 @@ fun AssemblyViewerScreen(
                 else -> "Selected Other file unavailable: $firstPaneOtherFilename"
             }
             PaneSource.THREE_D -> "Select a part/room target to load its 3D model"
+            PaneSource.CHECKLIST -> ""
             else -> "$firstSourceName PDF not found"
         }
     }
@@ -465,6 +516,7 @@ fun AssemblyViewerScreen(
                 else -> "Selected Other file unavailable: $secondPaneOtherFilename"
             }
             PaneSource.THREE_D -> "Select a part/room target to load its 3D model"
+            PaneSource.CHECKLIST -> ""
             else -> "$secondSourceName PDF not found"
         }
     }
@@ -605,7 +657,14 @@ fun AssemblyViewerScreen(
                             },
                             isFullscreen = true,
                             onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE },
-                            customContent = if (firstPaneSource == PaneSource.THREE_D) {{
+                            customContent = if (firstPaneSource == PaneSource.CHECKLIST) {{
+                                ChecklistPane(
+                                    modifier = Modifier.fillMaxSize(),
+                                    jobFolderName = jobFolderName,
+                                    specialtyStateStore = specialtyStateStore,
+                                    onJumpToCabinet = { cab -> jumpToCabinet(cab) }
+                                )
+                            }} else if (firstPaneSource == PaneSource.THREE_D) {{
                                 Model3DPane(
                                     modifier = Modifier.fillMaxSize(),
                                     folderName = jobFolderName,
@@ -686,7 +745,14 @@ fun AssemblyViewerScreen(
                             },
                             isFullscreen = true,
                             onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE },
-                            customContent = if (secondPaneSource == PaneSource.THREE_D) {{
+                            customContent = if (secondPaneSource == PaneSource.CHECKLIST) {{
+                                ChecklistPane(
+                                    modifier = Modifier.fillMaxSize(),
+                                    jobFolderName = jobFolderName,
+                                    specialtyStateStore = specialtyStateStore,
+                                    onJumpToCabinet = { cab -> jumpToCabinet(cab) }
+                                )
+                            }} else if (secondPaneSource == PaneSource.THREE_D) {{
                                 Model3DPane(
                                     modifier = Modifier.fillMaxSize(),
                                     folderName = jobFolderName,
@@ -771,7 +837,14 @@ fun AssemblyViewerScreen(
                                         )
                                     },
                                     onToggleFullscreen = { fullscreenPane = FullscreenPane.FIRST },
-                                    customContent = if (firstPaneSource == PaneSource.THREE_D) {{
+                                    customContent = if (firstPaneSource == PaneSource.CHECKLIST) {{
+                                        ChecklistPane(
+                                            modifier = Modifier.fillMaxSize(),
+                                            jobFolderName = jobFolderName,
+                                            specialtyStateStore = specialtyStateStore,
+                                            onJumpToCabinet = { cab -> jumpToCabinet(cab) }
+                                        )
+                                    }} else if (firstPaneSource == PaneSource.THREE_D) {{
                                         Model3DPane(
                                             modifier = Modifier.fillMaxSize(),
                                             folderName = jobFolderName,
@@ -853,7 +926,14 @@ fun AssemblyViewerScreen(
                                         )
                                     },
                                     onToggleFullscreen = { fullscreenPane = FullscreenPane.SECOND },
-                                    customContent = if (secondPaneSource == PaneSource.THREE_D) {{
+                                    customContent = if (secondPaneSource == PaneSource.CHECKLIST) {{
+                                        ChecklistPane(
+                                            modifier = Modifier.fillMaxSize(),
+                                            jobFolderName = jobFolderName,
+                                            specialtyStateStore = specialtyStateStore,
+                                            onJumpToCabinet = { cab -> jumpToCabinet(cab) }
+                                        )
+                                    }} else if (secondPaneSource == PaneSource.THREE_D) {{
                                         Model3DPane(
                                             modifier = Modifier.fillMaxSize(),
                                             folderName = jobFolderName,
@@ -1119,6 +1199,11 @@ private fun RowScope.PaneSourceControlsInline(
         onClick = { onSelectSource(PaneSource.THREE_D) },
         label = { Text("3D") }
     )
+    FilterChip(
+        selected = selectedSource == PaneSource.CHECKLIST,
+        onClick = { onSelectSource(PaneSource.CHECKLIST) },
+        label = { Text("Checklist") }
+    )
     if (!selectedOtherFilename.isNullOrBlank()) {
         FilterChip(
             selected = selectedSource == PaneSource.OTHER,
@@ -1172,17 +1257,158 @@ private fun PartsChecklistSheet(parts: AssemblyCabinetParts) {
                 }
             }
         } else {
-            Text(
-                "No parsed BOM found. Showing indexed CNC/Hardwoods matches.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(8.dp))
-            Text("CNC Parts: ${parts.cncParts.size}", style = MaterialTheme.typography.bodyMedium)
-            Text("Hardwood Rows: ${parts.hardwoodRows.size}", style = MaterialTheme.typography.bodyMedium)
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (parts.cncParts.isNotEmpty()) {
+                    item {
+                        Text(
+                            "CNC",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                    items(parts.cncParts) { cncPart -> CncPartRow(cncPart) }
+                }
+                if (parts.hardwoodRows.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Hardwoods",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                    items(parts.hardwoodRows) { hwRow -> HardwoodPartRow(hwRow) }
+                }
+                if (parts.cncParts.isEmpty() && parts.hardwoodRows.isEmpty()) {
+                    item {
+                        Text(
+                            "No indexed parts found.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun ChecklistPane(
+    modifier: Modifier = Modifier,
+    jobFolderName: String,
+    specialtyStateStore: SpecialtyStateStore,
+    onJumpToCabinet: (String) -> Unit
+) {
+    val scanState by specialtyStateStore.scanState.collectAsState()
+    val progressVersion by specialtyStateStore.progressVersion.collectAsState()
+    val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
+        specialtyStateStore.getResolvedItems(jobFolderName)
+    }
+    val completionOverrides = remember(jobFolderName) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val inFlight = remember(jobFolderName) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val coroutineScope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+
+    Surface(
+        modifier = modifier,
+        tonalElevation = 1.dp
+    ) {
+        if (resolvedItems.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    if (scanState.status == ScanStatus.LOADING) "Loading checklist..." else "No checklist items",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                item {
+                    Text(
+                        "Checklist ${resolvedItems.count { row -> completionOverrides[row.item.id] ?: row.isComplete }}/${resolvedItems.size}",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+                items(resolvedItems, key = { it.item.id }) { resolved ->
+                    val item = resolved.item
+                    val checked = completionOverrides[item.id] ?: resolved.isComplete
+                    val enabled = inFlight[item.id] != true
+                    val stationText = item.stations.joinToString(" • ") { s -> s.name.replace('_', ' ') }
+                    val cabinetText = item.cabinetNumbers.joinToString(", ").let { if (it.isNotBlank()) "#$it" else "" }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .alpha(if (checked) 0.65f else 1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Checkbox(
+                            checked = checked,
+                            enabled = enabled,
+                            onCheckedChange = { next ->
+                                val previous = completionOverrides[item.id] ?: checked
+                                completionOverrides[item.id] = next
+                                inFlight[item.id] = true
+                                coroutineScope.launch {
+                                    try {
+                                        specialtyStateStore.setItemCompletion(
+                                            jobFolderName = jobFolderName,
+                                            itemId = item.id,
+                                            completed = next
+                                        )
+                                        completionOverrides.remove(item.id)
+                                    } catch (_: Exception) {
+                                        completionOverrides[item.id] = previous
+                                    } finally {
+                                        inFlight.remove(item.id)
+                                    }
+                                }
+                            }
+                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                text = if (cabinetText.isNotBlank()) "$cabinetText - ${item.name}" else item.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (stationText.isNotBlank()) {
+                                Text(
+                                    text = stationText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        if (item.cabinetNumbers.isNotEmpty()) {
+                            Button(
+                                onClick = { onJumpToCabinet(item.cabinetNumbers.first()) },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                modifier = Modifier.heightIn(min = 32.dp)
+                            ) {
+                                Text("View", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1215,7 +1441,7 @@ private fun BomPartRow(entry: AssemblyBomEntry) {
         else -> Triple("Not Indexed", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
     }
 
-    androidx.compose.material3.Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1238,6 +1464,98 @@ private fun BomPartRow(entry: AssemblyBomEntry) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+            StatusChip(text = label, backgroundColor = bg, contentColor = fg)
+        }
+    }
+}
+
+@Composable
+private fun CncPartRow(part: AssemblyCncPart) {
+    val (label, bg, fg) = when {
+        part.isBadPart || part.sheetStatus == SheetStatus.HAS_BAD_PARTS ->
+            Triple("CNC - Bad", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+        part.sheetStatus == SheetStatus.COMPLETE ->
+            Triple("CNC - Done", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        part.sheetStatus == SheetStatus.SKIPPED ->
+            Triple("CNC - Skipped", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        else ->
+            Triple("CNC - Not Started", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    part.partName.ifBlank { "Part #${part.partNumber}" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${part.width}\" x ${part.length}\" • ${part.materialName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            StatusChip(text = label, backgroundColor = bg, contentColor = fg)
+        }
+    }
+}
+
+@Composable
+private fun HardwoodPartRow(row: AssemblyHardwoodRow) {
+    val qty = row.qty.coerceAtLeast(0)
+    val done = row.doneCount.coerceAtLeast(0)
+    val (label, bg, fg) = when {
+        row.badCount > 0 ->
+            Triple("HW - Bad", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+        row.skipped ->
+            Triple("HW - Skipped", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        done >= qty && qty > 0 ->
+            Triple("HW - $done/$qty", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        done > 0 ->
+            Triple("HW - $done/$qty", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        else ->
+            Triple("HW - 0/$qty", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    row.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val detail = listOfNotNull(
+                    row.material?.takeIf { it.isNotBlank() },
+                    "${row.width} x ${row.length}"
+                ).joinToString(" • ")
+                if (detail.isNotBlank()) {
+                    Text(
+                        detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             StatusChip(text = label, backgroundColor = bg, contentColor = fg)
         }

@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -305,8 +306,20 @@ fun ReferencePdfPane(
         else -> "${pdfFile.absolutePath}|${pdfFile.length()}|${pdfFile.lastModified()}"
     }
     val engine = remember(pdfIdentityKey) { pdfFile?.takeIf { it.exists() }?.let { PdfRenderEngine(it) } }
+    val basePageCache = remember(pdfIdentityKey) {
+        object : LruCache<Int, Bitmap>(6) {
+            override fun entryRemoved(evicted: Boolean, key: Int?, oldValue: Bitmap?, newValue: Bitmap?) {
+                if (evicted && oldValue != null && !oldValue.isRecycled) {
+                    runCatching { oldValue.recycle() }
+                }
+            }
+        }
+    }
     DisposableEffect(engine) {
-        onDispose { engine?.close() }
+        onDispose {
+            engine?.close()
+            basePageCache.evictAll()
+        }
     }
 
     var totalPages by remember(engine) { mutableIntStateOf(0) }
@@ -367,6 +380,11 @@ fun ReferencePdfPane(
         }
         val viewSize = viewportState.viewSize
         if (viewSize == IntSize.Zero) return@LaunchedEffect
+        val cached = basePageCache.get(currentPage)
+        if (cached != null && !cached.isRecycled) {
+            baseBitmap = cached
+            return@LaunchedEffect
+        }
         val renderedBase = withContext(Dispatchers.IO) {
             engine.renderBasePage(
                 pageIndex = (currentPage - 1).coerceAtLeast(0),
@@ -375,6 +393,7 @@ fun ReferencePdfPane(
             )
         }
         if (renderedBase != null) {
+            basePageCache.put(currentPage, renderedBase)
             baseBitmap = renderedBase
         }
     }

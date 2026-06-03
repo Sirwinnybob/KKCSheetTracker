@@ -140,9 +140,7 @@ fun AppNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     hardwoodsProgressStore: HardwoodsProgressStore? = null,
-    specialtyProgressStore: SpecialtyProgressStore? = null,
-    adminServerUrl: String = "",
-    onAdminServerUrlChanged: (String) -> Unit = {}
+    specialtyProgressStore: SpecialtyProgressStore? = null
 ) {
     val sharedHardwoodsProgressStore = hardwoodsProgressStore ?: remember(basePath, tabletId, isViewOnlyMode) {
         HardwoodsProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
@@ -218,9 +216,7 @@ fun AppNavigation(
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
                 watcherRefreshEpoch = watcherRefreshEpoch,
-                activeJobFolderName = activeJobFolderName,
-                adminServerUrl = adminServerUrl,
-                onAdminServerUrlChanged = onAdminServerUrlChanged
+                activeJobFolderName = activeJobFolderName
             )
         } else {
             LegacySingleStackNavigation(
@@ -283,9 +279,7 @@ private fun MultiBackStackNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     watcherRefreshEpoch: Long,
-    activeJobFolderName: MutableStateFlow<String?>,
-    adminServerUrl: String = "",
-    onAdminServerUrlChanged: (String) -> Unit = {}
+    activeJobFolderName: MutableStateFlow<String?>
 ) {
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
@@ -352,13 +346,6 @@ private fun MultiBackStackNavigation(
     val settingsNavController = rememberNavController()
     val hoursNavController = rememberNavController()
     val supplyNavController = rememberNavController()
-    // Derive server URL from basePath UNC hostname, e.g. \\192.168.1.100\share -> http://192.168.1.100:3000
-    val resolvedAdminServerUrl = remember(basePath, adminServerUrl) {
-        adminServerUrl.ifBlank {
-            val uncMatch = Regex("^\\\\\\\\([^\\\\]+)\\\\").find(basePath)
-            if (uncMatch != null) "http://${uncMatch.groupValues[1]}:3000" else "http://localhost:3000"
-        }
-    }
     val homeTab = homeTopLevelTabForWorkMode(workMode)
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
@@ -632,16 +619,15 @@ private fun MultiBackStackNavigation(
                         onSyncthingStartNow = onSyncthingStartNow,
                         onBack = {
                             coordinator.navigateTopLevel(homeTab)
-                        },
-                        adminServerUrl = adminServerUrl,
-                        onAdminServerUrlChanged = onAdminServerUrlChanged
+                        }
                     )
                 }
 
                 TabLayer(visible = selectedTab == TopLevelTab.SUPPLY) {
                     SupplyTabHost(
                         navController = supplyNavController,
-                        serverUrl = resolvedAdminServerUrl,
+                        basePath = basePath,
+                        tabletId = tabletId,
                         employeeName = employeeName
                     )
                 }
@@ -1476,9 +1462,7 @@ private fun SettingsTabHost(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    onBack: () -> Unit,
-    adminServerUrl: String = "",
-    onAdminServerUrlChanged: (String) -> Unit = {}
+    onBack: () -> Unit
 ) {
     NavHost(
         navController = navController,
@@ -1504,9 +1488,7 @@ private fun SettingsTabHost(
                 onSyncthingStartNow = onSyncthingStartNow,
                 onBack = onBack,
                 employeeName = employeeName,
-                onEmployeeNameChanged = onEmployeeNameChanged,
-                adminServerUrl = adminServerUrl,
-                onAdminServerUrlChanged = onAdminServerUrlChanged,
+                onEmployeeNameChanged = onEmployeeNameChanged
             )
         }
     }
@@ -1515,7 +1497,8 @@ private fun SettingsTabHost(
 @Composable
 private fun SupplyTabHost(
     navController: NavHostController,
-    serverUrl: String,
+    basePath: String,
+    tabletId: String,
     employeeName: String
 ) {
     NavHost(
@@ -1525,7 +1508,8 @@ private fun SupplyTabHost(
     ) {
         composable("supply") {
             SupplyDashboardScreen(
-                serverUrl = serverUrl,
+                basePath = basePath,
+                tabletId = tabletId,
                 employeeName = employeeName,
                 navController = navController
             )
@@ -1537,7 +1521,8 @@ private fun SupplyTabHost(
             val itemId = entry.arguments?.getString("itemId") ?: return@composable
             SupplyItemDetailScreen(
                 itemId = itemId,
-                serverUrl = serverUrl,
+                basePath = basePath,
+                tabletId = tabletId,
                 employeeName = employeeName,
                 onBack = { navController.popBackStack() }
             )

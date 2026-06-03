@@ -88,7 +88,8 @@ class AssemblyStateStore(
                     )
                 },
                 hasBothModes = cncJob != null && hardwoodJob != null,
-                hiddenFromProduction = job.hiddenFromProduction
+                hiddenFromProduction = job.hiddenFromProduction,
+                lineupPosition = job.lineupPosition
             )
         }
     }

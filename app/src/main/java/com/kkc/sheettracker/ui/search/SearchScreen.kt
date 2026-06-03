@@ -19,6 +19,9 @@ import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.models.ScanStatus
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 data class SearchResult(
     val jobFolderName: String,
@@ -64,10 +67,13 @@ fun SearchScreen(
 
     LaunchedEffect(query, allResults) {
         val q = query.trim()
-        results = if (q.isBlank()) {
-            emptyList()
-        } else {
-            allResults.filter { r ->
+        if (q.isBlank()) {
+            results = emptyList()
+            return@LaunchedEffect
+        }
+        delay(250)
+        withContext(Dispatchers.Default) {
+            results = allResults.filter { r ->
                 r.partName.contains(q, ignoreCase = true) ||
                 r.room.contains(q, ignoreCase = true) ||
                 r.cabNumber.toString() == q ||

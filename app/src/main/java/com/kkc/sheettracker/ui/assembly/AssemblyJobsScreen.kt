@@ -15,9 +15,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -37,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -51,14 +58,25 @@ import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
+import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
+import com.kkc.sheettracker.ui.components.JobBoardGrid
+import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
+import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+import com.kkc.sheettracker.data.DeliveryScheduleRepository
+import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
+import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,6 +87,9 @@ fun AssemblyJobsScreen(
     jobRepository: JobRepository,
     progressStore: ProgressStore,
     hardwoodsProgressStore: HardwoodsProgressStore,
+    specialtyStateStore: SpecialtyStateStore,
+    deliveryScheduleRepository: DeliveryScheduleRepository,
+    specialtyProgressVersionHint: Long = 0L,
     onJobClick: (AssemblyJobCard) -> Unit,
     onOpenHardwoodsChange: (jobFolderName: String, docType: HardwoodDocType, rowId: String) -> Unit,
     onViewCoverSheet: (AssemblyJobCard) -> Unit,
@@ -76,15 +97,32 @@ fun AssemblyJobsScreen(
     onSettingsClick: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var sortByName by rememberSaveable { mutableStateOf(false) }
+    var boardView by rememberSaveable { mutableStateOf(false) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by assemblyScanCoordinator.state.collectAsState()
     val cncProgressVersion by progressStore.progressVersion.collectAsState()
     val hardwoodProgressVersion by hardwoodsProgressStore.progressVersion.collectAsState()
+    val specialtyScanState by specialtyStateStore.scanState.collectAsState()
+    val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
+    val deliverySchedule = remember(scanState.snapshot.generation) {
+        deliveryScheduleRepository.fetchSchedule()
+    }
 
     val allCards = remember(scanState.snapshot.generation, cncProgressVersion, hardwoodProgressVersion) {
         assemblyStateStore.deriveJobCards()
     }
-    val filtered = remember(allCards, query) {
+    val specialtyCards = remember(specialtyScanState.snapshot.generation, specialtyProgressVersion, specialtyProgressVersionHint) {
+        specialtyStateStore.deriveJobCards()
+    }
+    val specialtySummary = remember(specialtyCards) {
+        val total = specialtyCards.sumOf { it.totalItems }
+        val complete = specialtyCards.sumOf { it.completedItems }
+        complete to total
+    }
+    val filtered = remember(allCards, query, sortByName) {
         val base = if (query.isBlank()) {
             allCards
         } else {
@@ -94,7 +132,32 @@ fun AssemblyJobsScreen(
                     it.folderName.contains(query, ignoreCase = true)
             }
         }
-        base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        if (sortByName) {
+            base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        } else {
+            base // already in production order from listJobs
+        }
+    }
+
+    val assemblyUiStates = remember(filtered, scanState.snapshot.generation, hardwoodProgressVersion) {
+        filtered.map { card ->
+            val hasDeliverySheet = jobRepository.getJobPdfCatalog(card.folderName).deliverySheet != null
+            val hasHistory = hardwoodsRepository.loadHardwoodsRevisionHistory(card.folderName) != null
+            val cncCounts = card.toCncStatusCounts()
+            val hardwoodCounts = card.toHardwoodsStatusCounts()
+            val combinedCounts = combineCounts(cncCounts, hardwoodCounts)
+            val subtitle = "CNC ${card.cncSummary.completedSheets}/${card.cncSummary.totalSheets} • " +
+                "Hardwoods ${card.hardwoodsSummary.donePieces}/${card.hardwoodsSummary.totalPieces}"
+            AssemblyJobItemUiState(
+                card = card,
+                hasDeliverySheet = hasDeliverySheet,
+                hasHistory = hasHistory,
+                cncCounts = cncCounts,
+                hardwoodCounts = hardwoodCounts,
+                combinedCounts = combinedCounts,
+                subtitle = subtitle
+            )
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -113,6 +176,15 @@ fun AssemblyJobsScreen(
                 actions = {
                     IconButton(onClick = { assemblyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) {
                         Icon(Icons.Default.Refresh, "Refresh")
+                    }
+                    IconButton(
+                        onClick = { boardView = !boardView },
+                        enabled = !sortByName
+                    ) {
+                        Icon(
+                            imageVector = if (boardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                            contentDescription = if (boardView) "List View" else "Board View"
+                        )
                     }
                     IconButton(onClick = onSearchClick) { Icon(Icons.Default.Search, "Search") }
                     IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
@@ -141,7 +213,41 @@ fun AssemblyJobsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
+            SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
+            Text(
+                text = when (specialtyScanState.status) {
+                    ScanStatus.LOADING -> "Specialty: scanning..."
+                    ScanStatus.ERROR -> "Specialty: ${specialtyScanState.errorMessage ?: "scan failed"}"
+                    else -> {
+                        val (complete, total) = specialtySummary
+                        "Specialty: $complete / $total items complete across ${specialtyCards.size} jobs"
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (specialtyScanState.status == ScanStatus.ERROR) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+            )
 
+            DeliveryScheduleWidget(
+                schedule = deliverySchedule,
+                onTap = { showScheduleDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+
+            AnimatedContent(
+                targetState = sortByName to boardView,
+                transitionSpec = {
+                    val dir = if (targetState.first) 1 else -1
+                    slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
+                },
+                label = "sort_anim"
+            ) { (_, isBoardView) ->
             when {
                 scanState.status == ScanStatus.LOADING && allCards.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -157,24 +263,32 @@ fun AssemblyJobsScreen(
                         )
                     }
                 }
+                isBoardView -> {
+                    JobBoardGrid(
+                        items = filtered.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName) },
+                        jobRepository = jobRepository,
+                        onItemClick = { boardItem ->
+                            filtered.find { it.folderName == boardItem.folderName }
+                                ?.let { onJobClick(it) }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        scanGeneration = scanState.snapshot.generation
+                    )
+                }
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(filtered, key = { it.folderName }) { card ->
-                            val hasDeliverySheet = remember(card.folderName) {
-                                jobRepository.getJobPdfCatalog(card.folderName).deliverySheet != null
-                            }
-                            val history = remember(scanState.snapshot.generation, hardwoodProgressVersion, card.folderName) {
-                                hardwoodsRepository.loadHardwoodsRevisionHistory(card.folderName)
-                            }
-                            val cncCounts = remember(card) { card.toCncStatusCounts() }
-                            val hardwoodCounts = remember(card) { card.toHardwoodsStatusCounts() }
-                            val combinedCounts = remember(cncCounts, hardwoodCounts) { combineCounts(cncCounts, hardwoodCounts) }
-                            val subtitle = "CNC ${card.cncSummary.completedSheets}/${card.cncSummary.totalSheets} • " +
-                                "Hardwoods ${card.hardwoodsSummary.donePieces}/${card.hardwoodsSummary.totalPieces}"
+                        items(assemblyUiStates, key = { it.card.folderName }) { uiState ->
+                            val card = uiState.card
+                            val hasDeliverySheet = uiState.hasDeliverySheet
+                            val hasHistory = uiState.hasHistory
+                            val cncCounts = uiState.cncCounts
+                            val hardwoodCounts = uiState.hardwoodCounts
+                            val combinedCounts = uiState.combinedCounts
+                            val subtitle = uiState.subtitle
                             ProgressCard(
                                 title = card.folderName,
                                 subtitle = subtitle,
@@ -185,6 +299,16 @@ fun AssemblyJobsScreen(
                                 hidePrimaryProgressBar = true,
                                 showExpandToggle = false,
                                 headerActions = {
+                                    if (sortByName) {
+                                        val pos = card.lineupPosition
+                                        if (pos != null) {
+                                            StatusChip(
+                                                text = "#$pos",
+                                                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
                                     if (card.hiddenFromProduction) {
                                         StatusChip(
                                             text = "Hidden in Production",
@@ -199,7 +323,7 @@ fun AssemblyJobsScreen(
                                             label = { Text("Cover Sheet") }
                                         )
                                     }
-                                    if (history != null) {
+                                    if (hasHistory) {
                                         TextButton(onClick = { selectedHistoryJob = card.folderName }) {
                                             Text("History")
                                         }
@@ -216,13 +340,21 @@ fun AssemblyJobsScreen(
                     }
                 }
             }
+            }
         }
     }
 
     val historyJob = selectedHistoryJob
     if (historyJob != null) {
-        val history = remember(scanState.snapshot.generation, hardwoodProgressVersion, historyJob) {
-            hardwoodsRepository.loadHardwoodsRevisionHistory(historyJob)
+        val history by produceState<HardwoodRevisionHistory?>(
+            initialValue = null,
+            key1 = scanState.snapshot.generation,
+            key2 = hardwoodProgressVersion,
+            key3 = historyJob
+        ) {
+            value = withContext(Dispatchers.IO) {
+                hardwoodsRepository.loadHardwoodsRevisionHistory(historyJob)
+            }
         }
         HardwoodsRevisionHistorySheet(
             jobFolderName = historyJob,
@@ -235,6 +367,13 @@ fun AssemblyJobsScreen(
                 }
             },
             onDismiss = { selectedHistoryJob = null }
+        )
+    }
+
+    if (showScheduleDialog) {
+        DeliveryScheduleDialog(
+            schedule = deliverySchedule,
+            onDismiss = { showScheduleDialog = false }
         )
     }
 }
@@ -401,3 +540,13 @@ private fun normalizeCounts(total: Int, complete: Int, bad: Int, skipped: Int): 
         notStarted = notStarted
     )
 }
+
+data class AssemblyJobItemUiState(
+    val card: AssemblyJobCard,
+    val hasDeliverySheet: Boolean,
+    val hasHistory: Boolean,
+    val cncCounts: StatusCounts,
+    val hardwoodCounts: StatusCounts,
+    val combinedCounts: StatusCounts,
+    val subtitle: String
+)

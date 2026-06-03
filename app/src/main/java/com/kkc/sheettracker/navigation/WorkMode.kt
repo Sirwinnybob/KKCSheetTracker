@@ -3,11 +3,13 @@ package com.kkc.sheettracker.navigation
 enum class WorkMode {
     CNC,
     HARDWOODS,
-    ASSEMBLY;
+    ASSEMBLY,
+    SPECIALTY;
 
     companion object {
         fun fromStored(value: String?): WorkMode {
-            return runCatching { value?.let { WorkMode.valueOf(it) } }.getOrNull() ?: CNC
+            val normalized = value?.trim()?.uppercase()
+            return runCatching { normalized?.let { WorkMode.valueOf(it) } }.getOrNull() ?: CNC
         }
     }
 }

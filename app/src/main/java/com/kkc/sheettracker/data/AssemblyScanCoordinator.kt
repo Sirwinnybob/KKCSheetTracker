@@ -89,11 +89,11 @@ class AssemblyScanCoordinator(
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
         return unifiedEngine.listJobs()
             .mapNotNull { info ->
-                runCatching { unifiedEngine.getAssemblySnapshot(info.folderName)?.job }.getOrNull()
+                runCatching {
+                    unifiedEngine.getAssemblySnapshot(info.folderName)?.job
+                        ?.copy(lineupPosition = info.lineupPosition)
+                }.getOrNull()
             }
-            .sortedWith { a, b ->
-                val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
-                if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
-            }
+        // Preserve production order from listJobs; no secondary sort needed
     }
 }

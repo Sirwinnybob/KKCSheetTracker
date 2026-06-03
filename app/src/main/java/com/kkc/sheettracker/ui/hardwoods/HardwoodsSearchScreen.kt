@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +45,9 @@ import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 internal data class HardwoodsSearchMatches(
     val results: List<HardwoodSearchEntry>,
@@ -85,8 +89,18 @@ fun HardwoodsSearchScreen(
     val all = scanState.snapshot.searchIndex
     var query by rememberSaveable { mutableStateOf("") }
 
-    // Single-pass scan avoids doing the same full-list match twice on each query update.
-    val searchMatches = remember(all, query) { computeHardwoodsSearchMatches(allEntries = all, rawQuery = query) }
+    var searchMatches by remember { mutableStateOf(HardwoodsSearchMatches(emptyList(), 0)) }
+    LaunchedEffect(all, query) {
+        val q = query.trim()
+        if (q.isBlank()) {
+            searchMatches = HardwoodsSearchMatches(emptyList(), 0)
+            return@LaunchedEffect
+        }
+        delay(250)
+        withContext(Dispatchers.Default) {
+            searchMatches = computeHardwoodsSearchMatches(allEntries = all, rawQuery = query)
+        }
+    }
     val results = searchMatches.results
 
     Scaffold(

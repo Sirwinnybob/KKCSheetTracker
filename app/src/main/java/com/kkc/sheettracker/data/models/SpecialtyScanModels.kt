@@ -9,7 +9,8 @@ data class SpecialtyJob(
     val completedItems: Int = 0,
     val remainingItems: Int = 0,
     val completionFraction: Float = 0f,
-    val resolvedItems: List<SpecialtyResolvedItem> = emptyList()
+    val resolvedItems: List<SpecialtyResolvedItem> = emptyList(),
+    val lineupPosition: Int? = null
 )
 
 data class SpecialtyScanSnapshot(
@@ -42,5 +43,6 @@ data class SpecialtyJobCard(
     val completedItems: Int = 0,
     val remainingItems: Int = 0,
     val completionFraction: Float = 0f,
-    val stationProgress: List<StationProgress> = emptyList()
+    val stationProgress: List<StationProgress> = emptyList(),
+    val lineupPosition: Int? = null
 )

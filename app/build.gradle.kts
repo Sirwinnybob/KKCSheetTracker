@@ -20,8 +20,8 @@ android {
         applicationId = "com.kkc.sheettracker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3230
-        versionName = "3.2.3"
+        versionCode = 4002
+        versionName = "4.0.2"
     }
 
     signingConfigs {
@@ -62,7 +62,14 @@ android {
     lint {
         checkReleaseBuilds = false
     }
+
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
 }
+
 
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))

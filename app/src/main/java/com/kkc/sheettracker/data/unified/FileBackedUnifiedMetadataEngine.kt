@@ -54,7 +54,8 @@ class FileBackedUnifiedMetadataEngine(
         val assemblyJob: AssemblyJob?,
         val cabinetSheetIndex: CabinetSheetIndex?,
         val pdfCatalog: JobPdfCatalog,
-        val boardStockRows: List<BoardStockRow>
+        val boardStockRows: List<BoardStockRow>,
+        val hasThreeDAssets: Boolean
     )
 
     private data class CachedStaticEntry(
@@ -84,9 +85,21 @@ class FileBackedUnifiedMetadataEngine(
         trackerByJob.remove(jobFolderName)
     }
 
+    private fun getProductionOrder(): List<String> {
+        val file = File(baseDir, "production_order.json")
+        if (!file.exists() || !file.isFile) return emptyList()
+        return try {
+            val listType = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+            gson.fromJson<List<String>>(file.readText(), listType) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     override fun listJobs(): List<UnifiedJobInfo> {
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
-        return baseDir.listFiles()
+        
+        val activeJobs = baseDir.listFiles()
             ?.asSequence()
             ?.filter { it.isDirectory }
             ?.mapNotNull { jobDir ->
@@ -100,12 +113,33 @@ class FileBackedUnifiedMetadataEngine(
                     hiddenFromProduction = decision.hiddenFromProduction
                 )
             }
-            ?.sortedWith { a, b ->
-                val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
-                if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
-            }
             ?.toList()
             ?: emptyList()
+
+        val explicitOrder = getProductionOrder()
+        val activeJobsMap = activeJobs.associateBy { it.folderName }.toMutableMap()
+        val computedJobs = mutableListOf<UnifiedJobInfo>()
+
+        // 1. Add matching jobs from the explicit order first
+        for (folderName in explicitOrder) {
+            val job = activeJobsMap.remove(folderName)
+            if (job != null) {
+                computedJobs.add(job)
+            }
+        }
+
+        // 2. Add the remaining jobs sorted in standard fallback descending order
+        val fallbackComparator = Comparator<UnifiedJobInfo> { a, b ->
+            val numberCmp = compareJobNumbersDesc(a.jobNumber, b.jobNumber)
+            if (numberCmp != 0) numberCmp else a.folderName.compareTo(b.folderName, ignoreCase = true)
+        }
+        val remainingJobs = activeJobsMap.values.sortedWith(fallbackComparator)
+        computedJobs.addAll(remainingJobs)
+
+        // 3. Assign 1-based index (lineupPosition)
+        return computedJobs.mapIndexed { index, job ->
+            job.copy(lineupPosition = index + 1)
+        }
     }
 
     override fun getCncSnapshot(jobFolderName: String): UnifiedCncSnapshot? {
@@ -184,6 +218,10 @@ class FileBackedUnifiedMetadataEngine(
     }
 
     override fun hasThreeDAssets(jobFolderName: String): UnifiedThreeDPresence {
+        val staticData = loadStaticJobData(jobFolderName)
+        if (staticData != null) {
+            return UnifiedThreeDPresence(staticData.hasThreeDAssets)
+        }
         val threeDDir = File(baseDir, "$jobFolderName/3D")
         if (!threeDDir.isDirectory) return UnifiedThreeDPresence(false)
         val exists = threeDDir.walkTopDown().maxDepth(2).any { file ->
@@ -335,11 +373,16 @@ class FileBackedUnifiedMetadataEngine(
         val gate = DeploymentGateRules.evaluate(jobDir, isDebugBuild = isDebugBuild)
         if (!gate.includeJob) return null
 
+        val allJobs = listJobs()
+        val thisJob = allJobs.find { it.folderName == jobFolderName }
+        val lineupPosition = thisJob?.lineupPosition
+
         val jobInfo = UnifiedJobInfo(
             folderName = jobFolderName,
             jobNumber = parsed.jobNumber,
             jobName = parsed.jobName,
-            hiddenFromProduction = gate.hiddenFromProduction
+            hiddenFromProduction = gate.hiddenFromProduction,
+            lineupPosition = lineupPosition
         )
 
         val cnc = buildCncJob(jobInfo)
@@ -363,6 +406,14 @@ class FileBackedUnifiedMetadataEngine(
         val pdfCatalog = buildPdfCatalog(jobFolderName)
         val boardStockRows = buildBoardStockRows(jobFolderName, hardwoodIndex)
 
+        val threeDDir = File(baseDir, "$jobFolderName/3D")
+        val hasThreeD = threeDDir.isDirectory && threeDDir.walkTopDown().maxDepth(2).any { file ->
+            file.isFile && (
+                file.extension.equals("glb", ignoreCase = true) ||
+                    file.extension.equals("dae", ignoreCase = true)
+                )
+        }
+
         val next = StaticJobData(
             jobInfo = jobInfo,
             cncJob = cnc.job,
@@ -372,7 +423,8 @@ class FileBackedUnifiedMetadataEngine(
             assemblyJob = assemblyJob,
             cabinetSheetIndex = cabinetSheetIndex,
             pdfCatalog = pdfCatalog,
-            boardStockRows = boardStockRows
+            boardStockRows = boardStockRows,
+            hasThreeDAssets = hasThreeD
         )
         staticByJob[jobFolderName] = CachedStaticEntry(signature = currentSig, data = next)
         return next

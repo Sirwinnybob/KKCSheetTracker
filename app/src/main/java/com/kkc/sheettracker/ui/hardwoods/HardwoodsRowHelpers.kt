@@ -9,6 +9,13 @@ enum class HardwoodsRowSortMode {
     WidthAscLengthAsc
 }
 
+/** Groups for the Door Panels view only. */
+enum class DoorPanelGroupMode {
+    ByMaterial,
+    ByCabinet,
+    ByRoom
+}
+
 fun List<HardwoodCutlistRow>.sortedFor(mode: HardwoodsRowSortMode): List<HardwoodCutlistRow> {
     val comparator = when (mode) {
         HardwoodsRowSortMode.CutlistOrder -> cutlistOrderComparator()

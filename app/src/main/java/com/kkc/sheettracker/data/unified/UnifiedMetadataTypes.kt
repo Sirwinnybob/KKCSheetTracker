@@ -18,7 +18,8 @@ data class UnifiedJobInfo(
     val folderName: String,
     val jobNumber: String,
     val jobName: String,
-    val hiddenFromProduction: Boolean = false
+    val hiddenFromProduction: Boolean = false,
+    val lineupPosition: Int? = null
 )
 
 data class UnifiedCncSnapshot(
