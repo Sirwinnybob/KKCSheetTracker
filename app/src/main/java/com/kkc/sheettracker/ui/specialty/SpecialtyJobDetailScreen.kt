@@ -46,14 +46,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.foundation.layout.size
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.completionKeysForItem
+import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
@@ -61,6 +69,7 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.StatusChip
 import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -87,8 +96,20 @@ fun SpecialtyJobDetailScreen(
     val completionOverrides = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
     val inFlightUpdates = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
     var toggleErrorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
+    var showAddSheet by remember(jobFolderName) { mutableStateOf(false) }
+    var editingItem by remember(jobFolderName) { mutableStateOf<com.kkc.sheettracker.data.models.TabletSpecialtyItem?>(null) }
+    var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
     val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
         specialtyStateStore.getResolvedItems(jobFolderName)
+    }
+
+    val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()
+    val sheetRipItems = remember(scanState.snapshot.basePath, jobFolderName) {
+        loadAdminBoardStock(File(scanState.snapshot.basePath), jobFolderName)
+            .filter { it.mode == "sheet" && it.feet != null && it.feet > 0 }
+    }
+    val sheetRipDone = remember(scanState.snapshot.basePath, jobFolderName, sheetRipDoneVersion) {
+        specialtyStateStore.loadSheetRipDone(jobFolderName)
     }
 
     // Group items into sections by station, in enum ordinal order; untagged items last.
@@ -122,6 +143,16 @@ fun SpecialtyJobDetailScreen(
                     }
                 }
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { editingItem = null; showAddSheet = true }
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Add Item"
+                )
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -200,6 +231,91 @@ fun SpecialtyJobDetailScreen(
                 }
             }
 
+            if (sheetRipItems.isNotEmpty()) {
+                val sheetDoneCount = sheetRipItems.count { sheetRipDone[it.id] == true }
+                stickyHeader(key = "sheet-rips-header") {
+                    SpecialtySectionHeader(
+                        label = "Sheet Rips",
+                        completed = sheetDoneCount,
+                        total = sheetRipItems.size
+                    )
+                }
+
+                items(
+                    items = sheetRipItems,
+                    key = { "sheet-rip:${it.id}" }
+                ) { item ->
+                    val isDone = sheetRipDone[item.id] == true
+                    val alpha = if (isDone) 0.5f else 1f
+
+                    Surface(
+                        tonalElevation = 1.dp,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .alpha(alpha)
+                            .clickable {
+                                coroutineScope.launch {
+                                    specialtyStateStore.setSheetRipDone(
+                                        jobFolderName = jobFolderName,
+                                        itemId = item.id,
+                                        done = !isDone
+                                    )
+                                }
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Checkbox(
+                                checked = isDone,
+                                onCheckedChange = { next ->
+                                    coroutineScope.launch {
+                                        specialtyStateStore.setSheetRipDone(
+                                            jobFolderName = jobFolderName,
+                                            itemId = item.id,
+                                            done = next
+                                        )
+                                    }
+                                }
+                            )
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.material,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = item.name,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                val feet = item.feet ?: 0.0
+                                val rips = Math.ceil(feet / item.ripLength).toInt()
+                                Text(
+                                    text = "${feet.toInt()} ft",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "$rips rips",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             if (resolvedItems.isEmpty()) {
                 item(key = "empty") {
                     Text(
@@ -231,6 +347,14 @@ fun SpecialtyJobDetailScreen(
                             onJumpToCabinet = onJumpToCabinet,
                             basePath = scanState.snapshot.basePath,
                             jobFolderName = jobFolderName,
+                            onEditItem = { tabletItem ->
+                                editingItem = tabletItem
+                                showAddSheet = true
+                            },
+                            onDeleteItem = { itemId ->
+                                deleteTargetItemId = itemId
+                            },
+                            myTabletId = specialtyStateStore.tabletId,
                             onPatchDims = { dims, qty, mat ->
                                 coroutineScope.launch {
                                     try {
@@ -280,6 +404,43 @@ fun SpecialtyJobDetailScreen(
                     )
                 }
             }
+        }
+
+        // Add / Edit sheet
+        if (showAddSheet) {
+            AddSpecialtyItemSheet(
+                existingItem = editingItem,
+                tabletId = specialtyStateStore.tabletId,
+                onDismiss = { showAddSheet = false; editingItem = null },
+                onSave = { item ->
+                    coroutineScope.launch {
+                        specialtyStateStore.saveTabletItem(jobFolderName, item)
+                        showAddSheet = false
+                        editingItem = null
+                    }
+                }
+            )
+        }
+
+        // Delete confirmation dialog
+        val deletingItemId = deleteTargetItemId
+        if (deletingItemId != null) {
+            AlertDialog(
+                onDismissRequest = { deleteTargetItemId = null },
+                title = { Text("Delete Item") },
+                text = { Text("Delete this item? This cannot be undone.") },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        deleteTargetItemId = null
+                        coroutineScope.launch {
+                            specialtyStateStore.deleteTabletItem(jobFolderName, deletingItemId)
+                        }
+                    }) { Text("Delete") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { deleteTargetItemId = null }) { Text("Cancel") }
+                }
+            )
         }
     }
 }
@@ -363,7 +524,10 @@ internal fun SpecialtyChecklistRow(
     onJumpToCabinet: ((String) -> Unit)? = null,
     onPatchDims: ((String?, Int?, String?) -> Unit)? = null,
     basePath: String = "",
-    jobFolderName: String = ""
+    jobFolderName: String = "",
+    onEditItem: ((com.kkc.sheettracker.data.models.TabletSpecialtyItem) -> Unit)? = null,
+    onDeleteItem: ((String) -> Unit)? = null,
+    myTabletId: String = ""
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val item = resolved.item
@@ -422,6 +586,52 @@ internal fun SpecialtyChecklistRow(
             }
         },
         headerActions = {
+            // Edit/Delete controls for own tablet items
+            val isMyTabletItem = item.id.startsWith("tablet:") &&
+                item.createdBy == myTabletId && myTabletId.isNotBlank()
+            if (isMyTabletItem) {
+                val rawId = item.id.removePrefix("tablet:")
+                val tabletItem = com.kkc.sheettracker.data.models.TabletSpecialtyItem(
+                    id = rawId,
+                    name = item.name,
+                    category = item.category,
+                    cabinetNumbers = item.cabinetNumbers,
+                    stations = item.stations,
+                    dimensions = item.dimensions,
+                    quantity = item.quantity,
+                    material = item.material,
+                    supplier = item.supplier,
+                    modelNumber = item.model,
+                    orderDate = item.orderDate,
+                    trackingNumber = item.tracking,
+                    orderUrl = item.orderUrl,
+                    notes = item.notes,
+                    createdAt = item.createdAt.orEmpty(),
+                    createdByDevice = item.createdBy.orEmpty()
+                )
+                IconButton(
+                    onClick = { onEditItem?.invoke(tabletItem) },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = "Edit item",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                IconButton(
+                    onClick = { onDeleteItem?.invoke(item.id) },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Delete item",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
             if (item.cabinetNumbers.isNotEmpty() && onJumpToCabinet != null) {
                 Button(
                     onClick = { onJumpToCabinet(item.cabinetNumbers.first()) },

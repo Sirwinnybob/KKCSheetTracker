@@ -62,6 +62,7 @@ import com.kkc.sheettracker.data.SheetRipProgressStore
 import com.kkc.sheettracker.data.SpecialtyRepository
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyStateStore
+import com.kkc.sheettracker.data.TabletSpecialtyItemsStore
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.data.TrackerChangeMonitor
 import com.kkc.sheettracker.data.models.HardwoodDocType
@@ -304,11 +305,15 @@ private fun MultiBackStackNavigation(
     val deliveryScheduleRepository = remember(basePath) {
         DeliveryScheduleRepository(File(basePath))
     }
-    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, sheetRipProgressStore) {
+    val tabletSpecialtyItemsStore = remember(basePath, tabletId) {
+        TabletSpecialtyItemsStore(File(basePath), tabletId)
+    }
+    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, sheetRipProgressStore, tabletSpecialtyItemsStore) {
         SpecialtyStateStore(
             specialtyScanCoordinator = specialtyScanCoordinator,
             specialtyProgressStore = specialtyProgressStore,
-            sheetRipProgressStore = sheetRipProgressStore
+            sheetRipProgressStore = sheetRipProgressStore,
+            tabletItemsStore = tabletSpecialtyItemsStore
         )
     }
 
@@ -1528,11 +1533,15 @@ private fun LegacySingleStackNavigation(
     val deliveryScheduleRepository = remember(basePath) {
         DeliveryScheduleRepository(File(basePath))
     }
-    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, sheetRipProgressStore) {
+    val tabletSpecialtyItemsStore = remember(basePath, tabletId) {
+        TabletSpecialtyItemsStore(File(basePath), tabletId)
+    }
+    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, sheetRipProgressStore, tabletSpecialtyItemsStore) {
         SpecialtyStateStore(
             specialtyScanCoordinator = specialtyScanCoordinator,
             specialtyProgressStore = specialtyProgressStore,
-            sheetRipProgressStore = sheetRipProgressStore
+            sheetRipProgressStore = sheetRipProgressStore,
+            tabletItemsStore = tabletSpecialtyItemsStore
         )
     }
     val navController = rememberNavController()
