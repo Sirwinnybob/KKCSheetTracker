@@ -35,14 +35,7 @@ import com.kkc.sheettracker.data.models.TabletSpecialtyItem
 import java.time.Instant
 import java.util.UUID
 
-private val SPECIALTY_STATIONS = listOf(
-    SpecialtyStation.CNC,
-    SpecialtyStation.SAW,
-    SpecialtyStation.EDGE_BANDER,
-    SpecialtyStation.ASSEMBLY,
-    SpecialtyStation.HARDWOODS,
-    SpecialtyStation.SPECIALTY
-)
+private val SPECIALTY_STATIONS = SpecialtyStation.entries
 
 private fun stationLabel(station: SpecialtyStation) = when (station) {
     SpecialtyStation.CNC -> "CNC"
@@ -63,21 +56,21 @@ fun AddSpecialtyItemSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var name by remember { mutableStateOf(existingItem?.name ?: "") }
-    var category by remember { mutableStateOf(existingItem?.category ?: SpecialtyItemCategory.CUSTOM) }
-    var cabinetNumbersText by remember { mutableStateOf(existingItem?.cabinetNumbers?.joinToString(", ") ?: "") }
-    var selectedStations by remember { mutableStateOf(existingItem?.stations?.toSet() ?: emptySet<SpecialtyStation>()) }
-    var notes by remember { mutableStateOf(existingItem?.notes ?: "") }
+    var name by remember(existingItem?.id) { mutableStateOf(existingItem?.name ?: "") }
+    var category by remember(existingItem?.id) { mutableStateOf(existingItem?.category ?: SpecialtyItemCategory.CUSTOM) }
+    var cabinetNumbersText by remember(existingItem?.id) { mutableStateOf(existingItem?.cabinetNumbers?.joinToString(", ") ?: "") }
+    var selectedStations by remember(existingItem?.id) { mutableStateOf(existingItem?.stations?.toSet() ?: emptySet<SpecialtyStation>()) }
+    var notes by remember(existingItem?.id) { mutableStateOf(existingItem?.notes ?: "") }
     // CUSTOM fields
-    var dimensions by remember { mutableStateOf(existingItem?.dimensions ?: "") }
-    var quantityText by remember { mutableStateOf(existingItem?.quantity?.toString() ?: "") }
-    var material by remember { mutableStateOf(existingItem?.material ?: "") }
+    var dimensions by remember(existingItem?.id) { mutableStateOf(existingItem?.dimensions ?: "") }
+    var quantityText by remember(existingItem?.id) { mutableStateOf(existingItem?.quantity?.toString() ?: "") }
+    var material by remember(existingItem?.id) { mutableStateOf(existingItem?.material ?: "") }
     // TO_ORDER fields
-    var supplier by remember { mutableStateOf(existingItem?.supplier ?: "") }
-    var modelNumber by remember { mutableStateOf(existingItem?.modelNumber ?: "") }
-    var orderDate by remember { mutableStateOf(existingItem?.orderDate ?: "") }
-    var trackingNumber by remember { mutableStateOf(existingItem?.trackingNumber ?: "") }
-    var orderUrl by remember { mutableStateOf(existingItem?.orderUrl ?: "") }
+    var supplier by remember(existingItem?.id) { mutableStateOf(existingItem?.supplier ?: "") }
+    var modelNumber by remember(existingItem?.id) { mutableStateOf(existingItem?.modelNumber ?: "") }
+    var orderDate by remember(existingItem?.id) { mutableStateOf(existingItem?.orderDate ?: "") }
+    var trackingNumber by remember(existingItem?.id) { mutableStateOf(existingItem?.trackingNumber ?: "") }
+    var orderUrl by remember(existingItem?.id) { mutableStateOf(existingItem?.orderUrl ?: "") }
 
     fun buildItem(): TabletSpecialtyItem {
         val rawId = existingItem?.id ?: UUID.randomUUID().toString()
