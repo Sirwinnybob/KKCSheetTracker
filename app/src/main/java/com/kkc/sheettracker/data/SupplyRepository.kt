@@ -17,7 +17,13 @@ class SupplyRepository(private val serverUrl: String) {
         conn.connectTimeout = 8000
         conn.readTimeout = 8000
         return try {
-            conn.inputStream.bufferedReader().readText()
+            val code = conn.responseCode
+            if (code in 200..299) {
+                conn.inputStream.bufferedReader().readText()
+            } else {
+                val errBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
+                throw Exception("HTTP $code: $errBody")
+            }
         } catch (e: Exception) {
             throw Exception("GET $path failed: ${e.message}")
         } finally {
@@ -34,7 +40,13 @@ class SupplyRepository(private val serverUrl: String) {
         conn.readTimeout = 8000
         return try {
             OutputStreamWriter(conn.outputStream).use { it.write(gson.toJson(body)) }
-            conn.inputStream.bufferedReader().readText()
+            val code = conn.responseCode
+            if (code in 200..299) {
+                conn.inputStream.bufferedReader().readText()
+            } else {
+                val errBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
+                throw Exception("HTTP $code: $errBody")
+            }
         } catch (e: Exception) {
             throw Exception("POST $path failed: ${e.message}")
         } finally {
@@ -51,7 +63,13 @@ class SupplyRepository(private val serverUrl: String) {
         conn.readTimeout = 8000
         return try {
             OutputStreamWriter(conn.outputStream).use { it.write(gson.toJson(body)) }
-            conn.inputStream.bufferedReader().readText()
+            val code = conn.responseCode
+            if (code in 200..299) {
+                conn.inputStream.bufferedReader().readText()
+            } else {
+                val errBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
+                throw Exception("HTTP $code: $errBody")
+            }
         } catch (e: Exception) {
             throw Exception("PATCH $path failed: ${e.message}")
         } finally {
@@ -65,7 +83,13 @@ class SupplyRepository(private val serverUrl: String) {
         conn.connectTimeout = 8000
         conn.readTimeout = 8000
         return try {
-            conn.inputStream.bufferedReader().readText()
+            val code = conn.responseCode
+            if (code in 200..299) {
+                conn.inputStream.bufferedReader().readText()
+            } else {
+                val errBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
+                throw Exception("HTTP $code: $errBody")
+            }
         } catch (e: Exception) {
             throw Exception("DELETE $path failed: ${e.message}")
         } finally {

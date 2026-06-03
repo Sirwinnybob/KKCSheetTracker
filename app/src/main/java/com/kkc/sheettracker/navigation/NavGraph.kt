@@ -1520,10 +1520,10 @@ private fun SupplyTabHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = "supply/dashboard",
+        startDestination = "supply",
         modifier = Modifier.fillMaxSize()
     ) {
-        composable("supply/dashboard") {
+        composable("supply") {
             SupplyDashboardScreen(
                 serverUrl = serverUrl,
                 employeeName = employeeName,
@@ -1617,7 +1617,7 @@ private fun LegacySingleStackNavigation(
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS, NavDestination.SUPPLY)
+            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SETTINGS)
         } else {
             NavDestination.entries
         }
