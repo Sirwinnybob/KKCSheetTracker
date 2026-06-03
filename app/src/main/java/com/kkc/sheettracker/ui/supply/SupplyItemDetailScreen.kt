@@ -56,9 +56,7 @@ fun SupplyItemDetailScreen(
             errorMessage = null
             try {
                 val loadedItem = withContext(Dispatchers.IO) {
-                    // getItems and filter by id (no single-item endpoint given)
-                    repository.getItems().find { it.id == itemId }
-                        ?: throw Exception("Item not found")
+                    repository.getItem(itemId)
                 }
                 val loadedComments = withContext(Dispatchers.IO) {
                     repository.getComments(itemId)

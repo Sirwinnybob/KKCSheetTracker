@@ -103,6 +103,9 @@ class SupplyRepository(private val serverUrl: String) {
     fun getItems(): List<SupplyItem> =
         gson.fromJson(get("/items"), object : TypeToken<List<SupplyItem>>() {}.type)
 
+    fun getItem(itemId: String): SupplyItem =
+        gson.fromJson(get("/items/$itemId"), SupplyItem::class.java)
+
     fun getSchema(): List<SupplySchemaField> =
         gson.fromJson(get("/schema"), object : TypeToken<List<SupplySchemaField>>() {}.type)
 
