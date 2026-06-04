@@ -102,7 +102,11 @@ class MainActivity : ComponentActivity() {
 
         if (!migrationReady && !forceViewOnlyMode) {
             setContent {
-                KKCTheme(darkTheme = prefs.getBoolean("dark_theme", false)) {
+                val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+                val followSystemTheme = prefs.getBoolean("follow_system_theme", true)
+                val darkThemeOverride = prefs.getBoolean("dark_theme", false)
+                val isDarkTheme = if (followSystemTheme) systemDark else darkThemeOverride
+                KKCTheme(darkTheme = isDarkTheme) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
@@ -165,7 +169,10 @@ class MainActivity : ComponentActivity() {
         scanCoordinator.refresh(RefreshReason.APP_START, force = true)
 
         setContent {
-            var isDarkTheme by remember { mutableStateOf(prefs.getBoolean("dark_theme", false)) }
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            var followSystemTheme by remember { mutableStateOf(prefs.getBoolean("follow_system_theme", true)) }
+            var darkThemeOverride by remember { mutableStateOf(prefs.getBoolean("dark_theme", false)) }
+            val isDarkTheme = if (followSystemTheme) systemDark else darkThemeOverride
             var useStandardSheets by remember { mutableStateOf(prefs.getBoolean("use_standard_sheets", false)) }
             var employeeName by rememberSaveable { mutableStateOf(prefs.getString("employee_name", "") ?: "") }
             var workMode by remember {
@@ -197,6 +204,8 @@ class MainActivity : ComponentActivity() {
                         basePath = basePath,
                         isDebugBuild = BuildConfig.DEBUG,
                         isDarkTheme = isDarkTheme,
+                        followSystemTheme = followSystemTheme,
+                        darkThemeOverride = darkThemeOverride,
                         useStandardSheets = useStandardSheets,
                         workMode = workMode,
                         employeeName = employeeName,
@@ -207,8 +216,12 @@ class MainActivity : ComponentActivity() {
                         },
                         clockInState = clockInState,
                         onThemeChanged = { dark ->
-                            isDarkTheme = dark
+                            darkThemeOverride = dark
                             prefs.edit().putBoolean("dark_theme", dark).apply()
+                        },
+                        onFollowSystemThemeChanged = { follow ->
+                            followSystemTheme = follow
+                            prefs.edit().putBoolean("follow_system_theme", follow).apply()
                         },
                         onUseStandardSheetsChanged = { useStd ->
                             useStandardSheets = useStd

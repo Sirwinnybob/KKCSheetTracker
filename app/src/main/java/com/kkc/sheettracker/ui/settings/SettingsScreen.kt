@@ -31,8 +31,11 @@ fun SettingsScreen(
     basePath: String,
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
+    followSystemTheme: Boolean = true,
+    darkThemeOverride: Boolean = false,
     workMode: WorkMode,
     onThemeChanged: (Boolean) -> Unit,
+    onFollowSystemThemeChanged: (Boolean) -> Unit = {},
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
     onTabletIdChanged: (String) -> Unit,
@@ -125,11 +128,25 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Dark Mode", style = MaterialTheme.typography.bodyLarge)
+                    Text("Follow System Theme", style = MaterialTheme.typography.bodyLarge)
                     Switch(
-                        checked = isDarkTheme,
-                        onCheckedChange = onThemeChanged
+                        checked = followSystemTheme,
+                        onCheckedChange = onFollowSystemThemeChanged
                     )
+                }
+
+                if (!followSystemTheme) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Dark Mode", style = MaterialTheme.typography.bodyLarge)
+                        Switch(
+                            checked = darkThemeOverride,
+                            onCheckedChange = onThemeChanged
+                        )
+                    }
                 }
 
                 if (isDarkTheme) {
