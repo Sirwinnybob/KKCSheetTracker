@@ -47,7 +47,9 @@ class SpecialtyRepository(
                     completionFraction = if (totalItems <= 0) 0f else completedItems.toFloat() / totalItems.toFloat(),
                     resolvedItems = resolved,
                     lineupPosition = info.lineupPosition,
-                    labels = info.labels
+                    labels = info.labels,
+                    isPending = info.isPending,
+                    boardSection = info.boardSection
                 )
             }
         // Preserve production order from listJobs; no secondary sort needed

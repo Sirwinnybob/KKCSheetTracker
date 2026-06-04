@@ -21,7 +21,9 @@ data class UnifiedJobInfo(
     val jobName: String,
     val hiddenFromProduction: Boolean = false,
     val lineupPosition: Int? = null,
-    val labels: List<JobLabel> = emptyList()
+    val labels: List<JobLabel> = emptyList(),
+    val isPending: Boolean = false,
+    val boardSection: Int = 0
 )
 
 data class UnifiedCncSnapshot(

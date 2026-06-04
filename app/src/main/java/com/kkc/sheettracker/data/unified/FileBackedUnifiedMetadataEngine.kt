@@ -108,7 +108,14 @@ class FileBackedUnifiedMetadataEngine(
         }
     }
 
-    private fun readJobBoardLabels(): Map<String, List<JobLabel>> {
+    private data class JobBoardConfig(
+        val labels: List<JobLabel> = emptyList(),
+        val isPending: Boolean = false,
+        val boardSection: Int = 0,
+        val isDeleted: Boolean = false
+    )
+
+    private fun readJobBoardConfig(): Map<String, JobBoardConfig> {
         val file = File(baseDir, "job_board.json")
         if (!file.exists()) return emptyMap()
         return try {
@@ -121,14 +128,20 @@ class FileBackedUnifiedMetadataEngine(
                 val color = obj.get("color")?.asString ?: "#888888"
                 labelDefs[id] = JobLabel(id, name, color)
             }
-            val result = mutableMapOf<String, List<JobLabel>>()
+            val result = mutableMapOf<String, JobBoardConfig>()
             root.getAsJsonArray("jobs")?.forEach { el ->
                 val obj = el.asJsonObject
                 val folderName = obj.get("folder_name")?.asString?.takeIf { it.isNotBlank() } ?: return@forEach
                 val labelIds = obj.getAsJsonArray("label_ids")?.map { it.asInt } ?: emptyList()
-                if (labelIds.isNotEmpty()) {
-                    result[folderName] = labelIds.mapNotNull { labelDefs[it] }
-                }
+                val isPending = obj.get("is_pending")?.asInt == 1
+                val boardSection = obj.get("board_section")?.asInt ?: 0
+                val isDeleted = obj.get("is_deleted")?.asInt == 1
+                result[folderName] = JobBoardConfig(
+                    labels = labelIds.mapNotNull { labelDefs[it] },
+                    isPending = isPending,
+                    boardSection = boardSection,
+                    isDeleted = isDeleted
+                )
             }
             result
         } catch (e: Exception) {
@@ -139,12 +152,15 @@ class FileBackedUnifiedMetadataEngine(
     override fun listJobs(): List<UnifiedJobInfo> {
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
 
-        val boardLabels = readJobBoardLabels()
+        val boardConfigs = readJobBoardConfig()
 
         val activeJobs = baseDir.listFiles()
             ?.asSequence()
             ?.filter { it.isDirectory }
             ?.mapNotNull { jobDir ->
+                val config = boardConfigs[jobDir.name]
+                if (config?.isDeleted == true) return@mapNotNull null
+
                 val parsed = parseJobFolderName(jobDir.name) ?: return@mapNotNull null
                 val decision = DeploymentGateRules.evaluate(jobDir, isDebugBuild = isDebugBuild)
                 if (!decision.includeJob) return@mapNotNull null
@@ -152,7 +168,9 @@ class FileBackedUnifiedMetadataEngine(
                     folderName = jobDir.name,
                     jobNumber = parsed.jobNumber,
                     jobName = parsed.jobName,
-                    hiddenFromProduction = decision.hiddenFromProduction
+                    hiddenFromProduction = decision.hiddenFromProduction,
+                    isPending = config?.isPending ?: false,
+                    boardSection = config?.boardSection ?: 0
                 )
             }
             ?.toList()
@@ -180,9 +198,10 @@ class FileBackedUnifiedMetadataEngine(
 
         // 3. Assign 1-based index (lineupPosition) and attach labels from job_board.json
         return computedJobs.mapIndexed { index, job ->
+            val config = boardConfigs[job.folderName]
             job.copy(
                 lineupPosition = index + 1,
-                labels = boardLabels[job.folderName] ?: emptyList()
+                labels = config?.labels ?: emptyList()
             )
         }
     }
@@ -498,13 +517,18 @@ class FileBackedUnifiedMetadataEngine(
         val allJobs = listJobs()
         val thisJob = allJobs.find { it.folderName == jobFolderName }
         val lineupPosition = thisJob?.lineupPosition
+        val isPending = thisJob?.isPending ?: false
+        val boardSection = thisJob?.boardSection ?: 0
 
         val jobInfo = UnifiedJobInfo(
             folderName = jobFolderName,
             jobNumber = parsed.jobNumber,
             jobName = parsed.jobName,
             hiddenFromProduction = gate.hiddenFromProduction,
-            lineupPosition = lineupPosition
+            lineupPosition = lineupPosition,
+            labels = thisJob?.labels ?: emptyList(),
+            isPending = isPending,
+            boardSection = boardSection
         )
 
         val cnc = buildCncJob(jobInfo)
@@ -516,14 +540,22 @@ class FileBackedUnifiedMetadataEngine(
             jobNumber = jobInfo.jobNumber,
             jobName = jobInfo.jobName,
             index = hardwoodIndex,
-            hiddenFromProduction = jobInfo.hiddenFromProduction
+            hiddenFromProduction = jobInfo.hiddenFromProduction,
+            lineupPosition = jobInfo.lineupPosition,
+            labels = jobInfo.labels,
+            isPending = jobInfo.isPending,
+            boardSection = jobInfo.boardSection
         )
         val assemblyJob = AssemblyJob(
             folderName = jobInfo.folderName,
             jobNumber = jobInfo.jobNumber,
             jobName = jobInfo.jobName,
             cabinetSheetIndex = cabinetSheetIndex,
-            hiddenFromProduction = jobInfo.hiddenFromProduction
+            hiddenFromProduction = jobInfo.hiddenFromProduction,
+            lineupPosition = jobInfo.lineupPosition,
+            labels = jobInfo.labels,
+            isPending = jobInfo.isPending,
+            boardSection = jobInfo.boardSection
         )
         val pdfCatalog = buildPdfCatalog(jobFolderName)
         val boardStockRows = buildBoardStockRows(jobFolderName, hardwoodIndex)
@@ -563,11 +595,15 @@ class FileBackedUnifiedMetadataEngine(
         val materials = scanCncMaterials(job.folderName, cncDir, job.jobNumber, issues)
         return BuiltCncJob(
             job = Job(
-            folderName = job.folderName,
-            jobNumber = job.jobNumber,
-            jobName = job.jobName,
-            materials = materials,
-            hiddenFromProduction = job.hiddenFromProduction
+                folderName = job.folderName,
+                jobNumber = job.jobNumber,
+                jobName = job.jobName,
+                materials = materials,
+                hiddenFromProduction = job.hiddenFromProduction,
+                lineupPosition = job.lineupPosition,
+                labels = job.labels,
+                isPending = job.isPending,
+                boardSection = job.boardSection
             ),
             issues = issues
         )

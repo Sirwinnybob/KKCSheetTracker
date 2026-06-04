@@ -9,7 +9,9 @@ data class Job(
     val materials: List<Material> = emptyList(),
     val hiddenFromProduction: Boolean = false,
     val lineupPosition: Int? = null,
-    val labels: List<JobLabel> = emptyList()
+    val labels: List<JobLabel> = emptyList(),
+    val isPending: Boolean = false,
+    val boardSection: Int = 0
 ) {
     val totalSheets: Int get() = materials.sumOf { it.pageCount }
 }
@@ -211,7 +213,9 @@ data class AssemblyJob(
     val hardwoodsSummary: AssemblyHardwoodsSummary? = null,
     val hiddenFromProduction: Boolean = false,
     val lineupPosition: Int? = null,
-    val labels: List<JobLabel> = emptyList()
+    val labels: List<JobLabel> = emptyList(),
+    val isPending: Boolean = false,
+    val boardSection: Int = 0
 )
 
 data class AssemblyCncPart(
@@ -264,7 +268,9 @@ data class AssemblyJobCard(
     val hasBothModes: Boolean = false,
     val hiddenFromProduction: Boolean = false,
     val lineupPosition: Int? = null,
-    val labels: List<JobLabel> = emptyList()
+    val labels: List<JobLabel> = emptyList(),
+    val isPending: Boolean = false,
+    val boardSection: Int = 0
 )
 
 data class AssemblySearchEntry(
@@ -394,7 +400,9 @@ data class HardwoodJob(
     val index: HardwoodCutlistIndex? = null,
     val hiddenFromProduction: Boolean = false,
     val lineupPosition: Int? = null,
-    val labels: List<JobLabel> = emptyList()
+    val labels: List<JobLabel> = emptyList(),
+    val isPending: Boolean = false,
+    val boardSection: Int = 0
 )
 
 data class HardwoodSearchEntry(

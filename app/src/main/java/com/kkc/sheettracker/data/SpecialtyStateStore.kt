@@ -142,7 +142,9 @@ class SpecialtyStateStore(
                 completionFraction = if (specialtyTotal <= 0) 0f else specialtyCompleted.toFloat() / specialtyTotal.toFloat(),
                 stationProgress = buildStationProgress(specialtyItems),
                 lineupPosition = job.lineupPosition,
-                labels = job.labels
+                labels = job.labels,
+                isPending = job.isPending,
+                boardSection = job.boardSection
             )
         }
     }

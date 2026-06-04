@@ -113,6 +113,7 @@ fun JobBrowserScreen(
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("jobs")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
+    var showPendingOnly by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val listState = rememberLazyListState()
     val scanState by scanCoordinator.state.collectAsState()
@@ -137,7 +138,7 @@ fun JobBrowserScreen(
         }
     }
 
-    val filteredJobs = remember(jobs, searchQuery, sortByName, progressVersion) {
+    val filteredJobs = remember(jobs, searchQuery, sortByName, progressVersion, showPendingOnly) {
         val base = if (searchQuery.isBlank()) {
             jobs
         } else {
@@ -145,7 +146,7 @@ fun JobBrowserScreen(
                 job.jobNumber.contains(searchQuery, ignoreCase = true) ||
                     job.jobName.contains(searchQuery, ignoreCase = true)
             }
-        }
+        }.filter { it.isPending == showPendingOnly }
         if (sortByName) {
             base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
         } else {
@@ -254,11 +255,29 @@ fun JobBrowserScreen(
                 sortByName = sortByName,
                 onSortChange = { sortByName = it }
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !showPendingOnly,
+                    onClick = { showPendingOnly = false },
+                    label = { Text("Active Production") }
+                )
+                FilterChip(
+                    selected = showPendingOnly,
+                    onClick = { showPendingOnly = true },
+                    label = { Text("Pending Delivery") }
+                )
+            }
             Text(
                 text = if (searchQuery.isBlank()) {
-                    "${jobs.size} jobs"
+                    "${filteredJobs.size} jobs"
                 } else {
-                    "Showing ${filteredJobs.size} of ${jobs.size} jobs"
+                    val poolSize = jobs.count { it.isPending == showPendingOnly }
+                    "Showing ${filteredJobs.size} of $poolSize jobs"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -101,6 +101,7 @@ fun HardwoodsJobsScreen(
     var expandedJobs by rememberSaveable { mutableStateOf(setOf<String>()) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    var showPendingOnly by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -110,12 +111,12 @@ fun HardwoodsJobsScreen(
         deliveryScheduleRepository.fetchSchedule()
     }
 
-    val filtered = remember(jobs, query, sortByName) {
+    val filtered = remember(jobs, query, sortByName, showPendingOnly) {
         val base = if (query.isBlank()) jobs else jobs.filter {
             it.jobNumber.contains(query, ignoreCase = true) ||
                 it.jobName.contains(query, ignoreCase = true) ||
                 it.folderName.contains(query, ignoreCase = true)
-        }
+        }.filter { it.isPending == showPendingOnly }
         if (sortByName) {
             base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
         } else {
@@ -250,6 +251,34 @@ fun HardwoodsJobsScreen(
                 shape = MaterialTheme.shapes.medium
             )
             SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !showPendingOnly,
+                    onClick = { showPendingOnly = false },
+                    label = { Text("Active Production") }
+                )
+                FilterChip(
+                    selected = showPendingOnly,
+                    onClick = { showPendingOnly = true },
+                    label = { Text("Pending Delivery") }
+                )
+            }
+            Text(
+                text = if (query.isBlank()) {
+                    "${filtered.size} jobs"
+                } else {
+                    val poolSize = jobs.count { it.isPending == showPendingOnly }
+                    "Showing ${filtered.size} of $poolSize jobs"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+            )
 
             DeliveryScheduleWidget(
                 schedule = deliverySchedule,

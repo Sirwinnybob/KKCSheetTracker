@@ -90,7 +90,9 @@ class AssemblyStateStore(
                 hasBothModes = cncJob != null && hardwoodJob != null,
                 hiddenFromProduction = job.hiddenFromProduction,
                 lineupPosition = job.lineupPosition,
-                labels = job.labels
+                labels = job.labels,
+                isPending = job.isPending,
+                boardSection = job.boardSection
             )
         }
     }

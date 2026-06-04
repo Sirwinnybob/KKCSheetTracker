@@ -24,6 +24,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -87,6 +88,7 @@ fun SpecialtyJobsScreen(
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("specialty")) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    var showPendingOnly by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
@@ -101,8 +103,8 @@ fun SpecialtyJobsScreen(
             all // already in production order from listJobs
         }
     }
-    val filteredCards = remember(cards, query) {
-        if (query.isBlank()) {
+    val filteredCards = remember(cards, query, showPendingOnly) {
+        val base = if (query.isBlank()) {
             cards
         } else {
             cards.filter { card ->
@@ -111,6 +113,7 @@ fun SpecialtyJobsScreen(
                     card.folderName.contains(query, ignoreCase = true)
             }
         }
+        base.filter { it.isPending == showPendingOnly }
     }
 
     LaunchedEffect(Unit) {
@@ -162,11 +165,29 @@ fun SpecialtyJobsScreen(
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !showPendingOnly,
+                    onClick = { showPendingOnly = false },
+                    label = { Text("Active Production") }
+                )
+                FilterChip(
+                    selected = showPendingOnly,
+                    onClick = { showPendingOnly = true },
+                    label = { Text("Pending Delivery") }
+                )
+            }
             Text(
                 text = if (query.isBlank()) {
-                    "${cards.size} jobs"
+                    "${filteredCards.size} jobs"
                 } else {
-                    "Showing ${filteredCards.size} of ${cards.size} jobs"
+                    val poolSize = cards.count { it.isPending == showPendingOnly }
+                    "Showing ${filteredCards.size} of $poolSize jobs"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

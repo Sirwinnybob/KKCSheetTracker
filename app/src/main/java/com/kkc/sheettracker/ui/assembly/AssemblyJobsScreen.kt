@@ -112,6 +112,7 @@ fun AssemblyJobsScreen(
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("assembly")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    var showPendingOnly by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by assemblyScanCoordinator.state.collectAsState()
     val cncProgressVersion by progressStore.progressVersion.collectAsState()
@@ -133,7 +134,7 @@ fun AssemblyJobsScreen(
         val complete = specialtyCards.sumOf { it.completedItems }
         complete to total
     }
-    val filtered = remember(allCards, query, sortByName) {
+    val filtered = remember(allCards, query, sortByName, showPendingOnly) {
         val base = if (query.isBlank()) {
             allCards
         } else {
@@ -142,7 +143,7 @@ fun AssemblyJobsScreen(
                     it.jobName.contains(query, ignoreCase = true) ||
                     it.folderName.contains(query, ignoreCase = true)
             }
-        }
+        }.filter { it.isPending == showPendingOnly }
         if (sortByName) {
             base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
         } else {
@@ -217,11 +218,29 @@ fun AssemblyJobsScreen(
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !showPendingOnly,
+                    onClick = { showPendingOnly = false },
+                    label = { Text("Active Production") }
+                )
+                FilterChip(
+                    selected = showPendingOnly,
+                    onClick = { showPendingOnly = true },
+                    label = { Text("Pending Delivery") }
+                )
+            }
             Text(
                 text = if (query.isBlank()) {
-                    "${allCards.size} jobs"
+                    "${filtered.size} jobs"
                 } else {
-                    "Showing ${filtered.size} of ${allCards.size} jobs"
+                    val poolSize = allCards.count { it.isPending == showPendingOnly }
+                    "Showing ${filtered.size} of $poolSize jobs"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
