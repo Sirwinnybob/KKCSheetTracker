@@ -47,6 +47,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.produceState
@@ -59,9 +64,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.PaddingValues
+import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -136,7 +143,8 @@ fun AssemblyViewerScreen(
     onBack: () -> Unit,
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
-    onLeaveWhileClockedIn: () -> Unit = {}
+    onLeaveWhileClockedIn: () -> Unit = {},
+    onUiVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val sheetIndex by produceState<CabinetSheetIndex?>(
         initialValue = null,
@@ -279,6 +287,14 @@ fun AssemblyViewerScreen(
                 ?: if (initialPaneSource == PaneSource.THREE_D) FullscreenPane.FIRST else FullscreenPane.NONE
         )
     }
+
+    // True fullscreen: hide system bars for the lifetime of this screen.
+    ImmersiveSystemBars()
+    // Tap-to-show/hide overlay UI (top bar + floating controls + bottom nav).
+    var showUi by rememberSaveable { mutableStateOf(true) }
+    // Restore bottom nav visibility when navigating back.
+    DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
+
     var firstPaneSource by rememberSaveable(initialSource) {
         val saved = prefs.getString("${resumePrefix}_first_source", null)
         mutableStateOf(
@@ -541,44 +557,48 @@ fun AssemblyViewerScreen(
         onDispose { if (shouldNotify) notifyFn() }
     }
 
+    val topBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "topBarAlpha")
+
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        "Assembly Viewer - $jobFolderName",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    Button(
-                        onClick = { onClockIn(clockInJobNumber, clockInJobName) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF38A169),
-                            contentColor = Color.White
-                        )
-                    ) {
+            // graphicsLayer alpha — no layout shift, no PDF re-render during animation.
+                TopAppBar(
+                    modifier = Modifier.graphicsLayer { alpha = topBarAlpha },
+                    title = {
                         Text(
-                            if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            "Assembly Viewer - $jobFolderName",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleSmall
                         )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars
-            )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        Button(
+                            onClick = { onClockIn(clockInJobNumber, clockInJobName) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF38A169),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text(
+                                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    windowInsets = WindowInsets.statusBars
+                )
         }
     ) { padding ->
         Column(
@@ -657,6 +677,8 @@ fun AssemblyViewerScreen(
                             },
                             isFullscreen = true,
                             onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE },
+                            showControls = showUi,
+                            onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
                             customContent = if (firstPaneSource == PaneSource.CHECKLIST) {{
                                 ChecklistPane(
                                     modifier = Modifier.fillMaxSize(),
@@ -745,6 +767,8 @@ fun AssemblyViewerScreen(
                             },
                             isFullscreen = true,
                             onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE },
+                            showControls = showUi,
+                            onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
                             customContent = if (secondPaneSource == PaneSource.CHECKLIST) {{
                                 ChecklistPane(
                                     modifier = Modifier.fillMaxSize(),
@@ -777,6 +801,7 @@ fun AssemblyViewerScreen(
                                     jobFolderName = jobFolderName,
                                     isDarkTheme = isDarkTheme,
                                     title = firstSourceName,
+                                    compactArrows = true,
                                     pdfFilename = firstSourceFilename,
                                     currentPage = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
                                         assemblyPage
@@ -837,6 +862,8 @@ fun AssemblyViewerScreen(
                                         )
                                     },
                                     onToggleFullscreen = { fullscreenPane = FullscreenPane.FIRST },
+                                    showControls = showUi,
+                                    onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
                                     customContent = if (firstPaneSource == PaneSource.CHECKLIST) {{
                                         ChecklistPane(
                                             modifier = Modifier.fillMaxSize(),
@@ -866,6 +893,7 @@ fun AssemblyViewerScreen(
                                     jobFolderName = jobFolderName,
                                     isDarkTheme = isDarkTheme,
                                     title = secondSourceName,
+                                    compactArrows = true,
                                     pdfFilename = secondSourceFilename,
                                     currentPage = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
                                         assemblyPage
@@ -926,6 +954,8 @@ fun AssemblyViewerScreen(
                                         )
                                     },
                                     onToggleFullscreen = { fullscreenPane = FullscreenPane.SECOND },
+                                    showControls = showUi,
+                                    onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
                                     customContent = if (secondPaneSource == PaneSource.CHECKLIST) {{
                                         ChecklistPane(
                                             modifier = Modifier.fillMaxSize(),
@@ -953,40 +983,42 @@ fun AssemblyViewerScreen(
                 }
             }
 
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Row(
+            AnimatedVisibility(visible = showUi) {
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    OutlinedTextField(
-                        value = searchText,
-                        onValueChange = { searchText = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("Cabinet #") },
-                        singleLine = true,
-                        shape = MaterialTheme.shapes.small
-                    )
-                    Button(onClick = { jumpToCabinet(searchText) }) {
-                        Text("Go")
-                    }
-                    Button(
-                        onClick = { showPartsSheet = true },
-                        enabled = lastSearchedCabinet.isNotBlank()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Parts")
+                        OutlinedTextField(
+                            value = searchText,
+                            onValueChange = { searchText = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Cabinet #") },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.small
+                        )
+                        Button(onClick = { jumpToCabinet(searchText) }) {
+                            Text("Go")
+                        }
+                        Button(
+                            onClick = { showPartsSheet = true },
+                            enabled = lastSearchedCabinet.isNotBlank()
+                        ) {
+                            Text("Parts")
+                        }
                     }
-                }
-                if (contextLine.isNotBlank()) {
-                    Text(
-                        contextLine,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
+                    if (contextLine.isNotBlank()) {
+                        Text(
+                            contextLine,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1069,6 +1101,9 @@ private fun PdfPaneWithFloatingControls(
     sourceControlsInline: (@Composable RowScope.() -> Unit)? = null,
     isFullscreen: Boolean = false,
     onToggleFullscreen: () -> Unit,
+    showControls: Boolean = true,
+    onSingleTap: (() -> Unit)? = null,
+    compactArrows: Boolean = false,
     customContent: (@Composable () -> Unit)? = null
 ) {
     val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
@@ -1102,17 +1137,23 @@ private fun PdfPaneWithFloatingControls(
                 showHeaderRow = false,
                 showNavigationButtons = false,
                 innerPadding = bottomLift,
-                tocRequestToken = tocRequestToken
+                tocRequestToken = tocRequestToken,
+                onSingleTap = onSingleTap,
+                compactArrows = compactArrows
             )
         }
 
+        AnimatedVisibility(
+            visible = showControls,
+            enter = slideInVertically { it },
+            exit = slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomEnd)
+        ) {
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
             tonalElevation = 3.dp,
             shape = MaterialTheme.shapes.medium,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(6.dp)
+            modifier = Modifier.padding(6.dp)
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
@@ -1168,6 +1209,7 @@ private fun PdfPaneWithFloatingControls(
                 }
             }
         }
+        } // end AnimatedVisibility
     }
 }
 

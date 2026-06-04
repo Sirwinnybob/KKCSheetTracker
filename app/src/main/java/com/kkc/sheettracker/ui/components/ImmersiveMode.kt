@@ -1,0 +1,40 @@
+package com.kkc.sheettracker.ui.components
+
+import android.app.Activity
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+
+/**
+ * Hides the system status bar and navigation bar (immersive mode) for the lifetime
+ * of the composable that calls this. On dispose (navigation back), the system bars
+ * are restored and normal window fitting resumes.
+ *
+ * Uses BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE so the user can temporarily reveal
+ * system bars via an edge swipe without permanently exiting immersive mode.
+ */
+@Composable
+fun ImmersiveSystemBars() {
+    val view = LocalView.current
+    val isInspection = LocalInspectionMode.current
+    if (!isInspection) {
+        DisposableEffect(Unit) {
+            val activity = view.context as? Activity
+                ?: return@DisposableEffect onDispose {}
+            val window = activity.window
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowInsetsControllerCompat(window, view)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            onDispose {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+                WindowCompat.setDecorFitsSystemWindows(window, true)
+            }
+        }
+    }
+}

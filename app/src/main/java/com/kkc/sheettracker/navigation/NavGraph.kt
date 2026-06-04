@@ -2,6 +2,8 @@ package com.kkc.sheettracker.navigation
 
 import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
@@ -375,6 +378,14 @@ private fun MultiBackStackNavigation(
                 jobsCurrentRoute?.startsWith("hardwoods/workspace/") == true ||
                 jobsCurrentRoute?.startsWith("assembly/viewer/") == true
             )
+    // Tracks whether the viewer screen's overlay UI is visible (for bottom nav hide/show).
+    var viewerUiVisible by remember { mutableStateOf(true) }
+    // Reset UI visibility whenever we leave viewer routes.
+    androidx.compose.runtime.LaunchedEffect(isInViewer) { if (!isInViewer) viewerUiVisible = true }
+    val navBarAlpha by animateFloatAsState(
+        if (!isInViewer || viewerUiVisible) 1f else 0f,
+        tween(220), label = "navBarAlpha"
+    )
 
     androidx.compose.runtime.LaunchedEffect(selectedTab, jobsBackStack) {
         val route = jobsBackStack?.destination?.route ?: ""
@@ -554,7 +565,8 @@ private fun MultiBackStackNavigation(
                         deliveryScheduleRepository = deliveryScheduleRepository,
                         onClockIn = onClockIn,
                         onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
-                        onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) }
+                        onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) },
+                        onUiVisibilityChanged = { viewerUiVisible = it }
                     )
                 }
 
@@ -642,7 +654,9 @@ private fun MultiBackStackNavigation(
                 }
             }
 
+            // graphicsLayer alpha — layout never shifts, no PDF re-renders during animation.
             AppBottomNavBar(
+                modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
                 currentDestination = TopLevelTab.toDestination(selectedTab),
                 minimized = isInViewer,
                 destinations = visibleDestinations,
@@ -831,7 +845,8 @@ private fun JobsTabHost(
     deliveryScheduleRepository: DeliveryScheduleRepository,
     onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit,
     onSearchClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onUiVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     NavHost(
@@ -1213,7 +1228,8 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onUiVisibilityChanged = onUiVisibilityChanged
             )
         }
 
@@ -1237,7 +1253,8 @@ private fun JobsTabHost(
                 startPage = startPage,
                 refreshGeneration = refreshGeneration,
                 isDarkTheme = isDarkTheme,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onUiVisibilityChanged = onUiVisibilityChanged
             )
         }
 
@@ -1381,7 +1398,8 @@ private fun JobsTabHost(
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
                 onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onUiVisibilityChanged = onUiVisibilityChanged
             )
         }
     }
@@ -1764,6 +1782,12 @@ private fun LegacySingleStackNavigation(
         currentRoute?.startsWith("referenceViewer/") == true ||
         currentRoute?.startsWith("hardwoods/workspace/") == true ||
         currentRoute?.startsWith("assembly/viewer/") == true
+    var viewerUiVisible by remember { mutableStateOf(true) }
+    androidx.compose.runtime.LaunchedEffect(isInViewer) { if (!isInViewer) viewerUiVisible = true }
+    val navBarAlpha by animateFloatAsState(
+        if (!isInViewer || viewerUiVisible) 1f else 0f,
+        tween(220), label = "navBarAlpha"
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -2228,7 +2252,8 @@ private fun LegacySingleStackNavigation(
                             launchSingleTop = true
                         }
                     },
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onUiVisibilityChanged = { viewerUiVisible = it }
                 )
             }
 
@@ -2252,7 +2277,8 @@ private fun LegacySingleStackNavigation(
                     startPage = startPage,
                     refreshGeneration = refreshGeneration,
                     isDarkTheme = isDarkTheme,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onUiVisibilityChanged = { viewerUiVisible = it }
                 )
             }
 
@@ -2386,7 +2412,8 @@ private fun LegacySingleStackNavigation(
                     isClockedInHere = isClockedInHere,
                     onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
                     onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onUiVisibilityChanged = { viewerUiVisible = it }
                 )
             }
 
@@ -2508,7 +2535,9 @@ private fun LegacySingleStackNavigation(
             }
             }
 
+            // graphicsLayer alpha — layout never shifts, no PDF re-renders during animation.
             AppBottomNavBar(
+                modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
                 currentDestination = currentNavDest,
                 minimized = isInViewer,
                 destinations = visibleDestinations,

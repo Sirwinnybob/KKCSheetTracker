@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -51,6 +53,10 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -298,7 +304,9 @@ fun ReferencePdfPane(
     displayPageOverride: Int? = null,
     displayTotalPagesOverride: Int? = null,
     onStepPage: ((Int) -> Unit)? = null,
-    onOpenSheetNavigator: (() -> Unit)? = null
+    onOpenSheetNavigator: (() -> Unit)? = null,
+    onSingleTap: (() -> Unit)? = null,
+    compactArrows: Boolean = false
 ) {
     val pdfIdentityKey = when {
         pdfFile == null -> "missing"
@@ -331,6 +339,14 @@ fun ReferencePdfPane(
     var baseBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailForViewport by remember(engine, currentPage) { mutableStateOf<QuantizedViewportState?>(null) }
+    // Fallback bitmap: the last successfully rendered page bitmap. Shown while the new page
+    // is still rendering to prevent a blank-screen flash on page transitions.
+    var fallbackBitmap by remember(engine) { mutableStateOf<Bitmap?>(null) }
+    // Slide animation state: direction (-1 back / 1 fwd), captured outgoing bitmap, and progress.
+    var pageSlideDir by remember { mutableIntStateOf(0) }
+    var slideOutBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val slideProgress = remember { Animatable(1f) }
+    val paneScope = rememberCoroutineScope()
     var showToc by remember { mutableStateOf(false) }
     val tocThumbCache = remember(engine) { mutableStateMapOf<Int, Bitmap?>() }
     val tocLruOrder = remember(engine) { mutableListOf<Int>() }
@@ -357,6 +373,10 @@ fun ReferencePdfPane(
         viewportState = viewportState.copy(zoom = 1f, panX = 0f, panY = 0f)
         detailBitmap = null
         detailForViewport = null
+    }
+    // Keep fallbackBitmap up-to-date so new pages fade in over the previous page.
+    LaunchedEffect(baseBitmap) {
+        if (baseBitmap != null) fallbackBitmap = baseBitmap
     }
 
     LaunchedEffect(viewportState) {
@@ -466,9 +486,23 @@ fun ReferencePdfPane(
     val displayTotalPages = (displayTotalPagesOverride ?: totalPages).coerceAtLeast(0)
     val stepPage: (Int) -> Unit = { delta ->
         if (delta < 0 && displayPage > 1) {
+            pageSlideDir = -1
+            slideOutBitmap = baseBitmap ?: fallbackBitmap
+            paneScope.launch {
+                slideProgress.snapTo(0f)
+                slideProgress.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing))
+                slideOutBitmap = null
+            }
             if (onStepPage != null) onStepPage(-1)
             else onCurrentPageChange((currentPage - 1).coerceAtLeast(1))
         } else if (delta > 0 && displayPage < displayTotalPages) {
+            pageSlideDir = 1
+            slideOutBitmap = baseBitmap ?: fallbackBitmap
+            paneScope.launch {
+                slideProgress.snapTo(0f)
+                slideProgress.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing))
+                slideOutBitmap = null
+            }
             if (onStepPage != null) onStepPage(1)
             else onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1)))
         }
@@ -486,7 +520,7 @@ fun ReferencePdfPane(
         Surface(
             modifier = Modifier.fillMaxSize(),
             shape = MaterialTheme.shapes.medium,
-            tonalElevation = 1.dp
+            tonalElevation = 0.dp  // 0 so the container colour matches the PDF matte exactly
         ) {
             when {
                 pdfFile == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -497,20 +531,93 @@ fun ReferencePdfPane(
                 }
                 else -> {
                     Box(Modifier.fillMaxSize()) {
+                        val vw = viewportState.viewSize.width.toFloat().coerceAtLeast(1f)
+                        val isSliding = slideProgress.value < 1f
                         val shouldShowDetail = detailBitmap != null &&
                             detailForViewport == viewportState.quantized() &&
                             !isInteracting
 
+                        // Old page slides out while the new page slides in.
+                        val snapSlideOut = slideOutBitmap
+                        if (snapSlideOut != null && !snapSlideOut.isRecycled) {
+                            Image(
+                                bitmap = snapSlideOut.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        translationX = -slideProgress.value * vw * pageSlideDir
+                                    },
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+
                         ZoomablePdfImage(
-                            baseBitmap = baseBitmap,
+                            // Suppress fallback during slide — the slideOutBitmap layer covers it.
+                            baseBitmap = baseBitmap ?: if (!isSliding) fallbackBitmap else null,
                             detailBitmap = if (shouldShowDetail) detailBitmap else null,
                             pageKey = currentPage,
                             onViewportStateChanged = { viewportState = it },
                             onInteractionChanged = { isInteracting = it },
                             pageAspectRatio = pageAspectRatio,
-                            onGutterTapStep = stepPage,
-                            modifier = Modifier.fillMaxSize()
+                            onGutterTapStep = null, // replaced by overlay arrow buttons
+                            onSingleTap = onSingleTap,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    // Deferred read: drives only a draw-phase update, no recomposition.
+                                    translationX = (1f - slideProgress.value) * vw * pageSlideDir
+                                }
                         )
+
+                        // ── Page-navigation arrow buttons ────────────────────────
+                        // Always visible, centred on the left and right edges.
+                        if (displayTotalPages > 1) {
+                            val arrowAlpha = if ((baseBitmap ?: fallbackBitmap) != null) 0.55f else 0f
+                            // 50% smaller when in split-pane view so they don't crowd the shared space.
+                            val arrowBtnSize = if (compactArrows) 36.dp else 72.dp
+                            val arrowIconSize = if (compactArrows) 18.dp else 36.dp
+                            // Previous-page arrow (left)
+                            IconButton(
+                                onClick = { stepPage(-1) },
+                                enabled = displayPage > 1,
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .padding(start = 4.dp)
+                                    .size(arrowBtnSize)
+                                    .background(
+                                        MaterialTheme.colorScheme.surface.copy(alpha = arrowAlpha),
+                                        shape = CircleShape
+                                    )
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Previous page",
+                                    modifier = Modifier.size(arrowIconSize),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (displayPage > 1) 0.9f else 0.35f)
+                                )
+                            }
+                            // Next-page arrow (right)
+                            IconButton(
+                                onClick = { stepPage(1) },
+                                enabled = displayPage < displayTotalPages,
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .padding(end = 4.dp)
+                                    .size(arrowBtnSize)
+                                    .background(
+                                        MaterialTheme.colorScheme.surface.copy(alpha = arrowAlpha),
+                                        shape = CircleShape
+                                    )
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Next page",
+                                    modifier = Modifier.size(arrowIconSize),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (displayPage < displayTotalPages) 0.9f else 0.35f)
+                                )
+                            }
+                        }
                         when (renderState) {
                             PdfRenderUiState.Loading -> {
                                 Box(
@@ -627,6 +734,7 @@ private fun ZoomablePdfImage(
     onInteractionChanged: (Boolean) -> Unit,
     pageAspectRatio: Float?,
     onGutterTapStep: ((Int) -> Unit)?,
+    onSingleTap: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
@@ -712,6 +820,7 @@ private fun ZoomablePdfImage(
                     val isSingleTap = pointerCountMax == 1 &&
                         !hadTransformInput &&
                         maxMoveDistance <= tapSlopPx
+                    var gutterHandled = false
                     if (isSingleTap && onGutterTapStep != null && isFitStateForSideGutterNavigation(
                             zoom = zoom,
                             panX = panX,
@@ -726,10 +835,14 @@ private fun ZoomablePdfImage(
                                 pageAspectRatio = pageAspectRatio
                             )
                         ) {
-                            SideGutterTapRegion.LEFT -> onGutterTapStep(-1)
-                            SideGutterTapRegion.RIGHT -> onGutterTapStep(1)
+                            SideGutterTapRegion.LEFT -> { onGutterTapStep(-1); gutterHandled = true }
+                            SideGutterTapRegion.RIGHT -> { onGutterTapStep(1); gutterHandled = true }
                             SideGutterTapRegion.NONE -> Unit
                         }
+                    }
+                    // Non-gutter single taps toggle the UI overlay (tap-to-show/hide).
+                    if (isSingleTap && !gutterHandled) {
+                        onSingleTap?.invoke()
                     }
                 }
             }
@@ -760,7 +873,7 @@ private fun ZoomablePdfImage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(MaterialTheme.colorScheme.surface),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(28.dp))

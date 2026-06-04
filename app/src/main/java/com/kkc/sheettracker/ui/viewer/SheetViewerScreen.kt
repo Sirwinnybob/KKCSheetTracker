@@ -6,9 +6,14 @@ import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -85,6 +90,7 @@ import com.kkc.sheettracker.data.models.Part
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SheetStatusKey
+import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import com.kkc.sheettracker.ui.components.ResizeHandle
 import com.kkc.sheettracker.ui.components.SheetStatusBadge
 import com.kkc.sheettracker.ui.components.SortColumn
@@ -190,7 +196,8 @@ fun SheetViewerScreen(
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
     onBack: () -> Unit,
-    onMaterialUnavailable: () -> Unit = onBack
+    onMaterialUnavailable: () -> Unit = onBack,
+    onUiVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -830,10 +837,21 @@ fun SheetViewerScreen(
         tocSheetInfoByPage = sheetInfo
     }
 
+    // True fullscreen: hide system bars for the lifetime of this screen.
+    ImmersiveSystemBars()
+    // Tap-to-show/hide overlay UI.
+    var showUi by rememberSaveable { mutableStateOf(true) }
+    // Restore bottom nav visibility when navigating back.
+    DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
+    val topBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "topBarAlpha")
+    val bottomBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "bottomBarAlpha")
+
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
+            // graphicsLayer alpha — no layout shift, no bitmap re-render during animation.
             TopAppBar(
+                modifier = Modifier.graphicsLayer { alpha = topBarAlpha },
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -924,6 +942,8 @@ fun SheetViewerScreen(
             )
         },
         bottomBar = {
+            // graphicsLayer alpha — no layout shift, no bitmap re-render during animation.
+            androidx.compose.foundation.layout.Box(modifier = Modifier.graphicsLayer { alpha = bottomBarAlpha }) {
             BottomActionBar(
                 currentPage = displayPageNumber,
                 totalPages = visibleTotalPages,
@@ -998,6 +1018,7 @@ fun SheetViewerScreen(
                     }
                 }
             )
+            } // end Box wrapper (graphicsLayer alpha)
         }
     ) { padding ->
         Column(
@@ -1194,6 +1215,10 @@ fun SheetViewerScreen(
                                             "selectedPartNow=$selectedPartNumber selectedCabinetNow=$selectedCabinetNumber"
                                     )
                                     showReferenceDocDialog = true
+                                },
+                                onTapEmpty = {
+                                    showUi = !showUi
+                                    onUiVisibilityChanged(showUi)
                                 }
                             )
                         } else {
@@ -2320,7 +2345,8 @@ private fun DiagramView(
     resetZoomTrigger: Int,
     modifier: Modifier = Modifier,
     onTapPart: (Int) -> Unit,
-    onLongPressPart: (Int) -> Unit
+    onLongPressPart: (Int) -> Unit,
+    onTapEmpty: (() -> Unit)? = null
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
     var zoom by remember { mutableFloatStateOf(1f) }
@@ -2402,7 +2428,12 @@ private fun DiagramView(
                 detectTapGestures(
                     onTap = { tap ->
                         val hit = hitPart(tap.x, tap.y)
-                        if (hit != null) onTapPart(hit)
+                        if (hit != null) {
+                            onTapPart(hit)
+                        } else {
+                            // Tap on empty area toggles the overlay UI.
+                            onTapEmpty?.invoke()
+                        }
                     },
                     onLongPress = { tap ->
                         val hit = hitPart(tap.x, tap.y)

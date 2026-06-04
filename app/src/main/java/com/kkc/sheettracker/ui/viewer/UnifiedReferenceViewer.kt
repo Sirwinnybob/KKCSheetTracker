@@ -429,7 +429,9 @@ fun UnifiedReferenceViewer(
     showHeaderRow: Boolean = true,
     showNavigationButtons: Boolean = true,
     innerPadding: androidx.compose.ui.unit.Dp = 8.dp,
-    tocRequestToken: Int = 0
+    tocRequestToken: Int = 0,
+    onSingleTap: (() -> Unit)? = null,
+    compactArrows: Boolean = false
 ) {
     var sourceTotalPages by remember(defaultPdfFilename, virtualMapping) { mutableIntStateOf(0) }
     val effectiveTotalPages = if (virtualMapping != null) {
@@ -511,7 +513,9 @@ fun UnifiedReferenceViewer(
                 (clampedDisplayPage + it).coerceIn(1, effectiveTotalPages.coerceAtLeast(1))
             )
         },
-        onOpenSheetNavigator = { showSheetNavigator = true }
+        onOpenSheetNavigator = { showSheetNavigator = true },
+        onSingleTap = onSingleTap,
+        compactArrows = compactArrows
     )
 
     LaunchedEffect(tocRequestToken) {

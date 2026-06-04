@@ -356,7 +356,12 @@ class FileBackedUnifiedMetadataEngine(
     override fun getSignatures(jobFolderName: String): UnifiedMetadataSignature {
         val jobDir = File(baseDir, jobFolderName)
         if (!jobDir.isDirectory) return UnifiedMetadataSignature(staticSignature = 0L, trackerSignature = 0L)
-        val staticSignature = computeStaticSignature(jobDir)
+        val cacheFile = File(jobDir, ".metadata/cache_static.json")
+        val staticSignature = if (cacheFile.isFile) {
+            cacheFile.lastModified()
+        } else {
+            computeStaticSignature(jobDir)
+        }
         val trackerSignature = computeTrackerSignature(jobDir)
         trackerByJob[jobFolderName] = CachedTrackerEntry(signature = trackerSignature)
         return UnifiedMetadataSignature(staticSignature = staticSignature, trackerSignature = trackerSignature)
@@ -365,6 +370,23 @@ class FileBackedUnifiedMetadataEngine(
     private fun loadStaticJobData(jobFolderName: String): StaticJobData? {
         val jobDir = File(baseDir, jobFolderName)
         if (!jobDir.isDirectory) return null
+
+        val cacheFile = File(jobDir, ".metadata/cache_static.json")
+        if (cacheFile.isFile) {
+            val cached = staticByJob[jobFolderName]
+            val cacheMTime = cacheFile.lastModified()
+            if (cached != null && cached.signature == cacheMTime) return cached.data
+            try {
+                val data = gson.fromJson(cacheFile.readText(), StaticJobData::class.java)
+                if (data != null) {
+                    staticByJob[jobFolderName] = CachedStaticEntry(signature = cacheMTime, data = data)
+                    return data
+                }
+            } catch (e: Exception) {
+                // Fallback to raw parsing if cache reading fails
+            }
+        }
+
         val currentSig = computeStaticSignature(jobDir)
         val cached = staticByJob[jobFolderName]
         if (cached != null && cached.signature == currentSig) return cached.data

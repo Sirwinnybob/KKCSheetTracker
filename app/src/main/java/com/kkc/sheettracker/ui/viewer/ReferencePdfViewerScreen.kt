@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.viewer
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -13,17 +15,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,7 +41,8 @@ fun ReferencePdfViewerScreen(
     startPage: Int,
     refreshGeneration: Long = 0L,
     isDarkTheme: Boolean,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onUiVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
@@ -123,15 +131,26 @@ fun ReferencePdfViewerScreen(
         prefs.edit().putInt(resumeKey, currentPage).apply()
     }
 
+    // True fullscreen: hide system bars for the lifetime of this screen.
+    ImmersiveSystemBars()
+    // Tap-to-show/hide overlay UI.
+    var showUi by rememberSaveable { mutableStateOf(true) }
+    // Restore bottom nav visibility when navigating back.
+    DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
+
     val defaultPdfFilename = remember(documentIndex, docType, jobFolderName, refreshGeneration) {
         documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }
             ?: jobRepository.findReferencePdfFilename(jobFolderName, docType)
             ?: ""
     }
 
+    val topBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "topBarAlpha")
+
     Scaffold(
         topBar = {
+            // graphicsLayer alpha — no layout shift, no PDF re-render during animation.
             TopAppBar(
+                modifier = Modifier.graphicsLayer { alpha = topBarAlpha },
                 title = {
                     Text(
                         when (docType) {
@@ -181,7 +200,11 @@ fun ReferencePdfViewerScreen(
                 null
             },
             missingText = "Reference PDF not found.",
-            unreadableText = "Unable to read PDF pages."
+            unreadableText = "Unable to read PDF pages.",
+            onSingleTap = {
+                showUi = !showUi
+                onUiVisibilityChanged(showUi)
+            }
         )
     }
 }
