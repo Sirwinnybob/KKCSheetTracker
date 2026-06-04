@@ -45,6 +45,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
+    useStandardSheets: Boolean = false,
+    onUseStandardSheetsChanged: (Boolean) -> Unit = {},
 ) {
     var editTabletId by remember { mutableStateOf(tabletId) }
     var editBasePath by remember { mutableStateOf(basePath) }
@@ -128,6 +130,27 @@ fun SettingsScreen(
                         checked = isDarkTheme,
                         onCheckedChange = onThemeChanged
                     )
+                }
+
+                if (isDarkTheme) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Use Standard Sheets", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Load light mode PDFs instead of dark mode in viewer pages.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = useStandardSheets,
+                            onCheckedChange = onUseStandardSheetsChanged
+                        )
+                    }
                 }
 
                 Text("Work Mode", style = MaterialTheme.typography.bodyLarge)

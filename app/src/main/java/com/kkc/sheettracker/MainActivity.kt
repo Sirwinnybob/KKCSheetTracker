@@ -166,6 +166,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var isDarkTheme by remember { mutableStateOf(prefs.getBoolean("dark_theme", false)) }
+            var useStandardSheets by remember { mutableStateOf(prefs.getBoolean("use_standard_sheets", false)) }
             var employeeName by rememberSaveable { mutableStateOf(prefs.getString("employee_name", "") ?: "") }
             var workMode by remember {
                 mutableStateOf(
@@ -196,6 +197,7 @@ class MainActivity : ComponentActivity() {
                         basePath = basePath,
                         isDebugBuild = BuildConfig.DEBUG,
                         isDarkTheme = isDarkTheme,
+                        useStandardSheets = useStandardSheets,
                         workMode = workMode,
                         employeeName = employeeName,
                         supplySubscriptionManager = supplySubscriptionManager,
@@ -207,6 +209,10 @@ class MainActivity : ComponentActivity() {
                         onThemeChanged = { dark ->
                             isDarkTheme = dark
                             prefs.edit().putBoolean("dark_theme", dark).apply()
+                        },
+                        onUseStandardSheetsChanged = { useStd ->
+                            useStandardSheets = useStd
+                            prefs.edit().putBoolean("use_standard_sheets", useStd).apply()
                         },
                         onWorkModeChanged = { mode ->
                             workMode = mode

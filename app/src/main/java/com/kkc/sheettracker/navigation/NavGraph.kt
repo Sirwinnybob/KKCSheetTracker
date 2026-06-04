@@ -130,11 +130,13 @@ fun AppNavigation(
     basePath: String,
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
+    useStandardSheets: Boolean,
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
     clockInState: ClockInState,
     onThemeChanged: (Boolean) -> Unit,
+    onUseStandardSheetsChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
     onBasePathChanged: (String) -> Unit,
@@ -207,11 +209,13 @@ fun AppNavigation(
                 basePath = basePath,
                 isDebugBuild = isDebugBuild,
                 isDarkTheme = isDarkTheme,
+                useStandardSheets = useStandardSheets,
                 workMode = workMode,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
                 clockInState = clockInState,
                 onThemeChanged = onThemeChanged,
+                onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
                 onBasePathChanged = onBasePathChanged,
@@ -238,11 +242,13 @@ fun AppNavigation(
                 basePath = basePath,
                 isDebugBuild = isDebugBuild,
                 isDarkTheme = isDarkTheme,
+                useStandardSheets = useStandardSheets,
                 workMode = workMode,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
                 clockInState = clockInState,
                 onThemeChanged = onThemeChanged,
+                onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                 onWorkModeChanged = onWorkModeChanged,
                 onReinstallLatest = onReinstallLatest,
                 onBasePathChanged = onBasePathChanged,
@@ -272,11 +278,13 @@ private fun MultiBackStackNavigation(
     basePath: String,
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
+    useStandardSheets: Boolean,
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
     clockInState: ClockInState,
     onThemeChanged: (Boolean) -> Unit,
+    onUseStandardSheetsChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
     onBasePathChanged: (String) -> Unit,
@@ -290,6 +298,7 @@ private fun MultiBackStackNavigation(
     activeJobFolderName: MutableStateFlow<String?>,
     supplySubscriptionManager: SupplySubscriptionManager
 ) {
+    val preferDarkMode = isDarkTheme && !useStandardSheets
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
@@ -551,7 +560,7 @@ private fun MultiBackStackNavigation(
                         jobRepository = jobRepository,
                         progressStore = progressStore,
                         appStateFlags = appStateFlags,
-                        isDarkTheme = isDarkTheme,
+                        isDarkTheme = preferDarkMode,
                         workMode = workMode,
                         hardwoodsRepository = hardwoodsRepository,
                         hardwoodsScanCoordinator = hardwoodsScanCoordinator,
@@ -624,6 +633,8 @@ private fun MultiBackStackNavigation(
                         basePath = basePath,
                         isDebugBuild = isDebugBuild,
                         isDarkTheme = isDarkTheme,
+                        useStandardSheets = useStandardSheets,
+                        onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                         workMode = workMode,
                         employeeName = employeeName,
                         onEmployeeNameChanged = onEmployeeNameChanged,
@@ -1478,10 +1489,12 @@ private fun SettingsTabHost(
     basePath: String,
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
+    useStandardSheets: Boolean,
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
     onThemeChanged: (Boolean) -> Unit,
+    onUseStandardSheetsChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
     onTabletIdChanged: (String) -> Unit,
@@ -1504,6 +1517,8 @@ private fun SettingsTabHost(
                 basePath = basePath,
                 isDebugBuild = isDebugBuild,
                 isDarkTheme = isDarkTheme,
+                useStandardSheets = useStandardSheets,
+                onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                 workMode = workMode,
                 onThemeChanged = onThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
@@ -1610,11 +1625,13 @@ private fun LegacySingleStackNavigation(
     basePath: String,
     isDebugBuild: Boolean,
     isDarkTheme: Boolean,
+    useStandardSheets: Boolean,
     workMode: WorkMode,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
     clockInState: ClockInState,
     onThemeChanged: (Boolean) -> Unit,
+    onUseStandardSheetsChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
     onReinstallLatest: () -> Unit,
     onBasePathChanged: (String) -> Unit,
@@ -1627,6 +1644,7 @@ private fun LegacySingleStackNavigation(
     watcherRefreshEpoch: Long,
     supplySubscriptionManager: SupplySubscriptionManager
 ) {
+    val preferDarkMode = isDarkTheme && !useStandardSheets
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
@@ -2228,7 +2246,7 @@ private fun LegacySingleStackNavigation(
                     jobFolderName = folderName,
                     pdfFilename = pdfFilename,
                     startPage = startPage,
-                    isDarkTheme = isDarkTheme,
+                    isDarkTheme = preferDarkMode,
                     onOpenReferenceDocument = { docType, startAt ->
                         navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
                             launchSingleTop = true
@@ -2277,7 +2295,7 @@ private fun LegacySingleStackNavigation(
                     docType = docType,
                     startPage = startPage,
                     refreshGeneration = refreshGeneration,
-                    isDarkTheme = isDarkTheme,
+                    isDarkTheme = preferDarkMode,
                     onBack = { navController.popBackStack() },
                     onUiVisibilityChanged = { viewerUiVisible = it }
                 )
@@ -2359,7 +2377,7 @@ private fun LegacySingleStackNavigation(
                     jobFolderName = folderName,
                     initialDocType = docType,
                     initialRowId = rowId,
-                    isDarkTheme = isDarkTheme,
+                    isDarkTheme = preferDarkMode,
                     onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
                         navController.navigate(
                             assemblyViewerRoute(
@@ -2410,7 +2428,7 @@ private fun LegacySingleStackNavigation(
                     startPageAssembly = startPageAssembly,
                     startPagePlans = startPagePlans,
                     refreshGeneration = refreshGeneration,
-                    isDarkTheme = isDarkTheme,
+                    isDarkTheme = preferDarkMode,
                     isClockedInHere = isClockedInHere,
                     onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
                     onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
@@ -2519,6 +2537,8 @@ private fun LegacySingleStackNavigation(
                     basePath = basePath,
                     isDebugBuild = isDebugBuild,
                     isDarkTheme = isDarkTheme,
+                    useStandardSheets = useStandardSheets,
+                    onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                     workMode = workMode,
                     onThemeChanged = onThemeChanged,
                     onWorkModeChanged = onWorkModeChanged,
@@ -2532,7 +2552,7 @@ private fun LegacySingleStackNavigation(
                     onSyncthingStartNow = onSyncthingStartNow,
                     onBack = { navController.popBackStack() },
                     employeeName = employeeName,
-                    onEmployeeNameChanged = onEmployeeNameChanged,
+                    onEmployeeNameChanged = onEmployeeNameChanged
                 )
             }
             }
