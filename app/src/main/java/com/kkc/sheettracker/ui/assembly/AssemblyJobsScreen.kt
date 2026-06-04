@@ -50,6 +50,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import com.kkc.sheettracker.data.UiPreferencesStore
+import android.content.res.Configuration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
@@ -71,6 +75,7 @@ import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -96,9 +101,15 @@ fun AssemblyJobsScreen(
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
+    val serverGridCols = remember { jobRepository.getBoardGridColumns() }
+    val orientation = LocalConfiguration.current.orientation
+    val gridCols = if (orientation == Configuration.ORIENTATION_LANDSCAPE) serverGridCols
+                   else minOf(serverGridCols, 3)
+    val context = LocalContext.current
+    val uiPrefs = remember { UiPreferencesStore(context) }
     var query by rememberSaveable { mutableStateOf("") }
     var sortByName by rememberSaveable { mutableStateOf(false) }
-    var boardView by rememberSaveable { mutableStateOf(false) }
+    var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("assembly")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
@@ -178,7 +189,10 @@ fun AssemblyJobsScreen(
                         Icon(Icons.Default.Refresh, "Refresh")
                     }
                     IconButton(
-                        onClick = { boardView = !boardView },
+                        onClick = {
+                            boardView = !boardView
+                            uiPrefs.setBoardView("assembly", boardView)
+                        },
                         enabled = !sortByName
                     ) {
                         Icon(
@@ -265,13 +279,14 @@ fun AssemblyJobsScreen(
                 }
                 isBoardView -> {
                     JobBoardGrid(
-                        items = filtered.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName) },
+                        items = filtered.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
                         jobRepository = jobRepository,
                         onItemClick = { boardItem ->
                             filtered.find { it.folderName == boardItem.folderName }
                                 ?.let { onJobClick(it) }
                         },
                         modifier = Modifier.fillMaxSize(),
+                        columns = gridCols,
                         scanGeneration = scanState.snapshot.generation
                     )
                 }
@@ -299,6 +314,13 @@ fun AssemblyJobsScreen(
                                 hidePrimaryProgressBar = true,
                                 showExpandToggle = false,
                                 headerActions = {
+                                    card.labels.forEach { label ->
+                                        StatusChip(
+                                            text = label.name,
+                                            backgroundColor = parseJobLabelColor(label.colorHex),
+                                            contentColor = Color.White
+                                        )
+                                    }
                                     if (sortByName) {
                                         val pos = card.lineupPosition
                                         if (pos != null) {

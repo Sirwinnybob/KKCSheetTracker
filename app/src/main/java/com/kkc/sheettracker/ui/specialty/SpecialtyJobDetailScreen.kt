@@ -104,7 +104,9 @@ fun SpecialtyJobDetailScreen(
     var editingItem by remember(jobFolderName) { mutableStateOf<com.kkc.sheettracker.data.models.TabletSpecialtyItem?>(null) }
     var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
     val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
+        // Specialty mode excludes DELIVERY-tagged items
         specialtyStateStore.getResolvedItems(jobFolderName)
+            .filter { !it.item.stations.contains(SpecialtyStation.DELIVERY) }
     }
 
     val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()

@@ -39,9 +39,11 @@ import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.specialty.SpecialtyChecklistRow
+import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import com.kkc.sheettracker.ui.specialty.checklistTogglesForItem
 import com.kkc.sheettracker.ui.specialty.finishInFlightUpdate
 import com.kkc.sheettracker.ui.specialty.isChecklistItemComplete
+import com.kkc.sheettracker.ui.specialty.isItemRelevantToMode
 import com.kkc.sheettracker.ui.specialty.startInFlightUpdate
 import kotlinx.coroutines.launch
 
@@ -67,6 +69,7 @@ fun AssemblyJobDetailScreen(
 
     val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
         specialtyStateStore.getResolvedItems(jobFolderName)
+            .filter { isItemRelevantToMode(it, SpecialtySurfaceMode.ASSEMBLY) }
     }
     val completedItems = resolvedItems.count { resolved ->
         isChecklistItemComplete(resolved, completionOverrides)

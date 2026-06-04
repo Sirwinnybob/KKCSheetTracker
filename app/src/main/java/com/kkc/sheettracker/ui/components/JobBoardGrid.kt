@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.models.JobLabel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -68,7 +70,8 @@ fun clearBoardCardCache() {
 data class JobBoardItem(
     val folderName: String,
     val jobNumber: String,
-    val jobName: String
+    val jobName: String,
+    val labels: List<JobLabel> = emptyList()
 )
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -158,6 +161,7 @@ internal val boardPlaceholderColors = listOf(
     Color(0xFFFF5722), // deep orange
     Color(0xFF607D8B)  // blue-grey
 )
+
 
 // ---------------------------------------------------------------------------
 // Card composable
@@ -263,59 +267,86 @@ private fun JobBoardCard(
             }
 
             // ── Thumbnail / placeholder ──────────────────────────────────────
-            with(sharedTransitionScope) {
-                when {
-                    thumbnail != null -> {
-                        // FillWidth: image fills the card width at its natural aspect ratio — no cropping
-                        Image(
-                            bitmap = thumbnail.asImageBitmap(),
-                            contentDescription = "Cover sheet for ${item.jobNumber}",
-                            contentScale = ContentScale.FillWidth,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .sharedElementWithCallerManagedVisibility(
-                                    sharedContentState = rememberSharedContentState(key = "cover:${item.folderName}"),
-                                    visible = expandedFolderName != item.folderName
-                                )
-                        )
-                    }
-                    isLoading -> {
-                        // Reserve space while loading
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(0.773f)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.primary,
-                                strokeWidth = 2.dp,
+            Box {
+                with(sharedTransitionScope) {
+                    when {
+                        thumbnail != null -> {
+                            Image(
+                                bitmap = thumbnail.asImageBitmap(),
+                                contentDescription = "Cover sheet for ${item.jobNumber}",
+                                contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .height(28.dp)
-                                    .aspectRatio(1f)
+                                    .fillMaxWidth()
+                                    .aspectRatio(11f / 8.5f)
+                                    .sharedElementWithCallerManagedVisibility(
+                                        sharedContentState = rememberSharedContentState(key = "cover:${item.folderName}"),
+                                        visible = expandedFolderName != item.folderName
+                                    )
                             )
                         }
+                        isLoading -> {
+                            // Reserve space while loading
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(11f / 8.5f)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier
+                                        .height(28.dp)
+                                        .aspectRatio(1f)
+                                )
+                            }
+                        }
+                        else -> {
+                            // No delivery sheet — coloured placeholder with job number
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(11f / 8.5f)
+                                    .background(placeholderColor)
+                                    .sharedElementWithCallerManagedVisibility(
+                                        sharedContentState = rememberSharedContentState(key = "cover:${item.folderName}"),
+                                        visible = expandedFolderName != item.folderName
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = item.jobNumber,
+                                    color = Color.White,
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
-                    else -> {
-                        // No delivery sheet — coloured placeholder with job number
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(0.773f)
-                                .background(placeholderColor)
-                                .sharedElementWithCallerManagedVisibility(
-                                    sharedContentState = rememberSharedContentState(key = "cover:${item.folderName}"),
-                                    visible = expandedFolderName != item.folderName
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = item.jobNumber,
-                                color = Color.White,
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                }
+                // Labels overlay — top-left corner over thumbnail
+                if (item.labels.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        item.labels.forEach { label ->
+                            Surface(
+                                color = parseJobLabelColor(label.colorHex),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = label.name,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
                         }
                     }
                 }

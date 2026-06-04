@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data.unified
 
+import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.AssemblyCabinetParts
 import com.kkc.sheettracker.data.models.AssemblyJob
 import com.kkc.sheettracker.data.models.BoardStockRow
@@ -19,7 +20,8 @@ data class UnifiedJobInfo(
     val jobNumber: String,
     val jobName: String,
     val hiddenFromProduction: Boolean = false,
-    val lineupPosition: Int? = null
+    val lineupPosition: Int? = null,
+    val labels: List<JobLabel> = emptyList()
 )
 
 data class UnifiedCncSnapshot(

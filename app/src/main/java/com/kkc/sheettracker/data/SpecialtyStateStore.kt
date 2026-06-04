@@ -5,6 +5,7 @@ import com.kkc.sheettracker.data.models.SpecialtyJob
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyScanState
+import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.StationProgress
 import com.kkc.sheettracker.data.models.TabletSpecialtyItem
 import kotlinx.coroutines.CoroutineDispatcher
@@ -124,17 +125,24 @@ class SpecialtyStateStore(
 
     fun deriveJobCards(): List<SpecialtyJobCard> {
         return getJobs().map { job ->
+            // Specialty mode excludes DELIVERY-tagged items from counts and station progress
+            val specialtyItems = job.resolvedItems.filter { resolved ->
+                !resolved.item.stations.contains(SpecialtyStation.DELIVERY)
+            }
+            val specialtyTotal = specialtyItems.size
+            val specialtyCompleted = specialtyItems.count { it.isComplete }
             SpecialtyJobCard(
                 folderName = job.folderName,
                 jobNumber = job.jobNumber,
                 jobName = job.jobName,
                 hiddenFromProduction = job.hiddenFromProduction,
-                totalItems = job.totalItems,
-                completedItems = job.completedItems,
-                remainingItems = job.remainingItems,
-                completionFraction = job.completionFraction,
-                stationProgress = buildStationProgress(job.resolvedItems),
-                lineupPosition = job.lineupPosition
+                totalItems = specialtyTotal,
+                completedItems = specialtyCompleted,
+                remainingItems = (specialtyTotal - specialtyCompleted).coerceAtLeast(0),
+                completionFraction = if (specialtyTotal <= 0) 0f else specialtyCompleted.toFloat() / specialtyTotal.toFloat(),
+                stationProgress = buildStationProgress(specialtyItems),
+                lineupPosition = job.lineupPosition,
+                labels = job.labels
             )
         }
     }

@@ -47,6 +47,8 @@ class JobRepository(
         unifiedEngine?.invalidateAll()
     }
 
+    fun getBoardGridColumns(): Int = engine().getBoardGridColumns()
+
     fun scanJobs(forceRefresh: Boolean = false): List<Job> {
         scanCoordinator?.let { coordinator ->
             if (forceRefresh) {

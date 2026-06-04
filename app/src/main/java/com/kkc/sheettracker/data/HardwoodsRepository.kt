@@ -37,7 +37,7 @@ class HardwoodsRepository(private var baseDir: File) {
         return engine().listJobs()
             .mapNotNull { info ->
                 engine().getHardwoodsSnapshot(info.folderName)?.job
-                    ?.copy(lineupPosition = info.lineupPosition)
+                    ?.copy(lineupPosition = info.lineupPosition, labels = info.labels)
             }
         // Preserve production order from listJobs; no secondary sort needed
     }

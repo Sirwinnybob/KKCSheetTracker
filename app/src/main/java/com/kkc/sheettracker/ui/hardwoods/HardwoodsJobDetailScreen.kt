@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodJob
@@ -52,6 +53,8 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
+import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
+import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +62,7 @@ fun HardwoodsJobDetailScreen(
     scanCoordinator: HardwoodsScanCoordinator,
     progressStore: HardwoodsProgressStore,
     jobRepository: JobRepository,
+    specialtyStateStore: SpecialtyStateStore,
     jobFolderName: String,
     onOpenWorkspace: (HardwoodDocType) -> Unit,
     onOpenRipCutList: () -> Unit,
@@ -294,6 +298,12 @@ fun HardwoodsJobDetailScreen(
                     }
                 }
             }
+
+            CompactSpecialtySection(
+                jobFolderName = jobFolderName,
+                specialtyStateStore = specialtyStateStore,
+                mode = SpecialtySurfaceMode.HARDWOODS
+            )
         }
     }
 }

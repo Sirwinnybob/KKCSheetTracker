@@ -18,9 +18,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+
+fun parseJobLabelColor(hex: String): Color = try {
+    Color(android.graphics.Color.parseColor(hex))
+} catch (e: Exception) {
+    Color.Gray
+}
 
 data class MaterialSegmentData(
     val materialName: String,

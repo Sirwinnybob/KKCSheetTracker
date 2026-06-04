@@ -5,6 +5,7 @@ interface UnifiedMetadataEngine {
     fun invalidateAll()
     fun invalidateJob(jobFolderName: String)
 
+    fun getBoardGridColumns(): Int
     fun listJobs(): List<UnifiedJobInfo>
     fun getCncSnapshot(jobFolderName: String): UnifiedCncSnapshot?
     fun getHardwoodsSnapshot(jobFolderName: String): UnifiedHardwoodsSnapshot?

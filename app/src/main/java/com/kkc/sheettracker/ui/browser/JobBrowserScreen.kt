@@ -49,6 +49,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import com.kkc.sheettracker.data.UiPreferencesStore
+import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.BackHandler
 import com.kkc.sheettracker.data.AppStateFeatureFlags
@@ -74,7 +78,9 @@ import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -97,9 +103,15 @@ fun JobBrowserScreen(
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
+    val serverGridCols = remember { jobRepository.getBoardGridColumns() }
+    val orientation = LocalConfiguration.current.orientation
+    val gridCols = if (orientation == Configuration.ORIENTATION_LANDSCAPE) serverGridCols
+                   else minOf(serverGridCols, 3)
+    val context = LocalContext.current
+    val uiPrefs = remember { UiPreferencesStore(context) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var sortByName by rememberSaveable { mutableStateOf(false) }
-    var boardView by rememberSaveable { mutableStateOf(false) }
+    var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("jobs")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val listState = rememberLazyListState()
@@ -210,7 +222,10 @@ fun JobBrowserScreen(
                 actions = {
                     IconButton(onClick = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) { Icon(Icons.Default.Refresh, "Refresh") }
                     IconButton(
-                        onClick = { boardView = !boardView },
+                        onClick = {
+                            boardView = !boardView
+                            uiPrefs.setBoardView("jobs", boardView)
+                        },
                         enabled = !sortByName
                     ) {
                         Icon(
@@ -280,13 +295,14 @@ fun JobBrowserScreen(
                     }
                 } else if (isBoardView) {
                     JobBoardGrid(
-                        items = filteredJobs.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName) },
+                        items = filteredJobs.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
                         jobRepository = jobRepository,
                         onItemClick = { boardItem ->
                             filteredJobs.find { it.folderName == boardItem.folderName }
                                 ?.let { onJobClick(it) }
                         },
                         modifier = Modifier.fillMaxSize(),
+                        columns = gridCols,
                         scanGeneration = scanState.snapshot.generation
                     )
                 } else {
@@ -408,6 +424,13 @@ private fun JobBrowserRow(
         materialSegments = uiState.materialSegments,
         showExpandToggle = false,
         headerActions = {
+            job.labels.forEach { label ->
+                StatusChip(
+                    text = label.name,
+                    backgroundColor = parseJobLabelColor(label.colorHex),
+                    contentColor = Color.White
+                )
+            }
             if (sortByName) {
                 val pos = job.lineupPosition
                 if (pos != null) {

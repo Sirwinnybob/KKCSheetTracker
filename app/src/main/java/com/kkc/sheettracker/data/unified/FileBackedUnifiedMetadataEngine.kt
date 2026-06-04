@@ -26,6 +26,7 @@ import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.MaterialMetadata
 import com.kkc.sheettracker.data.models.PartSearchEntry
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.ScanIssue
 import com.kkc.sheettracker.data.models.ScanIssueType
 import com.kkc.sheettracker.data.models.SheetStatus
@@ -96,9 +97,50 @@ class FileBackedUnifiedMetadataEngine(
         }
     }
 
+    override fun getBoardGridColumns(): Int {
+        val file = File(baseDir, "job_board.json")
+        if (!file.exists()) return 3
+        return try {
+            val root = gson.fromJson(file.readText(), JsonObject::class.java) ?: return 3
+            root.getAsJsonObject("settings")?.get("grid_cols")?.asInt ?: 3
+        } catch (e: Exception) {
+            3
+        }
+    }
+
+    private fun readJobBoardLabels(): Map<String, List<JobLabel>> {
+        val file = File(baseDir, "job_board.json")
+        if (!file.exists()) return emptyMap()
+        return try {
+            val root = gson.fromJson(file.readText(), JsonObject::class.java) ?: return emptyMap()
+            val labelDefs = mutableMapOf<Int, JobLabel>()
+            root.getAsJsonArray("labels")?.forEach { el ->
+                val obj = el.asJsonObject
+                val id = obj.get("id")?.asInt ?: return@forEach
+                val name = obj.get("name")?.asString ?: return@forEach
+                val color = obj.get("color")?.asString ?: "#888888"
+                labelDefs[id] = JobLabel(id, name, color)
+            }
+            val result = mutableMapOf<String, List<JobLabel>>()
+            root.getAsJsonArray("jobs")?.forEach { el ->
+                val obj = el.asJsonObject
+                val folderName = obj.get("folder_name")?.asString?.takeIf { it.isNotBlank() } ?: return@forEach
+                val labelIds = obj.getAsJsonArray("label_ids")?.map { it.asInt } ?: emptyList()
+                if (labelIds.isNotEmpty()) {
+                    result[folderName] = labelIds.mapNotNull { labelDefs[it] }
+                }
+            }
+            result
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
     override fun listJobs(): List<UnifiedJobInfo> {
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
-        
+
+        val boardLabels = readJobBoardLabels()
+
         val activeJobs = baseDir.listFiles()
             ?.asSequence()
             ?.filter { it.isDirectory }
@@ -136,9 +178,12 @@ class FileBackedUnifiedMetadataEngine(
         val remainingJobs = activeJobsMap.values.sortedWith(fallbackComparator)
         computedJobs.addAll(remainingJobs)
 
-        // 3. Assign 1-based index (lineupPosition)
+        // 3. Assign 1-based index (lineupPosition) and attach labels from job_board.json
         return computedJobs.mapIndexed { index, job ->
-            job.copy(lineupPosition = index + 1)
+            job.copy(
+                lineupPosition = index + 1,
+                labels = boardLabels[job.folderName] ?: emptyList()
+            )
         }
     }
 
@@ -353,12 +398,65 @@ class FileBackedUnifiedMetadataEngine(
         return UnifiedBoardStockRows(adjusted)
     }
 
+    private fun checkIsCacheStale(jobDir: File, cacheMTime: Long): Boolean {
+        val deploymentGate = File(jobDir, ".metadata/deployment_gate.json")
+        if (deploymentGate.isFile && deploymentGate.lastModified() > cacheMTime) return true
+
+        val cabinetIndex = File(jobDir, ".metadata/cabinet_sheet_index.json")
+        if (cabinetIndex.isFile && cabinetIndex.lastModified() > cacheMTime) return true
+
+        val hardwoodIndex = File(jobDir, ".metadata/hardwoods/cutlist_index.json")
+        if (hardwoodIndex.isFile && hardwoodIndex.lastModified() > cacheMTime) return true
+
+        val hardwoodRevision = File(jobDir, ".metadata/hardwoods/cutlist_revisions.json")
+        if (hardwoodRevision.isFile && hardwoodRevision.lastModified() > cacheMTime) return true
+
+        val manualBoard = File(jobDir, ".metadata/hardwoods/board_stock_manual.json")
+        if (manualBoard.isFile && manualBoard.lastModified() > cacheMTime) return true
+
+        val rootPdfs = jobDir.listFiles()
+        if (rootPdfs != null) {
+            for (file in rootPdfs) {
+                if (file.isFile && file.extension.equals("pdf", ignoreCase = true)) {
+                    if (file.lastModified() > cacheMTime) return true
+                }
+            }
+        }
+
+        val cncDir = File(jobDir, "CNC")
+        val cncPdfs = cncDir.listFiles()
+        if (cncPdfs != null) {
+            for (file in cncPdfs) {
+                if (file.isFile && file.extension.equals("pdf", ignoreCase = true) && "ALL SHEETS" !in file.name) {
+                    if (file.lastModified() > cacheMTime) return true
+                }
+            }
+        }
+
+        val cncMetadataDir = File(cncDir, ".metadata")
+        val cncMetadata = cncMetadataDir.listFiles()
+        if (cncMetadata != null) {
+            for (file in cncMetadata) {
+                if (file.isFile && file.extension.equals("json", ignoreCase = true)) {
+                    if (file.lastModified() > cacheMTime) return true
+                }
+            }
+        }
+
+        return false
+    }
+
     override fun getSignatures(jobFolderName: String): UnifiedMetadataSignature {
         val jobDir = File(baseDir, jobFolderName)
         if (!jobDir.isDirectory) return UnifiedMetadataSignature(staticSignature = 0L, trackerSignature = 0L)
         val cacheFile = File(jobDir, ".metadata/cache_static.json")
         val staticSignature = if (cacheFile.isFile) {
-            cacheFile.lastModified()
+            val cacheMTime = cacheFile.lastModified()
+            if (checkIsCacheStale(jobDir, cacheMTime)) {
+                computeStaticSignature(jobDir)
+            } else {
+                cacheMTime
+            }
         } else {
             computeStaticSignature(jobDir)
         }
@@ -373,17 +471,19 @@ class FileBackedUnifiedMetadataEngine(
 
         val cacheFile = File(jobDir, ".metadata/cache_static.json")
         if (cacheFile.isFile) {
-            val cached = staticByJob[jobFolderName]
             val cacheMTime = cacheFile.lastModified()
-            if (cached != null && cached.signature == cacheMTime) return cached.data
-            try {
-                val data = gson.fromJson(cacheFile.readText(), StaticJobData::class.java)
-                if (data != null) {
-                    staticByJob[jobFolderName] = CachedStaticEntry(signature = cacheMTime, data = data)
-                    return data
+            if (!checkIsCacheStale(jobDir, cacheMTime)) {
+                val cached = staticByJob[jobFolderName]
+                if (cached != null && cached.signature == cacheMTime) return cached.data
+                try {
+                    val data = gson.fromJson(cacheFile.readText(), StaticJobData::class.java)
+                    if (data != null) {
+                        staticByJob[jobFolderName] = CachedStaticEntry(signature = cacheMTime, data = data)
+                        return data
+                    }
+                } catch (e: Exception) {
+                    // Fallback to raw parsing if cache reading fails
                 }
-            } catch (e: Exception) {
-                // Fallback to raw parsing if cache reading fails
             }
         }
 

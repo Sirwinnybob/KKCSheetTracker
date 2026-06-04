@@ -25,12 +25,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import kotlinx.coroutines.launch
@@ -38,19 +38,33 @@ import kotlinx.coroutines.launch
 enum class SpecialtySurfaceMode {
     CNC,
     HARDWOODS,
-    ASSEMBLY
+    ASSEMBLY,
+    SPECIALTY
 }
 
 internal data class SpecialtySectionRowModel(
     val resolved: SpecialtyResolvedItem,
-    val isRelevantToMode: Boolean
+    val isRelevantToMode: Boolean = true
 )
 
-internal fun specialtyPriorityStationsForMode(mode: SpecialtySurfaceMode): Set<SpecialtyStation> {
+internal fun isItemRelevantToMode(
+    resolved: SpecialtyResolvedItem,
+    mode: SpecialtySurfaceMode
+): Boolean {
+    val stations = resolved.item.stations
+    val category = resolved.item.category
     return when (mode) {
-        SpecialtySurfaceMode.CNC -> setOf(SpecialtyStation.CNC)
-        SpecialtySurfaceMode.HARDWOODS -> setOf(SpecialtyStation.SAW, SpecialtyStation.EDGE_BANDER)
-        SpecialtySurfaceMode.ASSEMBLY -> setOf(SpecialtyStation.ASSEMBLY)
+        SpecialtySurfaceMode.CNC ->
+            stations.contains(SpecialtyStation.CNC)
+        SpecialtySurfaceMode.HARDWOODS ->
+            stations.contains(SpecialtyStation.HARDWOODS) ||
+            stations.contains(SpecialtyStation.DELIVERY)
+        SpecialtySurfaceMode.ASSEMBLY ->
+            stations.contains(SpecialtyStation.ASSEMBLY) ||
+            stations.contains(SpecialtyStation.DELIVERY) ||
+            category == SpecialtyItemCategory.TO_ORDER
+        SpecialtySurfaceMode.SPECIALTY ->
+            !stations.contains(SpecialtyStation.DELIVERY)
     }
 }
 
@@ -58,14 +72,9 @@ internal fun buildSpecialtySectionRows(
     resolvedItems: List<SpecialtyResolvedItem>,
     mode: SpecialtySurfaceMode
 ): List<SpecialtySectionRowModel> {
-    if (resolvedItems.isEmpty()) return emptyList()
-    val priorityStations = specialtyPriorityStationsForMode(mode)
-    val (relevant, nonRelevant) = resolvedItems.partition { resolved ->
-        resolved.item.stations.contains(SpecialtyStation.DELIVERY) ||
-        resolved.item.stations.any { station -> station in priorityStations }
-    }
-    return relevant.map { SpecialtySectionRowModel(it, true) } +
-        nonRelevant.map { SpecialtySectionRowModel(it, false) }
+    return resolvedItems
+        .filter { isItemRelevantToMode(it, mode) }
+        .map { SpecialtySectionRowModel(it, true) }
 }
 
 @Composable
@@ -138,8 +147,7 @@ fun CompactSpecialtySection(
                     }
                     Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .alpha(if (rowModel.isRelevantToMode) 1f else 0.62f),
+                        .fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {

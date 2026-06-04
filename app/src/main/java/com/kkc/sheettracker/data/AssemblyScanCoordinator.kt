@@ -91,7 +91,7 @@ class AssemblyScanCoordinator(
             .mapNotNull { info ->
                 runCatching {
                     unifiedEngine.getAssemblySnapshot(info.folderName)?.job
-                        ?.copy(lineupPosition = info.lineupPosition)
+                        ?.copy(lineupPosition = info.lineupPosition, labels = info.labels)
                 }.getOrNull()
             }
         // Preserve production order from listJobs; no secondary sort needed

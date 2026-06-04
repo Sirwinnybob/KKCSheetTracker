@@ -44,6 +44,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import com.kkc.sheettracker.data.UiPreferencesStore
+import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
@@ -58,6 +62,7 @@ import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 
@@ -72,9 +77,15 @@ fun SpecialtyJobsScreen(
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
+    val serverGridCols = remember { jobRepository.getBoardGridColumns() }
+    val orientation = LocalConfiguration.current.orientation
+    val gridCols = if (orientation == Configuration.ORIENTATION_LANDSCAPE) serverGridCols
+                   else minOf(serverGridCols, 3)
+    val context = LocalContext.current
+    val uiPrefs = remember { UiPreferencesStore(context) }
     var query by rememberSaveable { mutableStateOf("") }
     var sortByName by rememberSaveable { mutableStateOf(false) }
-    var boardView by rememberSaveable { mutableStateOf(false) }
+    var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("specialty")) }
     var showScheduleDialog by remember { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by specialtyStateStore.scanState.collectAsState()
@@ -119,7 +130,10 @@ fun SpecialtyJobsScreen(
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                     IconButton(
-                        onClick = { boardView = !boardView },
+                        onClick = {
+                            boardView = !boardView
+                            uiPrefs.setBoardView("specialty", boardView)
+                        },
                         enabled = !sortByName
                     ) {
                         Icon(
@@ -195,13 +209,14 @@ fun SpecialtyJobsScreen(
                 }
                 isBoardView -> {
                     JobBoardGrid(
-                        items = filteredCards.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName) },
+                        items = filteredCards.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
                         jobRepository = jobRepository,
                         onItemClick = { boardItem ->
                             filteredCards.find { it.folderName == boardItem.folderName }
                                 ?.let { onJobClick(it) }
                         },
                         modifier = Modifier.fillMaxSize(),
+                        columns = gridCols,
                         scanGeneration = scanState.snapshot.generation
                     )
                 }
@@ -233,6 +248,13 @@ fun SpecialtyJobsScreen(
                                 segmentedStatusCounts = statusCounts,
                                 showExpandToggle = false,
                                 headerActions = {
+                                    card.labels.forEach { label ->
+                                        StatusChip(
+                                            text = label.name,
+                                            backgroundColor = parseJobLabelColor(label.colorHex),
+                                            contentColor = Color.White
+                                        )
+                                    }
                                     if (sortByName) {
                                         val pos = card.lineupPosition
                                         if (pos != null) {

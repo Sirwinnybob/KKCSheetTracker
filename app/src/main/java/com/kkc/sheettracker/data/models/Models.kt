@@ -1,12 +1,15 @@
 package com.kkc.sheettracker.data.models
 
+data class JobLabel(val id: Int, val name: String, val colorHex: String)
+
 data class Job(
     val folderName: String,
     val jobNumber: String,
     val jobName: String,
     val materials: List<Material> = emptyList(),
     val hiddenFromProduction: Boolean = false,
-    val lineupPosition: Int? = null
+    val lineupPosition: Int? = null,
+    val labels: List<JobLabel> = emptyList()
 ) {
     val totalSheets: Int get() = materials.sumOf { it.pageCount }
 }
@@ -207,7 +210,8 @@ data class AssemblyJob(
     val cncSummary: AssemblyCncSummary? = null,
     val hardwoodsSummary: AssemblyHardwoodsSummary? = null,
     val hiddenFromProduction: Boolean = false,
-    val lineupPosition: Int? = null
+    val lineupPosition: Int? = null,
+    val labels: List<JobLabel> = emptyList()
 )
 
 data class AssemblyCncPart(
@@ -259,7 +263,8 @@ data class AssemblyJobCard(
     val hardwoodsSummary: AssemblyHardwoodsSummary = AssemblyHardwoodsSummary(),
     val hasBothModes: Boolean = false,
     val hiddenFromProduction: Boolean = false,
-    val lineupPosition: Int? = null
+    val lineupPosition: Int? = null,
+    val labels: List<JobLabel> = emptyList()
 )
 
 data class AssemblySearchEntry(
@@ -388,7 +393,8 @@ data class HardwoodJob(
     val jobName: String,
     val index: HardwoodCutlistIndex? = null,
     val hiddenFromProduction: Boolean = false,
-    val lineupPosition: Int? = null
+    val lineupPosition: Int? = null,
+    val labels: List<JobLabel> = emptyList()
 )
 
 data class HardwoodSearchEntry(
