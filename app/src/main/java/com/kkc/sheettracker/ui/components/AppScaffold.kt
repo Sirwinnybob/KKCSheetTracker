@@ -10,14 +10,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Dashboard
-import androidx.compose.material.icons.outlined.List
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.AccessTime
@@ -36,7 +36,7 @@ enum class NavDestination(
     val unselectedIcon: ImageVector
 ) {
     DASHBOARD("dashboard", "Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
-    JOBS("jobs", "Jobs", Icons.Filled.List, Icons.Outlined.List),
+    JOBS("jobs", "Jobs", Icons.AutoMirrored.Filled.List, Icons.AutoMirrored.Outlined.List),
     SEARCH("search", "Search", Icons.Filled.Search, Icons.Outlined.Search),
     HOURS("hours", "Hours", Icons.Filled.AccessTime, Icons.Outlined.AccessTime),
     SUPPLY("supply", "Supply", Icons.Filled.ShoppingCart, Icons.Outlined.ShoppingCart),
