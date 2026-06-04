@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.KKCSheetTracker" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0e1621</item>
+    </style>
+</resources>
