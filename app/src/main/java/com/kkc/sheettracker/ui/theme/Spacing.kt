@@ -41,4 +41,7 @@ object KKCSpacing {
     val tightSpacing         = xs    // 6.dp
     val chipHorizontal       = m     // 10.dp
     val navBarHorizontal     = xl3   // 24.dp — minimized nav bar
+    val floatingNavSideMargin    = xl    // 16.dp — full nav bar floating side margin
+    val floatingNavMinSideMargin = xl3   // 24.dp — minimized nav floating side margin
+    val floatingNavBottomGap     = l     // 12.dp — gap above gesture bar
 }
