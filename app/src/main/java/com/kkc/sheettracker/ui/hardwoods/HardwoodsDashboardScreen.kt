@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.hardwoods
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +51,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
@@ -179,44 +181,59 @@ fun HardwoodsDashboardScreen(
             return@Scaffold
         }
 
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(KKCSpacing.screenHorizontal),
-            verticalArrangement = Arrangement.spacedBy(KKCSpacing.listItemSpacing)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = KKCAlpha.gradientAccentTop),
+                            Color.Transparent
+                        ),
+                        startY = 0f,
+                        endY = 520f
+                    )
+                )
         ) {
-            item {
-                HardwoodsOverviewCard(
-                    jobs = jobs,
-                    totalCounts = totalCounts,
-                    onNavigateToJobs = onNavigateToJobs,
-                    onBadClick = { showBadModal = true },
-                    onSkippedClick = { showSkippedModal = true }
-                )
-            }
-
-            item {
-                HardwoodsQualityAlertCard(
-                    badPieces = totalCounts.badPieces,
-                    skippedPieces = totalCounts.skippedPieces
-                )
-            }
-
-            if (recentJobs.isNotEmpty()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(KKCSpacing.screenHorizontal),
+                verticalArrangement = Arrangement.spacedBy(KKCSpacing.listItemSpacing)
+            ) {
                 item {
-                    HardwoodsRecentJobsCard(
-                        recentJobs = recentJobs,
-                        onOpenJob = onOpenJob
+                    HardwoodsOverviewCard(
+                        jobs = jobs,
+                        totalCounts = totalCounts,
+                        onNavigateToJobs = onNavigateToJobs,
+                        onBadClick = { showBadModal = true },
+                        onSkippedClick = { showSkippedModal = true }
                     )
                 }
-            }
 
-            items(summaries.take(8), key = { it.summary.job.folderName }) { entry ->
-                HardwoodsJobCard(
-                    entry = entry,
-                    onClick = { onOpenJob(entry.summary.job) }
-                )
+                item {
+                    HardwoodsQualityAlertCard(
+                        badPieces = totalCounts.badPieces,
+                        skippedPieces = totalCounts.skippedPieces
+                    )
+                }
+
+                if (recentJobs.isNotEmpty()) {
+                    item {
+                        HardwoodsRecentJobsCard(
+                            recentJobs = recentJobs,
+                            onOpenJob = onOpenJob
+                        )
+                    }
+                }
+
+                items(summaries.take(8), key = { it.summary.job.folderName }) { entry ->
+                    HardwoodsJobCard(
+                        entry = entry,
+                        onClick = { onOpenJob(entry.summary.job) }
+                    )
+                }
             }
         }
     }

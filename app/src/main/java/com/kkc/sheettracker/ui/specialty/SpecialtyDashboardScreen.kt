@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.specialty
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,9 +23,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.SpecialtyStateStore
+import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.data.completionKeysForItem
 import com.kkc.sheettracker.data.models.ScanStatus
@@ -69,6 +73,20 @@ fun SpecialtyDashboardScreen(
         return
     }
 
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = KKCAlpha.gradientAccentTop),
+                        Color.Transparent
+                    ),
+                    startY = 0f,
+                    endY = 520f
+                )
+            )
+    ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = KKCSpacing.listContentHorizontal, vertical = KKCSpacing.listContentVertical),
@@ -208,6 +226,7 @@ fun SpecialtyDashboardScreen(
             }
         }
     }
+    } // end gradient Box
 }
 
 private fun buildRecentInProgressSpecialtyItems(jobs: List<SpecialtyJob>): List<SpecialtyInProgressItemUi> {

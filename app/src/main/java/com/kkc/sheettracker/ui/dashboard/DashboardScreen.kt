@@ -23,6 +23,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +46,7 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.ProgressPill
 import com.kkc.sheettracker.ui.components.ProgressState
 import com.kkc.sheettracker.ui.components.StatusBorderedCard
+import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -243,6 +246,20 @@ fun DashboardScreen(
             )
         }
     ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = KKCAlpha.gradientAccentTop),
+                            Color.Transparent
+                        ),
+                        startY = 0f,
+                        endY = 520f
+                    )
+                )
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -419,6 +436,7 @@ fun DashboardScreen(
             }
 
         }
+        } // end gradient Box
     }
 
     if (showBadList) {
