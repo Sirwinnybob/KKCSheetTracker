@@ -179,7 +179,7 @@ fun CompactSpecialtySection(
                         )
                         Column(
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                            verticalArrangement = Arrangement.spacedBy(KKCSpacing.textLineGap)
                         ) {
                             Text(
                                 text = item.name,
