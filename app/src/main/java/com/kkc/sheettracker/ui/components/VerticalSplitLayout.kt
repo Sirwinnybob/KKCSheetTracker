@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.components
 
+import com.kkc.sheettracker.ui.theme.KKCAlpha
+import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -76,16 +78,16 @@ fun VerticalSplitLayout(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(1.dp)
+                    .height(KKCShapeTokens.splitDividerThickness)
                     .background(MaterialTheme.colorScheme.outlineVariant)
             )
             Box(
                 modifier = Modifier
                     .width(48.dp)
-                    .height(5.dp)
+                    .height(KKCShapeTokens.splitHandleBarThickness)
                     .background(
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                        shape = RoundedCornerShape(999.dp)
+                        MaterialTheme.colorScheme.outline.copy(alpha = KKCAlpha.handleBar),
+                        shape = KKCShapeTokens.pill
                     )
             )
         }
