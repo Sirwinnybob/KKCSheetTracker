@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -80,6 +81,7 @@ fun ProgressPill(
         modifier = modifier
             .height(22.dp)
             .widthIn(min = 52.dp)
+            .shadow(elevation = 2.dp, shape = shape, clip = false)
             .clip(shape)
             .background(trackColor)
             .semantics {

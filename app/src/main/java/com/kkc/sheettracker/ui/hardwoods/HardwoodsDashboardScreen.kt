@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -272,13 +273,17 @@ private fun HardwoodsOverviewCard(
 ) {
     val colors = KKCThemeColors.statusColors
     val completionFraction = totalCounts.completionFraction
+    val heroTint = if (isSystemInDarkTheme()) KKCAlpha.cardHeroTint else KKCAlpha.lightCardHeroTint
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = KKCAlpha.primaryContainerOverview)
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = heroTint)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 4.dp,
+            pressedElevation = 6.dp
+        )
     ) {
         Column(
             modifier = Modifier
@@ -436,7 +441,7 @@ private fun HardwoodsQualityAlertCard(
         status = status,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = 1.dp
+        tonalElevation = 3.dp
     ) {
         Column(
             modifier = Modifier
@@ -561,7 +566,7 @@ private fun HardwoodsJobCard(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = 1.dp
+        tonalElevation = 3.dp
     ) {
         Column(
             modifier = Modifier.padding(KKCSpacing.cardPaddingCompact),

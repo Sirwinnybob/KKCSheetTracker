@@ -28,7 +28,7 @@ fun StatusBorderedCard(
     onClick: (() -> Unit)? = null,
     shape: Shape = MaterialTheme.shapes.medium,
     containerColor: Color = MaterialTheme.colorScheme.surface,
-    tonalElevation: Dp = 1.dp,
+    tonalElevation: Dp = 3.dp,
     leftBorderWidth: Dp = 3.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -72,7 +72,10 @@ fun StatusBorderedCard(
             .then(clickableModifier),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = appliedContainerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = tonalElevation)
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = tonalElevation + 2.dp,
+            pressedElevation = tonalElevation + 4.dp
+        )
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
             Box(
@@ -98,7 +101,7 @@ fun StatusBorderedCard(
     onClick: (() -> Unit)? = null,
     shape: Shape = MaterialTheme.shapes.medium,
     containerColor: Color = MaterialTheme.colorScheme.surface,
-    tonalElevation: Dp = 1.dp,
+    tonalElevation: Dp = 3.dp,
     leftBorderWidth: Dp = 3.dp,
     content: @Composable BoxScope.() -> Unit
 ) {

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -274,11 +275,16 @@ fun DashboardScreen(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
+            val heroTint = if (isSystemInDarkTheme()) KKCAlpha.cardHeroTint else KKCAlpha.lightCardHeroTint
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = heroTint)
+                ),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = 4.dp,
+                    pressedElevation = 6.dp
                 )
             ) {
                 Row(
@@ -502,7 +508,7 @@ private fun QualityAlertCard(
         status = status,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = 1.dp
+        tonalElevation = 3.dp
     ) {
         Column(
             modifier = Modifier
@@ -622,7 +628,7 @@ private fun RecentMaterialCard(
         modifier = Modifier.width(250.dp),
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = 1.dp
+        tonalElevation = 3.dp
     ) {
         Column(
             modifier = Modifier.padding(10.dp),

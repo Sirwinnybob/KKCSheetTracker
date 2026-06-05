@@ -158,7 +158,7 @@ fun ProgressCard(
         modifier = modifier,
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = 1.dp
+        tonalElevation = 3.dp
     ) {
         Column(
             modifier = Modifier
