@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -78,7 +77,8 @@ fun AppBottomNavBar(
             ) {
                 NavigationBar(
                     containerColor = Color.Transparent,
-                    tonalElevation = 0.dp
+                    tonalElevation = 0.dp,
+                    windowInsets = WindowInsets(0)
                 ) {
                     destinations.forEach { dest ->
                         if (dest == NavDestination.HOURS) {
@@ -131,7 +131,11 @@ fun AppBottomNavBar(
         }
     }
 
-    if (minimized) {
+    AnimatedVisibility(
+        visible = minimized,
+        enter = slideInVertically(tween(200)) { it },
+        exit = slideOutVertically(tween(200)) { it }
+    ) {
         MinimizedNavBar(
             currentDestination = currentDestination,
             onNavigate = onNavigate,
@@ -168,22 +172,27 @@ private fun MinimizedNavBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp)
+                    .heightIn(min = 44.dp)
                     .padding(horizontal = KKCSpacing.navBarHorizontal),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 destinations.forEach { dest ->
                     if (dest == NavDestination.HOURS) {
-                        Icon(
-                            if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                            contentDescription = "Calculator",
-                            tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        Box(
                             modifier = Modifier
-                                .size(20.dp)
-                                .clickable { onCalculatorClick() }
-                        )
+                                .size(44.dp)
+                                .clickable { onCalculatorClick() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                                contentDescription = "Calculator",
+                                tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                     val selected = dest == currentDestination
                     val iconContent = @Composable {
@@ -192,17 +201,22 @@ private fun MinimizedNavBar(
                             contentDescription = dest.label,
                             tint = if (selected) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clickable { onNavigate(dest) }
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                        BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clickable { onNavigate(dest) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                            BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                                iconContent()
+                            }
+                        } else {
                             iconContent()
                         }
-                    } else {
-                        iconContent()
                     }
                 }
             }
