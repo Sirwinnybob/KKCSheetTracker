@@ -323,7 +323,7 @@ private fun HardwoodsOverviewCard(
                 ) {
                     Text(
                         "Overall Progress",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -401,7 +401,7 @@ private fun HardwoodsStatCard(
         ) {
             Text(
                 value,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = color,
                 maxLines = 1,
@@ -736,7 +736,7 @@ private fun HardwoodsFlaggedPartsSheet(
                         ) {
                             Text(
                                 summary.job.jobName.ifBlank { summary.job.folderName },
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
                             summary.documents

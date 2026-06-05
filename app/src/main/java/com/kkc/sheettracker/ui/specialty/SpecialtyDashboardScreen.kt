@@ -107,7 +107,7 @@ fun SpecialtyDashboardScreen(
                 ) {
                     Text(
                         text = "Specialty Overview",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing)) {
@@ -132,7 +132,7 @@ fun SpecialtyDashboardScreen(
         item(key = "recent-jobs-header") {
             Text(
                 text = "Recent Jobs",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -173,7 +173,7 @@ fun SpecialtyDashboardScreen(
         item(key = "recent-items-header") {
             Text(
                 text = "Recent In-Progress Specialty Items",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -203,12 +203,12 @@ fun SpecialtyDashboardScreen(
                     ) {
                         Text(
                             text = item.itemName,
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             text = item.jobFolderName,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(

@@ -297,7 +297,7 @@ fun DashboardScreen(
                     Column {
                         Text(
                             "Overall Progress",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(4.dp))
@@ -372,7 +372,7 @@ fun DashboardScreen(
                     ) {
                         Text(
                             "Recent In-Progress Materials",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold
                         )
                         Row(
@@ -659,13 +659,13 @@ private fun RecentMaterialCard(
 
             Text(
                 item.materialName,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
             Text(
                 "${item.jobFolderName} • Next sheet ${item.nextIncompletePage}",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
             )
@@ -837,7 +837,7 @@ private fun FlaggedSheetsSheet(
                             shape = MaterialTheme.shapes.medium
                         ) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(item.jobFolderName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(item.jobFolderName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Text(
                                     "${item.materialName} • Sheet ${item.sheetPage} • ${item.pdfFilename}",
                                     style = MaterialTheme.typography.bodySmall,

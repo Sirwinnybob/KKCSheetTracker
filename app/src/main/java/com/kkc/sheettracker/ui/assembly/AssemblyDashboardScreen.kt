@@ -141,7 +141,7 @@ fun AssemblyDashboardScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(modifier = Modifier.padding(KKCSpacing.cardPaddingCompact), verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)) {
-                    Text("Overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Overview", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Text("Jobs: $totalJobs", style = MaterialTheme.typography.bodyMedium)
                     Text("Cabinets Indexed: $totalCabinets", style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = onNavigateToJobs) {
@@ -157,7 +157,7 @@ fun AssemblyDashboardScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(modifier = Modifier.padding(KKCSpacing.cardPaddingCompact), verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)) {
-                    Text("Specialty", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Specialty", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     when (specialtyScanState.status) {
                         ScanStatus.LOADING -> {
                             Text("Scanning specialty items...", style = MaterialTheme.typography.bodyMedium)
@@ -235,7 +235,7 @@ private fun AssemblyJobCardView(card: AssemblyJobCard) {
                     Text("CNC", style = MaterialTheme.typography.labelLarge)
                     Text(
                         "${card.cncSummary.completedSheets}/${card.cncSummary.totalSheets} sheets",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     LinearProgressIndicator(
@@ -248,7 +248,7 @@ private fun AssemblyJobCardView(card: AssemblyJobCard) {
                     Text("Hardwoods", style = MaterialTheme.typography.labelLarge)
                     Text(
                         "${card.hardwoodsSummary.donePieces}/${card.hardwoodsSummary.totalPieces} pieces",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     LinearProgressIndicator(
