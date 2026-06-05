@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.KKCSpacing
 
 enum class NavDestination(
     val route: String,
@@ -143,7 +144,7 @@ private fun MinimizedNavBar(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .height(40.dp)
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = KKCSpacing.navBarHorizontal),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
