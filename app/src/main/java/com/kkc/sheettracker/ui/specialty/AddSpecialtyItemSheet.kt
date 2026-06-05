@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.TabletSpecialtyItem
@@ -105,10 +106,10 @@ fun AddSpecialtyItemSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp)
+                .padding(horizontal = KKCSpacing.sheetHorizontal)
+                .padding(bottom = KKCSpacing.sheetBottomSafe)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(KKCSpacing.sheetItemSpacing)
         ) {
             Text(
                 text = if (existingItem == null) "Add Item" else "Edit Item",
@@ -150,11 +151,11 @@ fun AddSpecialtyItemSheet(
 
             // Stations checkboxes
             Text("Stations", style = MaterialTheme.typography.labelLarge)
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)) {
                 SPECIALTY_STATIONS.forEach { station ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)
                     ) {
                         Checkbox(
                             checked = station in selectedStations,
@@ -246,7 +247,7 @@ fun AddSpecialtyItemSheet(
             // ── Action row ────────────────────────────────────────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                horizontalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing, Alignment.End)
             ) {
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Button(

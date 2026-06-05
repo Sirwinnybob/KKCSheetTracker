@@ -33,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.data.DoorCutUnitTypeMetadata
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.filterDoorCutRowsToSheets as sharedFilterDoorCutRowsToSheets
@@ -105,9 +106,9 @@ fun SpecialtyDoorPanelsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = KKCSpacing.screenHorizontal),
+            contentPadding = PaddingValues(vertical = KKCSpacing.listContentVertical),
+            verticalArrangement = Arrangement.spacedBy(KKCSpacing.m)
         ) {
             item(key = "job-title") {
                 Text(jobFolderName, style = MaterialTheme.typography.titleMedium)
@@ -117,10 +118,10 @@ fun SpecialtyDoorPanelsScreen(
                 item(key = "loading") {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.padding(4.dp))
+                        CircularProgressIndicator(modifier = Modifier.padding(KKCSpacing.xxs))
                         Text(
                             "Loading door panel data...",
                             style = MaterialTheme.typography.bodyMedium,
@@ -142,7 +143,7 @@ fun SpecialtyDoorPanelsScreen(
                 item(key = "doc-options") {
                     Row(
                         modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing)
                     ) {
                         viewModel.options.forEach { option ->
                             val selected = selectedOption == option
@@ -216,8 +217,8 @@ private fun DoorPanelRowCard(row: HardwoodCutlistRow) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier.padding(horizontal = KKCSpacing.cardPaddingSmall, vertical = KKCSpacing.m),
+            verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)
         ) {
             Text(material, style = MaterialTheme.typography.titleSmall)
             Text(

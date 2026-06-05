@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.SpecialtyStateStore
+import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.data.completionKeysForItem
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SpecialtyJob
@@ -70,8 +71,8 @@ fun SpecialtyDashboardScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(horizontal = KKCSpacing.listContentHorizontal, vertical = KKCSpacing.listContentVertical),
+        verticalArrangement = Arrangement.spacedBy(KKCSpacing.listItemSpacing)
     ) {
         item(key = "summary") {
             Surface(
@@ -81,15 +82,15 @@ fun SpecialtyDashboardScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(KKCSpacing.cardPaddingCompact),
+                    verticalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing)
                 ) {
                     Text(
                         text = "Specialty Overview",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing)) {
                         StatusChip(
                             text = "Jobs ${jobs.size}",
                             backgroundColor = MaterialTheme.colorScheme.primaryContainer,
@@ -177,8 +178,8 @@ fun SpecialtyDashboardScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                            .padding(KKCSpacing.cardPaddingSmall),
+                        verticalArrangement = Arrangement.spacedBy(KKCSpacing.textLineGap)
                     ) {
                         Text(
                             text = item.itemName,

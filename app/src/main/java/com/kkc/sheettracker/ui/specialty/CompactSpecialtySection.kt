@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
@@ -109,8 +110,8 @@ fun CompactSpecialtySection(
         shape = MaterialTheme.shapes.large
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.padding(horizontal = KKCSpacing.cardPaddingSmall, vertical = KKCSpacing.m),
+            verticalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)
         ) {
             Text(
                 text = if (rowModels.isEmpty() && scanState.status == ScanStatus.LOADING) {
@@ -135,7 +136,7 @@ fun CompactSpecialtySection(
                     .fillMaxWidth()
                     .heightIn(max = 220.dp),
                 state = listState,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)
             ) {
                 items(rowModels, key = { rowModel -> rowModel.resolved.item.id }) { rowModel ->
                     val item = rowModel.resolved.item
@@ -149,7 +150,7 @@ fun CompactSpecialtySection(
                     modifier = Modifier
                         .fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)
                     ) {
                         Checkbox(
                             checked = checked,
@@ -199,7 +200,7 @@ fun CompactSpecialtySection(
                         if (item.cabinetNumbers.isNotEmpty() && onJumpToCabinet != null) {
                             Button(
                                 onClick = { onJumpToCabinet(item.cabinetNumbers.first()) },
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = KKCSpacing.tightSpacing, vertical = 0.dp),
                                 modifier = Modifier.heightIn(min = 32.dp)
                             ) {
                                 Text("View", style = MaterialTheme.typography.labelSmall)
