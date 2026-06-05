@@ -26,8 +26,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 
 enum class NavDestination(
@@ -61,55 +63,70 @@ fun AppBottomNavBar(
         exit = slideOutVertically(tween(200)) { it },
         modifier = modifier
     ) {
-        NavigationBar(
-            containerColor = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(start = KKCSpacing.floatingNavSideMargin, end = KKCSpacing.floatingNavSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
         ) {
-            destinations.forEach { dest ->
-                if (dest == NavDestination.HOURS) {
-                    NavigationBarItem(
-                        selected = isCalculatorOpen,
-                        onClick = onCalculatorClick,
-                        icon = {
-                            Icon(
-                                if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                                contentDescription = "Calculator"
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shadowElevation = 18.dp,
+                tonalElevation = 4.dp
+            ) {
+                NavigationBar(
+                    containerColor = Color.Transparent,
+                    tonalElevation = 0.dp
+                ) {
+                    destinations.forEach { dest ->
+                        if (dest == NavDestination.HOURS) {
+                            NavigationBarItem(
+                                selected = isCalculatorOpen,
+                                onClick = onCalculatorClick,
+                                icon = {
+                                    Icon(
+                                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                                        contentDescription = "Calculator"
+                                    )
+                                },
+                                label = { Text("Calc", style = MaterialTheme.typography.labelSmall) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                                )
                             )
-                        },
-                        label = { Text("Calc", style = MaterialTheme.typography.labelSmall) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                        }
+                        val selected = dest == currentDestination
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = { onNavigate(dest) },
+                            icon = {
+                                val iconContent = @Composable {
+                                    Icon(
+                                        if (selected) dest.selectedIcon else dest.unselectedIcon,
+                                        contentDescription = dest.label
+                                    )
+                                }
+                                if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                                    BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                                        iconContent()
+                                    }
+                                } else {
+                                    iconContent()
+                                }
+                            },
+                            label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                            )
                         )
-                    )
+                    }
                 }
-                val selected = dest == currentDestination
-                NavigationBarItem(
-                    selected = selected,
-                    onClick = { onNavigate(dest) },
-                    icon = {
-                        val iconContent = @Composable {
-                            Icon(
-                                if (selected) dest.selectedIcon else dest.unselectedIcon,
-                                contentDescription = dest.label
-                            )
-                        }
-                        if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                            BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
-                                iconContent()
-                            }
-                        } else {
-                            iconContent()
-                        }
-                    },
-                    label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-                )
             }
         }
     }
@@ -135,49 +152,58 @@ private fun MinimizedNavBar(
     destinations: List<NavDestination>,
     supplyNotificationCount: Int
 ) {
-    Surface(
-        tonalElevation = 2.dp,
-        shadowElevation = 4.dp
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(start = KKCSpacing.floatingNavMinSideMargin, end = KKCSpacing.floatingNavMinSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .height(40.dp)
-                .padding(horizontal = KKCSpacing.navBarHorizontal),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = KKCShapeTokens.pill,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shadowElevation = 14.dp,
+            tonalElevation = 4.dp
         ) {
-            destinations.forEach { dest ->
-                if (dest == NavDestination.HOURS) {
-                    Icon(
-                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                        contentDescription = "Calculator",
-                        tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clickable { onCalculatorClick() }
-                    )
-                }
-                val selected = dest == currentDestination
-                val iconContent = @Composable {
-                    Icon(
-                        if (selected) dest.selectedIcon else dest.unselectedIcon,
-                        contentDescription = dest.label,
-                        tint = if (selected) MaterialTheme.colorScheme.primary
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .padding(horizontal = KKCSpacing.navBarHorizontal),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                destinations.forEach { dest ->
+                    if (dest == NavDestination.HOURS) {
+                        Icon(
+                            if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                            contentDescription = "Calculator",
+                            tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clickable { onNavigate(dest) }
-                    )
-                }
-                if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                    BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable { onCalculatorClick() }
+                        )
+                    }
+                    val selected = dest == currentDestination
+                    val iconContent = @Composable {
+                        Icon(
+                            if (selected) dest.selectedIcon else dest.unselectedIcon,
+                            contentDescription = dest.label,
+                            tint = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable { onNavigate(dest) }
+                        )
+                    }
+                    if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                        BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                            iconContent()
+                        }
+                    } else {
                         iconContent()
                     }
-                } else {
-                    iconContent()
                 }
             }
         }
