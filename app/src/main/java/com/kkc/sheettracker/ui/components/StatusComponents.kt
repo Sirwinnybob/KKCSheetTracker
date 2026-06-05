@@ -23,6 +23,9 @@ import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.theme.KKCSpacing
+import com.kkc.sheettracker.ui.theme.KKCShapeTokens
+import com.kkc.sheettracker.ui.theme.KKCAlpha
 
 fun parseJobLabelColor(hex: String): Color = try {
     Color(android.graphics.Color.parseColor(hex))
@@ -44,14 +47,14 @@ fun StatusChip(
 ) {
     Surface(
         color = backgroundColor,
-        shape = RoundedCornerShape(999.dp),
+        shape = KKCShapeTokens.pill,
         modifier = modifier
     ) {
         Text(
             text = text,
             color = contentColor,
             style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+            modifier = Modifier.padding(horizontal = KKCSpacing.chipHorizontal, vertical = KKCSpacing.chipVertical)
         )
     }
 }
@@ -61,7 +64,7 @@ fun StatusSummaryRow(counts: StatusCounts, modifier: Modifier = Modifier) {
     val colors = KKCThemeColors.statusColors
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing),
         verticalAlignment = Alignment.CenterVertically
     ) {
         StatusChip(
@@ -91,7 +94,7 @@ fun CountStatusChip(
         color = containerColor,
         contentColor = contentColor,
         border = border,
-        shape = RoundedCornerShape(999.dp),
+        shape = KKCShapeTokens.pill,
         modifier = modifier
     ) {
         Text(
@@ -114,8 +117,8 @@ fun SheetStatusBadge(status: SheetStatus, modifier: Modifier = Modifier) {
         SheetStatus.NOT_STARTED -> "Not Started" to colors.notStarted
     }
     Surface(
-        color = color.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(999.dp),
+        color = color.copy(alpha = KKCAlpha.statusBadgeBg),
+        shape = KKCShapeTokens.pill,
         modifier = modifier
     ) {
         Text(
@@ -123,7 +126,7 @@ fun SheetStatusBadge(status: SheetStatus, modifier: Modifier = Modifier) {
             color = color,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+            modifier = Modifier.padding(horizontal = KKCSpacing.chipHorizontal, vertical = KKCSpacing.chipVertical)
         )
     }
 }
@@ -159,13 +162,13 @@ fun ProgressCard(
     ) {
         Column(
             modifier = Modifier
-                .padding(16.dp)
+                .padding(KKCSpacing.cardPadding)
                 .animateContentSize()
         ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (headerLeading != null) {
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalArrangement = Arrangement.spacedBy(KKCSpacing.textLineGap),
                             horizontalAlignment = Alignment.Start,
                             content = headerLeading
                         )
@@ -177,7 +180,7 @@ fun ProgressCard(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(KKCSpacing.textLineGap))
                         Text(
                             subtitle,
                             style = MaterialTheme.typography.bodySmall,
@@ -186,7 +189,7 @@ fun ProgressCard(
                     }
                     if (headerActions != null) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing),
                             verticalAlignment = Alignment.CenterVertically,
                             content = headerActions
                         )
@@ -227,7 +230,7 @@ fun ProgressCard(
                                 .fillMaxWidth()
                                 .height(8.dp),
                             color = colors.completeBorder,
-                            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = KKCAlpha.outlineTrack)
                         )
                     }
                 }
@@ -283,9 +286,9 @@ fun SectionProgressHeader(
     val titleStyle = if (isSubHeader) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleSmall
     val titleWeight = if (isSubHeader) FontWeight.Medium else FontWeight.SemiBold
     val textStyleFraction = if (isSubHeader) MaterialTheme.typography.bodySmall else MaterialTheme.typography.labelMedium
-    val progressBarHeight = if (isSubHeader) 3.dp else 4.dp
-    val verticalPadding = if (isSubHeader) 6.dp else 8.dp
-    val horizontalPadding = if (isSubHeader) 10.dp else 12.dp
+    val progressBarHeight = if (isSubHeader) KKCSpacing.progressBarHeightThin else KKCSpacing.progressBarHeightStandard
+    val verticalPadding = if (isSubHeader) KKCSpacing.xs else KKCSpacing.inCardSpacing
+    val horizontalPadding = if (isSubHeader) KKCSpacing.m else KKCSpacing.l
 
     Surface(
         modifier = modifier
@@ -325,9 +328,9 @@ fun SectionProgressHeader(
                         Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(horizontal = 8.dp),
+                                .padding(horizontal = KKCSpacing.inCardSpacing),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)
                         ) {
                             LinearProgressIndicator(
                                 progress = { fraction.coerceIn(0f, 1f) },
@@ -335,7 +338,7 @@ fun SectionProgressHeader(
                                     .weight(1f)
                                     .height(progressBarHeight),
                                 color = if (skipped) skippedBarColor else progressColor,
-                                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = KKCAlpha.outlineTrack)
                             )
                             Text(
                                 text = "$safeDone/$safeTotal",
@@ -350,7 +353,7 @@ fun SectionProgressHeader(
                         ) {
                             if (headerActions != null) {
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xxs),
                                     verticalAlignment = Alignment.CenterVertically,
                                     content = headerActions
                                 )
@@ -390,7 +393,7 @@ fun SectionProgressHeader(
                         ) {
                             if (headerActions != null) {
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xxs),
                                     verticalAlignment = Alignment.CenterVertically,
                                     content = headerActions
                                 )
@@ -410,7 +413,7 @@ fun SectionProgressHeader(
                             }
                         }
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(KKCSpacing.tightSpacing))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -421,9 +424,9 @@ fun SectionProgressHeader(
                                 .weight(1f)
                                 .height(progressBarHeight),
                             color = if (skipped) skippedBarColor else progressColor,
-                            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = KKCAlpha.outlineTrack)
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(KKCSpacing.inCardSpacing))
                         Text(
                             text = "$safeDone/$safeTotal",
                             style = textStyleFraction,
@@ -476,14 +479,14 @@ private fun StatusCountsProgressBar(
         Surface(
             modifier = modifier,
             color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(999.dp)
+            shape = KKCShapeTokens.pill
         ) {}
         return
     }
 
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(KKCShapeTokens.pill)
             .background(MaterialTheme.colorScheme.surfaceVariant)
     ) {
         if (completeClean > 0) {
@@ -532,14 +535,14 @@ private fun MaterialSegmentedProgressBar(
         Surface(
             modifier = modifier,
             color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(999.dp)
+            shape = KKCShapeTokens.pill
         ) {}
         return
     }
 
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(KKCShapeTokens.pill)
             .background(MaterialTheme.colorScheme.surfaceVariant)
     ) {
         validSegments.forEachIndexed { index, segment ->
@@ -623,7 +626,7 @@ fun PageStatusBar(
                     SheetStatus.IN_PROGRESS -> colors.inProgress
                     SheetStatus.NOT_STARTED -> MaterialTheme.colorScheme.outlineVariant
                 },
-                shape = RoundedCornerShape(999.dp)
+                shape = KKCShapeTokens.pill
             ) {}
         }
     }
