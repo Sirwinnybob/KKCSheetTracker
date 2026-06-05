@@ -270,7 +270,7 @@ private fun HardwoodsOverviewCard(
             // Top row: circular progress + progress text details + action button
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(KKCSpacing.screenHorizontal),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
@@ -317,10 +317,10 @@ private fun HardwoodsOverviewCard(
 
                 Button(
                     onClick = onNavigateToJobs,
-                    modifier = Modifier.padding(start = 8.dp)
+                    modifier = Modifier.padding(start = KKCSpacing.inCardSpacing)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(KKCSpacing.tightSpacing))
                     Text("Open Jobs")
                 }
             }
@@ -426,7 +426,7 @@ private fun HardwoodsQualityAlertCard(
             verticalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)
         ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(KKCSpacing.m),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -568,7 +568,7 @@ private fun HardwoodsJobCard(
                 progress = { counts.completionFraction.coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth(),
                 color = progressColor,
-                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = KKCAlpha.outlineTrack)
             )
 
             // Doc type pills — DOOR_LIST excluded (no cut quantities); Rips sourced from board stock
@@ -578,8 +578,8 @@ private fun HardwoodsJobCard(
             val showPills = presentDocs.isNotEmpty() || entry.ripsTotal > 0
             if (showPills) {
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(KKCSpacing.listItemSpacing),
+                    verticalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     presentDocs.forEach { docSummary ->
@@ -603,7 +603,7 @@ private fun HardwoodsJobCard(
                                 total = docSummary.counts.totalPieces,
                                 state = docState
                             )
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(KKCSpacing.xxs))
                             Text(
                                 docLabel,
                                 style = MaterialTheme.typography.labelSmall,
@@ -630,7 +630,7 @@ private fun HardwoodsJobCard(
                                 total = entry.ripsTotal,
                                 state = ripsState
                             )
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(KKCSpacing.xxs))
                             Text(
                                 "Rips",
                                 style = MaterialTheme.typography.labelSmall,
@@ -644,7 +644,7 @@ private fun HardwoodsJobCard(
             }
 
             // Piece count summary
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)) {
                 Text(
                     "${counts.donePieces}/${counts.totalPieces} pieces",
                     style = MaterialTheme.typography.bodySmall,
@@ -689,7 +689,7 @@ private fun HardwoodsFlaggedPartsSheet(
                 .fillMaxWidth()
                 .fillMaxHeight(0.75f)
                 .padding(horizontal = KKCSpacing.screenHorizontal, vertical = KKCSpacing.inCardSpacing),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing)
         ) {
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
@@ -698,8 +698,8 @@ private fun HardwoodsFlaggedPartsSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(4.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(KKCSpacing.xxs))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing)) {
                 items(jobsWithIssues, key = { it.job.folderName }) { summary ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
