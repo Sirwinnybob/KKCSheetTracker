@@ -67,7 +67,7 @@ fun Model3DPane(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 1.dp
+            tonalElevation = 3.dp
         ) {
             Row(
                 modifier = Modifier

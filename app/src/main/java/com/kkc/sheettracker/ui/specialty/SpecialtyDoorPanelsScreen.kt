@@ -212,7 +212,7 @@ private fun DoorPanelRowCard(row: HardwoodCutlistRow) {
     val material = row.material?.takeIf { it.isNotBlank() } ?: "Unknown"
     val cabinets = row.cabinets.joinToString(", ").ifBlank { "None" }
     Surface(
-        tonalElevation = 1.dp,
+        tonalElevation = 3.dp,
         shape = MaterialTheme.shapes.large,
         modifier = Modifier.fillMaxWidth()
     ) {

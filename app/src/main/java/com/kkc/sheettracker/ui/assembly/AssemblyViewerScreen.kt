@@ -1360,7 +1360,7 @@ private fun ChecklistPane(
 
     Surface(
         modifier = modifier,
-        tonalElevation = 1.dp
+        tonalElevation = 3.dp
     ) {
         if (resolvedItems.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

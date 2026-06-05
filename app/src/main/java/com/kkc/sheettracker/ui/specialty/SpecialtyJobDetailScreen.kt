@@ -267,7 +267,7 @@ fun SpecialtyJobDetailScreen(
                     val alpha = if (isDone) 0.5f else 1f
 
                     Surface(
-                        tonalElevation = 1.dp,
+                        tonalElevation = 3.dp,
                         shape = MaterialTheme.shapes.medium,
                         modifier = Modifier
                             .fillMaxWidth()

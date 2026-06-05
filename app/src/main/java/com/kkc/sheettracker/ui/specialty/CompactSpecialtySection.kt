@@ -106,7 +106,7 @@ fun CompactSpecialtySection(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        tonalElevation = 1.dp,
+        tonalElevation = 3.dp,
         shape = MaterialTheme.shapes.large
     ) {
         Column(

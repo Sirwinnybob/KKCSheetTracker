@@ -496,7 +496,7 @@ private fun SettingsSection(
                 .background(accentColor)
         )
         Surface(
-            tonalElevation = 1.dp,
+            tonalElevation = 3.dp,
             shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier

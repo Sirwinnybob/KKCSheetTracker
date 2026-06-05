@@ -96,7 +96,7 @@ fun SpecialtyDashboardScreen(
     ) {
         item(key = "summary") {
             Surface(
-                tonalElevation = 1.dp,
+                tonalElevation = 3.dp,
                 shape = MaterialTheme.shapes.large
             ) {
                 Column(
@@ -189,7 +189,7 @@ fun SpecialtyDashboardScreen(
         } else {
             items(inProgressItems, key = { it.key }) { item ->
                 Surface(
-                    tonalElevation = 1.dp,
+                    tonalElevation = 3.dp,
                     shape = MaterialTheme.shapes.large,
                     modifier = Modifier
                         .fillMaxWidth()

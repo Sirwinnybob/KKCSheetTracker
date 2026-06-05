@@ -724,7 +724,7 @@ private fun CalculatorPanel(
             .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Surface(
-            tonalElevation = 1.dp,
+            tonalElevation = 3.dp,
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
