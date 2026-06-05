@@ -101,7 +101,7 @@ fun CountStatusChip(
             text = "$label $count",
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            modifier = Modifier.padding(horizontal = KKCSpacing.s, vertical = KKCSpacing.xxs)
         )
     }
 }
@@ -172,7 +172,7 @@ fun ProgressCard(
                             horizontalAlignment = Alignment.Start,
                             content = headerLeading
                         )
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(KKCSpacing.m))
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -207,7 +207,7 @@ fun ProgressCard(
                 if (!hidePrimaryProgressBar) {
                     val validMaterialSegments = materialSegments.orEmpty().filter { it.counts.total > 0 }
                     if (validMaterialSegments.size > 1) {
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(KKCSpacing.inCardSpacing))
                         MaterialSegmentedProgressBar(
                             materialSegments = validMaterialSegments,
                             modifier = Modifier
@@ -215,7 +215,7 @@ fun ProgressCard(
                                 .height(8.dp)
                         )
                     } else if (segmentedStatusCounts != null) {
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(KKCSpacing.inCardSpacing))
                         StatusCountsProgressBar(
                             counts = segmentedStatusCounts,
                             modifier = Modifier
@@ -223,7 +223,7 @@ fun ProgressCard(
                                 .height(8.dp)
                         )
                     } else if (showBottomProgressBar) {
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(KKCSpacing.inCardSpacing))
                         LinearProgressIndicator(
                             progress = { fraction.coerceIn(0f, 1f) },
                             modifier = Modifier
@@ -236,14 +236,14 @@ fun ProgressCard(
                 }
 
                 if (inlineContent != null) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(KKCSpacing.m))
                     inlineContent.invoke(this)
                 }
 
                 if (expanded && expandedContent != null) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(KKCSpacing.l))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(KKCSpacing.l))
                     expandedContent.invoke(this)
                 }
         }
@@ -302,7 +302,7 @@ fun SectionProgressHeader(
         Row(modifier = Modifier.fillMaxWidth()) {
             Box(
                 modifier = Modifier
-                    .width(3.dp)
+                    .width(KKCShapeTokens.statusBorderWidth)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.primary)
             )
@@ -348,7 +348,7 @@ fun SectionProgressHeader(
                         }
 
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xxs),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (headerActions != null) {
@@ -388,7 +388,7 @@ fun SectionProgressHeader(
                             overflow = TextOverflow.Ellipsis
                         )
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xxs),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (headerActions != null) {
@@ -612,7 +612,7 @@ fun PageStatusBar(
     val colors = KKCThemeColors.statusColors
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
+        horizontalArrangement = Arrangement.spacedBy(KKCSpacing.textLineGap)
     ) {
         (1..pageCount).forEach { page ->
             Surface(
