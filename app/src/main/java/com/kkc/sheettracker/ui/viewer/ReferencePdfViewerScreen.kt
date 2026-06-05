@@ -191,6 +191,7 @@ fun ReferencePdfViewerScreen(
                 )
             },
             fileIdentitySeed = refreshGeneration,
+            preferDarkMode = isDarkTheme,
             virtualMapping = virtualMapping,
             navigatorCabinetToPages = navigatorCabinetToPages,
             navigatorPlanViewLabels = navigatorPlanViewLabels,

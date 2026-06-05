@@ -1126,6 +1126,7 @@ private fun PdfPaneWithFloatingControls(
                         preferDarkMode = isDarkTheme
                     )
                 },
+                preferDarkMode = isDarkTheme,
                 virtualMapping = virtualMapping,
                 navigatorCabinetToPages = navigatorCabinetToPages,
                 navigatorPlanViewLabels = navigatorPlanViewLabels,

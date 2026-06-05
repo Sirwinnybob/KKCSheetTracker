@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.SheetStatus
@@ -257,13 +258,16 @@ fun SectionProgressHeader(
     expanded: Boolean = true,
     onToggleExpanded: (() -> Unit)? = null,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
+    isSubHeader: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)
     val safeDone = done.coerceAtLeast(0).coerceAtMost(safeTotal)
     val fraction = if (safeTotal <= 0) 0f else safeDone.toFloat() / safeTotal.toFloat()
-    val containerColor = if (dimmed) {
+    val containerColor = if (isSubHeader) {
+        Color.Transparent
+    } else if (dimmed) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
     } else {
         MaterialTheme.colorScheme.surfaceVariant
@@ -275,6 +279,13 @@ fun SectionProgressHeader(
         colors.completeBorder
     }
     val skippedBarColor = colors.completeBorder.copy(alpha = 0.52f)
+
+    val titleStyle = if (isSubHeader) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleSmall
+    val titleWeight = if (isSubHeader) FontWeight.Medium else FontWeight.SemiBold
+    val textStyleFraction = if (isSubHeader) MaterialTheme.typography.bodySmall else MaterialTheme.typography.labelMedium
+    val progressBarHeight = if (isSubHeader) 3.dp else 4.dp
+    val verticalPadding = if (isSubHeader) 6.dp else 8.dp
+    val horizontalPadding = if (isSubHeader) 10.dp else 12.dp
 
     Surface(
         modifier = modifier
@@ -295,64 +306,130 @@ fun SectionProgressHeader(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = horizontalPadding, vertical = verticalPadding)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "$title • $itemCount",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = titleColor
-                    )
+                if (isSubHeader) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (headerActions != null) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                content = headerActions
+                        Text(
+                            text = "$title • $itemCount",
+                            style = titleStyle,
+                            fontWeight = titleWeight,
+                            color = titleColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            LinearProgressIndicator(
+                                progress = { fraction.coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(progressBarHeight),
+                                color = if (skipped) skippedBarColor else progressColor,
+                                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                            )
+                            Text(
+                                text = "$safeDone/$safeTotal",
+                                style = textStyleFraction,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
-                        ProgressPill(
-                            done = safeDone,
-                            total = safeTotal,
-                            state = if (skipped) ProgressState.SKIPPED else ProgressState.from(safeDone, safeTotal),
-                            skippedFillColor = skippedBarColor
-                        )
-                        if (onToggleExpanded != null) {
-                            Icon(
-                                imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                contentDescription = if (expanded) "Collapse section" else "Expand section",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (headerActions != null) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    content = headerActions
+                                )
+                            }
+                            ProgressPill(
+                                done = safeDone,
+                                total = safeTotal,
+                                state = if (skipped) ProgressState.SKIPPED else ProgressState.from(safeDone, safeTotal),
+                                skippedFillColor = skippedBarColor
                             )
+                            if (onToggleExpanded != null) {
+                                Icon(
+                                    imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                    contentDescription = if (expanded) "Collapse section" else "Expand section",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
-                }
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    LinearProgressIndicator(
-                        progress = { fraction.coerceIn(0f, 1f) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(4.dp),
-                        color = if (skipped) skippedBarColor else progressColor,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "$safeDone/$safeTotal",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "$title • $itemCount",
+                            style = titleStyle,
+                            fontWeight = titleWeight,
+                            color = titleColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (headerActions != null) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    content = headerActions
+                                )
+                            }
+                            ProgressPill(
+                                done = safeDone,
+                                total = safeTotal,
+                                state = if (skipped) ProgressState.SKIPPED else ProgressState.from(safeDone, safeTotal),
+                                skippedFillColor = skippedBarColor
+                            )
+                            if (onToggleExpanded != null) {
+                                Icon(
+                                    imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                    contentDescription = if (expanded) "Collapse section" else "Expand section",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LinearProgressIndicator(
+                            progress = { fraction.coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(progressBarHeight),
+                            color = if (skipped) skippedBarColor else progressColor,
+                            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "$safeDone/$safeTotal",
+                            style = textStyleFraction,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }

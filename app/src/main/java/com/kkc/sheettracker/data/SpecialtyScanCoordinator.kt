@@ -5,6 +5,8 @@ import com.kkc.sheettracker.data.models.SpecialtyJob
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SpecialtyScanSnapshot
 import com.kkc.sheettracker.data.models.SpecialtyScanState
+import com.kkc.sheettracker.BuildConfig
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -78,6 +80,38 @@ class SpecialtyScanCoordinator(
                     break
                 }
             }
+        }
+    }
+
+    /** Re-projects one job from the repository and emits an updated SpecialtyScanState. */
+    fun updateJobInState(folderName: String) {
+        scope.launch {
+            val updatedJob = repository.getUpdatedJob(folderName) ?: return@launch
+            val current = _state.value
+            val existingJobs = current.snapshot.jobs
+            val newJobs = if (existingJobs.any { it.folderName == folderName }) {
+                existingJobs.map { if (it.folderName == folderName) updatedJob else it }
+            } else {
+                existingJobs + updatedJob
+            }
+            _state.value = current.copy(
+                snapshot = current.snapshot.copy(
+                    generation = generation.incrementAndGet(),
+                    jobs = newJobs
+                )
+            )
+        }
+    }
+
+    /** Phase-2: run full staleness check for this job in background; update state if changed. */
+    fun refreshJobOnOpen(folderName: String) {
+        scope.launch {
+            val engine = UnifiedMetadataEngineRegistry.getOrCreate(
+                baseDir = File(repository.currentBasePath()),
+                isDebugBuild = BuildConfig.DEBUG
+            )
+            val changed = engine.refreshJobDeep(folderName)
+            if (changed) updateJobInState(folderName)
         }
     }
 

@@ -16,8 +16,10 @@ internal object DeploymentGateRules {
 
     fun evaluate(jobDir: File, isDebugBuild: Boolean): DeploymentGateDecision {
         val gateFile = File(jobDir, ".metadata/deployment_gate.json")
+        // No gate file means the folder has not been approved by Ready Jobs Watcher yet.
+        // Treat it as hidden so unrecognized or in-progress folders never surface on tablets.
         val gate = loadGate(gateFile) ?: return DeploymentGateDecision(
-            includeJob = true,
+            includeJob = false,
             hiddenFromProduction = false
         )
 

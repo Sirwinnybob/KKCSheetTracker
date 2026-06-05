@@ -1560,6 +1560,7 @@ private fun ReferencePane(
                     preferDarkMode = isDarkTheme
                 )
             },
+            preferDarkMode = isDarkTheme,
             virtualMapping = virtualMapping,
             navigatorCabinetToPages = navigatorCabinetToPages,
             navigatorPlanViewLabels = navigatorPlanViewLabels,
@@ -1625,19 +1626,11 @@ private fun HardwoodsBoardStockList(
         return
     }
 
-    var collapsedSourceSections by rememberSaveable(jobFolderName) {
-        mutableStateOf(sections.map { it.source.name }.toSet())
+    var expandedSourceSections by rememberSaveable(jobFolderName) {
+        mutableStateOf(emptySet<String>())
     }
-    var collapsedMaterialSections by rememberSaveable(jobFolderName) {
-        mutableStateOf(
-            sections
-                .flatMap { section ->
-                    section.materials.map { materialSection ->
-                        "${section.source.name}|${materialSection.material}"
-                    }
-                }
-                .toSet()
-        )
+    var expandedMaterialSections by rememberSaveable(jobFolderName) {
+        mutableStateOf(emptySet<String>())
     }
     val childSectionIndent = 14.dp
     val widthBandPalette = statusColors.widthBandPalette
@@ -1666,7 +1659,7 @@ private fun HardwoodsBoardStockList(
         // ── Admin board stock section (server-entered items) ──────────────────
         if (adminItems.isNotEmpty()) {
             val adminSourceKey = "ADMIN"
-            val adminSourceCollapsed = adminSourceKey in collapsedSourceSections
+            val adminSourceExpanded = adminSourceKey in expandedSourceSections
             val adminGroups = adminItems
                 .groupBy { it.material.ifBlank { "—" } }
                 .entries.sortedBy { it.key.lowercase() }
@@ -1696,19 +1689,19 @@ private fun HardwoodsBoardStockList(
                     total = adminTotalTarget,
                     dimmed = false,
                     skipped = false,
-                    expanded = !adminSourceCollapsed,
+                    expanded = adminSourceExpanded,
                     onToggleExpanded = {
-                        collapsedSourceSections = if (adminSourceCollapsed) {
-                            collapsedSourceSections - adminSourceKey
+                        expandedSourceSections = if (adminSourceExpanded) {
+                            expandedSourceSections - adminSourceKey
                         } else {
-                            collapsedSourceSections + adminSourceKey
+                            expandedSourceSections + adminSourceKey
                         }
                     },
                     headerActions = null,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            if (!adminSourceCollapsed) {
+            if (adminSourceExpanded) {
                 adminGroups.forEach { (material, groupItems) ->
                     val adminMatKey = "ADMIN|$material"
                     val matSkipped = progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, material)
@@ -1724,7 +1717,7 @@ private fun HardwoodsBoardStockList(
                         if (itemSkipped) 0
                         else (totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(material, item.id)] ?: 0).coerceIn(0, boards)
                     }
-                    val matCollapsed = adminMatKey in collapsedMaterialSections
+                    val matExpanded = adminMatKey in expandedMaterialSections
                     stickyHeader(key = "admin-mat-header:$material") {
                         Surface(
                             modifier = Modifier
@@ -1744,12 +1737,12 @@ private fun HardwoodsBoardStockList(
                                 total = matTarget,
                                 dimmed = matSkipped,
                                 skipped = matSkipped,
-                                expanded = !matCollapsed,
+                                expanded = matExpanded,
                                 onToggleExpanded = {
-                                    collapsedMaterialSections = if (matCollapsed) {
-                                        collapsedMaterialSections - adminMatKey
+                                    expandedMaterialSections = if (matExpanded) {
+                                        expandedMaterialSections - adminMatKey
                                     } else {
-                                        collapsedMaterialSections + adminMatKey
+                                        expandedMaterialSections + adminMatKey
                                     }
                                 },
                                 headerActions = {
@@ -1762,11 +1755,12 @@ private fun HardwoodsBoardStockList(
                                         }
                                     )
                                 },
+                                isSubHeader = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
-                    if (!matCollapsed) {
+                    if (matExpanded) {
                         items(groupItems, key = { "admin-item:${it.id}" }) { item ->
                             val isNoneItem = item.feet == null
                             val boards = if (isNoneItem) 0
@@ -1941,7 +1935,7 @@ private fun HardwoodsBoardStockList(
         if (!hideSections) sections.forEach { sourceSection ->
             val sourceKey = sourceSection.source.name
             val sourceRows = sourceSection.materials.flatMap { it.rows }
-            val sourceCollapsed = sourceKey in collapsedSourceSections
+            val sourceExpanded = sourceKey in expandedSourceSections
             val parentSectionBottomBuffer = 14.dp
             val totalTarget = sourceRows.sumOf { line ->
                 val materialSkipped = progressStore.isBoardStockMaterialSkipped(
@@ -1980,22 +1974,22 @@ private fun HardwoodsBoardStockList(
                     total = totalTarget,
                     dimmed = sourceAllSkipped,
                     skipped = sourceAllSkipped,
-                    expanded = !sourceCollapsed,
+                    expanded = sourceExpanded,
                     onToggleExpanded = {
-                        collapsedSourceSections = if (sourceCollapsed) {
-                            collapsedSourceSections - sourceKey
+                        expandedSourceSections = if (sourceExpanded) {
+                            expandedSourceSections - sourceKey
                         } else {
-                            collapsedSourceSections + sourceKey
+                            expandedSourceSections + sourceKey
                         }
                     },
                     headerActions = null,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            if (!sourceCollapsed) {
+            if (sourceExpanded) {
                 sourceSection.materials.forEach { materialSection ->
                     val materialKey = "$sourceKey|${materialSection.material}"
-                    val materialCollapsed = materialKey in collapsedMaterialSections
+                    val materialExpanded = materialKey in expandedMaterialSections
                     val materialSkipped = progressStore.isBoardStockMaterialSkipped(
                         jobFolderName = jobFolderName,
                         material = materialSection.material,
@@ -2031,12 +2025,12 @@ private fun HardwoodsBoardStockList(
                                 total = materialTarget,
                                 dimmed = materialSkipped,
                                 skipped = materialSkipped,
-                                expanded = !materialCollapsed,
+                                expanded = materialExpanded,
                                 onToggleExpanded = {
-                                    collapsedMaterialSections = if (materialCollapsed) {
-                                        collapsedMaterialSections - materialKey
+                                    expandedMaterialSections = if (materialExpanded) {
+                                        expandedMaterialSections - materialKey
                                     } else {
-                                        collapsedMaterialSections + materialKey
+                                        expandedMaterialSections + materialKey
                                     }
                                 },
                                 headerActions = {
@@ -2052,11 +2046,12 @@ private fun HardwoodsBoardStockList(
                                         }
                                     )
                                 },
+                                isSubHeader = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
-                    if (!materialCollapsed) {
+                    if (materialExpanded) {
                         items(materialSection.rows, key = { it.stableKey }) { line ->
                             val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
                             val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)

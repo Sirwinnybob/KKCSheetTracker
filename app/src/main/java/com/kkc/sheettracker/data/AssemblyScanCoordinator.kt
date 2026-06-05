@@ -87,13 +87,48 @@ class AssemblyScanCoordinator(
 
     private fun scanAssemblyJobs(): List<AssemblyJob> {
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
-        return unifiedEngine.listJobs()
-            .mapNotNull { info ->
-                runCatching {
-                    unifiedEngine.getAssemblySnapshot(info.folderName)?.job
-                        ?.copy(lineupPosition = info.lineupPosition, labels = info.labels)
-                }.getOrNull()
+        val (jobInfos, needsDeepLoad) = unifiedEngine.listJobsFromCacheOnly()
+        val jobs = jobInfos.mapNotNull { info ->
+            runCatching {
+                unifiedEngine.getAssemblySnapshot(info.folderName)?.job
+                    ?.copy(lineupPosition = info.lineupPosition, labels = info.labels)
+            }.getOrNull()
+        }
+        if (needsDeepLoad.isNotEmpty()) {
+            scope.launch {
+                needsDeepLoad.forEach { folderName ->
+                    if (unifiedEngine.refreshJobDeep(folderName)) updateJobInState(folderName)
+                }
             }
-        // Preserve production order from listJobs; no secondary sort needed
+        }
+        return jobs
+    }
+
+    /** Re-projects one job from the engine's in-memory cache and emits an updated AssemblyScanState. */
+    fun updateJobInState(folderName: String) {
+        scope.launch {
+            val updatedJob = unifiedEngine.getAssemblySnapshot(folderName)?.job ?: return@launch
+            val current = _state.value
+            val existingJobs = current.snapshot.jobs
+            val newJobs = if (existingJobs.any { it.folderName == folderName }) {
+                existingJobs.map { if (it.folderName == folderName) updatedJob else it }
+            } else {
+                existingJobs + updatedJob
+            }
+            _state.value = current.copy(
+                snapshot = current.snapshot.copy(
+                    generation = generation.incrementAndGet(),
+                    jobs = newJobs
+                )
+            )
+        }
+    }
+
+    /** Phase-2: run full staleness check for this job in background; update state if changed. */
+    fun refreshJobOnOpen(folderName: String) {
+        scope.launch {
+            val changed = unifiedEngine.refreshJobDeep(folderName)
+            if (changed) updateJobInState(folderName)
+        }
     }
 }

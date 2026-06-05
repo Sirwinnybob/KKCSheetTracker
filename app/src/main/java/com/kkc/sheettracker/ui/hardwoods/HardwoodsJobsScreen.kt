@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.hardwoods
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -101,7 +102,6 @@ fun HardwoodsJobsScreen(
     var expandedJobs by rememberSaveable { mutableStateOf(setOf<String>()) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
-    var showPendingOnly by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -111,12 +111,12 @@ fun HardwoodsJobsScreen(
         deliveryScheduleRepository.fetchSchedule()
     }
 
-    val filtered = remember(jobs, query, sortByName, showPendingOnly) {
+    val filtered = remember(jobs, query, sortByName) {
         val base = if (query.isBlank()) jobs else jobs.filter {
             it.jobNumber.contains(query, ignoreCase = true) ||
                 it.jobName.contains(query, ignoreCase = true) ||
                 it.folderName.contains(query, ignoreCase = true)
-        }.filter { it.isPending == showPendingOnly }
+        }
         if (sortByName) {
             base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
         } else {
@@ -251,29 +251,11 @@ fun HardwoodsJobsScreen(
                 shape = MaterialTheme.shapes.medium
             )
             SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = !showPendingOnly,
-                    onClick = { showPendingOnly = false },
-                    label = { Text("Active Production") }
-                )
-                FilterChip(
-                    selected = showPendingOnly,
-                    onClick = { showPendingOnly = true },
-                    label = { Text("Pending Delivery") }
-                )
-            }
             Text(
                 text = if (query.isBlank()) {
                     "${filtered.size} jobs"
                 } else {
-                    val poolSize = jobs.count { it.isPending == showPendingOnly }
-                    "Showing ${filtered.size} of $poolSize jobs"
+                    "Showing ${filtered.size} of ${jobs.size} jobs"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -309,8 +291,11 @@ fun HardwoodsJobsScreen(
                     )
                 }
             } else if (isBoardView) {
+                val activeBoard  = filtered.filter { it.boardSection == 0 }
+                val pendingBoard = filtered.filter { it.boardSection == 1 }
                 JobBoardGrid(
-                    items = filtered.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                    items = activeBoard.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                    pendingItems = pendingBoard.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
                     jobRepository = jobRepository,
                     onItemClick = { boardItem ->
                         filtered.find { it.folderName == boardItem.folderName }
@@ -321,12 +306,14 @@ fun HardwoodsJobsScreen(
                     scanGeneration = scanState.snapshot.generation
                 )
             } else {
+                val activeUiStates  = hardwoodsUiStates.filter { it.job.boardSection == 0 }
+                val pendingUiStates = hardwoodsUiStates.filter { it.job.boardSection == 1 }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(hardwoodsUiStates, key = { it.job.folderName }) { uiState ->
+                    items(activeUiStates, key = { "active_${it.job.folderName}" }) { uiState ->
                         val job = uiState.job
                         val hasDeliverySheet = uiState.hasDeliverySheet
                         val hasThreeDAssets = uiState.hasThreeDAssets
@@ -416,6 +403,113 @@ fun HardwoodsJobsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.Medium
                                 )
+                            }
+                        }
+                    }
+                    if (pendingUiStates.isNotEmpty()) {
+                        item(key = "pending_header") {
+                            Text(
+                                text = "Pending Delivery",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    .padding(horizontal = 4.dp, vertical = 8.dp)
+                            )
+                        }
+                        items(pendingUiStates, key = { "pending_${it.job.folderName}" }) { uiState ->
+                            val job = uiState.job
+                            val hasDeliverySheet = uiState.hasDeliverySheet
+                            val hasThreeDAssets = uiState.hasThreeDAssets
+                            val history = uiState.history
+                            val counts = uiState.counts
+                            val docCount = uiState.docCount
+                            val docSegments = uiState.docSegments
+                            val availableDocTypes = uiState.availableDocTypes
+                            val subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done"
+
+                            ProgressCard(
+                                title = job.folderName,
+                                subtitle = subtitle,
+                                fraction = counts.completionFraction,
+                                expanded = job.folderName in expandedJobs,
+                                onToggleExpanded = {
+                                    expandedJobs = if (job.folderName in expandedJobs) {
+                                        expandedJobs - job.folderName
+                                    } else {
+                                        expandedJobs + job.folderName
+                                    }
+                                },
+                                segmentedStatusCounts = counts.toStatusCounts(),
+                                materialSegments = docSegments,
+                                showBottomProgressBar = true,
+                                headerActions = {
+                                    job.labels.forEach { label ->
+                                        StatusChip(
+                                            text = label.name,
+                                            backgroundColor = parseJobLabelColor(label.colorHex),
+                                            contentColor = Color.White
+                                        )
+                                    }
+                                    if (sortByName) {
+                                        val pos = job.lineupPosition
+                                        if (pos != null) {
+                                            StatusChip(
+                                                text = "#$pos",
+                                                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                    if (job.hiddenFromProduction) {
+                                        StatusChip(
+                                            text = "Hidden in Production",
+                                            backgroundColor = MaterialTheme.colorScheme.errorContainer,
+                                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                    if (history != null) {
+                                        TextButton(onClick = { selectedHistoryJob = job.folderName }) {
+                                            Text("History")
+                                        }
+                                    }
+                                },
+                                inlineContent = {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        if (hasDeliverySheet) {
+                                            FilterChip(
+                                                selected = false,
+                                                onClick = { onViewCoverSheet(job) },
+                                                label = { Text("Cover Sheet") }
+                                            )
+                                        }
+                                        if (hasThreeDAssets) {
+                                            FilterChip(
+                                                selected = false,
+                                                onClick = { onView3D(job) },
+                                                label = { Text("View 3D") }
+                                            )
+                                        }
+                                    }
+                                },
+                                onClick = { onJobClick(job) }
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    StatusSummaryRow(counts.toStatusCounts())
+                                    Text(
+                                        "Cutlists: $docCount + Rip Cut List",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     }

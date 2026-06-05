@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
@@ -88,7 +89,6 @@ fun SpecialtyJobsScreen(
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("specialty")) }
     var showScheduleDialog by remember { mutableStateOf(false) }
-    var showPendingOnly by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
@@ -103,17 +103,13 @@ fun SpecialtyJobsScreen(
             all // already in production order from listJobs
         }
     }
-    val filteredCards = remember(cards, query, showPendingOnly) {
-        val base = if (query.isBlank()) {
-            cards
-        } else {
-            cards.filter { card ->
-                card.jobNumber.contains(query, ignoreCase = true) ||
-                    card.jobName.contains(query, ignoreCase = true) ||
-                    card.folderName.contains(query, ignoreCase = true)
-            }
+    val filteredCards = remember(cards, query) {
+        if (query.isBlank()) cards
+        else cards.filter { card ->
+            card.jobNumber.contains(query, ignoreCase = true) ||
+                card.jobName.contains(query, ignoreCase = true) ||
+                card.folderName.contains(query, ignoreCase = true)
         }
-        base.filter { it.isPending == showPendingOnly }
     }
 
     LaunchedEffect(Unit) {
@@ -165,29 +161,11 @@ fun SpecialtyJobsScreen(
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = !showPendingOnly,
-                    onClick = { showPendingOnly = false },
-                    label = { Text("Active Production") }
-                )
-                FilterChip(
-                    selected = showPendingOnly,
-                    onClick = { showPendingOnly = true },
-                    label = { Text("Pending Delivery") }
-                )
-            }
             Text(
                 text = if (query.isBlank()) {
                     "${filteredCards.size} jobs"
                 } else {
-                    val poolSize = cards.count { it.isPending == showPendingOnly }
-                    "Showing ${filteredCards.size} of $poolSize jobs"
+                    "Showing ${filteredCards.size} of ${cards.size} jobs"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -229,8 +207,11 @@ fun SpecialtyJobsScreen(
                     }
                 }
                 isBoardView -> {
+                    val activeBoard  = filteredCards.filter { it.boardSection == 0 }
+                    val pendingBoard = filteredCards.filter { it.boardSection == 1 }
                     JobBoardGrid(
-                        items = filteredCards.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                        items = activeBoard.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                        pendingItems = pendingBoard.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
                         jobRepository = jobRepository,
                         onItemClick = { boardItem ->
                             filteredCards.find { it.folderName == boardItem.folderName }
@@ -242,12 +223,14 @@ fun SpecialtyJobsScreen(
                     )
                 }
                 else -> {
+                    val activeCards  = filteredCards.filter { it.boardSection == 0 }
+                    val pendingCards = filteredCards.filter { it.boardSection == 1 }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(filteredCards, key = { it.folderName }) { card ->
+                        items(activeCards, key = { "active_${it.folderName}" }) { card ->
                             val statusCounts = remember(card.totalItems, card.completedItems) {
                                 StatusCounts(
                                     total = card.totalItems.coerceAtLeast(0),
@@ -319,6 +302,52 @@ fun SpecialtyJobsScreen(
                                     }
                                 }
                             )
+                        }
+                        if (pendingCards.isNotEmpty()) {
+                            item(key = "pending_header") {
+                                Text(
+                                    text = "Pending Delivery",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                        .padding(horizontal = 4.dp, vertical = 8.dp)
+                                )
+                            }
+                            items(pendingCards, key = { "pending_${it.folderName}" }) { card ->
+                                val statusCounts = remember(card.totalItems, card.completedItems) {
+                                    StatusCounts(
+                                        total = card.totalItems.coerceAtLeast(0),
+                                        complete = card.completedItems.coerceIn(0, card.totalItems.coerceAtLeast(0)),
+                                        bad = 0,
+                                        skipped = 0,
+                                        notStarted = (card.totalItems - card.completedItems).coerceAtLeast(0)
+                                    )
+                                }
+                                ProgressCard(
+                                    title = card.folderName,
+                                    subtitle = "${card.completedItems}/${card.totalItems} complete",
+                                    fraction = card.completionFraction,
+                                    expanded = false,
+                                    onToggleExpanded = {},
+                                    onClick = { onJobClick(card) },
+                                    showBottomProgressBar = false,
+                                    hidePrimaryProgressBar = true,
+                                    segmentedStatusCounts = statusCounts,
+                                    showExpandToggle = false,
+                                    headerActions = {
+                                        card.labels.forEach { label ->
+                                            StatusChip(
+                                                text = label.name,
+                                                backgroundColor = parseJobLabelColor(label.colorHex),
+                                                contentColor = Color.White
+                                            )
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,10 +75,25 @@ data class JobBoardItem(
     val labels: List<JobLabel> = emptyList()
 )
 
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    )
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun JobBoardGrid(
     items: List<JobBoardItem>,
+    pendingItems: List<JobBoardItem> = emptyList(),
     jobRepository: JobRepository,
     onItemClick: (JobBoardItem) -> Unit,
     modifier: Modifier = Modifier,
@@ -99,6 +115,12 @@ fun JobBoardGrid(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Active Production section header (only when pending section exists)
+                if (pendingItems.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxCurrentLineSpan) }) {
+                        SectionHeader("Active Production")
+                    }
+                }
                 items(items, key = { it.folderName }) { item ->
                     JobBoardCard(
                         item = item,
@@ -108,6 +130,22 @@ fun JobBoardGrid(
                         sharedTransitionScope = this@SharedTransitionLayout,
                         expandedFolderName = expandedItem?.folderName
                     )
+                }
+                // Pending Delivery section
+                if (pendingItems.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxCurrentLineSpan) }) {
+                        SectionHeader("Pending Delivery")
+                    }
+                    items(pendingItems, key = { "pending_${it.folderName}" }) { item ->
+                        JobBoardCard(
+                            item = item,
+                            jobRepository = jobRepository,
+                            onClick = { onItemClick(item) },
+                            onLongClick = { expandedItem = item },
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            expandedFolderName = expandedItem?.folderName
+                        )
+                    }
                 }
             }
 

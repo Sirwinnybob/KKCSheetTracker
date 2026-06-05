@@ -4,7 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -75,7 +78,8 @@ fun ProgressPill(
 
     Box(
         modifier = modifier
-            .size(width = 40.dp, height = 22.dp)
+            .height(22.dp)
+            .widthIn(min = 52.dp)
             .clip(shape)
             .background(trackColor)
             .semantics {
@@ -108,7 +112,11 @@ fun ProgressPill(
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = textColor,
-                modifier = Modifier.align(Alignment.Center)
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 6.dp)
             )
         }
     }

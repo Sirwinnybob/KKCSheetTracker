@@ -34,12 +34,17 @@ class HardwoodsRepository(private var baseDir: File) {
     fun currentBasePath(): String = baseDir.absolutePath
 
     fun scanJobs(): List<HardwoodJob> {
-        return engine().listJobs()
-            .mapNotNull { info ->
-                engine().getHardwoodsSnapshot(info.folderName)?.job
-                    ?.copy(lineupPosition = info.lineupPosition, labels = info.labels)
-            }
-        // Preserve production order from listJobs; no secondary sort needed
+        val (jobInfos, _) = engine().listJobsFromCacheOnly()
+        return jobInfos.mapNotNull { info ->
+            engine().getHardwoodsSnapshot(info.folderName)?.job
+                ?.copy(lineupPosition = info.lineupPosition, labels = info.labels)
+        }
+        // Preserve production order (set by server in cache); no secondary sort needed
+    }
+
+    /** Re-projects one job from the engine's in-memory cache. Used by HardwoodsScanCoordinator. */
+    fun getUpdatedJob(folderName: String): HardwoodJob? {
+        return engine().getHardwoodsSnapshot(folderName)?.job
     }
 
     fun buildSearchIndex(jobs: List<HardwoodJob>): List<HardwoodSearchEntry> {

@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -263,49 +265,61 @@ private fun HardwoodsOverviewCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Top row: circular progress (left) + job count + button (right)
+            // Top row: circular progress + progress text details + action button
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier.size(88.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     CircularProgressIndicator(
                         progress = { completionFraction.coerceIn(0f, 1f) },
-                        modifier = Modifier.size(80.dp),
+                        modifier = Modifier.fillMaxSize(),
                         strokeWidth = 8.dp,
                         color = colors.completeBorder,
                         trackColor = MaterialTheme.colorScheme.surfaceVariant,
                         strokeCap = StrokeCap.Round
                     )
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "${(completionFraction * 100f).roundToInt()}%",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "${totalCounts.donePieces}/${totalCounts.totalPieces}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Text(
+                        "${(completionFraction * 100f).roundToInt()}%",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
 
                 Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
-                        "${jobs.size} job${if (jobs.size == 1) "" else "s"}",
-                        style = MaterialTheme.typography.bodyLarge,
+                        "Overall Progress",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Button(onClick = onNavigateToJobs) {
-                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Open Jobs")
-                    }
+                    Text(
+                        "${totalCounts.donePieces} of ${totalCounts.totalPieces} pieces",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "${jobs.size} job${if (jobs.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Button(
+                    onClick = onNavigateToJobs,
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Open Jobs")
                 }
             }
 
@@ -361,9 +375,11 @@ private fun HardwoodsStatCard(
         ) {
             Text(
                 value,
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = color
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(2.dp))
             Text(
@@ -501,6 +517,7 @@ private fun HardwoodsRecentJobsCard(
 
 // ── Job cards ──────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HardwoodsJobCard(
     entry: HardwoodJobDashboardEntry,
@@ -538,8 +555,10 @@ private fun HardwoodsJobCard(
                     }
                     append(summary.job.jobName.ifBlank { summary.job.folderName })
                 },
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
             // Progress bar
@@ -556,9 +575,10 @@ private fun HardwoodsJobCard(
             }
             val showPills = presentDocs.isNotEmpty() || entry.ripsTotal > 0
             if (showPills) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     presentDocs.forEach { docSummary ->
                         val docState = when {
@@ -572,16 +592,22 @@ private fun HardwoodsJobCard(
                             HardwoodDocType.DOOR_CUT_LIST -> "Doors"
                             HardwoodDocType.DOOR_LIST -> "" // excluded above, never reached
                         }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.width(84.dp)
+                        ) {
                             ProgressPill(
                                 done = docSummary.counts.donePieces,
                                 total = docSummary.counts.totalPieces,
                                 state = docState
                             )
+                            Spacer(Modifier.height(4.dp))
                             Text(
                                 docLabel,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -593,16 +619,22 @@ private fun HardwoodsJobCard(
                             entry.ripsDone > 0 -> ProgressState.IN_PROGRESS
                             else -> ProgressState.NOT_STARTED
                         }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.width(84.dp)
+                        ) {
                             ProgressPill(
                                 done = entry.ripsDone,
                                 total = entry.ripsTotal,
                                 state = ripsState
                             )
+                            Spacer(Modifier.height(4.dp))
                             Text(
                                 "Rips",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }

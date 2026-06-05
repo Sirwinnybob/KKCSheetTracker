@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicLong
+import com.kkc.sheettracker.BuildConfig
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import java.io.File
 
 class HardwoodsScanCoordinator(
     private val repository: HardwoodsRepository
@@ -59,6 +62,38 @@ class HardwoodsScanCoordinator(
                     lastRefreshReason = reason
                 )
             }
+        }
+    }
+
+    /** Re-projects one job from the engine's in-memory cache and emits an updated HardwoodScanState. */
+    fun updateJobInState(folderName: String) {
+        scope.launch {
+            val updatedJob = repository.getUpdatedJob(folderName) ?: return@launch
+            val current = _state.value
+            val existingJobs = current.snapshot.jobs
+            val newJobs = if (existingJobs.any { it.folderName == folderName }) {
+                existingJobs.map { if (it.folderName == folderName) updatedJob else it }
+            } else {
+                existingJobs + updatedJob
+            }
+            _state.value = current.copy(
+                snapshot = current.snapshot.copy(
+                    generation = generation.incrementAndGet(),
+                    jobs = newJobs
+                )
+            )
+        }
+    }
+
+    /** Phase-2: run full staleness check for this job in background; update state if changed. */
+    fun refreshJobOnOpen(folderName: String) {
+        scope.launch {
+            val engine = UnifiedMetadataEngineRegistry.getOrCreate(
+                baseDir = File(repository.currentBasePath()),
+                isDebugBuild = BuildConfig.DEBUG
+            )
+            val changed = engine.refreshJobDeep(folderName)
+            if (changed) updateJobInState(folderName)
         }
     }
 }

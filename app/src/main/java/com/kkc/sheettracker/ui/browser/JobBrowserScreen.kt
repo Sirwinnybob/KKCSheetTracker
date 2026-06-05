@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.browser
 
 import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -113,7 +114,6 @@ fun JobBrowserScreen(
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("jobs")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
-    var showPendingOnly by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val listState = rememberLazyListState()
     val scanState by scanCoordinator.state.collectAsState()
@@ -138,7 +138,7 @@ fun JobBrowserScreen(
         }
     }
 
-    val filteredJobs = remember(jobs, searchQuery, sortByName, progressVersion, showPendingOnly) {
+    val filteredJobs = remember(jobs, searchQuery, sortByName, progressVersion) {
         val base = if (searchQuery.isBlank()) {
             jobs
         } else {
@@ -146,13 +146,15 @@ fun JobBrowserScreen(
                 job.jobNumber.contains(searchQuery, ignoreCase = true) ||
                     job.jobName.contains(searchQuery, ignoreCase = true)
             }
-        }.filter { it.isPending == showPendingOnly }
+        }
         if (sortByName) {
             base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
         } else {
             base // already in production order from listJobs
         }
     }
+    val activeJobs  = remember(filteredJobs) { filteredJobs.filter { it.boardSection == 0 } }
+    val pendingJobs = remember(filteredJobs) { filteredJobs.filter { it.boardSection == 1 } }
 
     val jobUiStates = remember(filteredJobs, scanState.snapshot.generation, progressVersion, useAppState, appJobModelsByFolder) {
         filteredJobs.map { job ->
@@ -255,29 +257,11 @@ fun JobBrowserScreen(
                 sortByName = sortByName,
                 onSortChange = { sortByName = it }
             )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = !showPendingOnly,
-                    onClick = { showPendingOnly = false },
-                    label = { Text("Active Production") }
-                )
-                FilterChip(
-                    selected = showPendingOnly,
-                    onClick = { showPendingOnly = true },
-                    label = { Text("Pending Delivery") }
-                )
-            }
             Text(
                 text = if (searchQuery.isBlank()) {
                     "${filteredJobs.size} jobs"
                 } else {
-                    val poolSize = jobs.count { it.isPending == showPendingOnly }
-                    "Showing ${filteredJobs.size} of $poolSize jobs"
+                    "Showing ${filteredJobs.size} of ${jobs.size} jobs"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -314,7 +298,8 @@ fun JobBrowserScreen(
                     }
                 } else if (isBoardView) {
                     JobBoardGrid(
-                        items = filteredJobs.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                        items = activeJobs.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                        pendingItems = pendingJobs.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
                         jobRepository = jobRepository,
                         onItemClick = { boardItem ->
                             filteredJobs.find { it.folderName == boardItem.folderName }
@@ -325,13 +310,15 @@ fun JobBrowserScreen(
                         scanGeneration = scanState.snapshot.generation
                     )
                 } else {
+                val activeUiStates  = jobUiStates.filter { it.job.boardSection == 0 }
+                val pendingUiStates = jobUiStates.filter { it.job.boardSection == 1 }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(jobUiStates, key = { it.job.folderName }) { uiState ->
+                    items(activeUiStates, key = { it.job.folderName }) { uiState ->
                         JobBrowserRow(
                             uiState = uiState,
                             scanGeneration = scanState.snapshot.generation,
@@ -344,6 +331,35 @@ fun JobBrowserScreen(
                             onHistoryClick = { selectedHistoryJob = it },
                             sortByName = sortByName,
                         )
+                    }
+                    if (pendingUiStates.isNotEmpty()) {
+                        item(key = "pending_header") {
+                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Pending Delivery",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    .padding(horizontal = 4.dp, vertical = 8.dp)
+                            )
+                        }
+                        items(pendingUiStates, key = { "pending_${it.job.folderName}" }) { uiState ->
+                            JobBrowserRow(
+                                uiState = uiState,
+                                scanGeneration = scanState.snapshot.generation,
+                                badgeCache = badgeCache,
+                                jobRepository = jobRepository,
+                                hardwoodsRepository = hardwoodsRepository,
+                                onJobClick = onJobClick,
+                                onViewCoverSheet = onViewCoverSheet,
+                                onView3D = onView3D,
+                                onHistoryClick = { selectedHistoryJob = it },
+                                sortByName = sortByName,
+                            )
+                        }
                     }
                 }
                 }

@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data
 
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.PartSearchEntry
@@ -122,7 +123,9 @@ class ScanCoordinator(
             )
 
             try {
-                val currentSignature = computeStalenessSignature(baseDir)
+                // Lightweight signature: only checks cache_static.json mtimes (one file per job).
+                // Full per-file staleness checks are deferred to refreshJobOnOpen().
+                val currentSignature = computeLightStalenessSignature()
                 val unchanged = !force &&
                     currentSignature == lastStalenessSignature &&
                     previous.snapshot.basePath == baseDir.absolutePath &&
@@ -137,7 +140,7 @@ class ScanCoordinator(
                     return
                 }
 
-                val (jobs, searchIndex, issues) = scanJobsFromEngine()
+                val (jobs, searchIndex, issues, needsDeepLoad) = scanJobsFromCacheOnly()
                 val nextSnapshot = ScanSnapshot(
                     generation = generation.incrementAndGet(),
                     basePath = baseDir.absolutePath,
@@ -155,7 +158,19 @@ class ScanCoordinator(
                     errorMessage = null,
                     lastRefreshReason = reason
                 )
+
+                // Background: deep-load any job folders that had no cache_static.json yet
+                if (needsDeepLoad.isNotEmpty()) {
+                    scope.launch {
+                        needsDeepLoad.forEach { folderName ->
+                            if (unifiedEngine.refreshJobDeep(folderName)) {
+                                updateJobInState(folderName)
+                            }
+                        }
+                    }
+                }
             } catch (e: Exception) {
+                Log.e("KKC_SCAN", "runRefresh EXCEPTION: ${e.javaClass.simpleName}: ${e.message}", e)
                 _state.value = previous.copy(
                     status = ScanStatus.ERROR,
                     errorMessage = e.message ?: "Unknown scan failure",
@@ -165,20 +180,67 @@ class ScanCoordinator(
         }
     }
 
-    private fun scanJobsFromEngine(): Triple<List<Job>, List<PartSearchEntry>, List<ScanIssue>> {
-        if (!baseDir.exists() || !baseDir.isDirectory) return Triple(emptyList(), emptyList(), emptyList())
+    /**
+     * Phase-1 scan: reads only cache_static.json for each job — no per-file staleness checks.
+     * Populates the engine's in-memory cache so snapshot calls are instant.
+     */
+    private fun scanJobsFromCacheOnly(): ScanResult {
+        if (!baseDir.exists() || !baseDir.isDirectory)
+            return ScanResult(emptyList(), emptyList(), emptyList(), emptyList())
+        val (jobInfos, needsDeepLoad) = unifiedEngine.listJobsFromCacheOnly()
         val jobs = mutableListOf<Job>()
         val search = mutableListOf<PartSearchEntry>()
         val issues = mutableListOf<ScanIssue>()
-        unifiedEngine.listJobs().forEach { info ->
+        jobInfos.forEach { info ->
             if (!File(baseDir, "${info.folderName}/CNC").isDirectory) return@forEach
             val snapshot = unifiedEngine.getCncSnapshot(info.folderName) ?: return@forEach
             jobs += snapshot.job.copy(lineupPosition = info.lineupPosition, labels = info.labels)
             search += snapshot.searchIndex
             issues += snapshot.issues
         }
-        // Preserve production order (as set by listJobs) rather than sorting by folder name
-        return Triple(jobs, search, issues)
+        return ScanResult(jobs, search, issues, needsDeepLoad)
+    }
+
+    private data class ScanResult(
+        val jobs: List<Job>,
+        val searchIndex: List<PartSearchEntry>,
+        val issues: List<ScanIssue>,
+        val needsDeepLoad: List<String>
+    )
+
+    /** Re-projects one job from the engine's in-memory cache and emits an updated ScanState. */
+    fun updateJobInState(folderName: String) {
+        scope.launch {
+            val snapshot = unifiedEngine.getCncSnapshot(folderName) ?: return@launch
+            val current = _state.value
+            val existingJobs = current.snapshot.jobs
+            val updatedJob = snapshot.job
+            val updatedJobs = if (existingJobs.any { it.folderName == folderName }) {
+                existingJobs.map { if (it.folderName == folderName) updatedJob else it }
+            } else {
+                existingJobs + updatedJob
+            }
+            val updatedSearch = current.snapshot.searchIndex
+                .filter { it.jobFolderName != folderName } + snapshot.searchIndex
+            _state.value = current.copy(
+                snapshot = current.snapshot.copy(
+                    generation = generation.incrementAndGet(),
+                    jobs = updatedJobs,
+                    searchIndex = updatedSearch
+                )
+            )
+        }
+    }
+
+    /**
+     * Phase-2: triggered when a job is opened. Runs the full staleness check for this one
+     * job in the background; updates state only if the data actually changed.
+     */
+    fun refreshJobOnOpen(folderName: String) {
+        scope.launch {
+            val changed = unifiedEngine.refreshJobDeep(folderName)
+            if (changed) updateJobInState(folderName)
+        }
     }
 
     private fun countPdfPagesForEngine(pdfFile: File): UnifiedPdfPageCountResult {
@@ -194,19 +256,21 @@ class ScanCoordinator(
         }
     }
 
-    private fun computeStalenessSignature(root: File): Long {
-        if (!root.exists() || !root.isDirectory) return Long.MIN_VALUE
-
+    /**
+     * Lightweight staleness check: only examines each job's cache_static.json mtime.
+     * Full per-file staleness is deferred to refreshJobOnOpen() for the job being viewed.
+     */
+    private fun computeLightStalenessSignature(): Long {
+        if (!baseDir.exists() || !baseDir.isDirectory) return Long.MIN_VALUE
         var hash = 1125899906842597L
-        fun mix(value: Long) {
-            hash = (hash * 31L) xor value
-        }
-        val jobs = unifiedEngine.listJobs()
-        mix(jobs.size.toLong())
-        jobs.forEach { job ->
-            mix(job.folderName.hashCode().toLong())
-            val sig = unifiedEngine.getSignatures(job.folderName)
-            mix(sig.staticSignature)
+        fun mix(v: Long) { hash = (hash * 31L) xor v }
+        val dirs = baseDir.listFiles() ?: return Long.MIN_VALUE
+        mix(dirs.size.toLong())
+        dirs.forEach { dir ->
+            if (!dir.isDirectory) return@forEach
+            mix(dir.name.hashCode().toLong())
+            val cacheFile = File(dir, ".metadata/cache_static.json")
+            mix(if (cacheFile.isFile) cacheFile.lastModified() else 0L)
         }
         return hash
     }

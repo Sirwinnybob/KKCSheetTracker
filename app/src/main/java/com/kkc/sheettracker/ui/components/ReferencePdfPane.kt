@@ -306,7 +306,8 @@ fun ReferencePdfPane(
     onStepPage: ((Int) -> Unit)? = null,
     onOpenSheetNavigator: (() -> Unit)? = null,
     onSingleTap: (() -> Unit)? = null,
-    compactArrows: Boolean = false
+    compactArrows: Boolean = false,
+    preferDarkMode: Boolean = false
 ) {
     val pdfIdentityKey = when {
         pdfFile == null -> "missing"
@@ -335,7 +336,7 @@ fun ReferencePdfPane(
     var isInteracting by remember(engine) { mutableStateOf(false) }
     var pageAspectRatio by remember(engine, currentPage) { mutableStateOf<Float?>(null) }
     var renderState by remember(engine, currentPage) { mutableStateOf<PdfRenderUiState>(PdfRenderUiState.Loading) }
-    val matteColorArgb = MaterialTheme.colorScheme.surface.toArgb()
+    val matteColorArgb = if (preferDarkMode) MaterialTheme.colorScheme.surface.toArgb() else android.graphics.Color.WHITE
     var baseBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailForViewport by remember(engine, currentPage) { mutableStateOf<QuantizedViewportState?>(null) }

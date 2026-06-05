@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
@@ -112,7 +113,6 @@ fun AssemblyJobsScreen(
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("assembly")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
-    var showPendingOnly by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by assemblyScanCoordinator.state.collectAsState()
     val cncProgressVersion by progressStore.progressVersion.collectAsState()
@@ -134,7 +134,7 @@ fun AssemblyJobsScreen(
         val complete = specialtyCards.sumOf { it.completedItems }
         complete to total
     }
-    val filtered = remember(allCards, query, sortByName, showPendingOnly) {
+    val filtered = remember(allCards, query, sortByName) {
         val base = if (query.isBlank()) {
             allCards
         } else {
@@ -143,7 +143,7 @@ fun AssemblyJobsScreen(
                     it.jobName.contains(query, ignoreCase = true) ||
                     it.folderName.contains(query, ignoreCase = true)
             }
-        }.filter { it.isPending == showPendingOnly }
+        }
         if (sortByName) {
             base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
         } else {
@@ -218,29 +218,11 @@ fun AssemblyJobsScreen(
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = !showPendingOnly,
-                    onClick = { showPendingOnly = false },
-                    label = { Text("Active Production") }
-                )
-                FilterChip(
-                    selected = showPendingOnly,
-                    onClick = { showPendingOnly = true },
-                    label = { Text("Pending Delivery") }
-                )
-            }
             Text(
                 text = if (query.isBlank()) {
                     "${filtered.size} jobs"
                 } else {
-                    val poolSize = allCards.count { it.isPending == showPendingOnly }
-                    "Showing ${filtered.size} of $poolSize jobs"
+                    "Showing ${filtered.size} of ${allCards.size} jobs"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -297,8 +279,11 @@ fun AssemblyJobsScreen(
                     }
                 }
                 isBoardView -> {
+                    val activeBoard  = filtered.filter { it.boardSection == 0 }
+                    val pendingBoard = filtered.filter { it.boardSection == 1 }
                     JobBoardGrid(
-                        items = filtered.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                        items = activeBoard.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                        pendingItems = pendingBoard.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
                         jobRepository = jobRepository,
                         onItemClick = { boardItem ->
                             filtered.find { it.folderName == boardItem.folderName }
@@ -310,12 +295,14 @@ fun AssemblyJobsScreen(
                     )
                 }
                 else -> {
+                    val activeUiStates  = assemblyUiStates.filter { it.card.boardSection == 0 }
+                    val pendingUiStates = assemblyUiStates.filter { it.card.boardSection == 1 }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(assemblyUiStates, key = { it.card.folderName }) { uiState ->
+                        items(activeUiStates, key = { "active_${it.card.folderName}" }) { uiState ->
                             val card = uiState.card
                             val hasDeliverySheet = uiState.hasDeliverySheet
                             val hasHistory = uiState.hasHistory
@@ -377,6 +364,68 @@ fun AssemblyJobsScreen(
                                     )
                                 }
                             )
+                        }
+                        if (pendingUiStates.isNotEmpty()) {
+                            item(key = "pending_header") {
+                                Text(
+                                    text = "Pending Delivery",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                        .padding(horizontal = 4.dp, vertical = 8.dp)
+                                )
+                            }
+                            items(pendingUiStates, key = { "pending_${it.card.folderName}" }) { uiState ->
+                                val card = uiState.card
+                                val hasDeliverySheet = uiState.hasDeliverySheet
+                                val hasHistory = uiState.hasHistory
+                                val cncCounts = uiState.cncCounts
+                                val hardwoodCounts = uiState.hardwoodCounts
+                                val combinedCounts = uiState.combinedCounts
+                                val subtitle = uiState.subtitle
+                                ProgressCard(
+                                    title = card.folderName,
+                                    subtitle = subtitle,
+                                    fraction = if (combinedCounts.total <= 0) 0f else combinedCounts.complete.toFloat() / combinedCounts.total.toFloat(),
+                                    expanded = false,
+                                    onToggleExpanded = {},
+                                    onClick = { onJobClick(card) },
+                                    hidePrimaryProgressBar = true,
+                                    showExpandToggle = false,
+                                    headerActions = {
+                                        card.labels.forEach { label ->
+                                            StatusChip(
+                                                text = label.name,
+                                                backgroundColor = parseJobLabelColor(label.colorHex),
+                                                contentColor = Color.White
+                                            )
+                                        }
+                                        if (card.hiddenFromProduction) {
+                                            StatusChip(
+                                                text = "Hidden in Production",
+                                                backgroundColor = MaterialTheme.colorScheme.errorContainer,
+                                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                        if (hasDeliverySheet) {
+                                            FilterChip(
+                                                selected = false,
+                                                onClick = { onViewCoverSheet(card) },
+                                                label = { Text("Cover Sheet") }
+                                            )
+                                        }
+                                    },
+                                    inlineContent = {
+                                        DualModeProgressBars(
+                                            cncCounts = cncCounts,
+                                            hardwoodCounts = hardwoodCounts
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
                 }

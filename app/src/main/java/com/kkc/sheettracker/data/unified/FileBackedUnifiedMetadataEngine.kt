@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data.unified
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
@@ -203,6 +204,91 @@ class FileBackedUnifiedMetadataEngine(
                 lineupPosition = index + 1,
                 labels = config?.labels ?: emptyList()
             )
+        }
+    }
+
+    override fun getJobInfo(folderName: String): UnifiedJobInfo? =
+        staticByJob[folderName]?.data?.jobInfo
+
+    override fun listJobsFromCacheOnly(): Pair<List<UnifiedJobInfo>, List<String>> {
+        if (!baseDir.exists() || !baseDir.isDirectory) return Pair(emptyList(), emptyList())
+        val loaded = mutableListOf<UnifiedJobInfo>()
+        val needsDeepLoad = mutableListOf<String>()
+        val dirs = baseDir.listFiles() ?: return Pair(emptyList(), emptyList())
+        // Read job_board.json once to get labels/isPending/boardSection — same as listJobs().
+        // These fields are NOT stored in cache_static.json (they come from job_board.json),
+        // so we must merge them here. Also guards against Gson setting non-null Kotlin
+        // List fields to null when the JSON key is absent.
+        val boardConfigs = readJobBoardConfig()
+        for (dir in dirs) {
+            if (!dir.isDirectory) continue
+            // Gate check first — skip hidden/undeployed jobs before touching the cache file.
+            // deployment_gate.json is owned exclusively by Ready Jobs Watcher.
+            if (!DeploymentGateRules.evaluate(dir, isDebugBuild = isDebugBuild).includeJob) continue
+            val cacheFile = File(dir, ".metadata/cache_static.json")
+            if (!cacheFile.isFile) {
+                // Only queue deep load for folders that look like job folders
+                if (parseJobFolderName(dir.name) != null) needsDeepLoad.add(dir.name)
+                continue
+            }
+            try {
+                val cacheMTime = cacheFile.lastModified()
+                val existing = staticByJob[dir.name]
+                val rawInfo = if (existing != null && existing.signature == cacheMTime) {
+                    existing.data.jobInfo
+                } else {
+                    val data = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: continue
+                    staticByJob[dir.name] = CachedStaticEntry(signature = cacheMTime, data = data)
+                    data.jobInfo
+                }
+                // Merge board config fields that are missing from cache_static.json, and
+                // guard against Gson leaving non-null Kotlin fields as null.
+                val config = boardConfigs[dir.name]
+                loaded.add(
+                    UnifiedJobInfo(
+                        folderName = rawInfo.folderName ?: dir.name,
+                        jobNumber = rawInfo.jobNumber ?: "",
+                        jobName = rawInfo.jobName ?: "",
+                        hiddenFromProduction = rawInfo.hiddenFromProduction,
+                        lineupPosition = rawInfo.lineupPosition,
+                        labels = config?.labels ?: emptyList(),
+                        isPending = config?.isPending ?: false,
+                        boardSection = config?.boardSection ?: 0
+                    )
+                )
+            } catch (e: Exception) {
+                if (parseJobFolderName(dir.name) != null) needsDeepLoad.add(dir.name)
+            }
+        }
+        // Sort by lineup position (set by server), falling back to job-number descending
+        val sorted = loaded.sortedWith(
+            compareBy<UnifiedJobInfo> { it.lineupPosition ?: Int.MAX_VALUE }
+                .thenByDescending { it.jobNumber.toIntOrNull() ?: 0 }
+                .thenBy { it.folderName }
+        )
+        return Pair(sorted, needsDeepLoad)
+    }
+
+    override fun refreshJobDeep(folderName: String): Boolean {
+        val oldSignature = staticByJob[folderName]?.signature
+        // Remove so loadStaticJobData sees a cache miss and runs the staleness check
+        staticByJob.remove(folderName)
+        loadStaticJobData(folderName)
+        val newSignature = staticByJob[folderName]?.signature
+        return newSignature != oldSignature
+    }
+
+    override fun loadJobFromCacheFile(folderName: String): UnifiedJobInfo? {
+        val jobDir = File(baseDir, folderName)
+        val cacheFile = File(jobDir, ".metadata/cache_static.json")
+        if (!cacheFile.isFile) return null
+        return try {
+            val cacheMTime = cacheFile.lastModified()
+            val data = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: return null
+            staticByJob[folderName] = CachedStaticEntry(signature = cacheMTime, data = data)
+            data.jobInfo
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -491,9 +577,12 @@ class FileBackedUnifiedMetadataEngine(
         val cacheFile = File(jobDir, ".metadata/cache_static.json")
         if (cacheFile.isFile) {
             val cacheMTime = cacheFile.lastModified()
+            // Fast path: if in-memory cache was already populated (e.g. by listJobsFromCacheOnly
+            // or a previous load) and the file hasn't changed, return immediately — no staleness check.
+            val cached = staticByJob[jobFolderName]
+            if (cached != null && cached.signature == cacheMTime) return cached.data
+
             if (!checkIsCacheStale(jobDir, cacheMTime)) {
-                val cached = staticByJob[jobFolderName]
-                if (cached != null && cached.signature == cacheMTime) return cached.data
                 try {
                     val data = gson.fromJson(cacheFile.readText(), StaticJobData::class.java)
                     if (data != null) {

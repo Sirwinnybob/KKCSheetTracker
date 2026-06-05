@@ -26,6 +26,7 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -69,6 +70,7 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.TabletSpecialtyItemsStore
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.data.TrackerChangeMonitor
+import com.kkc.sheettracker.data.StaticCachePoller
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.RefreshReason
@@ -197,6 +199,34 @@ fun AppNavigation(
             trackerChangeMonitor.stop()
         }
     }
+
+    // StaticCachePoller: polls cache_static.json mtimes; when the admin server updates a
+    // cache file, loads new data into the engine and triggers a coordinator refresh via the
+    // same watcherRefreshSignal path used by TrackerChangeMonitor (fast — coordinators now
+    // use listJobsFromCacheOnly() so re-scans read only the already-updated in-memory cache).
+    val staticCachePoller = remember(basePath, watcherRefreshSignal) {
+        StaticCachePoller(
+            baseDir = File(basePath),
+            onJobCacheUpdated = { _ ->
+                watcherRefreshSignal.value = System.currentTimeMillis()
+            }
+        )
+    }
+    DisposableEffect(lifecycleOwner, staticCachePoller) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> staticCachePoller.start()
+                Lifecycle.Event.ON_STOP -> staticCachePoller.stop()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            staticCachePoller.stop()
+        }
+    }
+
     val flags = remember(appStateFlags) { appStateFlags.snapshot() }
     key(workMode) {
         if (flags.navMultiStackEnabled) {
@@ -1047,6 +1077,8 @@ private fun JobsTabHost(
             arguments = listOf(navArgument("folderName") { type = NavType.StringType })
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            // Phase 2: verify cache freshness for this job in the background
+            LaunchedEffect(folderName) { scanCoordinator.refreshJobOnOpen(folderName) }
             val isClockedInHere = clockInState.snapshot.isActive &&
                 clockInState.snapshot.folderName == folderName
             JobDetailScreen(
@@ -1108,6 +1140,8 @@ private fun JobsTabHost(
             arguments = listOf(navArgument("folderName") { type = NavType.StringType })
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            // Phase 2: verify cache freshness for this job in the background
+            LaunchedEffect(folderName) { specialtyScanCoordinator.refreshJobOnOpen(folderName) }
             val hasDeliverySheet = remember(folderName) {
                 jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
             }
@@ -1289,6 +1323,8 @@ private fun JobsTabHost(
             arguments = listOf(navArgument("folderName") { type = NavType.StringType })
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            // Phase 2: verify cache freshness for this job in the background
+            LaunchedEffect(folderName) { hardwoodsScanCoordinator.refreshJobOnOpen(folderName) }
             val isClockedInHere = clockInState.snapshot.isActive &&
                 clockInState.snapshot.folderName == folderName
             HardwoodsJobDetailScreen(
@@ -1401,6 +1437,8 @@ private fun JobsTabHost(
             )
         ) { backStack ->
             val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            // Phase 2: verify cache freshness for this job in the background
+            LaunchedEffect(jobFolderName) { assemblyScanCoordinator.refreshJobOnOpen(jobFolderName) }
             val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
             val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
             val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
@@ -2079,6 +2117,8 @@ private fun LegacySingleStackNavigation(
                 arguments = listOf(navArgument("folderName") { type = NavType.StringType })
             ) { backStack ->
                 val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                // Phase 2: verify cache freshness for this job in the background
+                LaunchedEffect(folderName) { scanCoordinator.refreshJobOnOpen(folderName) }
                 val isClockedInHere = clockInState.snapshot.isActive &&
                     clockInState.snapshot.folderName == folderName
                 JobDetailScreen(
@@ -2130,6 +2170,8 @@ private fun LegacySingleStackNavigation(
                 arguments = listOf(navArgument("folderName") { type = NavType.StringType })
             ) { backStack ->
                 val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                // Phase 2: verify cache freshness for this job in the background
+                LaunchedEffect(folderName) { specialtyScanCoordinator.refreshJobOnOpen(folderName) }
                 val hasDeliverySheet = remember(folderName) {
                     jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
                 }
@@ -2207,6 +2249,8 @@ private fun LegacySingleStackNavigation(
                 arguments = listOf(navArgument("folderName") { type = NavType.StringType })
             ) { backStack ->
                 val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                // Phase 2: verify cache freshness for this job in the background
+                LaunchedEffect(folderName) { assemblyScanCoordinator.refreshJobOnOpen(folderName) }
                 AssemblyJobDetailScreen(
                     jobFolderName = folderName,
                     assemblyStateStore = assemblyStateStore,
@@ -2330,6 +2374,8 @@ private fun LegacySingleStackNavigation(
                 arguments = listOf(navArgument("folderName") { type = NavType.StringType })
             ) { backStack ->
                 val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                // Phase 2: verify cache freshness for this job in the background
+                LaunchedEffect(folderName) { hardwoodsScanCoordinator.refreshJobOnOpen(folderName) }
                 val isClockedInHere = clockInState.snapshot.isActive &&
                     clockInState.snapshot.folderName == folderName
                 HardwoodsJobDetailScreen(
@@ -2432,6 +2478,8 @@ private fun LegacySingleStackNavigation(
                 )
             ) { backStack ->
                 val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                // Phase 2: verify cache freshness for this job in the background
+                LaunchedEffect(jobFolderName) { assemblyScanCoordinator.refreshJobOnOpen(jobFolderName) }
                 val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
                 val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
                 val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }

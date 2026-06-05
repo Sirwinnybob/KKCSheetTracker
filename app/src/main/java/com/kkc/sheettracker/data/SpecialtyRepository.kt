@@ -3,6 +3,7 @@ package com.kkc.sheettracker.data
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.models.SpecialtyJob
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
+import com.kkc.sheettracker.data.unified.UnifiedJobInfo
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import java.io.File
@@ -29,30 +30,37 @@ class SpecialtyRepository(
     fun currentBasePath(): String = baseDir.absolutePath
 
     fun scanJobs(): List<SpecialtyJob> {
-        return engine().listJobs()
-            .map { info ->
-                val resolved = runCatching { progressStore.loadResolvedItems(info.folderName) }
-                    .getOrElse { emptyList() }
-                val totalItems = resolved.size
-                val completedItems = resolved.count { it.isComplete }
+        val (jobInfos, _) = engine().listJobsFromCacheOnly()
+        return jobInfos.map { info -> buildSpecialtyJob(info) }
+        // Preserve production order (set by server in cache); no secondary sort needed
+    }
 
-                SpecialtyJob(
-                    folderName = info.folderName,
-                    jobNumber = info.jobNumber,
-                    jobName = info.jobName,
-                    hiddenFromProduction = info.hiddenFromProduction,
-                    totalItems = totalItems,
-                    completedItems = completedItems,
-                    remainingItems = (totalItems - completedItems).coerceAtLeast(0),
-                    completionFraction = if (totalItems <= 0) 0f else completedItems.toFloat() / totalItems.toFloat(),
-                    resolvedItems = resolved,
-                    lineupPosition = info.lineupPosition,
-                    labels = info.labels,
-                    isPending = info.isPending,
-                    boardSection = info.boardSection
-                )
-            }
-        // Preserve production order from listJobs; no secondary sort needed
+    /** Re-builds one SpecialtyJob from the current engine cache. Used by SpecialtyScanCoordinator. */
+    fun getUpdatedJob(folderName: String): SpecialtyJob? {
+        val info = engine().getJobInfo(folderName) ?: return null
+        return buildSpecialtyJob(info)
+    }
+
+    private fun buildSpecialtyJob(info: UnifiedJobInfo): SpecialtyJob {
+        val resolved = runCatching { progressStore.loadResolvedItems(info.folderName) }
+            .getOrElse { emptyList() }
+        val totalItems = resolved.size
+        val completedItems = resolved.count { it.isComplete }
+        return SpecialtyJob(
+            folderName = info.folderName,
+            jobNumber = info.jobNumber,
+            jobName = info.jobName,
+            hiddenFromProduction = info.hiddenFromProduction,
+            totalItems = totalItems,
+            completedItems = completedItems,
+            remainingItems = (totalItems - completedItems).coerceAtLeast(0),
+            completionFraction = if (totalItems <= 0) 0f else completedItems.toFloat() / totalItems.toFloat(),
+            resolvedItems = resolved,
+            lineupPosition = info.lineupPosition,
+            labels = info.labels,
+            isPending = info.isPending,
+            boardSection = info.boardSection
+        )
     }
 
     fun loadResolvedItems(jobFolderName: String): List<SpecialtyResolvedItem> {
