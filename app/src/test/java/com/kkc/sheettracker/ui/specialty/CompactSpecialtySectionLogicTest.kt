@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.specialty
 
 import com.kkc.sheettracker.data.models.SpecialtyCompletionState
 import com.kkc.sheettracker.data.models.SpecialtyItem
+import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import org.junit.Assert.assertEquals
@@ -11,74 +12,70 @@ import org.junit.Test
 
 class CompactSpecialtySectionLogicTest {
     @Test
-    fun specialtyPriorityStationsForMode_mapsStationsBySurface() {
-        assertEquals(setOf(SpecialtyStation.CNC), specialtyPriorityStationsForMode(SpecialtySurfaceMode.CNC))
-        assertEquals(
-            setOf(SpecialtyStation.SAW, SpecialtyStation.EDGE_BANDER),
-            specialtyPriorityStationsForMode(SpecialtySurfaceMode.HARDWOODS)
-        )
-        assertEquals(setOf(SpecialtyStation.ASSEMBLY), specialtyPriorityStationsForMode(SpecialtySurfaceMode.ASSEMBLY))
+    fun isItemRelevantToMode_correctlyClassifiesRelevance() {
+        // CNC Mode: only CNC is relevant
+        assertTrue(isItemRelevantToMode(resolvedItem("1", listOf(SpecialtyStation.CNC)), SpecialtySurfaceMode.CNC))
+        assertFalse(isItemRelevantToMode(resolvedItem("2", listOf(SpecialtyStation.DELIVERY)), SpecialtySurfaceMode.CNC))
+        assertFalse(isItemRelevantToMode(resolvedItem("3", listOf(SpecialtyStation.HARDWOODS)), SpecialtySurfaceMode.CNC))
+
+        // HARDWOODS Mode: HARDWOODS and DELIVERY are relevant
+        assertTrue(isItemRelevantToMode(resolvedItem("4", listOf(SpecialtyStation.HARDWOODS)), SpecialtySurfaceMode.HARDWOODS))
+        assertTrue(isItemRelevantToMode(resolvedItem("5", listOf(SpecialtyStation.DELIVERY)), SpecialtySurfaceMode.HARDWOODS))
+        assertFalse(isItemRelevantToMode(resolvedItem("6", listOf(SpecialtyStation.CNC)), SpecialtySurfaceMode.HARDWOODS))
+        assertFalse(isItemRelevantToMode(resolvedItem("7", listOf(SpecialtyStation.SAW)), SpecialtySurfaceMode.HARDWOODS))
+
+        // ASSEMBLY Mode: ASSEMBLY, DELIVERY, and TO_ORDER category are relevant
+        assertTrue(isItemRelevantToMode(resolvedItem("8", listOf(SpecialtyStation.ASSEMBLY)), SpecialtySurfaceMode.ASSEMBLY))
+        assertTrue(isItemRelevantToMode(resolvedItem("9", listOf(SpecialtyStation.DELIVERY)), SpecialtySurfaceMode.ASSEMBLY))
+        assertTrue(isItemRelevantToMode(
+            SpecialtyResolvedItem(
+                item = SpecialtyItem(id = "10", name = "To Order Item", stations = emptyList(), category = SpecialtyItemCategory.TO_ORDER),
+                completionByKey = mapOf("ITEM" to SpecialtyCompletionState(completed = false)),
+                isComplete = false
+            ),
+            SpecialtySurfaceMode.ASSEMBLY
+        ))
+        assertFalse(isItemRelevantToMode(resolvedItem("11", listOf(SpecialtyStation.CNC)), SpecialtySurfaceMode.ASSEMBLY))
+
+        // SPECIALTY Mode: everything EXCEPT DELIVERY is relevant
+        assertTrue(isItemRelevantToMode(resolvedItem("12", listOf(SpecialtyStation.CNC)), SpecialtySurfaceMode.SPECIALTY))
+        assertTrue(isItemRelevantToMode(resolvedItem("13", listOf(SpecialtyStation.ASSEMBLY)), SpecialtySurfaceMode.SPECIALTY))
+        assertFalse(isItemRelevantToMode(resolvedItem("14", listOf(SpecialtyStation.DELIVERY)), SpecialtySurfaceMode.SPECIALTY))
     }
 
     @Test
-    fun buildSpecialtySectionRows_deliveryTaggedItemsAreAlwaysRelevant() {
+    fun buildSpecialtySectionRows_filtersNonRelevantItemsAndRetainsOrder() {
         val items = listOf(
-            resolvedItem(id = "1", name = "Delivery Tagged", stations = listOf(SpecialtyStation.DELIVERY)),
-            resolvedItem(id = "2", name = "Cnc Item", stations = listOf(SpecialtyStation.CNC))
+            resolvedItem(id = "1", stations = listOf(SpecialtyStation.DELIVERY)),
+            resolvedItem(id = "2", stations = listOf(SpecialtyStation.CNC)),
+            resolvedItem(id = "3", stations = listOf(SpecialtyStation.ASSEMBLY)),
+            resolvedItem(id = "4", stations = listOf(SpecialtyStation.HARDWOODS))
         )
 
-        // Verify they are relevant in CNC mode
+        // CNC Mode: only CNC item (2) relevant
         val cncRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.CNC)
-        assertEquals(2, cncRows.size)
-        assertTrue(cncRows.first { it.resolved.item.id == "1" }.isRelevantToMode)
+        assertEquals(listOf("2"), cncRows.map { it.resolved.item.id })
 
-        // Verify they are relevant in ASSEMBLY mode
-        val assemblyRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.ASSEMBLY)
-        assertEquals(2, assemblyRows.size)
-        assertTrue(assemblyRows.first { it.resolved.item.id == "1" }.isRelevantToMode)
-
-        // Verify they are relevant in HARDWOODS mode
+        // HARDWOODS Mode: DELIVERY (1) and HARDWOODS (4) relevant
         val hardwoodsRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.HARDWOODS)
-        assertEquals(2, hardwoodsRows.size)
-        assertTrue(hardwoodsRows.first { it.resolved.item.id == "1" }.isRelevantToMode)
+        assertEquals(listOf("1", "4"), hardwoodsRows.map { it.resolved.item.id })
+
+        // ASSEMBLY Mode: DELIVERY (1) and ASSEMBLY (3) relevant
+        val assemblyRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.ASSEMBLY)
+        assertEquals(listOf("1", "3"), assemblyRows.map { it.resolved.item.id })
+
+        // SPECIALTY Mode: CNC (2), ASSEMBLY (3), and HARDWOODS (4) relevant (not DELIVERY)
+        val specialtyRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.SPECIALTY)
+        assertEquals(listOf("2", "3", "4"), specialtyRows.map { it.resolved.item.id })
     }
 
-    @Test
-    fun buildSpecialtySectionRows_hardwoodsMode_relevantItemsFloatToTopAndAllRemainVisible() {
-        val items = listOf(
-            resolvedItem(id = "1", name = "Assembly Only", stations = listOf(SpecialtyStation.ASSEMBLY)),
-            resolvedItem(id = "2", name = "Saw Item", stations = listOf(SpecialtyStation.SAW)),
-            resolvedItem(id = "3", name = "Cnc Item", stations = listOf(SpecialtyStation.CNC)),
-            resolvedItem(id = "4", name = "Edge Bander Item", stations = listOf(SpecialtyStation.EDGE_BANDER))
-        )
-
-        val rows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.HARDWOODS)
-
-        assertEquals(listOf("2", "4", "1", "3"), rows.map { it.resolved.item.id })
-        assertEquals(4, rows.size)
-        assertTrue(rows[0].isRelevantToMode)
-        assertTrue(rows[1].isRelevantToMode)
-        assertFalse(rows[2].isRelevantToMode)
-        assertFalse(rows[3].isRelevantToMode)
-    }
-
-    @Test
-    fun buildSpecialtySectionRows_assemblyMode_keepsSourceOrderWithinRelevantAndNonRelevantGroups() {
-        val items = listOf(
-            resolvedItem(id = "1", name = "A", stations = listOf(SpecialtyStation.CNC)),
-            resolvedItem(id = "2", name = "B", stations = listOf(SpecialtyStation.ASSEMBLY)),
-            resolvedItem(id = "3", name = "C", stations = listOf(SpecialtyStation.ASSEMBLY, SpecialtyStation.SAW)),
-            resolvedItem(id = "4", name = "D", stations = emptyList())
-        )
-
-        val rows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.ASSEMBLY)
-
-        assertEquals(listOf("2", "3", "1", "4"), rows.map { it.resolved.item.id })
-    }
-
-    private fun resolvedItem(id: String, name: String, stations: List<SpecialtyStation>): SpecialtyResolvedItem {
+    private fun resolvedItem(
+        id: String,
+        stations: List<SpecialtyStation>,
+        category: SpecialtyItemCategory = SpecialtyItemCategory.CUSTOM
+    ): SpecialtyResolvedItem {
         return SpecialtyResolvedItem(
-            item = SpecialtyItem(id = id, name = name, stations = stations),
+            item = SpecialtyItem(id = id, name = "Item $id", stations = stations, category = category),
             completionByKey = mapOf("ITEM" to SpecialtyCompletionState(completed = false)),
             isComplete = false
         )
