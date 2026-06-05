@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -587,7 +588,7 @@ private fun MultiBackStackNavigation(
                     }
                 )
             },
-            contentWindowInsets = WindowInsets(0)
+            contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
             Box(
                 modifier = Modifier
@@ -1915,352 +1916,417 @@ private fun LegacySingleStackNavigation(
                     }
                 )
             },
-            contentWindowInsets = WindowInsets(0)
+            contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-            NavHost(
-                navController = navController,
-                startDestination = startRoute,
-                modifier = Modifier.fillMaxSize()
-            ) {
-            composable("dashboard") {
-                when (workMode) {
-                    WorkMode.CNC -> {
-                        DashboardScreen(
-                            scanCoordinator = scanCoordinator,
-                            appStateStore = appStateStore,
-                            jobRepository = jobRepository,
-                            progressStore = progressStore,
-                            appStateFlags = appStateFlags,
-                            onNavigateToJobs = {
-                                navController.navigate("jobs") {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onOpenSheet = { folderName, pdfFilename, page ->
-                                openSheetLegacy(folderName, pdfFilename, page)
-                            },
-                            onOpenJob = { folderName ->
-                                navController.navigate("job/${URLEncoder.encode(folderName, "UTF-8")}") {
-                                    launchSingleTop = true
-                                }
+                NavHost(
+                    navController = navController,
+                    startDestination = startRoute,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    composable("dashboard") {
+                        when (workMode) {
+                            WorkMode.CNC -> {
+                                DashboardScreen(
+                                    scanCoordinator = scanCoordinator,
+                                    appStateStore = appStateStore,
+                                    jobRepository = jobRepository,
+                                    progressStore = progressStore,
+                                    appStateFlags = appStateFlags,
+                                    onNavigateToJobs = {
+                                        navController.navigate("jobs") {
+                                            launchSingleTop = true
+                                        }
+                                    },
+                                    onOpenSheet = { folderName, pdfFilename, page ->
+                                        openSheetLegacy(folderName, pdfFilename, page)
+                                    },
+                                    onOpenJob = { folderName ->
+                                        navController.navigate("job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                )
                             }
-                        )
-                    }
-                    WorkMode.HARDWOODS -> {
-                        HardwoodsDashboardScreen(
-                            scanCoordinator = hardwoodsScanCoordinator,
-                            progressStore = hardwoodsProgressStore,
-                            onNavigateToJobs = {
-                                navController.navigate("jobs") {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onOpenJob = { job ->
-                                navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
-                                    launchSingleTop = true
-                                }
+                            WorkMode.HARDWOODS -> {
+                                HardwoodsDashboardScreen(
+                                    scanCoordinator = hardwoodsScanCoordinator,
+                                    progressStore = hardwoodsProgressStore,
+                                    onNavigateToJobs = {
+                                        navController.navigate("jobs") {
+                                            launchSingleTop = true
+                                        }
+                                    },
+                                    onOpenJob = { job ->
+                                        navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                )
                             }
-                        )
-                    }
-                    WorkMode.ASSEMBLY -> {
-                        AssemblyDashboardScreen(
-                            assemblyScanCoordinator = assemblyScanCoordinator,
-                            assemblyStateStore = assemblyStateStore,
-                            progressStore = progressStore,
-                            hardwoodsProgressStore = hardwoodsProgressStore,
-                            specialtyStateStore = specialtyStateStore,
-                            specialtyProgressVersionHint = specialtyProgressVersion,
-                            onNavigateToJobs = {
-                                navController.navigate("jobs") {
-                                    launchSingleTop = true
-                                }
+                            WorkMode.ASSEMBLY -> {
+                                AssemblyDashboardScreen(
+                                    assemblyScanCoordinator = assemblyScanCoordinator,
+                                    assemblyStateStore = assemblyStateStore,
+                                    progressStore = progressStore,
+                                    hardwoodsProgressStore = hardwoodsProgressStore,
+                                    specialtyStateStore = specialtyStateStore,
+                                    specialtyProgressVersionHint = specialtyProgressVersion,
+                                    onNavigateToJobs = {
+                                        navController.navigate("jobs") {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                )
                             }
-                        )
-                    }
-                    WorkMode.SPECIALTY -> {
-                        SpecialtyDashboardScreen(
-                            specialtyStateStore = specialtyStateStore,
-                            onNavigateToJobs = {
-                                navController.navigate("jobs") {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onOpenJob = { folderName ->
-                                navController.navigate(specialtyJobRoute(folderName)) {
-                                    launchSingleTop = true
-                                }
+                            WorkMode.SPECIALTY -> {
+                                SpecialtyDashboardScreen(
+                                    specialtyStateStore = specialtyStateStore,
+                                    onNavigateToJobs = {
+                                        navController.navigate("jobs") {
+                                            launchSingleTop = true
+                                        }
+                                    },
+                                    onOpenJob = { folderName ->
+                                        navController.navigate(specialtyJobRoute(folderName)) {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                )
                             }
-                        )
-                    }
-                }
-            }
-
-            composable("jobs") {
-                when (workMode) {
-                    WorkMode.CNC -> {
-                        JobBrowserScreen(
-                            scanCoordinator = scanCoordinator,
-                            appStateStore = appStateStore,
-                            hardwoodsRepository = hardwoodsRepository,
-                            jobRepository = jobRepository,
-                            progressStore = progressStore,
-                            deliveryScheduleRepository = deliveryScheduleRepository,
-                            appStateFlags = appStateFlags,
-                            onJobClick = { job ->
-                                navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}")
-                            },
-                            onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                                navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId))
-                            },
-                            onViewCoverSheet = { job ->
-                                navController.navigate(
-                                    referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
-                                ) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onView3D = { job ->
-                                val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
-                                navController.navigate(
-                                    assemblyViewerRoute(
-                                        jobFolderName = job.folderName,
-                                        assemblyPage = target.assemblyPage,
-                                        plansPage = target.plansPage,
-                                        source = "3d",
-                                        room = target.room
-                                    )
-                                ) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onSearchClick = {
-                                navController.navigate("search") {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onSettingsClick = {
-                                navController.navigate("settings") {
-                                    launchSingleTop = true
-                                }
-                            }
-                        )
-                    }
-                    WorkMode.HARDWOODS -> {
-                        HardwoodsJobsScreen(
-                            scanCoordinator = hardwoodsScanCoordinator,
-                            hardwoodsRepository = hardwoodsRepository,
-                            progressStore = hardwoodsProgressStore,
-                            jobRepository = jobRepository,
-                            deliveryScheduleRepository = deliveryScheduleRepository,
-                            onJobClick = { job ->
-                                navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}")
-                            },
-                            onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                                navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId))
-                            },
-                            onViewCoverSheet = { job ->
-                                navController.navigate(
-                                    referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
-                                ) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onView3D = { job ->
-                                val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
-                                navController.navigate(
-                                    assemblyViewerRoute(
-                                        jobFolderName = job.folderName,
-                                        assemblyPage = target.assemblyPage,
-                                        plansPage = target.plansPage,
-                                        source = "3d",
-                                        room = target.room
-                                    )
-                                ) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onSearchClick = {
-                                navController.navigate("search") {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onSettingsClick = {
-                                navController.navigate("settings") {
-                                    launchSingleTop = true
-                                }
-                            }
-                        )
-                    }
-                    WorkMode.ASSEMBLY -> {
-                        AssemblyJobsScreen(
-                            assemblyScanCoordinator = assemblyScanCoordinator,
-                            assemblyStateStore = assemblyStateStore,
-                            hardwoodsRepository = hardwoodsRepository,
-                            jobRepository = jobRepository,
-                            progressStore = progressStore,
-                            hardwoodsProgressStore = hardwoodsProgressStore,
-                            specialtyStateStore = specialtyStateStore,
-                            deliveryScheduleRepository = deliveryScheduleRepository,
-                            specialtyProgressVersionHint = specialtyProgressVersion,
-                            onJobClick = { card ->
-                                navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                                navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onViewCoverSheet = { card ->
-                                navController.navigate(
-                                    referenceViewerRoute(card.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
-                                ) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onSearchClick = {
-                                navController.navigate("search") {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onSettingsClick = {
-                                navController.navigate("settings") {
-                                    launchSingleTop = true
-                                }
-                            }
-                        )
-                    }
-                    WorkMode.SPECIALTY -> {
-                        SpecialtyJobsScreen(
-                            specialtyScanCoordinator = specialtyScanCoordinator,
-                            specialtyStateStore = specialtyStateStore,
-                            jobRepository = jobRepository,
-                            deliveryScheduleRepository = deliveryScheduleRepository,
-                            onJobClick = { card ->
-                                navController.navigate(specialtyJobRoute(card.folderName)) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onSearchClick = {
-                                navController.navigate("search") {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onSettingsClick = {
-                                navController.navigate("settings") {
-                                    launchSingleTop = true
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-
-            composable(
-                "job/{folderName}",
-                arguments = listOf(navArgument("folderName") { type = NavType.StringType })
-            ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                // Phase 2: verify cache freshness for this job in the background
-                LaunchedEffect(folderName) { scanCoordinator.refreshJobOnOpen(folderName) }
-                val isClockedInHere = clockInState.snapshot.isActive &&
-                    clockInState.snapshot.folderName == folderName
-                JobDetailScreen(
-                    scanCoordinator = scanCoordinator,
-                    appStateStore = appStateStore,
-                    jobRepository = jobRepository,
-                    progressStore = progressStore,
-                    specialtyStateStore = specialtyStateStore,
-                    appStateFlags = appStateFlags,
-                    jobFolderName = folderName,
-                    isClockedInHere = isClockedInHere,
-                    onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
-                    onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
-                    onMaterialClick = { material, startPage ->
-                        openSheetLegacy(folderName, material.pdfFilename, startPage)
-                    },
-                    onOpenReferenceDocument = { docType, startPage ->
-                        navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
-                            launchSingleTop = true
                         }
-                    },
-                    onOpenThreeD = {
-                        val target = resolveDefaultThreeDTarget(jobRepository, folderName)
-                        navController.navigate(
-                            assemblyViewerRoute(
-                                jobFolderName = folderName,
-                                assemblyPage = target.assemblyPage,
-                                plansPage = target.plansPage,
-                                source = "3d",
-                                room = target.room
+                    }
+
+                    composable("jobs") {
+                    when (workMode) {
+                        WorkMode.CNC -> {
+                            JobBrowserScreen(
+                                scanCoordinator = scanCoordinator,
+                                appStateStore = appStateStore,
+                                hardwoodsRepository = hardwoodsRepository,
+                                jobRepository = jobRepository,
+                                progressStore = progressStore,
+                                deliveryScheduleRepository = deliveryScheduleRepository,
+                                appStateFlags = appStateFlags,
+                                onJobClick = { job ->
+                                    navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}")
+                                },
+                                onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                                    navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId))
+                                },
+                                onViewCoverSheet = { job ->
+                                    navController.navigate(
+                                        referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
+                                    ) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onView3D = { job ->
+                                    val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
+                                    navController.navigate(
+                                        assemblyViewerRoute(
+                                            jobFolderName = job.folderName,
+                                            assemblyPage = target.assemblyPage,
+                                            plansPage = target.plansPage,
+                                            source = "3d",
+                                            room = target.room
+                                        )
+                                    ) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSearchClick = {
+                                    navController.navigate("search") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSettingsClick = {
+                                    navController.navigate("settings") {
+                                        launchSingleTop = true
+                                    }
+                                }
                             )
-                        ) {
-                            launchSingleTop = true
                         }
-                    },
-                    onSubmitPendingBadParts = { material ->
-                        progressStore.submitPendingBadParts(
-                            jobFolderName = folderName,
-                            pdfFilename = material.pdfFilename,
-                            fileFingerprint = material.fileFingerprint ?: ""
-                        )
-                    },
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(
-                "specialty/job/{folderName}",
-                arguments = listOf(navArgument("folderName") { type = NavType.StringType })
-            ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                // Phase 2: verify cache freshness for this job in the background
-                LaunchedEffect(folderName) { specialtyScanCoordinator.refreshJobOnOpen(folderName) }
-                val hasDeliverySheet = remember(folderName) {
-                    jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
-                }
-                val hasAssemblySheet = remember(folderName) {
-                    jobRepository.hasReferenceDocument(folderName, ReferenceDocType.ASSEMBLY)
-                }
-                val hasPlansElevations = remember(folderName) {
-                    jobRepository.hasReferenceDocument(folderName, ReferenceDocType.PLANS_ELEVATIONS)
-                }
-                val hasThreeDAssets = remember(folderName) {
-                    jobRepository.hasThreeDAssets(folderName)
-                }
-                SpecialtyJobDetailScreen(
-                    jobFolderName = folderName,
-                    specialtyStateStore = specialtyStateStore,
-                    hasAssemblySheet = hasAssemblySheet,
-                    hasPlansElevations = hasPlansElevations,
-                    hasDeliverySheet = hasDeliverySheet,
-                    hasThreeDAssets = hasThreeDAssets,
-                    onOpenReferenceDocument = { docType, startPage ->
-                        navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onOpenThreeD = {
-                        val target = resolveDefaultThreeDTarget(jobRepository, folderName)
-                        navController.navigate(
-                            assemblyViewerRoute(
-                                jobFolderName = folderName,
-                                assemblyPage = target.assemblyPage,
-                                plansPage = target.plansPage,
-                                source = "3d",
-                                room = target.room
+                        WorkMode.HARDWOODS -> {
+                            HardwoodsJobsScreen(
+                                scanCoordinator = hardwoodsScanCoordinator,
+                                hardwoodsRepository = hardwoodsRepository,
+                                progressStore = hardwoodsProgressStore,
+                                jobRepository = jobRepository,
+                                deliveryScheduleRepository = deliveryScheduleRepository,
+                                onJobClick = { job ->
+                                    navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}")
+                                },
+                                onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                                    navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId))
+                                },
+                                onViewCoverSheet = { job ->
+                                    navController.navigate(
+                                        referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
+                                    ) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onView3D = { job ->
+                                    val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
+                                    navController.navigate(
+                                        assemblyViewerRoute(
+                                            jobFolderName = job.folderName,
+                                            assemblyPage = target.assemblyPage,
+                                            plansPage = target.plansPage,
+                                            source = "3d",
+                                            room = target.room
+                                        )
+                                    ) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSearchClick = {
+                                    navController.navigate("search") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSettingsClick = {
+                                    navController.navigate("settings") {
+                                        launchSingleTop = true
+                                    }
+                                }
                             )
-                        ) {
-                            launchSingleTop = true
                         }
-                    },
-                    onOpenDoorPanels = {
+                        WorkMode.ASSEMBLY -> {
+                            AssemblyJobsScreen(
+                                assemblyScanCoordinator = assemblyScanCoordinator,
+                                assemblyStateStore = assemblyStateStore,
+                                hardwoodsRepository = hardwoodsRepository,
+                                jobRepository = jobRepository,
+                                progressStore = progressStore,
+                                hardwoodsProgressStore = hardwoodsProgressStore,
+                                specialtyStateStore = specialtyStateStore,
+                                deliveryScheduleRepository = deliveryScheduleRepository,
+                                specialtyProgressVersionHint = specialtyProgressVersion,
+                                onJobClick = { card ->
+                                    navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                                    navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onViewCoverSheet = { card ->
+                                    navController.navigate(
+                                        referenceViewerRoute(card.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
+                                    ) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSearchClick = {
+                                    navController.navigate("search") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSettingsClick = {
+                                    navController.navigate("settings") {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
+                        }
+                        WorkMode.SPECIALTY -> {
+                            SpecialtyJobsScreen(
+                                specialtyScanCoordinator = specialtyScanCoordinator,
+                                specialtyStateStore = specialtyStateStore,
+                                jobRepository = jobRepository,
+                                deliveryScheduleRepository = deliveryScheduleRepository,
+                                onJobClick = { card ->
+                                    navController.navigate(specialtyJobRoute(card.folderName)) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSearchClick = {
+                                    navController.navigate("search") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSettingsClick = {
+                                    navController.navigate("settings") {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                composable(
+                    "job/{folderName}",
+                    arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+                ) { backStack ->
+                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    // Phase 2: verify cache freshness for this job in the background
+                    LaunchedEffect(folderName) { scanCoordinator.refreshJobOnOpen(folderName) }
+                    val isClockedInHere = clockInState.snapshot.isActive &&
+                        clockInState.snapshot.folderName == folderName
+                    JobDetailScreen(
+                        scanCoordinator = scanCoordinator,
+                        appStateStore = appStateStore,
+                        jobRepository = jobRepository,
+                        progressStore = progressStore,
+                        specialtyStateStore = specialtyStateStore,
+                        appStateFlags = appStateFlags,
+                        jobFolderName = folderName,
+                        isClockedInHere = isClockedInHere,
+                        onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
+                        onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
+                        onMaterialClick = { material, startPage ->
+                            openSheetLegacy(folderName, material.pdfFilename, startPage)
+                        },
+                        onOpenReferenceDocument = { docType, startPage ->
+                            navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenThreeD = {
+                            val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                            navController.navigate(
+                                assemblyViewerRoute(
+                                    jobFolderName = folderName,
+                                    assemblyPage = target.assemblyPage,
+                                    plansPage = target.plansPage,
+                                    source = "3d",
+                                    room = target.room
+                                )
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onSubmitPendingBadParts = { material ->
+                            progressStore.submitPendingBadParts(
+                                jobFolderName = folderName,
+                                pdfFilename = material.pdfFilename,
+                                fileFingerprint = material.fileFingerprint ?: ""
+                            )
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(
+                    "specialty/job/{folderName}",
+                    arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+                ) { backStack ->
+                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    // Phase 2: verify cache freshness for this job in the background
+                    LaunchedEffect(folderName) { specialtyScanCoordinator.refreshJobOnOpen(folderName) }
+                    val hasDeliverySheet = remember(folderName) {
+                        jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
+                    }
+                    val hasAssemblySheet = remember(folderName) {
+                        jobRepository.hasReferenceDocument(folderName, ReferenceDocType.ASSEMBLY)
+                    }
+                    val hasPlansElevations = remember(folderName) {
+                        jobRepository.hasReferenceDocument(folderName, ReferenceDocType.PLANS_ELEVATIONS)
+                    }
+                    val hasThreeDAssets = remember(folderName) {
+                        jobRepository.hasThreeDAssets(folderName)
+                    }
+                    SpecialtyJobDetailScreen(
+                        jobFolderName = folderName,
+                        specialtyStateStore = specialtyStateStore,
+                        hasAssemblySheet = hasAssemblySheet,
+                        hasPlansElevations = hasPlansElevations,
+                        hasDeliverySheet = hasDeliverySheet,
+                        hasThreeDAssets = hasThreeDAssets,
+                        onOpenReferenceDocument = { docType, startPage ->
+                            navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenThreeD = {
+                            val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                            navController.navigate(
+                                assemblyViewerRoute(
+                                    jobFolderName = folderName,
+                                    assemblyPage = target.assemblyPage,
+                                    plansPage = target.plansPage,
+                                    source = "3d",
+                                    room = target.room
+                                )
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenDoorPanels = {
+                            navController.navigate(
+                                hardwoodsWorkspaceRoute(
+                                    folderName,
+                                    HardwoodDocType.DOOR_CUT_LIST,
+                                    HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                                )
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenSawRipList = {
+                            navController.navigate(
+                                hardwoodsWorkspaceRoute(
+                                    folderName,
+                                    HardwoodDocType.DOOR_CUT_LIST,
+                                    HARDWOODS_SAW_RIP_LIST_ROW_ID
+                                )
+                            ) { launchSingleTop = true }
+                        },
+                        onOpenSplitView = {
+                            navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onJumpToCabinet = { cab ->
+                            navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(
+                    "assembly/job/{folderName}",
+                    arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+                ) { backStack ->
+                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    // Phase 2: verify cache freshness for this job in the background
+                    LaunchedEffect(folderName) { assemblyScanCoordinator.refreshJobOnOpen(folderName) }
+                    AssemblyJobDetailScreen(
+                        jobFolderName = folderName,
+                        assemblyStateStore = assemblyStateStore,
+                        specialtyStateStore = specialtyStateStore,
+                        jobRepository = jobRepository,
+                        onOpenSplitView = {
+                            navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onJumpToCabinet = { cab ->
+                            navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(
+                    SPECIALTY_DOOR_PANELS_ROUTE_PATTERN,
+                    arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+                ) { backStack ->
+                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    androidx.compose.runtime.LaunchedEffect(folderName) {
                         navController.navigate(
                             hardwoodsWorkspaceRoute(
                                 folderName,
@@ -2270,443 +2336,378 @@ private fun LegacySingleStackNavigation(
                         ) {
                             launchSingleTop = true
                         }
-                    },
-                    onOpenSawRipList = {
-                        navController.navigate(
-                            hardwoodsWorkspaceRoute(
-                                folderName,
-                                HardwoodDocType.DOOR_CUT_LIST,
-                                HARDWOODS_SAW_RIP_LIST_ROW_ID
-                            )
-                        ) { launchSingleTop = true }
-                    },
-                    onOpenSplitView = {
-                        navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onJumpToCabinet = { cab ->
-                        navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(
-                "assembly/job/{folderName}",
-                arguments = listOf(navArgument("folderName") { type = NavType.StringType })
-            ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                // Phase 2: verify cache freshness for this job in the background
-                LaunchedEffect(folderName) { assemblyScanCoordinator.refreshJobOnOpen(folderName) }
-                AssemblyJobDetailScreen(
-                    jobFolderName = folderName,
-                    assemblyStateStore = assemblyStateStore,
-                    specialtyStateStore = specialtyStateStore,
-                    jobRepository = jobRepository,
-                    onOpenSplitView = {
-                        navController.navigate(assemblyViewerRoute(folderName, 1, 1)) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onJumpToCabinet = { cab ->
-                        navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(
-                SPECIALTY_DOOR_PANELS_ROUTE_PATTERN,
-                arguments = listOf(navArgument("folderName") { type = NavType.StringType })
-            ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                androidx.compose.runtime.LaunchedEffect(folderName) {
-                    navController.navigate(
-                        hardwoodsWorkspaceRoute(
-                            folderName,
-                            HardwoodDocType.DOOR_CUT_LIST,
-                            HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
-                        )
+                    }
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
                     ) {
-                        launchSingleTop = true
-                    }
-                }
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-
-            composable(
-                "viewer/{folderName}/{pdfFilename}/{startPage}",
-                arguments = listOf(
-                    navArgument("folderName") { type = NavType.StringType },
-                    navArgument("pdfFilename") { type = NavType.StringType },
-                    navArgument("startPage") { type = NavType.IntType }
-                )
-            ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
-                val startPage = backStack.arguments?.getInt("startPage") ?: 1
-                SheetViewerScreen(
-                    scanCoordinator = scanCoordinator,
-                    appStateStore = appStateStore,
-                    jobRepository = jobRepository,
-                    progressStore = progressStore,
-                    appStateFlags = appStateFlags,
-                    jobFolderName = folderName,
-                    pdfFilename = pdfFilename,
-                    startPage = startPage,
-                    isDarkTheme = preferDarkMode,
-                    onOpenReferenceDocument = { docType, startAt ->
-                        navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
-                        navController.navigate(
-                            assemblyViewerRoute(
-                                jobFolderName = folderName,
-                                assemblyPage = assemblyPage ?: 1,
-                                plansPage = plansPage ?: 1,
-                                source = "3d",
-                                cabinet = cabinet,
-                                room = room
-                            )
-                        ) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onMaterialUnavailable = {
-                        navController.navigate("job/${URLEncoder.encode(folderName, "UTF-8")}") {
-                            launchSingleTop = true
-                        }
-                    },
-                    onBack = { navController.popBackStack() },
-                    onUiVisibilityChanged = { viewerUiVisible = it }
-                )
-            }
-
-            composable(
-                "referenceViewer/{folderName}/{docType}/{startPage}",
-                arguments = listOf(
-                    navArgument("folderName") { type = NavType.StringType },
-                    navArgument("docType") { type = NavType.StringType },
-                    navArgument("startPage") { type = NavType.IntType }
-                )
-            ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                val rawDocType = URLDecoder.decode(backStack.arguments?.getString("docType") ?: "", "UTF-8")
-                val docType = runCatching { ReferenceDocType.valueOf(rawDocType) }.getOrDefault(ReferenceDocType.ASSEMBLY)
-                val startPage = backStack.arguments?.getInt("startPage") ?: 1
-                val refreshGeneration = scanCoordinator.state.collectAsState().value.snapshot.generation
-                ReferencePdfViewerScreen(
-                    jobRepository = jobRepository,
-                    jobFolderName = folderName,
-                    docType = docType,
-                    startPage = startPage,
-                    refreshGeneration = refreshGeneration,
-                    isDarkTheme = preferDarkMode,
-                    onBack = { navController.popBackStack() },
-                    onUiVisibilityChanged = { viewerUiVisible = it }
-                )
-            }
-
-            composable(
-                "hardwoods/job/{folderName}",
-                arguments = listOf(navArgument("folderName") { type = NavType.StringType })
-            ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                // Phase 2: verify cache freshness for this job in the background
-                LaunchedEffect(folderName) { hardwoodsScanCoordinator.refreshJobOnOpen(folderName) }
-                val isClockedInHere = clockInState.snapshot.isActive &&
-                    clockInState.snapshot.folderName == folderName
-                HardwoodsJobDetailScreen(
-                    scanCoordinator = hardwoodsScanCoordinator,
-                    progressStore = hardwoodsProgressStore,
-                    jobRepository = jobRepository,
-                    specialtyStateStore = specialtyStateStore,
-                    jobFolderName = folderName,
-                    isClockedInHere = isClockedInHere,
-                    onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
-                    onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
-                    onOpenWorkspace = { docType ->
-                        navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onOpenRipCutList = {
-                        navController.navigate(
-                            hardwoodsWorkspaceRoute(
-                                folderName,
-                                HardwoodDocType.FACE_FRAME_CUT_LIST,
-                                HARDWOODS_RIP_CUT_LIST_ROW_ID
-                            )
-                        ) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onOpenReferenceDocument = { docType, startPage ->
-                        navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onOpenThreeD = {
-                        val target = resolveDefaultThreeDTarget(jobRepository, folderName)
-                        navController.navigate(
-                            assemblyViewerRoute(
-                                jobFolderName = folderName,
-                                assemblyPage = target.assemblyPage,
-                                plansPage = target.plansPage,
-                                source = "3d",
-                                room = target.room
-                            )
-                        ) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(
-                "hardwoods/workspace/{folderName}/{docType}/{startPage}",
-                arguments = listOf(
-                    navArgument("folderName") { type = NavType.StringType },
-                    navArgument("docType") { type = NavType.StringType },
-                    navArgument("startPage") { type = NavType.StringType }
-                )
-            ) { backStack ->
-                val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                val rawDocType = URLDecoder.decode(backStack.arguments?.getString("docType") ?: "", "UTF-8")
-                val docType = runCatching { HardwoodDocType.valueOf(rawDocType) }.getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
-                val rowIdArg = URLDecoder.decode(backStack.arguments?.getString("startPage") ?: "", "UTF-8")
-                val rowId = rowIdArg.takeIf { it.isNotBlank() && it != "_" }
-                HardwoodsWorkspaceScreen(
-                    scanCoordinator = hardwoodsScanCoordinator,
-                    hardwoodsRepository = hardwoodsRepository,
-                    hardwoodsProgressStore = hardwoodsProgressStore,
-                    jobRepository = jobRepository,
-                    jobFolderName = folderName,
-                    initialDocType = docType,
-                    initialRowId = rowId,
-                    isDarkTheme = preferDarkMode,
-                    onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
-                        navController.navigate(
-                            assemblyViewerRoute(
-                                jobFolderName = folderName,
-                                assemblyPage = assemblyPage ?: 1,
-                                plansPage = plansPage ?: 1,
-                                source = "3d",
-                                cabinet = cabinet,
-                                room = room
-                            )
-                        ) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(
-                "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}?source={source}&cab={cab}&room={room}",
-                arguments = listOf(
-                    navArgument("folderName") { type = NavType.StringType },
-                    navArgument("startPageAssembly") { type = NavType.IntType },
-                    navArgument("startPagePlans") { type = NavType.IntType },
-                    navArgument("source") { type = NavType.StringType; nullable = true; defaultValue = null },
-                    navArgument("cab") { type = NavType.StringType; nullable = true; defaultValue = null },
-                    navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
-                )
-            ) { backStack ->
-                val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                // Phase 2: verify cache freshness for this job in the background
-                LaunchedEffect(jobFolderName) { assemblyScanCoordinator.refreshJobOnOpen(jobFolderName) }
-                val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
-                val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
-                val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
-                val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
-                val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
-                val refreshGeneration = assemblyScanCoordinator.state.collectAsState().value.snapshot.generation
-                val isClockedInHere = clockInState.snapshot.isActive &&
-                    clockInState.snapshot.folderName == jobFolderName
-                AssemblyViewerScreen(
-                    jobRepository = jobRepository,
-                    assemblyStateStore = assemblyStateStore,
-                    specialtyStateStore = specialtyStateStore,
-                    jobFolderName = jobFolderName,
-                    basePath = basePath,
-                    initialSource = initialSource,
-                    initialCabinet = initialCabinet,
-                    initialRoom = initialRoom,
-                    startPageAssembly = startPageAssembly,
-                    startPagePlans = startPagePlans,
-                    refreshGeneration = refreshGeneration,
-                    isDarkTheme = preferDarkMode,
-                    isClockedInHere = isClockedInHere,
-                    onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
-                    onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
-                    onBack = { navController.popBackStack() },
-                    onUiVisibilityChanged = { viewerUiVisible = it }
-                )
-            }
-
-            composable("search") {
-                when (workMode) {
-                    WorkMode.CNC -> {
-                        SearchScreen(
-                            scanCoordinator = scanCoordinator,
-                            jobRepository = jobRepository,
-                            progressStore = progressStore,
-                            onResultClick = { folderName, pdfFilename, page ->
-                                openSheetLegacy(folderName, pdfFilename, page)
-                            },
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
-                    WorkMode.HARDWOODS -> {
-                        HardwoodsSearchScreen(
-                            scanCoordinator = hardwoodsScanCoordinator,
-                            onResultClick = { folderName, docType, rowId ->
-                                navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, rowId)) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
-                    WorkMode.ASSEMBLY -> {
-                        AssemblySearchScreen(
-                            assemblyScanCoordinator = assemblyScanCoordinator,
-                            assemblyStateStore = assemblyStateStore,
-                            specialtyProgressVersionHint = specialtyProgressVersion,
-                            onResultClick = { result ->
-                                navController.navigate(
-                                    assemblyViewerRoute(
-                                        jobFolderName = result.jobFolderName,
-                                        assemblyPage = result.assemblyPage ?: 1,
-                                        plansPage = result.plansPage ?: 1
-                                    )
-                                ) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
-                    WorkMode.SPECIALTY -> {
-                        SearchScreen(
-                            scanCoordinator = scanCoordinator,
-                            jobRepository = jobRepository,
-                            progressStore = progressStore,
-                            onResultClick = { folderName, pdfFilename, page ->
-                                openSheetLegacy(folderName, pdfFilename, page)
-                            },
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
-                }
-            }
-
-            composable("hours") {
-                val context = LocalContext.current
-                var legacySessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
-                var legacyShowDialog by remember { mutableStateOf(false) }
-
-                androidx.compose.runtime.LaunchedEffect(Unit) {
-                    if (legacySessionName != null) {
-                        launchTimecardApp(context, legacySessionName)
-                    } else {
-                        legacyShowDialog = true
+                        CircularProgressIndicator()
                     }
                 }
 
-                if (legacyShowDialog) {
-                    HoursLoginDialog(
-                        onLogin = { name ->
-                            legacySessionName = name
-                            legacyShowDialog = false
-                            launchTimecardApp(context, name)
+                composable(
+                    "viewer/{folderName}/{pdfFilename}/{startPage}",
+                    arguments = listOf(
+                        navArgument("folderName") { type = NavType.StringType },
+                        navArgument("pdfFilename") { type = NavType.StringType },
+                        navArgument("startPage") { type = NavType.IntType }
+                    )
+                ) { backStack ->
+                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
+                    val startPage = backStack.arguments?.getInt("startPage") ?: 1
+                    SheetViewerScreen(
+                        scanCoordinator = scanCoordinator,
+                        appStateStore = appStateStore,
+                        jobRepository = jobRepository,
+                        progressStore = progressStore,
+                        appStateFlags = appStateFlags,
+                        jobFolderName = folderName,
+                        pdfFilename = pdfFilename,
+                        startPage = startPage,
+                        isDarkTheme = preferDarkMode,
+                        onOpenReferenceDocument = { docType, startAt ->
+                            navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
+                                launchSingleTop = true
+                            }
                         },
-                        onDismiss = { legacyShowDialog = false }
+                        onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
+                            navController.navigate(
+                                assemblyViewerRoute(
+                                    jobFolderName = folderName,
+                                    assemblyPage = assemblyPage ?: 1,
+                                    plansPage = plansPage ?: 1,
+                                    source = "3d",
+                                    cabinet = cabinet,
+                                    room = room
+                                )
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onMaterialUnavailable = {
+                            navController.navigate("job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                                launchSingleTop = true
+                            }
+                        },
+                        onBack = { navController.popBackStack() },
+                        onUiVisibilityChanged = { viewerUiVisible = it }
                     )
                 }
 
-                Box(modifier = Modifier.fillMaxSize())
-            }
+                composable(
+                    "referenceViewer/{folderName}/{docType}/{startPage}",
+                    arguments = listOf(
+                        navArgument("folderName") { type = NavType.StringType },
+                        navArgument("docType") { type = NavType.StringType },
+                        navArgument("startPage") { type = NavType.IntType }
+                    )
+                ) { backStack ->
+                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    val rawDocType = URLDecoder.decode(backStack.arguments?.getString("docType") ?: "", "UTF-8")
+                    val docType = runCatching { ReferenceDocType.valueOf(rawDocType) }.getOrDefault(ReferenceDocType.ASSEMBLY)
+                    val startPage = backStack.arguments?.getInt("startPage") ?: 1
+                    val refreshGeneration = scanCoordinator.state.collectAsState().value.snapshot.generation
+                    ReferencePdfViewerScreen(
+                        jobRepository = jobRepository,
+                        jobFolderName = folderName,
+                        docType = docType,
+                        startPage = startPage,
+                        refreshGeneration = refreshGeneration,
+                        isDarkTheme = preferDarkMode,
+                        onBack = { navController.popBackStack() },
+                        onUiVisibilityChanged = { viewerUiVisible = it }
+                    )
+                }
 
-            composable("supply") {
-                SupplyTabHost(
-                    navController = rememberNavController(),
-                    basePath = basePath,
-                    tabletId = tabletId,
-                    employeeName = employeeName,
-                    subscriptionManager = supplySubscriptionManager
-                )
-            }
+                composable(
+                    "hardwoods/job/{folderName}",
+                    arguments = listOf(navArgument("folderName") { type = NavType.StringType })
+                ) { backStack ->
+                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    // Phase 2: verify cache freshness for this job in the background
+                    LaunchedEffect(folderName) { hardwoodsScanCoordinator.refreshJobOnOpen(folderName) }
+                    val isClockedInHere = clockInState.snapshot.isActive &&
+                        clockInState.snapshot.folderName == folderName
+                    HardwoodsJobDetailScreen(
+                        scanCoordinator = hardwoodsScanCoordinator,
+                        progressStore = hardwoodsProgressStore,
+                        jobRepository = jobRepository,
+                        specialtyStateStore = specialtyStateStore,
+                        jobFolderName = folderName,
+                        isClockedInHere = isClockedInHere,
+                        onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
+                        onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
+                        onOpenWorkspace = { docType ->
+                            navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenRipCutList = {
+                            navController.navigate(
+                                hardwoodsWorkspaceRoute(
+                                    folderName,
+                                    HardwoodDocType.FACE_FRAME_CUT_LIST,
+                                    HARDWOODS_RIP_CUT_LIST_ROW_ID
+                                )
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenReferenceDocument = { docType, startPage ->
+                            navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenThreeD = {
+                            val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                            navController.navigate(
+                                assemblyViewerRoute(
+                                    jobFolderName = folderName,
+                                    assemblyPage = target.assemblyPage,
+                                    plansPage = target.plansPage,
+                                    source = "3d",
+                                    room = target.room
+                                )
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
 
-            composable("settings") {
-                SettingsScreen(
-                    tabletId = tabletId,
-                    basePath = basePath,
-                    isDebugBuild = isDebugBuild,
-                    isDarkTheme = isDarkTheme,
-                    followSystemTheme = followSystemTheme,
-                    darkThemeOverride = darkThemeOverride,
-                    useStandardSheets = useStandardSheets,
-                    onUseStandardSheetsChanged = onUseStandardSheetsChanged,
-                    workMode = workMode,
-                    onThemeChanged = onThemeChanged,
-                    onFollowSystemThemeChanged = onFollowSystemThemeChanged,
-                    onWorkModeChanged = onWorkModeChanged,
-                    onReinstallLatest = onReinstallLatest,
-                    onTabletIdChanged = onTabletIdChanged,
-                    onBasePathChanged = onBasePathChanged,
-                    syncthingApiKey = syncthingApiKey,
-                    syncthingStatus = syncthingStatus,
-                    onSyncthingApiKeySave = onSyncthingApiKeySave,
-                    onSyncthingCheckNow = onSyncthingCheckNow,
-                    onSyncthingStartNow = onSyncthingStartNow,
-                    onBack = { navController.popBackStack() },
-                    employeeName = employeeName,
-                    onEmployeeNameChanged = onEmployeeNameChanged
-                )
-            }
-            }
+                composable(
+                    "hardwoods/workspace/{folderName}/{docType}/{startPage}",
+                    arguments = listOf(
+                        navArgument("folderName") { type = NavType.StringType },
+                        navArgument("docType") { type = NavType.StringType },
+                        navArgument("startPage") { type = NavType.StringType }
+                    )
+                ) { backStack ->
+                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    val rawDocType = URLDecoder.decode(backStack.arguments?.getString("docType") ?: "", "UTF-8")
+                    val docType = runCatching { HardwoodDocType.valueOf(rawDocType) }.getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
+                    val rowIdArg = URLDecoder.decode(backStack.arguments?.getString("startPage") ?: "", "UTF-8")
+                    val rowId = rowIdArg.takeIf { it.isNotBlank() && it != "_" }
+                    HardwoodsWorkspaceScreen(
+                        scanCoordinator = hardwoodsScanCoordinator,
+                        hardwoodsRepository = hardwoodsRepository,
+                        hardwoodsProgressStore = hardwoodsProgressStore,
+                        jobRepository = jobRepository,
+                        jobFolderName = folderName,
+                        initialDocType = docType,
+                        initialRowId = rowId,
+                        isDarkTheme = preferDarkMode,
+                        onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
+                            navController.navigate(
+                                assemblyViewerRoute(
+                                    jobFolderName = folderName,
+                                    assemblyPage = assemblyPage ?: 1,
+                                    plansPage = plansPage ?: 1,
+                                    source = "3d",
+                                    cabinet = cabinet,
+                                    room = room
+                                )
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
 
-            if (showHoursLoginDialog) {
-                HoursLoginDialog(
-                    initialInput = employeeName,
-                    suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
-                    onLogin = { name ->
-                        showHoursLoginDialog = false
-                        launchTimecardApp(legacyContext, EmployeeDirectory.resolveNameOrPin(name))
-                    },
-                    onDismiss = { showHoursLoginDialog = false }
-                )
-            }
-            pendingClockOut?.let { pending ->
-                ClockOutEditDialog(
-                    jobName = pending.jobName,
-                    initialHours = pending.hours,
-                    startTimeMs = pending.startTimeMs,
-                    stopTimeMs = pending.stopTimeMs,
-                    actualElapsedMs = pending.actualElapsedMs,
-                    onConfirm = { hours ->
-                        pendingClockOut = null
-                        launchTimecardApp(legacyContext, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
-                    },
-                    onDismiss = { pendingClockOut = null }
-                )
-            }
+                composable(
+                    "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}?source={source}&cab={cab}&room={room}",
+                    arguments = listOf(
+                        navArgument("folderName") { type = NavType.StringType },
+                        navArgument("startPageAssembly") { type = NavType.IntType },
+                        navArgument("startPagePlans") { type = NavType.IntType },
+                        navArgument("source") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("cab") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
+                    )
+                ) { backStack ->
+                    val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    // Phase 2: verify cache freshness for this job in the background
+                    LaunchedEffect(jobFolderName) { assemblyScanCoordinator.refreshJobOnOpen(jobFolderName) }
+                    val startPageAssembly = backStack.arguments?.getInt("startPageAssembly") ?: 1
+                    val startPagePlans = backStack.arguments?.getInt("startPagePlans") ?: 1
+                    val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
+                    val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
+                    val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
+                    val refreshGeneration = assemblyScanCoordinator.state.collectAsState().value.snapshot.generation
+                    val isClockedInHere = clockInState.snapshot.isActive &&
+                        clockInState.snapshot.folderName == jobFolderName
+                    AssemblyViewerScreen(
+                        jobRepository = jobRepository,
+                        assemblyStateStore = assemblyStateStore,
+                        specialtyStateStore = specialtyStateStore,
+                        jobFolderName = jobFolderName,
+                        basePath = basePath,
+                        initialSource = initialSource,
+                        initialCabinet = initialCabinet,
+                        initialRoom = initialRoom,
+                        startPageAssembly = startPageAssembly,
+                        startPagePlans = startPagePlans,
+                        refreshGeneration = refreshGeneration,
+                        isDarkTheme = preferDarkMode,
+                        isClockedInHere = isClockedInHere,
+                        onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
+                        onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
+                        onBack = { navController.popBackStack() },
+                        onUiVisibilityChanged = { viewerUiVisible = it }
+                    )
+                }
+
+                composable("search") {
+                    when (workMode) {
+                        WorkMode.CNC -> {
+                            SearchScreen(
+                                scanCoordinator = scanCoordinator,
+                                jobRepository = jobRepository,
+                                progressStore = progressStore,
+                                onResultClick = { folderName, pdfFilename, page ->
+                                    openSheetLegacy(folderName, pdfFilename, page)
+                                },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        WorkMode.HARDWOODS -> {
+                            HardwoodsSearchScreen(
+                                scanCoordinator = hardwoodsScanCoordinator,
+                                onResultClick = { folderName, docType, rowId ->
+                                    navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, rowId)) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        WorkMode.ASSEMBLY -> {
+                            AssemblySearchScreen(
+                                assemblyScanCoordinator = assemblyScanCoordinator,
+                                assemblyStateStore = assemblyStateStore,
+                                specialtyProgressVersionHint = specialtyProgressVersion,
+                                onResultClick = { result ->
+                                    navController.navigate(
+                                        assemblyViewerRoute(
+                                            jobFolderName = result.jobFolderName,
+                                            assemblyPage = result.assemblyPage ?: 1,
+                                            plansPage = result.plansPage ?: 1
+                                        )
+                                    ) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        WorkMode.SPECIALTY -> {
+                            SearchScreen(
+                                scanCoordinator = scanCoordinator,
+                                jobRepository = jobRepository,
+                                progressStore = progressStore,
+                                onResultClick = { folderName, pdfFilename, page ->
+                                    openSheetLegacy(folderName, pdfFilename, page)
+                                },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                    }
+                }
+
+                composable("hours") {
+                    val context = LocalContext.current
+                    var legacySessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
+                    var legacyShowDialog by remember { mutableStateOf(false) }
+
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        if (legacySessionName != null) {
+                            launchTimecardApp(context, legacySessionName)
+                        } else {
+                            legacyShowDialog = true
+                        }
+                    }
+
+                    if (legacyShowDialog) {
+                        HoursLoginDialog(
+                            onLogin = { name ->
+                                legacySessionName = name
+                                legacyShowDialog = false
+                                launchTimecardApp(context, name)
+                            },
+                            onDismiss = { legacyShowDialog = false }
+                        )
+                    }
+
+                    Box(modifier = Modifier.fillMaxSize())
+                }
+
+                composable("supply") {
+                    SupplyTabHost(
+                        navController = rememberNavController(),
+                        basePath = basePath,
+                        tabletId = tabletId,
+                        employeeName = employeeName,
+                        subscriptionManager = supplySubscriptionManager
+                    )
+                }
+
+                composable("settings") {
+                    SettingsScreen(
+                        tabletId = tabletId,
+                        basePath = basePath,
+                        isDebugBuild = isDebugBuild,
+                        isDarkTheme = isDarkTheme,
+                        followSystemTheme = followSystemTheme,
+                        darkThemeOverride = darkThemeOverride,
+                        useStandardSheets = useStandardSheets,
+                        onUseStandardSheetsChanged = onUseStandardSheetsChanged,
+                        workMode = workMode,
+                        onThemeChanged = onThemeChanged,
+                        onFollowSystemThemeChanged = onFollowSystemThemeChanged,
+                        onWorkModeChanged = onWorkModeChanged,
+                        onReinstallLatest = onReinstallLatest,
+                        onTabletIdChanged = onTabletIdChanged,
+                        onBasePathChanged = onBasePathChanged,
+                        syncthingApiKey = syncthingApiKey,
+                        syncthingStatus = syncthingStatus,
+                        onSyncthingApiKeySave = onSyncthingApiKeySave,
+                        onSyncthingCheckNow = onSyncthingCheckNow,
+                        onSyncthingStartNow = onSyncthingStartNow,
+                        onBack = { navController.popBackStack() },
+                        employeeName = employeeName,
+                        onEmployeeNameChanged = onEmployeeNameChanged
+                    )
+                }
+                }
+
+                if (showHoursLoginDialog) {
+                    HoursLoginDialog(
+                        initialInput = employeeName,
+                        suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
+                        onLogin = { name ->
+                            showHoursLoginDialog = false
+                            launchTimecardApp(legacyContext, EmployeeDirectory.resolveNameOrPin(name))
+                        },
+                        onDismiss = { showHoursLoginDialog = false }
+                    )
+                }
+                pendingClockOut?.let { pending ->
+                    ClockOutEditDialog(
+                        jobName = pending.jobName,
+                        initialHours = pending.hours,
+                        startTimeMs = pending.startTimeMs,
+                        stopTimeMs = pending.stopTimeMs,
+                        actualElapsedMs = pending.actualElapsedMs,
+                        onConfirm = { hours ->
+                            pendingClockOut = null
+                            launchTimecardApp(legacyContext, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                        },
+                        onDismiss = { pendingClockOut = null }
+                    )
+                }
             }
         }
 
