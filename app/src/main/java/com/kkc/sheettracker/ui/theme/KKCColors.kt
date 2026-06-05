@@ -82,3 +82,15 @@ object KKCThemeColors {
         @Composable
         get() = LocalKKCStatusColors.current
 }
+
+object KKCAlpha {
+    const val handleBar                = 0.6f
+    const val outlineTrack             = 0.3f
+    const val dividerSubtle            = 0.5f
+    const val containerDimmed          = 0.55f
+    const val inProgressTint           = 0.08f
+    const val badPartsTint             = 0.12f
+    const val statusBadgeBg            = 0.12f
+    const val primaryContainerOverview = 0.4f
+}
+

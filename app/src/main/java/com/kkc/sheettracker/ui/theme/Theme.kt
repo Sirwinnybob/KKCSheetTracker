@@ -41,25 +41,33 @@ private val DarkColorScheme = darkColorScheme(
     onSecondaryContainer = Color(0xFFD8E8FA),
     tertiary = Color(0xFF9BC7D8),
     onTertiary = Color(0xFF113040),
-    background = Color(0xFF0E1621),
-    onBackground = Color(0xFFDDE7F3),
-    surface = Color(0xFF111B27),
-    onSurface = Color(0xFFE3ECF8),
-    surfaceVariant = Color(0xFF1B2838),
+    background = Color(0xFF070E18),
+    onBackground = Color(0xFFE8F0FA),
+    surface = Color(0xFF132030),
+    onSurface = Color(0xFFEBF2FC),
+    surfaceVariant = Color(0xFF1C2E42),
     onSurfaceVariant = Color(0xFFB4C6DA),
-    outline = Color(0xFF60758D),
-    outlineVariant = Color(0xFF314154),
+    outline = Color(0xFF4E6680),
+    outlineVariant = Color(0xFF283D55),
     error = Color(0xFFFF7A7A),
     onError = Color(0xFF330000)
 )
 
 val KKCShapes = Shapes(
-    extraSmall = RoundedCornerShape(4.dp),
-    small = RoundedCornerShape(6.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(24.dp)
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(28.dp)
 )
+
+object KKCShapeTokens {
+    val pill                    = RoundedCornerShape(999.dp)
+    val statusBorderWidth       = 3.dp
+    val splitHandleBarThickness = 5.dp
+    val splitDividerThickness   = 1.dp
+}
+
 
 @Composable
 fun KKCTheme(
