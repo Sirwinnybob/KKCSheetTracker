@@ -283,8 +283,6 @@ fun SectionProgressHeader(
     }
     val skippedBarColor = colors.completeBorder.copy(alpha = 0.52f)
 
-    val titleStyle = if (isSubHeader) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleSmall
-    val titleWeight = if (isSubHeader) FontWeight.Medium else FontWeight.SemiBold
     val textStyleFraction = if (isSubHeader) MaterialTheme.typography.bodySmall else MaterialTheme.typography.labelMedium
     val progressBarHeight = if (isSubHeader) KKCSpacing.progressBarHeightThin else KKCSpacing.progressBarHeightStandard
     val verticalPadding = if (isSubHeader) KKCSpacing.xs else KKCSpacing.inCardSpacing
