@@ -92,8 +92,8 @@ object KKCAlpha {
     const val badPartsTint             = 0.12f
     const val statusBadgeBg            = 0.12f
     const val primaryContainerOverview = 0.4f
-    const val gradientAccentTop = 0.06f   // gradient overlay alpha at top of dashboards
-    const val cardHeroTint      = 0.35f   // overview card primaryContainer tint in dark mode
-    const val lightCardHeroTint = 0.60f   // overview card primaryContainer tint in light mode
+    const val gradientAccentTop        = 0.06f
+    const val cardHeroTint             = 0.35f
+    const val lightCardHeroTint        = 0.60f
 }
 

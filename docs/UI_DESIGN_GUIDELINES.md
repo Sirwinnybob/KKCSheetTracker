@@ -69,8 +69,10 @@ These five colors are the app's core visual vocabulary. Every progress state map
 | Primary | `#1E5FAF` | `#79B2FF` | Action buttons, active filters, links |
 | Secondary | `#3C6EA8` | `#9BC3F3` | Secondary actions, less prominent UI |
 | Tertiary | `#4F7D99` | `#9BC7D8` | Accents, tertiary information |
-| Background | `#F4F8FD` | `#0E1621` | App background |
-| Surface | `#FFFFFF` | `#111B27` | Card/row backgrounds |
+| Background | `#EFF4FA` | `#040A14` | App background |
+| Surface | `#FFFFFF` | `#162438` | Card/row backgrounds |
+| Outline | `#7A95B0` | — | Dividers, track backgrounds, subtle borders |
+| SurfaceVariant | `#E2EDF7` | — | Section headers, alternate surface areas |
 | Error | `#C62828` | `#FF7A7A` | System errors (distinct from "bad parts" status) |
 
 ### Color Rules
