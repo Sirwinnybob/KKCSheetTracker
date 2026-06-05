@@ -9,13 +9,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
@@ -560,8 +563,37 @@ private fun MultiBackStackNavigation(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f)) {
+        Scaffold(
+            bottomBar = {
+                // graphicsLayer alpha — layout never shifts, no PDF re-renders during animation.
+                AppBottomNavBar(
+                    modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
+                    currentDestination = TopLevelTab.toDestination(selectedTab),
+                    minimized = isInViewer,
+                    destinations = visibleDestinations,
+                    isCalculatorOpen = calculatorState.snapshot.isOpen,
+                    onCalculatorClick = { calculatorState.toggleOpen() },
+                    supplyNotificationCount = supplyNotificationCount,
+                    onNavigate = { dest ->
+                        if (dest == NavDestination.HOURS) {
+                            if (employeeName.isNotBlank()) {
+                                launchTimecardApp(context, employeeName)
+                            } else {
+                                showHoursLoginDialog = true
+                            }
+                        } else {
+                            coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                        }
+                    }
+                )
+            },
+            contentWindowInsets = WindowInsets(0)
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
                 TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
                     DashboardTabHost(
                         navController = dashboardNavController,
@@ -708,68 +740,46 @@ private fun MultiBackStackNavigation(
                         subscriptionManager = supplySubscriptionManager
                     )
                 }
-            }
 
-            // graphicsLayer alpha — layout never shifts, no PDF re-renders during animation.
-            AppBottomNavBar(
-                modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
-                currentDestination = TopLevelTab.toDestination(selectedTab),
-                minimized = isInViewer,
-                destinations = visibleDestinations,
-                isCalculatorOpen = calculatorState.snapshot.isOpen,
-                onCalculatorClick = { calculatorState.toggleOpen() },
-                supplyNotificationCount = supplyNotificationCount,
-                onNavigate = { dest ->
-                    if (dest == NavDestination.HOURS) {
-                        if (employeeName.isNotBlank()) {
-                            launchTimecardApp(context, employeeName)
-                        } else {
-                            showHoursLoginDialog = true
-                        }
-                    } else {
-                        coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
-                    }
+                if (showHoursLoginDialog) {
+                    HoursLoginDialog(
+                        initialInput = employeeName,
+                        suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
+                        onLogin = { name ->
+                            showHoursLoginDialog = false
+                            launchTimecardApp(context, EmployeeDirectory.resolveNameOrPin(name))
+                        },
+                        onDismiss = { showHoursLoginDialog = false }
+                    )
                 }
-            )
-
-            if (showHoursLoginDialog) {
-                HoursLoginDialog(
-                    initialInput = employeeName,
-                    suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
-                    onLogin = { name ->
-                        showHoursLoginDialog = false
-                        launchTimecardApp(context, EmployeeDirectory.resolveNameOrPin(name))
-                    },
-                    onDismiss = { showHoursLoginDialog = false }
-                )
-            }
-            pendingClockIn?.let { pending ->
-                val selected = employeeName.takeIf { it.isNotBlank() }.orEmpty()
-                HoursLoginDialog(
-                    initialInput = selected,
-                    suggestions = EmployeeDirectory.suggestions(selected).map { "${it.name} (${it.pin})" },
-                    onLogin = { raw ->
-                        val resolved = EmployeeDirectory.resolveNameOrPin(raw)
-                        onEmployeeNameChanged(resolved)
-                        pendingClockIn = null
-                        onClockInNow(pending.jobNumber, pending.jobName, pending.folderName, pending.tabType, resolved)
-                    },
-                    onDismiss = { pendingClockIn = null }
-                )
-            }
-            pendingClockOut?.let { pending ->
-                ClockOutEditDialog(
-                    jobName = pending.jobName,
-                    initialHours = pending.hours,
-                    startTimeMs = pending.startTimeMs,
-                    stopTimeMs = pending.stopTimeMs,
-                    actualElapsedMs = pending.actualElapsedMs,
-                    onConfirm = { hours ->
-                        pendingClockOut = null
-                        launchTimecardApp(context, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
-                    },
-                    onDismiss = { pendingClockOut = null }
-                )
+                pendingClockIn?.let { pending ->
+                    val selected = employeeName.takeIf { it.isNotBlank() }.orEmpty()
+                    HoursLoginDialog(
+                        initialInput = selected,
+                        suggestions = EmployeeDirectory.suggestions(selected).map { "${it.name} (${it.pin})" },
+                        onLogin = { raw ->
+                            val resolved = EmployeeDirectory.resolveNameOrPin(raw)
+                            onEmployeeNameChanged(resolved)
+                            pendingClockIn = null
+                            onClockInNow(pending.jobNumber, pending.jobName, pending.folderName, pending.tabType, resolved)
+                        },
+                        onDismiss = { pendingClockIn = null }
+                    )
+                }
+                pendingClockOut?.let { pending ->
+                    ClockOutEditDialog(
+                        jobName = pending.jobName,
+                        initialHours = pending.hours,
+                        startTimeMs = pending.startTimeMs,
+                        stopTimeMs = pending.stopTimeMs,
+                        actualElapsedMs = pending.actualElapsedMs,
+                        onConfirm = { hours ->
+                            pendingClockOut = null
+                            launchTimecardApp(context, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                        },
+                        onDismiss = { pendingClockOut = null }
+                    )
+                }
             }
         }
 
@@ -1871,11 +1881,51 @@ private fun LegacySingleStackNavigation(
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = {
+                // graphicsLayer alpha — layout never shifts, no PDF re-renders during animation.
+                AppBottomNavBar(
+                    modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
+                    currentDestination = currentNavDest,
+                    minimized = isInViewer,
+                    destinations = visibleDestinations,
+                    isCalculatorOpen = calculatorState.snapshot.isOpen,
+                    onCalculatorClick = { calculatorState.toggleOpen() },
+                    supplyNotificationCount = supplyNotificationCount,
+                    onNavigate = { dest ->
+                        if (dest == NavDestination.HOURS) {
+                            if (employeeName.isNotBlank()) {
+                                launchTimecardApp(legacyContext, employeeName)
+                            } else {
+                                showHoursLoginDialog = true
+                            }
+                            return@AppBottomNavBar
+                        }
+                        if (currentRoute == dest.route) return@AppBottomNavBar
+                        check(dest.route in visibleDestinations.map { it.route }) {
+                            "Invalid top-level destination route: ${dest.route}"
+                        }
+                        navController.navigate(dest.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = false
+                            }
+                            launchSingleTop = true
+                            restoreState = false
+                        }
+                    }
+                )
+            },
+            contentWindowInsets = WindowInsets(0)
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
             NavHost(
                 navController = navController,
                 startDestination = startRoute,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxSize()
             ) {
             composable("dashboard") {
                 when (workMode) {
@@ -2632,38 +2682,6 @@ private fun LegacySingleStackNavigation(
             }
             }
 
-            // graphicsLayer alpha — layout never shifts, no PDF re-renders during animation.
-            AppBottomNavBar(
-                modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
-                currentDestination = currentNavDest,
-                minimized = isInViewer,
-                destinations = visibleDestinations,
-                isCalculatorOpen = calculatorState.snapshot.isOpen,
-                onCalculatorClick = { calculatorState.toggleOpen() },
-                supplyNotificationCount = supplyNotificationCount,
-                onNavigate = { dest ->
-                    if (dest == NavDestination.HOURS) {
-                        if (employeeName.isNotBlank()) {
-                            launchTimecardApp(legacyContext, employeeName)
-                        } else {
-                            showHoursLoginDialog = true
-                        }
-                        return@AppBottomNavBar
-                    }
-                    if (currentRoute == dest.route) return@AppBottomNavBar
-                    check(dest.route in visibleDestinations.map { it.route }) {
-                        "Invalid top-level destination route: ${dest.route}"
-                    }
-                    navController.navigate(dest.route) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = false
-                        }
-                        launchSingleTop = true
-                        restoreState = false
-                    }
-                }
-            )
-
             if (showHoursLoginDialog) {
                 HoursLoginDialog(
                     initialInput = employeeName,
@@ -2688,6 +2706,7 @@ private fun LegacySingleStackNavigation(
                     },
                     onDismiss = { pendingClockOut = null }
                 )
+            }
             }
         }
 
