@@ -299,10 +299,17 @@ fun SectionProgressHeader(
         color = containerColor,
         shape = MaterialTheme.shapes.medium
     ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    if (!isSubHeader) MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
+                    else Color.Transparent
+                )
+        ) {
             Box(
                 modifier = Modifier
-                    .width(KKCShapeTokens.statusBorderWidth)
+                    .width(if (isSubHeader) KKCShapeTokens.statusBorderWidth else 4.dp)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.primary)
             )
@@ -318,8 +325,9 @@ fun SectionProgressHeader(
                     ) {
                         Text(
                             text = "$title • $itemCount",
-                            style = titleStyle,
-                            fontWeight = titleWeight,
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = if (isSubHeader) FontWeight.Medium else FontWeight.Bold
+                            ),
                             color = titleColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -381,8 +389,9 @@ fun SectionProgressHeader(
                     ) {
                         Text(
                             text = "$title • $itemCount",
-                            style = titleStyle,
-                            fontWeight = titleWeight,
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = if (isSubHeader) FontWeight.Medium else FontWeight.Bold
+                            ),
                             color = titleColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
