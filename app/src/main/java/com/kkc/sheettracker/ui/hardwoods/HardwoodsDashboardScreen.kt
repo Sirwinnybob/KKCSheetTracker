@@ -493,7 +493,7 @@ private fun HardwoodsRecentJobsCard(
         Column(modifier = Modifier.padding(KKCSpacing.cardPaddingSmall)) {
             Text(
                 "Recent Jobs (This Tablet)",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(bottom = KKCSpacing.inCardSpacing)
             )
