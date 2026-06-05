@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
@@ -181,6 +182,7 @@ fun HardwoodsDashboardScreen(
             return@Scaffold
         }
 
+        val gradientEndPx = with(LocalDensity.current) { 300.dp.toPx() }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -191,7 +193,7 @@ fun HardwoodsDashboardScreen(
                             Color.Transparent
                         ),
                         startY = 0f,
-                        endY = 520f
+                        endY = gradientEndPx
                     )
                 )
         ) {

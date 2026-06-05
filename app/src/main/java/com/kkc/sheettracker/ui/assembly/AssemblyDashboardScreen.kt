@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
@@ -101,6 +102,7 @@ fun AssemblyDashboardScreen(
             )
         }
     ) { padding ->
+        val gradientEndPx = with(LocalDensity.current) { 300.dp.toPx() }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -111,15 +113,15 @@ fun AssemblyDashboardScreen(
                             Color.Transparent
                         ),
                         startY = 0f,
-                        endY = 520f
+                        endY = gradientEndPx
                     )
                 )
         ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
             val totalJobs = cards.size
             val totalCabinets = remember(cards) {
                 cards.sumOf { card ->
@@ -209,8 +211,8 @@ fun AssemblyDashboardScreen(
                     }
                 }
             }
+            }
         }
-        } // end gradient Box
     }
 }
 

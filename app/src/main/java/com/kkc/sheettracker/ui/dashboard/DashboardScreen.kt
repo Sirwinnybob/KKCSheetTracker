@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.AppStateFeatureFlags
@@ -246,6 +247,7 @@ fun DashboardScreen(
             )
         }
     ) { padding ->
+        val gradientEndPx = with(LocalDensity.current) { 300.dp.toPx() }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -256,18 +258,18 @@ fun DashboardScreen(
                             Color.Transparent
                         ),
                         startY = 0f,
-                        endY = 520f
+                        endY = gradientEndPx
                     )
                 )
         ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             if (scanState.status == ScanStatus.LOADING || isComputing || appUiState.isRefreshing) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
@@ -435,8 +437,8 @@ fun DashboardScreen(
                 }
             }
 
+            }
         }
-        } // end gradient Box
     }
 
     if (showBadList) {

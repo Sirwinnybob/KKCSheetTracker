@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.ui.theme.KKCAlpha
@@ -73,6 +74,7 @@ fun SpecialtyDashboardScreen(
         return
     }
 
+    val gradientEndPx = with(LocalDensity.current) { 300.dp.toPx() }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -83,11 +85,11 @@ fun SpecialtyDashboardScreen(
                         Color.Transparent
                     ),
                     startY = 0f,
-                    endY = 520f
+                    endY = gradientEndPx
                 )
             )
     ) {
-    LazyColumn(
+        LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = KKCSpacing.listContentHorizontal, vertical = KKCSpacing.listContentVertical),
         verticalArrangement = Arrangement.spacedBy(KKCSpacing.listItemSpacing)
@@ -225,8 +227,8 @@ fun SpecialtyDashboardScreen(
                 }
             }
         }
+        }
     }
-    } // end gradient Box
 }
 
 private fun buildRecentInProgressSpecialtyItems(jobs: List<SpecialtyJob>): List<SpecialtyInProgressItemUi> {
