@@ -45,6 +45,7 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.ui.theme.KKCSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,10 +117,10 @@ fun AssemblyDashboardScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = KKCSpacing.screenHorizontal, vertical = KKCSpacing.m),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(modifier = Modifier.padding(KKCSpacing.cardPaddingCompact), verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)) {
                     Text("Overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("Jobs: $totalJobs", style = MaterialTheme.typography.bodyMedium)
                     Text("Cabinets Indexed: $totalCabinets", style = MaterialTheme.typography.bodyMedium)
@@ -132,10 +133,10 @@ fun AssemblyDashboardScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = KKCSpacing.screenHorizontal, vertical = KKCSpacing.xs),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(modifier = Modifier.padding(KKCSpacing.cardPaddingCompact), verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)) {
                     Text("Specialty", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     when (specialtyScanState.status) {
                         ScanStatus.LOADING -> {
@@ -181,8 +182,8 @@ fun AssemblyDashboardScreen(
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(horizontal = KKCSpacing.listContentHorizontal, vertical = KKCSpacing.inCardSpacing),
+                        verticalArrangement = Arrangement.spacedBy(KKCSpacing.listItemSpacing)
                     ) {
                         items(cards, key = { it.folderName }) { card ->
                             AssemblyJobCardView(card = card)
@@ -201,15 +202,15 @@ private fun AssemblyJobCardView(card: AssemblyJobCard) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.padding(KKCSpacing.cardPaddingCompact), verticalArrangement = Arrangement.spacedBy(KKCSpacing.m)) {
             Text(
                 "${card.jobNumber} - ${card.jobName}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(KKCSpacing.l)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)) {
                     Text("CNC", style = MaterialTheme.typography.labelLarge)
                     Text(
                         "${card.cncSummary.completedSheets}/${card.cncSummary.totalSheets} sheets",
@@ -222,7 +223,7 @@ private fun AssemblyJobCardView(card: AssemblyJobCard) {
                     )
                 }
 
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)) {
                     Text("Hardwoods", style = MaterialTheme.typography.labelLarge)
                     Text(
                         "${card.hardwoodsSummary.donePieces}/${card.hardwoodsSummary.totalPieces} pieces",
