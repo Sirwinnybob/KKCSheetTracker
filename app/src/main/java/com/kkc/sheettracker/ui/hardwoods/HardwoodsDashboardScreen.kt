@@ -67,6 +67,8 @@ import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.ui.components.ProgressPill
 import com.kkc.sheettracker.ui.components.ProgressState
 import com.kkc.sheettracker.ui.components.StatusBorderedCard
+import com.kkc.sheettracker.ui.theme.KKCAlpha
+import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlin.math.roundToInt
 
@@ -181,8 +183,8 @@ fun HardwoodsDashboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(KKCSpacing.screenHorizontal),
+            verticalArrangement = Arrangement.spacedBy(KKCSpacing.listItemSpacing)
         ) {
             item {
                 HardwoodsOverviewCard(
@@ -255,15 +257,15 @@ private fun HardwoodsOverviewCard(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = KKCAlpha.primaryContainerOverview)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(KKCSpacing.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(KKCSpacing.sheetItemSpacing)
         ) {
             // Top row: circular progress + progress text details + action button
             Row(
@@ -326,7 +328,7 @@ private fun HardwoodsOverviewCard(
             // Bottom row: 3 stat cards
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(KKCSpacing.m)
             ) {
                 HardwoodsStatCard(
                     label = "Done Pieces",
@@ -370,7 +372,7 @@ private fun HardwoodsStatCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(KKCSpacing.cardPaddingSmall),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -420,8 +422,8 @@ private fun HardwoodsQualityAlertCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(KKCSpacing.cardPaddingCompact),
+            verticalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)
         ) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -464,24 +466,24 @@ private fun HardwoodsRecentJobsCard(
         shape = MaterialTheme.shapes.medium,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(KKCSpacing.cardPaddingSmall)) {
             Text(
                 "Recent Jobs (This Tablet)",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 8.dp)
+                modifier = Modifier.padding(bottom = KKCSpacing.inCardSpacing)
             )
             recentJobs.forEachIndexed { index, (job, ms) ->
                 if (index > 0) {
                     HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = KKCAlpha.dividerSubtle)
                     )
                 }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenJob(job) }
-                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                        .padding(vertical = KKCSpacing.m, horizontal = KKCSpacing.xxs),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -543,8 +545,8 @@ private fun HardwoodsJobCard(
         tonalElevation = 1.dp
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(KKCSpacing.cardPaddingCompact),
+            verticalArrangement = Arrangement.spacedBy(KKCSpacing.inCardSpacing)
         ) {
             // Job number + name inline: "XXX - Job Name"
             Text(
@@ -686,7 +688,7 @@ private fun HardwoodsFlaggedPartsSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.75f)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = KKCSpacing.screenHorizontal, vertical = KKCSpacing.inCardSpacing),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -705,8 +707,8 @@ private fun HardwoodsFlaggedPartsSheet(
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
                         Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            modifier = Modifier.padding(KKCSpacing.cardPaddingSmall),
+                            verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)
                         ) {
                             Text(
                                 summary.job.jobName.ifBlank { summary.job.folderName },
