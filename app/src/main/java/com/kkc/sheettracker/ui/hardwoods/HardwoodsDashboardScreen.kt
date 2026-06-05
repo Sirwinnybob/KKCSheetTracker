@@ -295,7 +295,7 @@ private fun HardwoodsOverviewCard(
 
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(KKCSpacing.textLineGap)
                 ) {
                     Text(
                         "Overall Progress",
@@ -383,7 +383,7 @@ private fun HardwoodsStatCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(KKCSpacing.textLineGap))
             Text(
                 label,
                 style = MaterialTheme.typography.labelMedium,
