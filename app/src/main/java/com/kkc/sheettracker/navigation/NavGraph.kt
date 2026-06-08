@@ -121,6 +121,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 
 private const val SPECIALTY_DOOR_PANELS_ROUTE_BASE = "specialty/door-panels"
 private const val SPECIALTY_DOOR_PANELS_ROUTE_PATTERN = "$SPECIALTY_DOOR_PANELS_ROUTE_BASE/{folderName}"
@@ -442,6 +444,7 @@ private fun MultiBackStackNavigation(
         if (!isInViewer || viewerUiVisible) 1f else 0f,
         tween(220), label = "navBarAlpha"
     )
+    val hazeState = remember { HazeState() }
 
     androidx.compose.runtime.LaunchedEffect(selectedTab, jobsBackStack) {
         val route = jobsBackStack?.destination?.route ?: ""
@@ -566,13 +569,46 @@ private fun MultiBackStackNavigation(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
+            bottomBar = {
+                AppBottomNavBar(
+                    hazeState = hazeState,
+                    modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
+                    currentDestination = TopLevelTab.toDestination(selectedTab),
+                    minimized = isInViewer,
+                    destinations = visibleDestinations,
+                    isCalculatorOpen = calculatorState.snapshot.isOpen,
+                    onCalculatorClick = { calculatorState.toggleOpen() },
+                    supplyNotificationCount = supplyNotificationCount,
+                    onNavigate = { dest ->
+                        if (dest == NavDestination.HOURS) {
+                            if (employeeName.isNotBlank()) {
+                                launchTimecardApp(context, employeeName)
+                            } else {
+                                showHoursLoginDialog = true
+                            }
+                        } else {
+                            coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                        }
+                    }
+                )
+            },
             contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
+            // Outer box fills full Scaffold area — hazeSource here so blur sees all content
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
+                    .hazeSource(hazeState)
             ) {
+                // Inner box insets content so nothing hides behind the floating nav bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            top = paddingValues.calculateTopPadding(),
+                            bottom = paddingValues.calculateBottomPadding()
+                        )
+                ) {
                 TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
                     DashboardTabHost(
                         navController = dashboardNavController,
@@ -759,31 +795,10 @@ private fun MultiBackStackNavigation(
                         onDismiss = { pendingClockOut = null }
                     )
                 }
-            }
+                } // inner content Box
+            } // hazeSource Box
         }
 
-        AppBottomNavBar(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .graphicsLayer { alpha = navBarAlpha },
-            currentDestination = TopLevelTab.toDestination(selectedTab),
-            minimized = isInViewer,
-            destinations = visibleDestinations,
-            isCalculatorOpen = calculatorState.snapshot.isOpen,
-            onCalculatorClick = { calculatorState.toggleOpen() },
-            supplyNotificationCount = supplyNotificationCount,
-            onNavigate = { dest ->
-                if (dest == NavDestination.HOURS) {
-                    if (employeeName.isNotBlank()) {
-                        launchTimecardApp(context, employeeName)
-                    } else {
-                        showHoursLoginDialog = true
-                    }
-                } else {
-                    coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
-                }
-            }
-        )
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
@@ -1880,16 +1895,60 @@ private fun LegacySingleStackNavigation(
         if (!isInViewer || viewerUiVisible) 1f else 0f,
         tween(220), label = "navBarAlpha"
     )
+    val hazeState = remember { HazeState() }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
+            bottomBar = {
+                AppBottomNavBar(
+                    hazeState = hazeState,
+                    modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
+                    currentDestination = currentNavDest,
+                    minimized = isInViewer,
+                    destinations = visibleDestinations,
+                    isCalculatorOpen = calculatorState.snapshot.isOpen,
+                    onCalculatorClick = { calculatorState.toggleOpen() },
+                    supplyNotificationCount = supplyNotificationCount,
+                    onNavigate = { dest ->
+                        if (dest == NavDestination.HOURS) {
+                            if (employeeName.isNotBlank()) {
+                                launchTimecardApp(legacyContext, employeeName)
+                            } else {
+                                showHoursLoginDialog = true
+                            }
+                            return@AppBottomNavBar
+                        }
+                        if (currentRoute == dest.route) return@AppBottomNavBar
+                        check(dest.route in visibleDestinations.map { it.route }) {
+                            "Invalid top-level destination route: ${dest.route}"
+                        }
+                        navController.navigate(dest.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = false
+                            }
+                            launchSingleTop = true
+                            restoreState = false
+                        }
+                    }
+                )
+            },
             contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
+            // Outer box fills full Scaffold area — hazeSource here so blur sees all content
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
+                    .hazeSource(hazeState)
             ) {
+                // Inner box insets content so nothing hides behind the floating nav bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            top = paddingValues.calculateTopPadding(),
+                            bottom = paddingValues.calculateBottomPadding()
+                        )
+                ) {
                 NavHost(
                     navController = navController,
                     startDestination = startRoute,
@@ -2675,41 +2734,10 @@ private fun LegacySingleStackNavigation(
                         onDismiss = { pendingClockOut = null }
                     )
                 }
-            }
+                } // inner content Box
+            } // hazeSource Box
         }
 
-        AppBottomNavBar(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .graphicsLayer { alpha = navBarAlpha },
-            currentDestination = currentNavDest,
-            minimized = isInViewer,
-            destinations = visibleDestinations,
-            isCalculatorOpen = calculatorState.snapshot.isOpen,
-            onCalculatorClick = { calculatorState.toggleOpen() },
-            supplyNotificationCount = supplyNotificationCount,
-            onNavigate = { dest ->
-                if (dest == NavDestination.HOURS) {
-                    if (employeeName.isNotBlank()) {
-                        launchTimecardApp(legacyContext, employeeName)
-                    } else {
-                        showHoursLoginDialog = true
-                    }
-                    return@AppBottomNavBar
-                }
-                if (currentRoute == dest.route) return@AppBottomNavBar
-                check(dest.route in visibleDestinations.map { it.route }) {
-                    "Invalid top-level destination route: ${dest.route}"
-                }
-                navController.navigate(dest.route) {
-                    popUpTo(navController.graph.findStartDestination().id) {
-                        saveState = false
-                    }
-                    launchSingleTop = true
-                    restoreState = false
-                }
-            }
-        )
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
