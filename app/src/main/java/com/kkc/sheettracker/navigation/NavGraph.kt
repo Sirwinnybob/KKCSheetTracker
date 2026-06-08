@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -569,14 +568,10 @@ private fun MultiBackStackNavigation(
         Scaffold(
             contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
-            val density = LocalDensity.current
-            val gestureBarDp = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
-            val navFloatPadding = gestureBarDp + 92.dp  // 80dp nav bar height + 12dp bottom gap
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = paddingValues.calculateTopPadding())
-                    .padding(bottom = navFloatPadding)
             ) {
                 TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
                     DashboardTabHost(
@@ -1890,14 +1885,10 @@ private fun LegacySingleStackNavigation(
         Scaffold(
             contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
-            val density = LocalDensity.current
-            val gestureBarDp = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
-            val navFloatPadding = gestureBarDp + 92.dp  // 80dp nav bar height + 12dp bottom gap
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = paddingValues.calculateTopPadding())
-                    .padding(bottom = navFloatPadding)
             ) {
                 NavHost(
                     navController = navController,
