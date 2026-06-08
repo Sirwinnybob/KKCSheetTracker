@@ -87,7 +87,7 @@ fun AppBottomNavBar(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .shadow(elevation = 18.dp, shape = navShape, clip = false)
+                        .shadow(elevation = 8.dp, shape = navShape, clip = false)
                         .clip(navShape)
                         .then(
                             if (hazeState != null)
@@ -236,7 +236,7 @@ private fun MinimizedNavBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(elevation = 14.dp, shape = minNavShape, clip = false)
+                .shadow(elevation = 6.dp, shape = minNavShape, clip = false)
                 .clip(minNavShape)
                 .then(
                     if (hazeState != null)
