@@ -35,6 +35,36 @@ data class SearchResult(
     val cabNumber: Int
 )
 
+
+internal data class SearchMatches(
+    val results: List<SearchResult>,
+    val totalMatches: Int
+)
+
+internal fun computeSearchMatches(
+    allEntries: List<SearchResult>,
+    rawQuery: String,
+    maxResults: Int = 100
+): SearchMatches {
+    val query = rawQuery.trim()
+    if (query.isBlank()) return SearchMatches(emptyList(), 0)
+
+    val visibleResults = ArrayList<SearchResult>(maxResults.coerceAtMost(allEntries.size))
+    var totalMatches = 0
+    for (r in allEntries) {
+        val isMatch = r.partName.contains(query, ignoreCase = true) ||
+            r.room.contains(query, ignoreCase = true) ||
+            r.cabNumber.toString() == query ||
+            r.jobNumber.contains(query, ignoreCase = true) ||
+            r.jobFolderName.contains(query, ignoreCase = true) ||
+            r.materialName.contains(query, ignoreCase = true)
+        if (!isMatch) continue
+        totalMatches += 1
+        if (visibleResults.size < maxResults) visibleResults.add(r)
+    }
+    return SearchMatches(results = visibleResults, totalMatches = totalMatches)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
@@ -46,7 +76,8 @@ fun SearchScreen(
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+    var searchMatches by remember { mutableStateOf(SearchMatches(emptyList(), 0)) }
+    val results = searchMatches.results
     val listState = rememberLazyListState()
     val allResults = remember(scanState.snapshot.generation) {
         scanState.snapshot.searchIndex.map { entry ->
@@ -68,19 +99,12 @@ fun SearchScreen(
     LaunchedEffect(query, allResults) {
         val q = query.trim()
         if (q.isBlank()) {
-            results = emptyList()
+            searchMatches = SearchMatches(emptyList(), 0)
             return@LaunchedEffect
         }
         delay(250)
         withContext(Dispatchers.Default) {
-            results = allResults.filter { r ->
-                r.partName.contains(q, ignoreCase = true) ||
-                r.room.contains(q, ignoreCase = true) ||
-                r.cabNumber.toString() == q ||
-                r.jobNumber.contains(q, ignoreCase = true) ||
-                r.jobFolderName.contains(q, ignoreCase = true) ||
-                r.materialName.contains(q, ignoreCase = true)
-            }.take(100)
+            searchMatches = computeSearchMatches(allEntries = allResults, rawQuery = query)
         }
     }
 
@@ -135,7 +159,7 @@ fun SearchScreen(
                 }
             } else {
                 Text(
-                    "${results.size} result${if (results.size != 1) "s" else ""}",
+                    "Showing ${results.size} of ${searchMatches.totalMatches.coerceAtLeast(results.size)} matches",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

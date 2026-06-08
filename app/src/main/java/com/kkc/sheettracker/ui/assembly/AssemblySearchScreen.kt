@@ -47,6 +47,39 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 
+
+internal data class AssemblySearchMatches(
+    val results: List<AssemblySearchEntry>,
+    val totalMatches: Int
+)
+
+internal fun computeAssemblySearchMatches(
+    allEntries: List<AssemblySearchEntry>,
+    rawQuery: String,
+    maxResults: Int = 180
+): AssemblySearchMatches {
+    val query = rawQuery.trim()
+    if (query.isBlank()) return AssemblySearchMatches(emptyList(), 0)
+
+    val visibleResults = ArrayList<AssemblySearchEntry>(maxResults.coerceAtMost(allEntries.size))
+    var totalMatches = 0
+    for (entry in allEntries) {
+        val isMatch = entry.jobFolderName.contains(query, ignoreCase = true) ||
+            entry.jobNumber.contains(query, ignoreCase = true) ||
+            entry.jobName.contains(query, ignoreCase = true) ||
+            entry.cabinetNumber.equals(query, ignoreCase = true) ||
+            entry.description.contains(query, ignoreCase = true) ||
+            entry.material.contains(query, ignoreCase = true) ||
+            entry.sectionType.contains(query, ignoreCase = true) ||
+            (entry.room?.contains(query, ignoreCase = true) == true) ||
+            (entry.wall?.contains(query, ignoreCase = true) == true)
+        if (!isMatch) continue
+        totalMatches += 1
+        if (visibleResults.size < maxResults) visibleResults.add(entry)
+    }
+    return AssemblySearchMatches(results = visibleResults, totalMatches = totalMatches)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssemblySearchScreen(
@@ -62,27 +95,18 @@ fun AssemblySearchScreen(
     val all = remember(scanState.snapshot.generation, specialtyProgressVersionHint) {
         assemblyStateStore.deriveSearchIndex()
     }
-    var results by remember { mutableStateOf<List<AssemblySearchEntry>>(emptyList()) }
+    var searchMatches by remember { mutableStateOf(AssemblySearchMatches(emptyList(), 0)) }
+    val results = searchMatches.results
 
     LaunchedEffect(all, query) {
         val q = query.trim()
         if (q.isBlank()) {
-            results = emptyList()
+            searchMatches = AssemblySearchMatches(emptyList(), 0)
             return@LaunchedEffect
         }
         delay(250)
         withContext(Dispatchers.Default) {
-            results = all.filter { entry ->
-                entry.jobFolderName.contains(q, ignoreCase = true) ||
-                    entry.jobNumber.contains(q, ignoreCase = true) ||
-                    entry.jobName.contains(q, ignoreCase = true) ||
-                    entry.cabinetNumber.equals(q, ignoreCase = true) ||
-                    entry.description.contains(q, ignoreCase = true) ||
-                    entry.material.contains(q, ignoreCase = true) ||
-                    entry.sectionType.contains(q, ignoreCase = true) ||
-                    (entry.room?.contains(q, ignoreCase = true) == true) ||
-                    (entry.wall?.contains(q, ignoreCase = true) == true)
-            }.take(180)
+            searchMatches = computeAssemblySearchMatches(allEntries = all, rawQuery = query)
         }
     }
 
@@ -138,6 +162,14 @@ fun AssemblySearchScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        item {
+                            Text(
+                                "Showing ${results.size} of ${searchMatches.totalMatches.coerceAtLeast(results.size)} matches",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
                         items(results) { result ->
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
