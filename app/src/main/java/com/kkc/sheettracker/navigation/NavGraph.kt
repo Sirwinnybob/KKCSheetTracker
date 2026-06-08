@@ -36,8 +36,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
@@ -81,7 +83,6 @@ import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
-import com.kkc.sheettracker.ui.assembly.AssemblyDashboardScreen
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
 import com.kkc.sheettracker.ui.assembly.AssemblyJobDetailScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
@@ -89,13 +90,15 @@ import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
 import com.kkc.sheettracker.ui.browser.JobBrowserScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
+import com.kkc.sheettracker.ui.components.NavBarDecorationState
 import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
 import com.kkc.sheettracker.ui.components.ClockInOverlay
 import com.kkc.sheettracker.ui.components.NavDestination
 import com.kkc.sheettracker.ui.components.rememberCalculatorOverlayState
-import com.kkc.sheettracker.ui.dashboard.DashboardScreen
+import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardScreen
+import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardSpec
 import com.kkc.sheettracker.ui.detail.JobDetailScreen
-import com.kkc.sheettracker.ui.hardwoods.HardwoodsDashboardScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsJobDetailScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsJobsScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsSearchScreen
@@ -109,7 +112,6 @@ import com.kkc.sheettracker.ui.supply.SupplyDashboardScreen
 import com.kkc.sheettracker.ui.supply.SupplyItemDetailScreen
 import com.kkc.sheettracker.ui.supply.SupplyItemEditScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
-import com.kkc.sheettracker.ui.specialty.SpecialtyDashboardScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobsScreen
 import com.kkc.sheettracker.ui.viewer.ReferencePdfViewerScreen
@@ -121,6 +123,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.background
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 
@@ -445,6 +451,8 @@ private fun MultiBackStackNavigation(
         tween(220), label = "navBarAlpha"
     )
     val hazeState = remember { HazeState() }
+    val navBarDeco = remember { NavBarDecorationState() }
+    var navBarHeightPx by remember { mutableIntStateOf(0) }
 
     androidx.compose.runtime.LaunchedEffect(selectedTab, jobsBackStack) {
         val route = jobsBackStack?.destination?.route ?: ""
@@ -568,45 +576,23 @@ private fun MultiBackStackNavigation(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
-            bottomBar = {
-                AppBottomNavBar(
-                    hazeState = hazeState,
-                    modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
-                    currentDestination = TopLevelTab.toDestination(selectedTab),
-                    minimized = isInViewer,
-                    destinations = visibleDestinations,
-                    isCalculatorOpen = calculatorState.snapshot.isOpen,
-                    onCalculatorClick = { calculatorState.toggleOpen() },
-                    supplyNotificationCount = supplyNotificationCount,
-                    onNavigate = { dest ->
-                        if (dest == NavDestination.HOURS) {
-                            if (employeeName.isNotBlank()) {
-                                launchTimecardApp(context, employeeName)
-                            } else {
-                                showHoursLoginDialog = true
-                            }
-                        } else {
-                            coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
-                        }
-                    }
-                )
-            },
             contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
-            // Outer box fills full Scaffold area — hazeSource here so blur sees all content
+            // hazeSource fills full screen (no bottomBar slot) — blur sees content behind the pill
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
                     .hazeSource(hazeState)
             ) {
-                // Inner box insets content so nothing hides behind the floating nav bar
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
                             top = paddingValues.calculateTopPadding(),
-                            bottom = paddingValues.calculateBottomPadding()
+                            bottom = with(LocalDensity.current) { navBarHeightPx.toDp() }
                         )
                 ) {
                 TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
@@ -798,6 +784,35 @@ private fun MultiBackStackNavigation(
                 } // inner content Box
             } // hazeSource Box
         }
+        } // CompositionLocalProvider
+
+        // Nav bar as true overlay — hazeSource extends behind it so frosted glass works correctly
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            AppBottomNavBar(
+                hazeState = hazeState,
+                modifier = Modifier
+                    .graphicsLayer { alpha = navBarAlpha }
+                    .onSizeChanged { navBarHeightPx = it.height },
+                currentDestination = TopLevelTab.toDestination(selectedTab),
+                minimized = isInViewer,
+                destinations = visibleDestinations,
+                isCalculatorOpen = calculatorState.snapshot.isOpen,
+                onCalculatorClick = { calculatorState.toggleOpen() },
+                supplyNotificationCount = supplyNotificationCount,
+                searchDecoration = navBarDeco.searchDecoration,
+                onNavigate = { dest ->
+                    if (dest == NavDestination.HOURS) {
+                        if (employeeName.isNotBlank()) {
+                            launchTimecardApp(context, employeeName)
+                        } else {
+                            showHoursLoginDialog = true
+                        }
+                    } else {
+                        coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                    }
+                }
+            )
+        }
 
         CalculatorOverlayHost(
             state = calculatorState,
@@ -857,47 +872,54 @@ private fun DashboardTabHost(
         composable("dashboard") {
             when (workMode) {
                 WorkMode.CNC -> {
-                    DashboardScreen(
-                        scanCoordinator = scanCoordinator,
-                        appStateStore = appStateStore,
-                        jobRepository = jobRepository,
-                        progressStore = progressStore,
-                        appStateFlags = appStateFlags,
-                        onNavigateToJobs = onNavigateToJobs,
-                        onOpenSheet = onOpenSheet,
-                        onOpenJob = { folderName ->
-                            onOpenJobInJobs(folderName)
-                        }
+                    UnifiedModeDashboardScreen(
+                        UnifiedModeDashboardSpec.Cnc(
+                            scanCoordinator = scanCoordinator,
+                            appStateStore = appStateStore,
+                            jobRepository = jobRepository,
+                            progressStore = progressStore,
+                            appStateFlags = appStateFlags,
+                            onNavigateToJobs = onNavigateToJobs,
+                            onOpenSheet = onOpenSheet
+                        )
                     )
                 }
                 WorkMode.HARDWOODS -> {
-                    HardwoodsDashboardScreen(
-                        scanCoordinator = hardwoodsScanCoordinator,
-                        progressStore = hardwoodsProgressStore,
-                        onNavigateToJobs = onNavigateToJobs,
-                        onOpenJob = { job ->
-                            onOpenHardwoodsJobInJobs(job.folderName)
-                        }
+                    UnifiedModeDashboardScreen(
+                        UnifiedModeDashboardSpec.Hardwoods(
+                            scanCoordinator = hardwoodsScanCoordinator,
+                            progressStore = hardwoodsProgressStore,
+                            onOpenJob = { job ->
+                                onOpenHardwoodsJobInJobs(job.folderName)
+                            }
+                        )
                     )
                 }
                 WorkMode.ASSEMBLY -> {
-                    AssemblyDashboardScreen(
-                        assemblyScanCoordinator = assemblyScanCoordinator,
-                        assemblyStateStore = assemblyStateStore,
-                        progressStore = progressStore,
-                        hardwoodsProgressStore = hardwoodsProgressStore,
-                        specialtyStateStore = specialtyStateStore,
-                        specialtyProgressVersionHint = specialtyProgressVersion,
-                        onNavigateToJobs = onNavigateToJobs
+                    UnifiedModeDashboardScreen(
+                        UnifiedModeDashboardSpec.Assembly(
+                            scanCoordinator = assemblyScanCoordinator,
+                            assemblyStateStore = assemblyStateStore,
+                            cncProgressStore = progressStore,
+                            hardwoodsProgressStore = hardwoodsProgressStore,
+                            specialtyStateStore = specialtyStateStore,
+                            onOpenJob = { folderName ->
+                                navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                                    launchSingleTop = true
+                                }
+                            }
+                        )
                     )
                 }
                 WorkMode.SPECIALTY -> {
-                    SpecialtyDashboardScreen(
-                        specialtyStateStore = specialtyStateStore,
-                        onNavigateToJobs = onNavigateToJobs,
-                        onOpenJob = { folderName ->
-                            onOpenSpecialtyJobInJobs(folderName)
-                        }
+                    UnifiedModeDashboardScreen(
+                        UnifiedModeDashboardSpec.Specialty(
+                            specialtyStateStore = specialtyStateStore,
+                            onNavigateToJobs = onNavigateToJobs,
+                            onOpenJob = { folderName ->
+                                onOpenSpecialtyJobInJobs(folderName)
+                            }
+                        )
                     )
                 }
             }
@@ -1896,57 +1918,26 @@ private fun LegacySingleStackNavigation(
         tween(220), label = "navBarAlpha"
     )
     val hazeState = remember { HazeState() }
+    val navBarDeco = remember { NavBarDecorationState() }
+    var navBarHeightPx by remember { mutableIntStateOf(0) }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
-            bottomBar = {
-                AppBottomNavBar(
-                    hazeState = hazeState,
-                    modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
-                    currentDestination = currentNavDest,
-                    minimized = isInViewer,
-                    destinations = visibleDestinations,
-                    isCalculatorOpen = calculatorState.snapshot.isOpen,
-                    onCalculatorClick = { calculatorState.toggleOpen() },
-                    supplyNotificationCount = supplyNotificationCount,
-                    onNavigate = { dest ->
-                        if (dest == NavDestination.HOURS) {
-                            if (employeeName.isNotBlank()) {
-                                launchTimecardApp(legacyContext, employeeName)
-                            } else {
-                                showHoursLoginDialog = true
-                            }
-                            return@AppBottomNavBar
-                        }
-                        if (currentRoute == dest.route) return@AppBottomNavBar
-                        check(dest.route in visibleDestinations.map { it.route }) {
-                            "Invalid top-level destination route: ${dest.route}"
-                        }
-                        navController.navigate(dest.route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = false
-                            }
-                            launchSingleTop = true
-                            restoreState = false
-                        }
-                    }
-                )
-            },
             contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
-            // Outer box fills full Scaffold area — hazeSource here so blur sees all content
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
                     .hazeSource(hazeState)
             ) {
-                // Inner box insets content so nothing hides behind the floating nav bar
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
                             top = paddingValues.calculateTopPadding(),
-                            bottom = paddingValues.calculateBottomPadding()
+                            bottom = with(LocalDensity.current) { navBarHeightPx.toDp() }
                         )
                 ) {
                 NavHost(
@@ -1957,71 +1948,68 @@ private fun LegacySingleStackNavigation(
                     composable("dashboard") {
                         when (workMode) {
                             WorkMode.CNC -> {
-                                DashboardScreen(
-                                    scanCoordinator = scanCoordinator,
-                                    appStateStore = appStateStore,
-                                    jobRepository = jobRepository,
-                                    progressStore = progressStore,
-                                    appStateFlags = appStateFlags,
-                                    onNavigateToJobs = {
-                                        navController.navigate("jobs") {
-                                            launchSingleTop = true
+                                UnifiedModeDashboardScreen(
+                                    UnifiedModeDashboardSpec.Cnc(
+                                        scanCoordinator = scanCoordinator,
+                                        appStateStore = appStateStore,
+                                        jobRepository = jobRepository,
+                                        progressStore = progressStore,
+                                        appStateFlags = appStateFlags,
+                                        onNavigateToJobs = {
+                                            navController.navigate("jobs") {
+                                                launchSingleTop = true
+                                            }
+                                        },
+                                        onOpenSheet = { folderName, pdfFilename, page ->
+                                            openSheetLegacy(folderName, pdfFilename, page)
                                         }
-                                    },
-                                    onOpenSheet = { folderName, pdfFilename, page ->
-                                        openSheetLegacy(folderName, pdfFilename, page)
-                                    },
-                                    onOpenJob = { folderName ->
-                                        navController.navigate("job/${URLEncoder.encode(folderName, "UTF-8")}") {
-                                            launchSingleTop = true
-                                        }
-                                    }
+                                    )
                                 )
                             }
                             WorkMode.HARDWOODS -> {
-                                HardwoodsDashboardScreen(
-                                    scanCoordinator = hardwoodsScanCoordinator,
-                                    progressStore = hardwoodsProgressStore,
-                                    onNavigateToJobs = {
-                                        navController.navigate("jobs") {
-                                            launchSingleTop = true
+                                UnifiedModeDashboardScreen(
+                                    UnifiedModeDashboardSpec.Hardwoods(
+                                        scanCoordinator = hardwoodsScanCoordinator,
+                                        progressStore = hardwoodsProgressStore,
+                                        onOpenJob = { job ->
+                                            navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                                                launchSingleTop = true
+                                            }
                                         }
-                                    },
-                                    onOpenJob = { job ->
-                                        navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
-                                            launchSingleTop = true
-                                        }
-                                    }
+                                    )
                                 )
                             }
                             WorkMode.ASSEMBLY -> {
-                                AssemblyDashboardScreen(
-                                    assemblyScanCoordinator = assemblyScanCoordinator,
-                                    assemblyStateStore = assemblyStateStore,
-                                    progressStore = progressStore,
-                                    hardwoodsProgressStore = hardwoodsProgressStore,
-                                    specialtyStateStore = specialtyStateStore,
-                                    specialtyProgressVersionHint = specialtyProgressVersion,
-                                    onNavigateToJobs = {
-                                        navController.navigate("jobs") {
-                                            launchSingleTop = true
+                                UnifiedModeDashboardScreen(
+                                    UnifiedModeDashboardSpec.Assembly(
+                                        scanCoordinator = assemblyScanCoordinator,
+                                        assemblyStateStore = assemblyStateStore,
+                                        cncProgressStore = progressStore,
+                                        hardwoodsProgressStore = hardwoodsProgressStore,
+                                        specialtyStateStore = specialtyStateStore,
+                                        onOpenJob = { folderName ->
+                                            navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                                                launchSingleTop = true
+                                            }
                                         }
-                                    }
+                                    )
                                 )
                             }
                             WorkMode.SPECIALTY -> {
-                                SpecialtyDashboardScreen(
-                                    specialtyStateStore = specialtyStateStore,
-                                    onNavigateToJobs = {
-                                        navController.navigate("jobs") {
-                                            launchSingleTop = true
+                                UnifiedModeDashboardScreen(
+                                    UnifiedModeDashboardSpec.Specialty(
+                                        specialtyStateStore = specialtyStateStore,
+                                        onNavigateToJobs = {
+                                            navController.navigate("jobs") {
+                                                launchSingleTop = true
+                                            }
+                                        },
+                                        onOpenJob = { folderName ->
+                                            navController.navigate(specialtyJobRoute(folderName)) {
+                                                launchSingleTop = true
+                                            }
                                         }
-                                    },
-                                    onOpenJob = { folderName ->
-                                        navController.navigate(specialtyJobRoute(folderName)) {
-                                            launchSingleTop = true
-                                        }
-                                    }
+                                    )
                                 )
                             }
                         }
@@ -2736,6 +2724,45 @@ private fun LegacySingleStackNavigation(
                 }
                 } // inner content Box
             } // hazeSource Box
+        }
+        } // CompositionLocalProvider
+
+        // Nav bar as true overlay — hazeSource extends behind it so frosted glass works correctly
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            AppBottomNavBar(
+                hazeState = hazeState,
+                modifier = Modifier
+                    .graphicsLayer { alpha = navBarAlpha }
+                    .onSizeChanged { navBarHeightPx = it.height },
+                currentDestination = currentNavDest,
+                minimized = isInViewer,
+                destinations = visibleDestinations,
+                isCalculatorOpen = calculatorState.snapshot.isOpen,
+                onCalculatorClick = { calculatorState.toggleOpen() },
+                supplyNotificationCount = supplyNotificationCount,
+                searchDecoration = navBarDeco.searchDecoration,
+                onNavigate = { dest ->
+                    if (dest == NavDestination.HOURS) {
+                        if (employeeName.isNotBlank()) {
+                            launchTimecardApp(legacyContext, employeeName)
+                        } else {
+                            showHoursLoginDialog = true
+                        }
+                        return@AppBottomNavBar
+                    }
+                    if (currentRoute == dest.route) return@AppBottomNavBar
+                    check(dest.route in visibleDestinations.map { it.route }) {
+                        "Invalid top-level destination route: ${dest.route}"
+                    }
+                    navController.navigate(dest.route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = false
+                        }
+                        launchSingleTop = true
+                        restoreState = false
+                    }
+                }
+            )
         }
 
         CalculatorOverlayHost(

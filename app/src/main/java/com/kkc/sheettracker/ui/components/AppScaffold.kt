@@ -1,13 +1,23 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Calculate
@@ -30,8 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import com.kkc.sheettracker.ui.theme.KKCSpacing
@@ -63,6 +75,7 @@ fun AppBottomNavBar(
     destinations: List<NavDestination> = NavDestination.entries,
     supplyNotificationCount: Int = 0,
     hazeState: HazeState? = null,
+    searchDecoration: NavBarSearchDecoration? = null,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -103,7 +116,7 @@ fun AppBottomNavBar(
                         )
                         .border(
                             width = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                             shape = navShape
                         )
                 ) {
@@ -151,7 +164,8 @@ fun AppBottomNavBar(
                 isCalculatorOpen = isCalculatorOpen,
                 destinations = destinations,
                 supplyNotificationCount = supplyNotificationCount,
-                hazeState = hazeState
+                hazeState = hazeState,
+                searchDecoration = searchDecoration
             )
         }
     }
@@ -220,7 +234,8 @@ private fun MinimizedNavBar(
     isCalculatorOpen: Boolean,
     destinations: List<NavDestination>,
     supplyNotificationCount: Int,
-    hazeState: HazeState? = null
+    hazeState: HazeState? = null,
+    searchDecoration: NavBarSearchDecoration? = null
 ) {
     Box(
         modifier = Modifier
@@ -232,7 +247,12 @@ private fun MinimizedNavBar(
                 bottom = KKCSpacing.floatingNavBottomGap
             )
     ) {
-        val minNavShape = KKCShapeTokens.pill
+        val cornerRadius by animateDpAsState(
+            targetValue = if (searchDecoration != null) 26.dp else 999.dp,
+            animationSpec = tween(220),
+            label = "navCorner"
+        )
+        val minNavShape = RoundedCornerShape(cornerRadius)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -252,74 +272,223 @@ private fun MinimizedNavBar(
                 )
                 .border(
                     width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                     shape = minNavShape
                 )
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 44.dp)
-                    .padding(horizontal = KKCSpacing.navBarHorizontal, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val indicatorShape = MaterialTheme.shapes.medium
-                val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
+            AnimatedContent(
+                targetState = searchDecoration,
+                transitionSpec = {
+                    fadeIn(tween(220)) togetherWith fadeOut(tween(200)) using
+                        SizeTransform(clip = false)
+                },
+                label = "navSearchContent"
+            ) { decoration ->
+            if (decoration != null) {
+                // ── Search-enhanced layout: search row + divider + compact icon row ──
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    // Search row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        BasicTextField(
+                            value = decoration.searchText,
+                            onValueChange = decoration.onSearchTextChange,
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                            keyboardActions = KeyboardActions(
+                                onGo = { decoration.onGo() }
+                            ),
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (decoration.searchText.isEmpty()) {
+                                        Text(
+                                            "Cabinet #",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+                        Button(
+                            onClick = { decoration.onGo() },
+                            shape = MaterialTheme.shapes.extraLarge,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text("Go", style = MaterialTheme.typography.labelMedium)
+                        }
+                        Button(
+                            onClick = { decoration.onParts() },
+                            enabled = decoration.isPartsEnabled,
+                            shape = MaterialTheme.shapes.extraLarge,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text("Parts", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
 
-                destinations.forEach { dest ->
-                    if (dest == NavDestination.HOURS) {
+                    // Context line below search field (cabinet location info)
+                    if (decoration.contextLine.isNotBlank()) {
+                        Text(
+                            text = decoration.contextLine,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 3.dp, start = 2.dp)
+                        )
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 7.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+
+                    // Compact icon row — no labels, slightly smaller touch targets
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = KKCSpacing.navBarHorizontal),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val indicatorShape = MaterialTheme.shapes.medium
+                        val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
+
+                        destinations.forEach { dest ->
+                            if (dest == NavDestination.HOURS) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(indicatorShape)
+                                        .background(
+                                            color = if (isCalculatorOpen) indicatorColor else Color.Transparent,
+                                            shape = indicatorShape
+                                        )
+                                        .clickable { onCalculatorClick() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                                        contentDescription = "Calculator",
+                                        tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            val selected = dest == currentDestination
+                            val iconContent = @Composable {
+                                Icon(
+                                    if (selected) dest.selectedIcon else dest.unselectedIcon,
+                                    contentDescription = dest.label,
+                                    tint = if (selected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(indicatorShape)
+                                    .background(
+                                        color = if (selected) indicatorColor else Color.Transparent,
+                                        shape = indicatorShape
+                                    )
+                                    .clickable { onNavigate(dest) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                                    BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                                        iconContent()
+                                    }
+                                } else {
+                                    iconContent()
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // ── Original icon-only layout ──
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .padding(horizontal = KKCSpacing.navBarHorizontal, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val indicatorShape = MaterialTheme.shapes.medium
+                    val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
+
+                    destinations.forEach { dest ->
+                        if (dest == NavDestination.HOURS) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(indicatorShape)
+                                    .background(
+                                        color = if (isCalculatorOpen) indicatorColor else Color.Transparent,
+                                        shape = indicatorShape
+                                    )
+                                    .clickable { onCalculatorClick() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                                    contentDescription = "Calculator",
+                                    tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        val selected = dest == currentDestination
+                        val iconContent = @Composable {
+                            Icon(
+                                if (selected) dest.selectedIcon else dest.unselectedIcon,
+                                contentDescription = dest.label,
+                                tint = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(indicatorShape)
                                 .background(
-                                    color = if (isCalculatorOpen) indicatorColor else Color.Transparent,
+                                    color = if (selected) indicatorColor else Color.Transparent,
                                     shape = indicatorShape
                                 )
-                                .clickable { onCalculatorClick() },
+                                .clickable { onNavigate(dest) },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                                contentDescription = "Calculator",
-                                tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                    val selected = dest == currentDestination
-                    val iconContent = @Composable {
-                        Icon(
-                            if (selected) dest.selectedIcon else dest.unselectedIcon,
-                            contentDescription = dest.label,
-                            tint = if (selected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(indicatorShape)
-                            .background(
-                                color = if (selected) indicatorColor else Color.Transparent,
-                                shape = indicatorShape
-                            )
-                            .clickable { onNavigate(dest) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                            BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                            if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                                BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                                    iconContent()
+                                }
+                            } else {
                                 iconContent()
                             }
-                        } else {
-                            iconContent()
                         }
                     }
                 }
             }
+            } // AnimatedContent
         }
     }
 }
