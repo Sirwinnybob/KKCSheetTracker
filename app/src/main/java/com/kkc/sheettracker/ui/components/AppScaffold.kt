@@ -67,6 +67,7 @@ fun AppBottomNavBar(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(start = KKCSpacing.floatingNavMinSideMargin, end = KKCSpacing.floatingNavMinSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
             ) {
                 Surface(
@@ -163,6 +164,7 @@ private fun MinimizedNavBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .padding(start = KKCSpacing.floatingNavMinSideMargin, end = KKCSpacing.floatingNavMinSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
     ) {
         Surface(
