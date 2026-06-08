@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -60,7 +61,8 @@ fun AppBottomNavBar(
         AnimatedVisibility(
             visible = !minimized,
             enter = slideInVertically(tween(200)) { it },
-            exit = slideOutVertically(tween(200)) { it }
+            exit = slideOutVertically(tween(200)) { it },
+            modifier = Modifier.fillMaxWidth()
         ) {
             Box(
                 modifier = Modifier
@@ -71,9 +73,10 @@ fun AppBottomNavBar(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = MaterialTheme.colorScheme.surface,
                     shadowElevation = 18.dp,
-                    tonalElevation = 4.dp
+                    tonalElevation = 4.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     NavigationBar(
                         containerColor = Color.Transparent,
@@ -134,7 +137,8 @@ fun AppBottomNavBar(
         AnimatedVisibility(
             visible = minimized,
             enter = slideInVertically(tween(200)) { it },
-            exit = slideOutVertically(tween(200)) { it }
+            exit = slideOutVertically(tween(200)) { it },
+            modifier = Modifier.fillMaxWidth()
         ) {
             MinimizedNavBar(
                 currentDestination = currentDestination,
@@ -166,9 +170,10 @@ private fun MinimizedNavBar(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = KKCShapeTokens.pill,
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            color = MaterialTheme.colorScheme.surface,
             shadowElevation = 14.dp,
-            tonalElevation = 4.dp
+            tonalElevation = 4.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Row(
                 modifier = Modifier
