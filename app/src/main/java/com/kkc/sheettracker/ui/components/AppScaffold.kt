@@ -56,42 +56,69 @@ fun AppBottomNavBar(
     supplyNotificationCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
-    AnimatedVisibility(
-        visible = !minimized,
-        enter = slideInVertically(tween(200)) { it },
-        exit = slideOutVertically(tween(200)) { it },
-        modifier = modifier
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(start = KKCSpacing.floatingNavSideMargin, end = KKCSpacing.floatingNavSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
+    Box(modifier = modifier.fillMaxWidth()) {
+        AnimatedVisibility(
+            visible = !minimized,
+            enter = slideInVertically(tween(200)) { it },
+            exit = slideOutVertically(tween(200)) { it }
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shadowElevation = 18.dp,
-                tonalElevation = 4.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(start = KKCSpacing.floatingNavSideMargin, end = KKCSpacing.floatingNavSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
             ) {
-                NavigationBar(
-                    containerColor = Color.Transparent,
-                    tonalElevation = 0.dp,
-                    windowInsets = WindowInsets(0)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shadowElevation = 18.dp,
+                    tonalElevation = 4.dp
                 ) {
-                    destinations.forEach { dest ->
-                        if (dest == NavDestination.HOURS) {
-                            NavigationBarItem(
-                                selected = isCalculatorOpen,
-                                onClick = onCalculatorClick,
-                                icon = {
-                                    Icon(
-                                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                                        contentDescription = "Calculator"
+                    NavigationBar(
+                        containerColor = Color.Transparent,
+                        tonalElevation = 0.dp,
+                        windowInsets = WindowInsets(0)
+                    ) {
+                        destinations.forEach { dest ->
+                            if (dest == NavDestination.HOURS) {
+                                NavigationBarItem(
+                                    selected = isCalculatorOpen,
+                                    onClick = onCalculatorClick,
+                                    icon = {
+                                        Icon(
+                                            if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                                            contentDescription = "Calculator"
+                                        )
+                                    },
+                                    label = { Text("Calc", style = MaterialTheme.typography.labelSmall) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
                                     )
+                                )
+                            }
+                            val selected = dest == currentDestination
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = { onNavigate(dest) },
+                                icon = {
+                                    val iconContent = @Composable {
+                                        Icon(
+                                            if (selected) dest.selectedIcon else dest.unselectedIcon,
+                                            contentDescription = dest.label
+                                        )
+                                    }
+                                    if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                                        BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                                            iconContent()
+                                        }
+                                    } else {
+                                        iconContent()
+                                    }
                                 },
-                                label = { Text("Calc", style = MaterialTheme.typography.labelSmall) },
+                                label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -99,51 +126,25 @@ fun AppBottomNavBar(
                                 )
                             )
                         }
-                        val selected = dest == currentDestination
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = { onNavigate(dest) },
-                            icon = {
-                                val iconContent = @Composable {
-                                    Icon(
-                                        if (selected) dest.selectedIcon else dest.unselectedIcon,
-                                        contentDescription = dest.label
-                                    )
-                                }
-                                if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                                    BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
-                                        iconContent()
-                                    }
-                                } else {
-                                    iconContent()
-                                }
-                            },
-                            label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                            )
-                        )
                     }
                 }
             }
         }
-    }
 
-    AnimatedVisibility(
-        visible = minimized,
-        enter = slideInVertically(tween(200)) { it },
-        exit = slideOutVertically(tween(200)) { it }
-    ) {
-        MinimizedNavBar(
-            currentDestination = currentDestination,
-            onNavigate = onNavigate,
-            onCalculatorClick = onCalculatorClick,
-            isCalculatorOpen = isCalculatorOpen,
-            destinations = destinations,
-            supplyNotificationCount = supplyNotificationCount
-        )
+        AnimatedVisibility(
+            visible = minimized,
+            enter = slideInVertically(tween(200)) { it },
+            exit = slideOutVertically(tween(200)) { it }
+        ) {
+            MinimizedNavBar(
+                currentDestination = currentDestination,
+                onNavigate = onNavigate,
+                onCalculatorClick = onCalculatorClick,
+                isCalculatorOpen = isCalculatorOpen,
+                destinations = destinations,
+                supplyNotificationCount = supplyNotificationCount
+            )
+        }
     }
 }
 

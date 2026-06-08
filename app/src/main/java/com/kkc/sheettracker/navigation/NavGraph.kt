@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -565,35 +567,16 @@ private fun MultiBackStackNavigation(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
-            bottomBar = {
-                // graphicsLayer alpha — layout never shifts, no PDF re-renders during animation.
-                AppBottomNavBar(
-                    modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
-                    currentDestination = TopLevelTab.toDestination(selectedTab),
-                    minimized = isInViewer,
-                    destinations = visibleDestinations,
-                    isCalculatorOpen = calculatorState.snapshot.isOpen,
-                    onCalculatorClick = { calculatorState.toggleOpen() },
-                    supplyNotificationCount = supplyNotificationCount,
-                    onNavigate = { dest ->
-                        if (dest == NavDestination.HOURS) {
-                            if (employeeName.isNotBlank()) {
-                                launchTimecardApp(context, employeeName)
-                            } else {
-                                showHoursLoginDialog = true
-                            }
-                        } else {
-                            coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
-                        }
-                    }
-                )
-            },
             contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
+            val density = LocalDensity.current
+            val gestureBarDp = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
+            val navFloatPadding = gestureBarDp + 92.dp  // 80dp nav bar height + 12dp bottom gap
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .padding(top = paddingValues.calculateTopPadding())
+                    .padding(bottom = navFloatPadding)
             ) {
                 TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
                     DashboardTabHost(
@@ -784,6 +767,28 @@ private fun MultiBackStackNavigation(
             }
         }
 
+        AppBottomNavBar(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .graphicsLayer { alpha = navBarAlpha },
+            currentDestination = TopLevelTab.toDestination(selectedTab),
+            minimized = isInViewer,
+            destinations = visibleDestinations,
+            isCalculatorOpen = calculatorState.snapshot.isOpen,
+            onCalculatorClick = { calculatorState.toggleOpen() },
+            supplyNotificationCount = supplyNotificationCount,
+            onNavigate = { dest ->
+                if (dest == NavDestination.HOURS) {
+                    if (employeeName.isNotBlank()) {
+                        launchTimecardApp(context, employeeName)
+                    } else {
+                        showHoursLoginDialog = true
+                    }
+                } else {
+                    coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                }
+            }
+        )
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
@@ -1883,45 +1888,16 @@ private fun LegacySingleStackNavigation(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
-            bottomBar = {
-                // graphicsLayer alpha — layout never shifts, no PDF re-renders during animation.
-                AppBottomNavBar(
-                    modifier = Modifier.graphicsLayer { alpha = navBarAlpha },
-                    currentDestination = currentNavDest,
-                    minimized = isInViewer,
-                    destinations = visibleDestinations,
-                    isCalculatorOpen = calculatorState.snapshot.isOpen,
-                    onCalculatorClick = { calculatorState.toggleOpen() },
-                    supplyNotificationCount = supplyNotificationCount,
-                    onNavigate = { dest ->
-                        if (dest == NavDestination.HOURS) {
-                            if (employeeName.isNotBlank()) {
-                                launchTimecardApp(legacyContext, employeeName)
-                            } else {
-                                showHoursLoginDialog = true
-                            }
-                            return@AppBottomNavBar
-                        }
-                        if (currentRoute == dest.route) return@AppBottomNavBar
-                        check(dest.route in visibleDestinations.map { it.route }) {
-                            "Invalid top-level destination route: ${dest.route}"
-                        }
-                        navController.navigate(dest.route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = false
-                            }
-                            launchSingleTop = true
-                            restoreState = false
-                        }
-                    }
-                )
-            },
             contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
+            val density = LocalDensity.current
+            val gestureBarDp = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
+            val navFloatPadding = gestureBarDp + 92.dp  // 80dp nav bar height + 12dp bottom gap
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .padding(top = paddingValues.calculateTopPadding())
+                    .padding(bottom = navFloatPadding)
             ) {
                 NavHost(
                     navController = navController,
@@ -2711,6 +2687,38 @@ private fun LegacySingleStackNavigation(
             }
         }
 
+        AppBottomNavBar(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .graphicsLayer { alpha = navBarAlpha },
+            currentDestination = currentNavDest,
+            minimized = isInViewer,
+            destinations = visibleDestinations,
+            isCalculatorOpen = calculatorState.snapshot.isOpen,
+            onCalculatorClick = { calculatorState.toggleOpen() },
+            supplyNotificationCount = supplyNotificationCount,
+            onNavigate = { dest ->
+                if (dest == NavDestination.HOURS) {
+                    if (employeeName.isNotBlank()) {
+                        launchTimecardApp(legacyContext, employeeName)
+                    } else {
+                        showHoursLoginDialog = true
+                    }
+                    return@AppBottomNavBar
+                }
+                if (currentRoute == dest.route) return@AppBottomNavBar
+                check(dest.route in visibleDestinations.map { it.route }) {
+                    "Invalid top-level destination route: ${dest.route}"
+                }
+                navController.navigate(dest.route) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        saveState = false
+                    }
+                    launchSingleTop = true
+                    restoreState = false
+                }
+            }
+        )
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
