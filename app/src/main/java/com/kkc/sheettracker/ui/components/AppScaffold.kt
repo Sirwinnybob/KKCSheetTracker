@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import com.kkc.sheettracker.ui.theme.KKCSpacing
@@ -75,9 +76,14 @@ fun AppBottomNavBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(start = KKCSpacing.floatingNavMinSideMargin, end = KKCSpacing.floatingNavMinSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
+                    .padding(
+                        start = KKCSpacing.floatingNavMinSideMargin,
+                        end = KKCSpacing.floatingNavMinSideMargin,
+                        bottom = KKCSpacing.floatingNavBottomGap
+                    )
             ) {
-                val navShape = MaterialTheme.shapes.extraLarge
+                // Full pill shape — matches Apple Photos reference
+                val navShape = KKCShapeTokens.pill
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -95,57 +101,36 @@ fun AppBottomNavBar(
                             else
                                 Modifier.background(MaterialTheme.colorScheme.surface)
                         )
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, navShape)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                            shape = navShape
+                        )
                 ) {
-                    NavigationBar(
-                        containerColor = Color.Transparent,
-                        tonalElevation = 0.dp,
-                        windowInsets = WindowInsets(0)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         destinations.forEach { dest ->
+                            // Calculator item is injected just before the HOURS slot
                             if (dest == NavDestination.HOURS) {
-                                NavigationBarItem(
+                                FullNavItem(
                                     selected = isCalculatorOpen,
                                     onClick = onCalculatorClick,
-                                    icon = {
-                                        Icon(
-                                            if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                                            contentDescription = "Calculator"
-                                        )
-                                    },
-                                    label = { Text("Calc", style = MaterialTheme.typography.labelSmall) },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                    )
+                                    icon = if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                                    label = "Calc"
                                 )
                             }
                             val selected = dest == currentDestination
-                            NavigationBarItem(
+                            FullNavItem(
                                 selected = selected,
                                 onClick = { onNavigate(dest) },
-                                icon = {
-                                    val iconContent = @Composable {
-                                        Icon(
-                                            if (selected) dest.selectedIcon else dest.unselectedIcon,
-                                            contentDescription = dest.label
-                                        )
-                                    }
-                                    if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                                        BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
-                                            iconContent()
-                                        }
-                                    } else {
-                                        iconContent()
-                                    }
-                                },
-                                label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                )
+                                icon = if (selected) dest.selectedIcon else dest.unselectedIcon,
+                                label = dest.label,
+                                badgeCount = if (dest == NavDestination.SUPPLY) supplyNotificationCount else 0
                             )
                         }
                     }
@@ -172,6 +157,61 @@ fun AppBottomNavBar(
     }
 }
 
+/**
+ * Single item for the full (expanded) nav bar.
+ * Large pill indicator behind icon+label together — matches the Apple Photos reference.
+ */
+@Composable
+private fun FullNavItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: ImageVector,
+    label: String,
+    badgeCount: Int = 0
+) {
+    val indicatorShape = MaterialTheme.shapes.extraLarge
+    val selectedTint = MaterialTheme.colorScheme.primary
+    val unselectedTint = MaterialTheme.colorScheme.onSurfaceVariant
+    val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
+
+    Column(
+        modifier = Modifier
+            .clip(indicatorShape)
+            .background(
+                color = if (selected) indicatorColor else Color.Transparent,
+                shape = indicatorShape
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        if (badgeCount > 0) {
+            BadgedBox(badge = { Badge { Text(badgeCount.toString()) } }) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    modifier = Modifier.size(22.dp),
+                    tint = if (selected) selectedTint else unselectedTint
+                )
+            }
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                modifier = Modifier.size(22.dp),
+                tint = if (selected) selectedTint else unselectedTint
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) selectedTint else unselectedTint
+        )
+    }
+}
+
 @Composable
 private fun MinimizedNavBar(
     currentDestination: NavDestination,
@@ -186,7 +226,11 @@ private fun MinimizedNavBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(start = KKCSpacing.floatingNavMinSideMargin, end = KKCSpacing.floatingNavMinSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
+            .padding(
+                start = KKCSpacing.floatingNavMinSideMargin,
+                end = KKCSpacing.floatingNavMinSideMargin,
+                bottom = KKCSpacing.floatingNavBottomGap
+            )
     ) {
         val minNavShape = KKCShapeTokens.pill
         Box(
@@ -206,21 +250,33 @@ private fun MinimizedNavBar(
                     else
                         Modifier.background(MaterialTheme.colorScheme.surface)
                 )
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, minNavShape)
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                    shape = minNavShape
+                )
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 44.dp)
-                    .padding(horizontal = KKCSpacing.navBarHorizontal),
+                    .padding(horizontal = KKCSpacing.navBarHorizontal, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val indicatorShape = MaterialTheme.shapes.medium
+                val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
+
                 destinations.forEach { dest ->
                     if (dest == NavDestination.HOURS) {
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
+                                .clip(indicatorShape)
+                                .background(
+                                    color = if (isCalculatorOpen) indicatorColor else Color.Transparent,
+                                    shape = indicatorShape
+                                )
                                 .clickable { onCalculatorClick() },
                             contentAlignment = Alignment.Center
                         ) {
@@ -246,6 +302,11 @@ private fun MinimizedNavBar(
                     Box(
                         modifier = Modifier
                             .size(44.dp)
+                            .clip(indicatorShape)
+                            .background(
+                                color = if (selected) indicatorColor else Color.Transparent,
+                                shape = indicatorShape
+                            )
                             .clickable { onNavigate(dest) },
                         contentAlignment = Alignment.Center
                     ) {
