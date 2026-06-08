@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
@@ -124,9 +125,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 
@@ -452,7 +450,6 @@ private fun MultiBackStackNavigation(
     )
     val hazeState = remember { HazeState() }
     val navBarDeco = remember { NavBarDecorationState() }
-    var navBarHeightPx by remember { mutableIntStateOf(0) }
 
     androidx.compose.runtime.LaunchedEffect(selectedTab, jobsBackStack) {
         val route = jobsBackStack?.destination?.route ?: ""
@@ -590,10 +587,7 @@ private fun MultiBackStackNavigation(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(
-                            top = paddingValues.calculateTopPadding(),
-                            bottom = with(LocalDensity.current) { navBarHeightPx.toDp() }
-                        )
+                        .padding(top = paddingValues.calculateTopPadding())
                 ) {
                 TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
                     DashboardTabHost(
@@ -787,12 +781,11 @@ private fun MultiBackStackNavigation(
         } // CompositionLocalProvider
 
         // Nav bar as true overlay — hazeSource extends behind it so frosted glass works correctly
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        Box(modifier = Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
             AppBottomNavBar(
                 hazeState = hazeState,
                 modifier = Modifier
-                    .graphicsLayer { alpha = navBarAlpha }
-                    .onSizeChanged { navBarHeightPx = it.height },
+                    .graphicsLayer { alpha = navBarAlpha },
                 currentDestination = TopLevelTab.toDestination(selectedTab),
                 minimized = isInViewer,
                 destinations = visibleDestinations,
@@ -1919,7 +1912,6 @@ private fun LegacySingleStackNavigation(
     )
     val hazeState = remember { HazeState() }
     val navBarDeco = remember { NavBarDecorationState() }
-    var navBarHeightPx by remember { mutableIntStateOf(0) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
@@ -1935,10 +1927,7 @@ private fun LegacySingleStackNavigation(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(
-                            top = paddingValues.calculateTopPadding(),
-                            bottom = with(LocalDensity.current) { navBarHeightPx.toDp() }
-                        )
+                        .padding(top = paddingValues.calculateTopPadding())
                 ) {
                 NavHost(
                     navController = navController,
@@ -2728,12 +2717,11 @@ private fun LegacySingleStackNavigation(
         } // CompositionLocalProvider
 
         // Nav bar as true overlay — hazeSource extends behind it so frosted glass works correctly
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        Box(modifier = Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
             AppBottomNavBar(
                 hazeState = hazeState,
                 modifier = Modifier
-                    .graphicsLayer { alpha = navBarAlpha }
-                    .onSizeChanged { navBarHeightPx = it.height },
+                    .graphicsLayer { alpha = navBarAlpha },
                 currentDestination = currentNavDest,
                 minimized = isInViewer,
                 destinations = visibleDestinations,

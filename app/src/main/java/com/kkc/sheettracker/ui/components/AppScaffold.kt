@@ -97,29 +97,24 @@ fun AppBottomNavBar(
             ) {
                 // Full pill shape — matches Apple Photos reference
                 val navShape = KKCShapeTokens.pill
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(elevation = 4.dp, shape = navShape, clip = false)
-                        .clip(navShape)
-                        .then(
-                            if (hazeState != null)
-                                Modifier.hazeEffect(
-                                    hazeState,
-                                    style = HazeDefaults.style(
-                                        backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-                                        blurRadius = 25.dp
-                                    )
-                                )
-                            else
-                                Modifier.background(MaterialTheme.colorScheme.surface)
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                            shape = navShape
-                        )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = navShape,
+                    color = if (hazeState != null) Color.Transparent else MaterialTheme.colorScheme.surface,
+                    shadowElevation = 4.dp,
+                    tonalElevation = 0.dp
                 ) {
+                    Box(modifier = Modifier.fillMaxWidth().then(
+                        if (hazeState != null)
+                            Modifier.hazeEffect(
+                                hazeState,
+                                style = HazeDefaults.style(
+                                    backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                                    blurRadius = 25.dp
+                                )
+                            )
+                        else Modifier
+                    )) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -146,6 +141,7 @@ fun AppBottomNavBar(
                                 badgeCount = if (dest == NavDestination.SUPPLY) supplyNotificationCount else 0
                             )
                         }
+                    }
                     }
                 }
             }
@@ -253,38 +249,34 @@ private fun MinimizedNavBar(
             label = "navCorner"
         )
         val minNavShape = RoundedCornerShape(cornerRadius)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .shadow(elevation = 3.dp, shape = minNavShape, clip = false)
-                .clip(minNavShape)
-                .then(
-                    if (hazeState != null)
-                        Modifier.hazeEffect(
-                            hazeState,
-                            style = HazeDefaults.style(
-                                backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-                                blurRadius = 25.dp
-                            )
-                        )
-                    else
-                        Modifier.background(MaterialTheme.colorScheme.surface)
-                )
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                    shape = minNavShape
-                )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = minNavShape,
+            color = if (hazeState != null) Color.Transparent else MaterialTheme.colorScheme.surface,
+            shadowElevation = 3.dp,
+            tonalElevation = 0.dp
         ) {
+            Box(modifier = Modifier.fillMaxWidth().then(
+                if (hazeState != null)
+                    Modifier.hazeEffect(
+                        hazeState,
+                        style = HazeDefaults.style(
+                            backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                            blurRadius = 25.dp
+                        )
+                    )
+                else Modifier
+            )) {
             AnimatedContent(
-                targetState = searchDecoration,
+                targetState = searchDecoration != null,
                 transitionSpec = {
                     fadeIn(tween(220)) togetherWith fadeOut(tween(200)) using
                         SizeTransform(clip = false)
                 },
                 label = "navSearchContent"
-            ) { decoration ->
-            if (decoration != null) {
+            ) { isSearchMode ->
+            if (isSearchMode) {
+                searchDecoration?.let { decoration ->
                 // ── Search-enhanced layout: search row + divider + compact icon row ──
                 Column(
                     modifier = Modifier
@@ -299,7 +291,7 @@ private fun MinimizedNavBar(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         BasicTextField(
-                            value = decoration.searchText,
+                            value = decoration.searchTextValue,
                             onValueChange = decoration.onSearchTextChange,
                             modifier = Modifier.weight(1f),
                             singleLine = true,
@@ -313,7 +305,7 @@ private fun MinimizedNavBar(
                             ),
                             decorationBox = { innerTextField ->
                                 Box(contentAlignment = Alignment.CenterStart) {
-                                    if (decoration.searchText.isEmpty()) {
+                                    if (decoration.searchTextValue.text.isEmpty()) {
                                         Text(
                                             "Cabinet #",
                                             style = MaterialTheme.typography.bodyMedium,
@@ -421,6 +413,7 @@ private fun MinimizedNavBar(
                         }
                     }
                 }
+                } // let
             } else {
                 // ── Original icon-only layout ──
                 Row(
@@ -489,6 +482,7 @@ private fun MinimizedNavBar(
                 }
             }
             } // AnimatedContent
+            }
         }
     }
 }

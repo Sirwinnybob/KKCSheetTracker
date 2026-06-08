@@ -1,6 +1,8 @@
 package com.kkc.sheettracker.ui.assembly
 
 import android.content.res.Configuration
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +13,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,6 +28,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Checkbox
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -38,7 +45,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -68,14 +74,17 @@ import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.JobRepository
@@ -91,7 +100,11 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
+import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.theme.KKCShapeTokens
+import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
 import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageMapping
 import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageSource
@@ -276,7 +289,9 @@ fun AssemblyViewerScreen(
     var plansPage by rememberSaveable(startPagePlans) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_plans_page", startPagePlans).coerceAtLeast(1))
     }
-    var searchText by rememberSaveable { mutableStateOf("") }
+    var searchText by rememberSaveable(stateSaver = androidx.compose.ui.text.input.TextFieldValue.Saver) {
+        mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(""))
+    }
     var lastSearchedCabinet by rememberSaveable { mutableStateOf("") }
     var contextLine by remember { mutableStateOf("") }
     var showPartsSheet by remember { mutableStateOf(false) }
@@ -449,7 +464,7 @@ fun AssemblyViewerScreen(
         val shouldAutoJumpCabinet = initialPaneSource != PaneSource.THREE_D || initialRoom.isNullOrBlank()
         if (shouldAutoJumpCabinet && !initialCabinet.isNullOrBlank() &&
             (lastSearchedCabinet.isBlank() || !initialCabinet.equals(lastSearchedCabinet, ignoreCase = true))) {
-            searchText = initialCabinet
+            searchText = androidx.compose.ui.text.input.TextFieldValue(initialCabinet)
             jumpToCabinet(initialCabinet)
         }
     }
@@ -983,43 +998,26 @@ fun AssemblyViewerScreen(
                 }
             }
 
-            AnimatedVisibility(visible = showUi) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = searchText,
-                            onValueChange = { searchText = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text("Cabinet #") },
-                            singleLine = true,
-                            shape = MaterialTheme.shapes.small
-                        )
-                        Button(onClick = { jumpToCabinet(searchText) }) {
-                            Text("Go")
-                        }
-                        Button(
-                            onClick = { showPartsSheet = true },
-                            enabled = lastSearchedCabinet.isNotBlank()
-                        ) {
-                            Text("Parts")
-                        }
-                    }
-                    if (contextLine.isNotBlank()) {
-                        Text(
-                            contextLine,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        )
-                    }
+            // Search bar lives inside the floating nav bar pill (see NavBarDecoration.kt).
+            // State stays here; we push it up on every frame via SideEffect.
+            val navBarDeco = LocalNavBarDecoration.current
+            val currentSearchText = searchText  // read during composition → subscribes to state, triggers recompose on change
+            SideEffect {
+                navBarDeco.searchDecoration = if (showUi) {
+                    NavBarSearchDecoration(
+                        searchTextValue = currentSearchText,
+                        onSearchTextChange = { searchText = it },
+                        onGo = { jumpToCabinet(currentSearchText.text) },
+                        isPartsEnabled = lastSearchedCabinet.isNotBlank(),
+                        onParts = { showPartsSheet = true },
+                        contextLine = contextLine
+                    )
+                } else {
+                    null
                 }
+            }
+            DisposableEffect(Unit) {
+                onDispose { navBarDeco.searchDecoration = null }
             }
         }
     }
@@ -1148,16 +1146,19 @@ private fun PdfPaneWithFloatingControls(
             visible = showControls,
             enter = slideInVertically { it },
             exit = slideOutVertically { it },
-            modifier = Modifier.align(Alignment.BottomEnd)
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 10.dp, bottom = 80.dp)
         ) {
         Surface(
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-            tonalElevation = 3.dp,
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.padding(6.dp)
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+            shadowElevation = 4.dp,
+            tonalElevation = 0.dp,
+            shape = KKCShapeTokens.pill,
+            modifier = Modifier
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
@@ -1225,27 +1226,32 @@ private fun RowScope.PaneSourceControlsInline(
     FilterChip(
         selected = selectedSource == PaneSource.PLANS,
         onClick = { onSelectSource(PaneSource.PLANS) },
-        label = { Text("Plans") }
+        label = { Text("Plans") },
+        shape = MaterialTheme.shapes.extraLarge
     )
     FilterChip(
         selected = selectedSource == PaneSource.ASSEMBLY,
         onClick = { onSelectSource(PaneSource.ASSEMBLY) },
-        label = { Text("Assembly") }
+        label = { Text("Assembly") },
+        shape = MaterialTheme.shapes.extraLarge
     )
     FilterChip(
         selected = selectedSource == PaneSource.DELIVERY,
         onClick = { onSelectSource(PaneSource.DELIVERY) },
-        label = { Text("Delivery") }
+        label = { Text("Delivery") },
+        shape = MaterialTheme.shapes.extraLarge
     )
     FilterChip(
         selected = selectedSource == PaneSource.THREE_D,
         onClick = { onSelectSource(PaneSource.THREE_D) },
-        label = { Text("3D") }
+        label = { Text("3D") },
+        shape = MaterialTheme.shapes.extraLarge
     )
     FilterChip(
         selected = selectedSource == PaneSource.CHECKLIST,
         onClick = { onSelectSource(PaneSource.CHECKLIST) },
-        label = { Text("Checklist") }
+        label = { Text("Checklist") },
+        shape = MaterialTheme.shapes.extraLarge
     )
     if (!selectedOtherFilename.isNullOrBlank()) {
         FilterChip(
@@ -1257,7 +1263,8 @@ private fun RowScope.PaneSourceControlsInline(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-            }
+            },
+            shape = MaterialTheme.shapes.extraLarge
         )
     }
     if (hasOtherOptions) {
