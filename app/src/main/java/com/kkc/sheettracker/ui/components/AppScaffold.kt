@@ -4,7 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -26,11 +27,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import com.kkc.sheettracker.ui.theme.KKCSpacing
+import dev.chrisbanes.haze.HazeDefaults
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
 
 enum class NavDestination(
     val route: String,
@@ -55,6 +61,7 @@ fun AppBottomNavBar(
     minimized: Boolean,
     destinations: List<NavDestination> = NavDestination.entries,
     supplyNotificationCount: Int = 0,
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -70,13 +77,25 @@ fun AppBottomNavBar(
                     .navigationBarsPadding()
                     .padding(start = KKCSpacing.floatingNavMinSideMargin, end = KKCSpacing.floatingNavMinSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
             ) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 18.dp,
-                    tonalElevation = 4.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                val navShape = MaterialTheme.shapes.extraLarge
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(elevation = 18.dp, shape = navShape, clip = false)
+                        .clip(navShape)
+                        .then(
+                            if (hazeState != null)
+                                Modifier.hazeEffect(
+                                    hazeState,
+                                    style = HazeDefaults.style(
+                                        backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                                        blurRadius = 25.dp
+                                    )
+                                )
+                            else
+                                Modifier.background(MaterialTheme.colorScheme.surface)
+                        )
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, navShape)
                 ) {
                     NavigationBar(
                         containerColor = Color.Transparent,
@@ -146,7 +165,8 @@ fun AppBottomNavBar(
                 onCalculatorClick = onCalculatorClick,
                 isCalculatorOpen = isCalculatorOpen,
                 destinations = destinations,
-                supplyNotificationCount = supplyNotificationCount
+                supplyNotificationCount = supplyNotificationCount,
+                hazeState = hazeState
             )
         }
     }
@@ -159,7 +179,8 @@ private fun MinimizedNavBar(
     onCalculatorClick: () -> Unit,
     isCalculatorOpen: Boolean,
     destinations: List<NavDestination>,
-    supplyNotificationCount: Int
+    supplyNotificationCount: Int,
+    hazeState: HazeState? = null
 ) {
     Box(
         modifier = Modifier
@@ -167,13 +188,25 @@ private fun MinimizedNavBar(
             .navigationBarsPadding()
             .padding(start = KKCSpacing.floatingNavMinSideMargin, end = KKCSpacing.floatingNavMinSideMargin, bottom = KKCSpacing.floatingNavBottomGap)
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = KKCShapeTokens.pill,
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 14.dp,
-            tonalElevation = 4.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        val minNavShape = KKCShapeTokens.pill
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(elevation = 14.dp, shape = minNavShape, clip = false)
+                .clip(minNavShape)
+                .then(
+                    if (hazeState != null)
+                        Modifier.hazeEffect(
+                            hazeState,
+                            style = HazeDefaults.style(
+                                backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                                blurRadius = 25.dp
+                            )
+                        )
+                    else
+                        Modifier.background(MaterialTheme.colorScheme.surface)
+                )
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, minNavShape)
         ) {
             Row(
                 modifier = Modifier
