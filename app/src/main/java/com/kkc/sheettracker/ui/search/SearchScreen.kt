@@ -22,39 +22,29 @@ import com.kkc.sheettracker.data.models.ScanStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
-
-data class SearchResult(
-    val jobFolderName: String,
-    val jobNumber: String,
-    val materialName: String,
-    val pdfFilename: String,
-    val pageNumber: Int,
-    val partNumber: Int,
-    val partName: String,
-    val room: String,
-    val cabNumber: Int
-)
+import com.kkc.sheettracker.data.models.PartSearchEntry
 
 
 internal data class SearchMatches(
-    val results: List<SearchResult>,
+    val results: List<PartSearchEntry>,
     val totalMatches: Int
 )
 
 internal fun computeSearchMatches(
-    allEntries: List<SearchResult>,
+    allEntries: List<PartSearchEntry>,
     rawQuery: String,
     maxResults: Int = 100
 ): SearchMatches {
     val query = rawQuery.trim()
     if (query.isBlank()) return SearchMatches(emptyList(), 0)
 
-    val visibleResults = ArrayList<SearchResult>(maxResults.coerceAtMost(allEntries.size))
+    val visibleResults = ArrayList<PartSearchEntry>(maxResults.coerceAtMost(allEntries.size))
     var totalMatches = 0
+    val queryInt = query.toIntOrNull()
     for (r in allEntries) {
         val isMatch = r.partName.contains(query, ignoreCase = true) ||
             r.room.contains(query, ignoreCase = true) ||
-            r.cabNumber.toString() == query ||
+            (queryInt != null && r.cabNumber == queryInt) ||
             r.jobNumber.contains(query, ignoreCase = true) ||
             r.jobFolderName.contains(query, ignoreCase = true) ||
             r.materialName.contains(query, ignoreCase = true)
@@ -79,21 +69,7 @@ fun SearchScreen(
     var searchMatches by remember { mutableStateOf(SearchMatches(emptyList(), 0)) }
     val results = searchMatches.results
     val listState = rememberLazyListState()
-    val allResults = remember(scanState.snapshot.generation) {
-        scanState.snapshot.searchIndex.map { entry ->
-            SearchResult(
-                jobFolderName = entry.jobFolderName,
-                jobNumber = entry.jobNumber,
-                materialName = entry.materialName,
-                pdfFilename = entry.pdfFilename,
-                pageNumber = entry.pageNumber,
-                partNumber = entry.partNumber,
-                partName = entry.partName,
-                room = entry.room,
-                cabNumber = entry.cabNumber
-            )
-        }
-    }
+    val allResults = scanState.snapshot.searchIndex
     val isLoaded = scanState.status != ScanStatus.LOADING
 
     LaunchedEffect(query, allResults) {
@@ -186,7 +162,7 @@ fun SearchScreen(
 }
 
 @Composable
-private fun SearchResultCard(result: SearchResult, onClick: () -> Unit) {
+private fun SearchResultCard(result: PartSearchEntry, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
