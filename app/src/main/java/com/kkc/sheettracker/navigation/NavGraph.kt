@@ -793,6 +793,7 @@ private fun MultiBackStackNavigation(
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 supplyNotificationCount = supplyNotificationCount,
                 searchDecoration = navBarDeco.searchDecoration,
+                cncDecoration = navBarDeco.cncDecoration,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
                         if (employeeName.isNotBlank()) {
@@ -2729,6 +2730,7 @@ private fun LegacySingleStackNavigation(
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 supplyNotificationCount = supplyNotificationCount,
                 searchDecoration = navBarDeco.searchDecoration,
+                cncDecoration = navBarDeco.cncDecoration,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
                         if (employeeName.isNotBlank()) {

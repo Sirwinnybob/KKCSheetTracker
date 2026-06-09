@@ -26,6 +26,13 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.UnfoldMore
+import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.automirrored.outlined.List
@@ -76,6 +83,7 @@ fun AppBottomNavBar(
     supplyNotificationCount: Int = 0,
     hazeState: HazeState? = null,
     searchDecoration: NavBarSearchDecoration? = null,
+    cncDecoration: NavBarCncDecoration? = null,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -161,7 +169,8 @@ fun AppBottomNavBar(
                 destinations = destinations,
                 supplyNotificationCount = supplyNotificationCount,
                 hazeState = hazeState,
-                searchDecoration = searchDecoration
+                searchDecoration = searchDecoration,
+                cncDecoration = cncDecoration
             )
         }
     }
@@ -222,6 +231,8 @@ private fun FullNavItem(
     }
 }
 
+private enum class NavBarMode { NORMAL, SEARCH, CNC }
+
 @Composable
 private fun MinimizedNavBar(
     currentDestination: NavDestination,
@@ -231,7 +242,8 @@ private fun MinimizedNavBar(
     destinations: List<NavDestination>,
     supplyNotificationCount: Int,
     hazeState: HazeState? = null,
-    searchDecoration: NavBarSearchDecoration? = null
+    searchDecoration: NavBarSearchDecoration? = null,
+    cncDecoration: NavBarCncDecoration? = null
 ) {
     Box(
         modifier = Modifier
@@ -244,7 +256,7 @@ private fun MinimizedNavBar(
             )
     ) {
         val cornerRadius by animateDpAsState(
-            targetValue = if (searchDecoration != null) 26.dp else 999.dp,
+            targetValue = if (searchDecoration != null || cncDecoration != null) 26.dp else 999.dp,
             animationSpec = tween(220),
             label = "navCorner"
         )
@@ -267,15 +279,21 @@ private fun MinimizedNavBar(
                     )
                 else Modifier
             )) {
+            val navBarMode = when {
+                searchDecoration != null -> NavBarMode.SEARCH
+                cncDecoration != null -> NavBarMode.CNC
+                else -> NavBarMode.NORMAL
+            }
             AnimatedContent(
-                targetState = searchDecoration != null,
+                targetState = navBarMode,
                 transitionSpec = {
                     fadeIn(tween(220)) togetherWith fadeOut(tween(200)) using
                         SizeTransform(clip = false)
                 },
-                label = "navSearchContent"
-            ) { isSearchMode ->
-            if (isSearchMode) {
+                label = "navBarModeContent"
+            ) { mode ->
+            when (mode) {
+            NavBarMode.SEARCH -> {
                 searchDecoration?.let { decoration ->
                 // ── Search-enhanced layout: search row + divider + compact icon row ──
                 Column(
@@ -348,7 +366,6 @@ private fun MinimizedNavBar(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
 
-                    // Compact icon row — no labels, slightly smaller touch targets
                     CompactNavIconRow(
                         destinations = destinations,
                         currentDestination = currentDestination,
@@ -359,7 +376,118 @@ private fun MinimizedNavBar(
                     )
                 }
                 } // let
-            } else {
+            }
+            NavBarMode.CNC -> {
+                cncDecoration?.let { dec ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
+                    ) {
+                        // Navigation + action controls row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            IconButton(
+                                onClick = dec.onPrevPage,
+                                enabled = dec.currentPage > 1,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Previous sheet",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            TextButton(
+                                onClick = dec.onOpenToc,
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    "Sheet ${dec.currentPage} of ${dec.totalPages}",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                                Spacer(Modifier.width(2.dp))
+                                Icon(
+                                    Icons.Default.UnfoldMore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = dec.onNextPage,
+                                enabled = dec.currentPage < dec.totalPages,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Next sheet",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = dec.onOpenSearch,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = "Search parts",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            val isSkipped = dec.sheetStatus == SheetStatus.SKIPPED
+                            Button(
+                                onClick = dec.onToggleSkip,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSkipped) KKCThemeColors.statusColors.skipBorder
+                                                     else MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = if (isSkipped) Color.White
+                                                   else MaterialTheme.colorScheme.onSurface
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = MaterialTheme.shapes.extraLarge
+                            ) {
+                                Icon(Icons.Default.Flag, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(3.dp))
+                                Text(if (isSkipped) "Unskip" else "Skip", style = MaterialTheme.typography.labelMedium)
+                            }
+                            val isComplete = dec.sheetStatus == SheetStatus.COMPLETE ||
+                                             dec.sheetStatus == SheetStatus.HAS_BAD_PARTS
+                            Button(
+                                onClick = dec.onToggleComplete,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isComplete) KKCThemeColors.statusColors.complete
+                                                     else MaterialTheme.colorScheme.primary
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = MaterialTheme.shapes.extraLarge
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(3.dp))
+                                Text(if (isComplete) "Done" else "Complete", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 7.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
+                        CompactNavIconRow(
+                            destinations = destinations,
+                            currentDestination = currentDestination,
+                            isCalculatorOpen = isCalculatorOpen,
+                            supplyNotificationCount = supplyNotificationCount,
+                            onNavigate = onNavigate,
+                            onCalculatorClick = onCalculatorClick
+                        )
+                    }
+                }
+            }
+            NavBarMode.NORMAL -> {
                 // ── Original icon-only layout ──
                 Row(
                     modifier = Modifier
@@ -426,6 +554,7 @@ private fun MinimizedNavBar(
                     }
                 }
             }
+            } // when
             } // AnimatedContent
             }
         }
