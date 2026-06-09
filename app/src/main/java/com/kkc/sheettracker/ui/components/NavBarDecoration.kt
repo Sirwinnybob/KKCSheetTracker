@@ -5,11 +5,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.input.TextFieldValue
+import com.kkc.sheettracker.data.models.SheetStatus
 
-/**
- * Search state pushed from AssemblyViewerScreen up into the floating nav bar.
- * Uses TextFieldValue so cursor position survives the SideEffect round-trip.
- */
 data class NavBarSearchDecoration(
     val searchTextValue: TextFieldValue,
     val onSearchTextChange: (TextFieldValue) -> Unit,
@@ -19,13 +16,21 @@ data class NavBarSearchDecoration(
     val contextLine: String
 )
 
-/** Mutable holder — NavGraph creates one instance and provides it via [LocalNavBarDecoration]. */
+data class NavBarCncDecoration(
+    val currentPage: Int,
+    val totalPages: Int,
+    val sheetStatus: SheetStatus,
+    val onPrevPage: () -> Unit,
+    val onNextPage: () -> Unit,
+    val onOpenToc: () -> Unit,
+    val onToggleSkip: () -> Unit,
+    val onToggleComplete: () -> Unit,
+    val onOpenSearch: () -> Unit
+)
+
 class NavBarDecorationState {
     var searchDecoration: NavBarSearchDecoration? by mutableStateOf(null)
+    var cncDecoration: NavBarCncDecoration? by mutableStateOf(null)
 }
 
-/**
- * CompositionLocal so AssemblyViewerScreen (deep in the content) can write to the
- * decoration without parameter-drilling through the navigation graph.
- */
 val LocalNavBarDecoration = compositionLocalOf { NavBarDecorationState() }
