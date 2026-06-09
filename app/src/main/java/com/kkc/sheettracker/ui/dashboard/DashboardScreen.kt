@@ -523,7 +523,7 @@ private fun QualityAlertCard(
             ) {
                 Icon(
                     imageVector = if (hasQualityIssues) Icons.Default.Warning else Icons.Default.CheckCircle,
-                    contentDescription = null,
+                    contentDescription = "Status icon",
                     tint = accentColor
                 )
                 Text(
@@ -651,7 +651,7 @@ private fun RecentMaterialCard(
                 } else {
                     Icon(
                         Icons.Default.Description,
-                        contentDescription = null,
+                        contentDescription = "Status icon",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -853,7 +853,7 @@ private fun FlaggedSheetsSheet(
                                         onClick = { onResolve(item) },
                                         contentPadding = PaddingValues(0.dp)
                                     ) {
-                                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Default.CheckCircle, contentDescription = "Check Circle icon", modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(6.dp))
                                         Text("Mark Resolved")
                                     }

@@ -132,7 +132,7 @@ fun SearchScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Search parts, rooms, jobs...") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
+                leadingIcon = { Icon(Icons.Default.Search, "Search icon") },
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )
