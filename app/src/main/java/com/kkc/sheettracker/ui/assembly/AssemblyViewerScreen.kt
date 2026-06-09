@@ -54,6 +54,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
@@ -1104,16 +1105,33 @@ private fun PdfPaneWithFloatingControls(
     compactArrows: Boolean = false,
     customContent: (@Composable () -> Unit)? = null
 ) {
-    val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-    var viewportZoom by remember(pdfFilename) { mutableFloatStateOf(1f) }
-    val bottomLift = if (customContent == null && isPortrait && viewportZoom <= 1.02f) 78.dp else 0.dp
+    // Animate the PDF content insets:
+    // showControls=true  → inset from top (control bar ~58dp) and bottom (nav bar ~88dp)
+    // showControls=false → 0dp both sides → true edge-to-edge full screen
+    val topContentPad by animateDpAsState(
+        targetValue = if (showControls) 58.dp else 0.dp,
+        animationSpec = tween(220),
+        label = "pdfTopPad"
+    )
+    val botContentPad by animateDpAsState(
+        targetValue = if (showControls) 88.dp else 0.dp,
+        animationSpec = tween(220),
+        label = "pdfBotPad"
+    )
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // Root Box fills the full pane including the area behind the top pill and bottom nav bar.
+    // The app background extends consistently behind both overlays.
+    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        // PDF content scales between the top control pill and the bottom nav bar pill
         if (customContent != null) {
-            customContent()
+            Box(Modifier.fillMaxSize().padding(top = topContentPad, bottom = botContentPad)) {
+                customContent()
+            }
         } else {
             UnifiedReferenceViewer(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = topContentPad, bottom = botContentPad),
                 displayPage = currentPage,
                 onDisplayPageChange = onCurrentPageChange,
                 defaultPdfFilename = pdfFilename.orEmpty(),
@@ -1132,85 +1150,84 @@ private fun PdfPaneWithFloatingControls(
                 missingText = missingText,
                 unreadableText = unreadableText,
                 onTotalPagesChanged = onTotalPagesChanged,
-                onViewportStateChange = { state -> viewportZoom = state.zoom },
                 showHeaderRow = false,
                 showNavigationButtons = false,
-                innerPadding = bottomLift,
+                innerPadding = 0.dp,
                 tocRequestToken = tocRequestToken,
                 onSingleTap = onSingleTap,
                 compactArrows = compactArrows
             )
         }
 
+        // Control pill overlays the top of the pane — slides in/out from the top edge
         AnimatedVisibility(
             visible = showControls,
-            enter = slideInVertically { it },
-            exit = slideOutVertically { it },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 10.dp, bottom = 80.dp)
+            enter = slideInVertically { -it },
+            exit = slideOutVertically { -it }
         ) {
-        Surface(
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-            shadowElevation = 4.dp,
-            tonalElevation = 0.dp,
-            shape = KKCShapeTokens.pill,
-            modifier = Modifier
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.88f),
+                shadowElevation = 4.dp,
+                tonalElevation = 0.dp,
+                shape = KKCShapeTokens.pill,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 24.dp, top = 8.dp, end = 24.dp, bottom = 4.dp)
             ) {
-                if (sourceControlsInline != null) {
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        content = sourceControlsInline
-                    )
-                }
-                if (customContent == null) {
-                    IconButton(
-                        onClick = { onCurrentPageChange((currentPage - 1).coerceAtLeast(1)) },
-                        enabled = totalPages > 0 && currentPage > 1,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(
-                        onClick = onOpenToc,
-                        enabled = totalPages > 0,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(20.dp))
-                    }
-                    Text(
-                        "$currentPage/${totalPages.coerceAtLeast(0)}",
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    IconButton(
-                        onClick = { onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1))) },
-                        enabled = totalPages > 0 && currentPage < totalPages,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", modifier = Modifier.size(20.dp))
-                    }
-                }
-                IconButton(
-                    onClick = onToggleFullscreen,
-                    modifier = Modifier.size(38.dp)
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Icon(
-                        if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                        contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
-                        modifier = Modifier.size(20.dp)
-                    )
+                    if (sourceControlsInline != null) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = sourceControlsInline
+                        )
+                    }
+                    if (customContent == null) {
+                        IconButton(
+                            onClick = { onCurrentPageChange((currentPage - 1).coerceAtLeast(1)) },
+                            enabled = totalPages > 0 && currentPage > 1,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous", modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(
+                            onClick = onOpenToc,
+                            enabled = totalPages > 0,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(20.dp))
+                        }
+                        Text(
+                            "$currentPage/${totalPages.coerceAtLeast(0)}",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        IconButton(
+                            onClick = { onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1))) },
+                            enabled = totalPages > 0 && currentPage < totalPages,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", modifier = Modifier.size(20.dp))
+                        }
+                    }
+                    IconButton(
+                        onClick = onToggleFullscreen,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
-        }
         } // end AnimatedVisibility
     }
 }
