@@ -374,7 +374,7 @@ private fun CncRecentMaterialCard(
                 } else {
                     androidx.compose.material3.Icon(
                         Icons.Default.Description,
-                        contentDescription = null,
+                        contentDescription = "Description icon",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

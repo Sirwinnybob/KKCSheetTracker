@@ -1556,7 +1556,8 @@ private fun SheetNavigatorSheet(
                                 } else {
                                     Icon(
                                         Icons.Default.Image,
-                                        contentDescription = null,
+                                        contentDescription = "Image icon",
+
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
@@ -2750,7 +2751,7 @@ private fun BottomActionBar(
                     contentColor = if (sheetStatus == SheetStatus.SKIPPED) Color.White else MaterialTheme.colorScheme.onSurface
                 )
             ) {
-                Icon(Icons.Default.Flag, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Flag, contentDescription = "Flag icon", modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(if (sheetStatus == SheetStatus.SKIPPED) "Unskip" else "Skip")
             }
@@ -2762,7 +2763,7 @@ private fun BottomActionBar(
                 modifier = Modifier.heightIn(min = 48.dp),
                 shape = MaterialTheme.shapes.medium
             ) {
-                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Check, contentDescription = "Check icon", modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(if (isComplete) "Done" else "Complete")
             }

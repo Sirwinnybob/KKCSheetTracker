@@ -146,7 +146,7 @@ fun AssemblyDashboardScreen(
                     Text("Cabinets Indexed: $totalCabinets", style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = onNavigateToJobs) {
                         Text("Open Jobs")
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Arrow Forward icon")
                     }
                 }
             }

@@ -343,7 +343,7 @@ private fun HardwoodsOverviewCard(
                     onClick = onNavigateToJobs,
                     modifier = Modifier.padding(start = KKCSpacing.inCardSpacing)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = "List icon")
                     Spacer(Modifier.width(KKCSpacing.tightSpacing))
                     Text("Open Jobs")
                 }
@@ -455,7 +455,7 @@ private fun HardwoodsQualityAlertCard(
             ) {
                 Icon(
                     imageVector = if (hasIssues) Icons.Default.Warning else Icons.Default.CheckCircle,
-                    contentDescription = null,
+                    contentDescription = "Status icon",
                     tint = accentColor
                 )
                 Text(

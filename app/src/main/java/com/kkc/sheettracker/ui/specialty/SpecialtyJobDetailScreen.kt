@@ -714,7 +714,7 @@ internal fun SpecialtyChecklistRow(
                                 )
                                 Icon(
                                     imageVector = if (attachmentsExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                    contentDescription = null,
+                                    contentDescription = "Arrow Drop Down icon",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }

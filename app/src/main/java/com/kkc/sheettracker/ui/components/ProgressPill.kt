@@ -102,7 +102,7 @@ fun ProgressPill(
         if (state == ProgressState.COMPLETE && showCheckOnComplete) {
             Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = null,
+                contentDescription = "Check icon",
                 tint = Color.White,
                 modifier = Modifier
                     .align(Alignment.Center)

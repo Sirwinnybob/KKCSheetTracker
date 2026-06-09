@@ -543,7 +543,7 @@ fun ReferencePdfPane(
                         if (snapSlideOut != null && !snapSlideOut.isRecycled) {
                             Image(
                                 bitmap = snapSlideOut.asImageBitmap(),
-                                contentDescription = null,
+                                contentDescription = "PDF Image",
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .graphicsLayer {

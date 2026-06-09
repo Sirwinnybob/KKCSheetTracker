@@ -1357,7 +1357,7 @@ private fun HardwoodsPartRow(
                             modifier = Modifier.heightIn(min = 32.dp)
                         ) {
                             if (rowUi.isMultiCab) {
-                                Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.SkipNext, contentDescription = "Skip icon", modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(2.dp))
                                 Text(
                                     "$skippedCabCount/${rowUi.normalizedCabs.size}",
