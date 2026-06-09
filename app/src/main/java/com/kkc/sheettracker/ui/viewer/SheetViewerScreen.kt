@@ -936,7 +936,7 @@ fun SheetViewerScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -2726,7 +2726,7 @@ private fun BottomActionBar(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             IconButton(onClick = onPrevPage, enabled = currentPage > 1) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Previous sheet")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous sheet")
             }
             OutlinedButton(onClick = onOpenToc) {
                 Text(
@@ -2738,7 +2738,7 @@ private fun BottomActionBar(
                 Icon(Icons.Default.UnfoldMore, contentDescription = "Open sheet list", modifier = Modifier.size(18.dp))
             }
             IconButton(onClick = onNextPage, enabled = currentPage < totalPages) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, "Next sheet")
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next sheet")
             }
             Button(
                 onClick = onToggleSkip,
