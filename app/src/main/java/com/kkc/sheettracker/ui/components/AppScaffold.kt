@@ -349,69 +349,14 @@ private fun MinimizedNavBar(
                     )
 
                     // Compact icon row — no labels, slightly smaller touch targets
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = KKCSpacing.navBarHorizontal),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val indicatorShape = MaterialTheme.shapes.medium
-                        val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
-
-                        destinations.forEach { dest ->
-                            if (dest == NavDestination.HOURS) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(indicatorShape)
-                                        .background(
-                                            color = if (isCalculatorOpen) indicatorColor else Color.Transparent,
-                                            shape = indicatorShape
-                                        )
-                                        .clickable { onCalculatorClick() },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                                        contentDescription = "Calculator",
-                                        tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                            val selected = dest == currentDestination
-                            val iconContent = @Composable {
-                                Icon(
-                                    if (selected) dest.selectedIcon else dest.unselectedIcon,
-                                    contentDescription = dest.label,
-                                    tint = if (selected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(indicatorShape)
-                                    .background(
-                                        color = if (selected) indicatorColor else Color.Transparent,
-                                        shape = indicatorShape
-                                    )
-                                    .clickable { onNavigate(dest) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                                    BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
-                                        iconContent()
-                                    }
-                                } else {
-                                    iconContent()
-                                }
-                            }
-                        }
-                    }
+                    CompactNavIconRow(
+                        destinations = destinations,
+                        currentDestination = currentDestination,
+                        isCalculatorOpen = isCalculatorOpen,
+                        supplyNotificationCount = supplyNotificationCount,
+                        onNavigate = onNavigate,
+                        onCalculatorClick = onCalculatorClick
+                    )
                 }
                 } // let
             } else {
@@ -482,6 +427,80 @@ private fun MinimizedNavBar(
                 }
             }
             } // AnimatedContent
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactNavIconRow(
+    destinations: List<NavDestination>,
+    currentDestination: NavDestination,
+    isCalculatorOpen: Boolean,
+    supplyNotificationCount: Int,
+    onNavigate: (NavDestination) -> Unit,
+    onCalculatorClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = KKCSpacing.navBarHorizontal),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val indicatorShape = MaterialTheme.shapes.medium
+        val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
+
+        destinations.forEach { dest ->
+            if (dest == NavDestination.HOURS) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(indicatorShape)
+                        .background(
+                            color = if (isCalculatorOpen) indicatorColor else Color.Transparent,
+                            shape = indicatorShape
+                        )
+                        .clickable { onCalculatorClick() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                        contentDescription = "Calculator",
+                        tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            val selected = dest == currentDestination
+            val iconContent = @Composable {
+                Icon(
+                    if (selected) dest.selectedIcon else dest.unselectedIcon,
+                    contentDescription = dest.label,
+                    tint = if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(indicatorShape)
+                    .background(
+                        color = if (selected) indicatorColor else Color.Transparent,
+                        shape = indicatorShape
+                    )
+                    .clickable { onNavigate(dest) },
+                contentAlignment = Alignment.Center
+            ) {
+                if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                    BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                        iconContent()
+                    }
+                } else {
+                    iconContent()
+                }
             }
         }
     }
