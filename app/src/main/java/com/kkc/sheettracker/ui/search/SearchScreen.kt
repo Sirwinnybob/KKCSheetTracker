@@ -118,7 +118,7 @@ fun SearchScreen(
                 ),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -132,7 +132,7 @@ fun SearchScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Search parts, rooms, jobs...") },
-                leadingIcon = { Icon(Icons.Default.Search, "Search icon") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search icon") },
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )

@@ -121,7 +121,7 @@ fun AssemblySearchScreen(
                 windowInsets = WindowInsets.statusBars,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -135,7 +135,7 @@ fun AssemblySearchScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Search cabinets, parts, room, wall...") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search icon") },
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium
             )
