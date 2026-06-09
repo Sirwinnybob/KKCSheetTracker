@@ -91,6 +91,8 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SheetStatusKey
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
+import com.kkc.sheettracker.ui.components.NavBarCncDecoration
 import com.kkc.sheettracker.ui.components.ResizeHandle
 import com.kkc.sheettracker.ui.components.SheetStatusBadge
 import com.kkc.sheettracker.ui.components.SortColumn
@@ -249,6 +251,7 @@ fun SheetViewerScreen(
     var showFullPdfPage by remember { mutableStateOf(false) }
     var resetZoomTrigger by remember { mutableIntStateOf(0) }
     var showSheetToc by remember { mutableStateOf(false) }
+    var showCncSearch by remember { mutableStateOf(false) }
     var showViewerMenu by remember { mutableStateOf(false) }
     var selectedPartType by rememberSaveable { mutableStateOf<String?>(null) }
     var sortColumn by rememberSaveable { mutableStateOf(initialPrefs.sortColumn) }
@@ -844,7 +847,90 @@ fun SheetViewerScreen(
     // Restore bottom nav visibility when navigating back.
     DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
     val topBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "topBarAlpha")
-    val bottomBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "bottomBarAlpha")
+    val navBarDeco = LocalNavBarDecoration.current
+    DisposableEffect(Unit) {
+        onDispose { navBarDeco.cncDecoration = null }
+    }
+    SideEffect {
+        navBarDeco.cncDecoration = if (showUi) {
+            NavBarCncDecoration(
+                currentPage = displayPageNumber,
+                totalPages = visibleTotalPages,
+                sheetStatus = sheetStatus,
+                onPrevPage = {
+                    if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex > 0) {
+                        currentPage = effectiveVisiblePages[currentVisibleIndex - 1]
+                        selectedPartNumber = null
+                        selectedCabinetNumber = null
+                    }
+                },
+                onNextPage = {
+                    if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
+                        currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
+                        selectedPartNumber = null
+                        selectedCabinetNumber = null
+                    }
+                },
+                onOpenToc = { showSheetToc = true },
+                onToggleSkip = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                    val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
+                    if (skipped) progressStore.unmarkSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
+                    else progressStore.markSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
+                    if (BuildConfig.DEBUG) {
+                        val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                        check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during skip toggle" }
+                    }
+                },
+                onToggleComplete = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                    val wasComplete = progressStore.isSheetComplete(jobFolderName, pdfFilename, currentPage, fileFingerprint)
+                    if (wasComplete) {
+                        progressStore.unmarkSheetComplete(jobFolderName, pdfFilename, currentPage, fileFingerprint)
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Sheet $displayPageNumber marked incomplete")
+                        }
+                    } else {
+                        val wasSkipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
+                        progressStore.markSheetComplete(jobFolderName, pdfFilename, currentPage, fileFingerprint)
+                        val resolvedRemakeCount = progressStore.resolveSpecificBadParts(
+                            jobFolderName = jobFolderName,
+                            pdfFilename = pdfFilename,
+                            page = currentPage,
+                            fileFingerprint = fileFingerprint,
+                            partNumbers = currentPageRemakeParts
+                        )
+                        scope.launch {
+                            val baseMessage =
+                                if (wasSkipped) "Sheet $displayPageNumber marked complete (skip removed)"
+                                else "Sheet $displayPageNumber marked complete"
+                            snackbarHostState.showSnackbar(
+                                if (resolvedRemakeCount > 0) {
+                                    "$baseMessage • auto-resolved $resolvedRemakeCount remake bad part(s)"
+                                } else {
+                                    baseMessage
+                                }
+                            )
+                        }
+                        if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
+                            currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
+                            selectedPartNumber = null
+                            selectedCabinetNumber = null
+                        }
+                    }
+                    if (BuildConfig.DEBUG) {
+                        val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                        check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during complete toggle" }
+                    }
+                },
+                onOpenSearch = { showCncSearch = true }
+            )
+        } else {
+            null
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -941,85 +1027,6 @@ fun SheetViewerScreen(
                 }
             )
         },
-        bottomBar = {
-            // graphicsLayer alpha — no layout shift, no bitmap re-render during animation.
-            androidx.compose.foundation.layout.Box(modifier = Modifier.graphicsLayer { alpha = bottomBarAlpha }) {
-            BottomActionBar(
-                currentPage = displayPageNumber,
-                totalPages = visibleTotalPages,
-                sheetStatus = sheetStatus,
-                isComplete = sheetStatus == SheetStatus.COMPLETE || sheetStatus == SheetStatus.HAS_BAD_PARTS,
-                onPrevPage = {
-                    if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex > 0) {
-                        currentPage = effectiveVisiblePages[currentVisibleIndex - 1]
-                        selectedPartNumber = null
-                        selectedCabinetNumber = null
-                    }
-                },
-                onNextPage = {
-                    if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
-                        currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
-                        selectedPartNumber = null
-                        selectedCabinetNumber = null
-                    }
-                },
-                onOpenToc = { showSheetToc = true },
-                onToggleSkip = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                    val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                    if (skipped) progressStore.unmarkSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                    else progressStore.markSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                    if (BuildConfig.DEBUG) {
-                        val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                        check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during skip toggle" }
-                    }
-                },
-                onToggleComplete = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                    val wasComplete = progressStore.isSheetComplete(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                    if (wasComplete) {
-                        progressStore.unmarkSheetComplete(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Sheet $displayPageNumber marked incomplete")
-                        }
-                    } else {
-                        val wasSkipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                        progressStore.markSheetComplete(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                        val resolvedRemakeCount = progressStore.resolveSpecificBadParts(
-                            jobFolderName = jobFolderName,
-                            pdfFilename = pdfFilename,
-                            page = currentPage,
-                            fileFingerprint = fileFingerprint,
-                            partNumbers = currentPageRemakeParts
-                        )
-                        scope.launch {
-                            val baseMessage =
-                                if (wasSkipped) "Sheet $displayPageNumber marked complete (skip removed)"
-                                else "Sheet $displayPageNumber marked complete"
-                            snackbarHostState.showSnackbar(
-                                if (resolvedRemakeCount > 0) {
-                                    "$baseMessage • auto-resolved $resolvedRemakeCount remake bad part(s)"
-                                } else {
-                                    baseMessage
-                                }
-                            )
-                        }
-                        if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
-                            currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
-                            selectedPartNumber = null
-                            selectedCabinetNumber = null
-                        }
-                    }
-                    if (BuildConfig.DEBUG) {
-                        val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                        check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during complete toggle" }
-                    }
-                }
-            )
-            } // end Box wrapper (graphicsLayer alpha)
-        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -2704,72 +2711,6 @@ private fun PartsTable(
     }
 }
 
-@Composable
-private fun BottomActionBar(
-    currentPage: Int,
-    totalPages: Int,
-    sheetStatus: SheetStatus,
-    isComplete: Boolean,
-    onPrevPage: () -> Unit,
-    onNextPage: () -> Unit,
-    onOpenToc: () -> Unit,
-    onToggleSkip: () -> Unit,
-    onToggleComplete: () -> Unit
-) {
-    Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(onClick = onPrevPage, enabled = currentPage > 1) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Previous sheet")
-            }
-            OutlinedButton(onClick = onOpenToc) {
-                Text(
-                    "Sheet $currentPage of $totalPages",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.width(4.dp))
-                Icon(Icons.Default.UnfoldMore, contentDescription = "Open sheet list", modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = onNextPage, enabled = currentPage < totalPages) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, "Next sheet")
-            }
-            Button(
-                onClick = onToggleSkip,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (sheetStatus == SheetStatus.SKIPPED) {
-                        KKCThemeColors.statusColors.skipBorder
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    contentColor = if (sheetStatus == SheetStatus.SKIPPED) Color.White else MaterialTheme.colorScheme.onSurface
-                )
-            ) {
-                Icon(Icons.Default.Flag, contentDescription = "Flag icon", modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(if (sheetStatus == SheetStatus.SKIPPED) "Unskip" else "Skip")
-            }
-            Button(
-                onClick = onToggleComplete,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isComplete) KKCThemeColors.statusColors.complete else MaterialTheme.colorScheme.primary
-                ),
-                modifier = Modifier.heightIn(min = 48.dp),
-                shape = MaterialTheme.shapes.medium
-            ) {
-                Icon(Icons.Default.Check, contentDescription = "Check icon", modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(if (isComplete) "Done" else "Complete")
-            }
-        }
-    }
-}
 
 private fun inferSheetFiles(pageMeta: com.kkc.sheettracker.data.models.PageMetadata?): List<String> {
     val fromSidecar = pageMeta?.sheetFiles?.filter { it.isNotBlank() }?.distinct().orEmpty()
