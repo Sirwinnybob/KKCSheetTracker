@@ -851,7 +851,7 @@ fun SheetViewerScreen(
     DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
     val topBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "topBarAlpha")
     val navBarDeco = LocalNavBarDecoration.current
-    DisposableEffect(Unit) {
+    DisposableEffect(navBarDeco) {
         onDispose { navBarDeco.cncDecoration = null }
     }
     SideEffect {
@@ -1754,6 +1754,7 @@ private fun CncSearchModal(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(results) { (page, matchingParts) ->
+                            val displayIndex = visiblePages.indexOf(page) + 1
                             Surface(
                                 shape = MaterialTheme.shapes.medium,
                                 tonalElevation = 1.dp,
@@ -1765,7 +1766,7 @@ private fun CncSearchModal(
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                                 ) {
                                     Text(
-                                        "Sheet $page",
+                                        "Sheet $displayIndex",
                                         style = MaterialTheme.typography.titleSmall
                                     )
                                     Spacer(Modifier.height(4.dp))
