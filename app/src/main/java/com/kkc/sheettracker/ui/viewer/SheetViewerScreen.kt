@@ -25,14 +25,17 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -1454,6 +1457,20 @@ fun SheetViewerScreen(
             onDismiss = { showSheetToc = false }
         )
     }
+
+    if (showCncSearch) {
+        CncSearchModal(
+            metadataPages = tocMetadataPages,
+            visiblePages = effectiveVisiblePages,
+            onSelectPage = { page ->
+                currentPage = page
+                selectedPartNumber = null
+                selectedCabinetNumber = null
+                showCncSearch = false
+            },
+            onDismiss = { showCncSearch = false }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1620,6 +1637,147 @@ private fun SheetNavigatorSheet(
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                             )
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CncSearchModal(
+    metadataPages: List<PageMetadata>,
+    visiblePages: List<Int>,
+    onSelectPage: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+
+    val results: List<Pair<Int, List<Part>>> = remember(query, metadataPages, visiblePages) {
+        if (query.isBlank()) emptyList()
+        else {
+            val q = query.trim().lowercase()
+            visiblePages.mapNotNull { page ->
+                val pageMeta = metadataPages.find { it.pageNumber == page }
+                val matchingParts = pageMeta?.parts?.filter { part ->
+                    part.cabNumber.toString().contains(q) ||
+                    part.name.lowercase().contains(q) ||
+                    part.room.lowercase().contains(q)
+                }.orEmpty()
+                if (matchingParts.isNotEmpty()) Pair(page, matchingParts) else null
+            }
+        }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f)
+        ) {
+            Text(
+                "Search Parts",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Cabinet #, name, or room") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null)
+                },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                        }
+                    }
+                }
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            when {
+                query.isBlank() -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Type a cabinet number, name, or room to find sheets",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                results.isEmpty() -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "No matching parts found",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        contentPadding = PaddingValues(
+                            start = 12.dp,
+                            end = 12.dp,
+                            top = 8.dp,
+                            bottom = 112.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(results) { (page, matchingParts) ->
+                            Surface(
+                                shape = MaterialTheme.shapes.medium,
+                                tonalElevation = 1.dp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSelectPage(page) }
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                                ) {
+                                    Text(
+                                        "Sheet $page",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    matchingParts.take(3).forEach { part ->
+                                        val roomSuffix = if (part.room.isNotBlank()) " · ${part.room}" else ""
+                                        Text(
+                                            "Cab ${part.cabNumber} · ${part.name}$roomSuffix",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (matchingParts.size > 3) {
+                                        Text(
+                                            "+${matchingParts.size - 3} more",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                             }
