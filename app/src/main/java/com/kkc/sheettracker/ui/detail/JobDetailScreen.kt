@@ -96,17 +96,18 @@ fun JobDetailScreen(
     val job = remember(scanState.snapshot.generation, jobFolderName) {
         scanState.snapshot.jobs.find { it.folderName == jobFolderName }
     }
-    val hasDeliverySheet = remember(jobFolderName) {
-        jobRepository.getJobPdfCatalog(jobFolderName).deliverySheet != null
-    }
-    val hasAssemblySheet = remember(jobFolderName) {
-        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
-    }
-    val hasPlansElevations = remember(jobFolderName) {
-        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
-    }
-    val hasThreeDAssets = remember(jobFolderName) {
-        jobRepository.hasThreeDAssets(jobFolderName)
+    // Document availability loaded async — avoids blocking the composition thread on I/O
+    var hasDeliverySheet by remember(jobFolderName) { mutableStateOf(false) }
+    var hasAssemblySheet by remember(jobFolderName) { mutableStateOf(false) }
+    var hasPlansElevations by remember(jobFolderName) { mutableStateOf(false) }
+    var hasThreeDAssets by remember(jobFolderName) { mutableStateOf(false) }
+    LaunchedEffect(jobFolderName) {
+        withContext(Dispatchers.IO) {
+            hasDeliverySheet = jobRepository.getJobPdfCatalog(jobFolderName).deliverySheet != null
+            hasAssemblySheet = jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
+            hasPlansElevations = jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
+            hasThreeDAssets = jobRepository.hasThreeDAssets(jobFolderName)
+        }
     }
     val listState = rememberLazyListState()
     var suppressLeavePrompt by remember { mutableStateOf(false) }

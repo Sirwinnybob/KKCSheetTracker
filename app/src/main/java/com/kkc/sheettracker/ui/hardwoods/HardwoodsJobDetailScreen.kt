@@ -31,12 +31,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
@@ -97,17 +100,18 @@ fun HardwoodsJobDetailScreen(
                 ) != null
         }
     }
-    val hasDeliverySheet = remember(jobFolderName) {
-        jobRepository.getJobPdfCatalog(jobFolderName).deliverySheet != null
-    }
-    val hasAssemblySheet = remember(jobFolderName) {
-        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
-    }
-    val hasPlansElevations = remember(jobFolderName) {
-        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
-    }
-    val hasThreeDAssets = remember(jobFolderName) {
-        jobRepository.hasThreeDAssets(jobFolderName)
+    // Document availability loaded async — avoids blocking the composition thread on I/O
+    var hasDeliverySheet by remember(jobFolderName) { mutableStateOf(false) }
+    var hasAssemblySheet by remember(jobFolderName) { mutableStateOf(false) }
+    var hasPlansElevations by remember(jobFolderName) { mutableStateOf(false) }
+    var hasThreeDAssets by remember(jobFolderName) { mutableStateOf(false) }
+    LaunchedEffect(jobFolderName) {
+        withContext(Dispatchers.IO) {
+            hasDeliverySheet = jobRepository.getJobPdfCatalog(jobFolderName).deliverySheet != null
+            hasAssemblySheet = jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
+            hasPlansElevations = jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
+            hasThreeDAssets = jobRepository.hasThreeDAssets(jobFolderName)
+        }
     }
     val docSummariesByType = remember(summary.documents) {
         summary.documents.associateBy { it.docType }
