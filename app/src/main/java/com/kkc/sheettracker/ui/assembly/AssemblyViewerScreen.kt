@@ -125,6 +125,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private val ROOM_PAREN_REGEX = Regex("""\(([^)]+)\)""")
+private val ROOM_ILLEGAL_CHARS_REGEX = Regex("""[/\\:*?"<>|]""")
+private val ROOM_WHITESPACE_REGEX = Regex("""\s+""")
+
 private enum class FullscreenPane {
     NONE,
     FIRST,
@@ -278,15 +282,6 @@ fun AssemblyViewerScreen(
         pdfCatalog?.otherDocs?.map { it.pdfFilename }.orEmpty()
     }
 
-    val assemblyPdfFile = remember(jobFolderName, assemblyFilename, isDarkTheme) {
-        if (assemblyFilename.isBlank()) null
-        else jobRepository.getJobRootPdfFile(jobFolderName, assemblyFilename, preferDarkMode = isDarkTheme)
-    }
-    val plansPdfFile = remember(jobFolderName, plansFilename, isDarkTheme) {
-        if (plansFilename.isBlank()) null
-        else jobRepository.getJobRootPdfFile(jobFolderName, plansFilename, preferDarkMode = isDarkTheme)
-    }
-
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
     val resumePrefix = remember(jobFolderName) { "assembly_resume_v1_${jobFolderName}" }
@@ -367,18 +362,23 @@ fun AssemblyViewerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val cabinetParts = remember(jobFolderName, lastSearchedCabinet) {
-        lastSearchedCabinet.takeIf { it.isNotBlank() }?.let {
-            assemblyStateStore.deriveCabinetParts(jobFolderName, it)
+    val cabinetParts by produceState<AssemblyCabinetParts?>(
+        initialValue = null,
+        key1 = jobFolderName,
+        key2 = lastSearchedCabinet
+    ) {
+        value = if (lastSearchedCabinet.isBlank()) null
+        else withContext(Dispatchers.IO) {
+            assemblyStateStore.deriveCabinetParts(jobFolderName, lastSearchedCabinet)
         }
     }
 
     fun extractRoomFolder(roomText: String?): String? =
         roomText?.let {
-            val raw = Regex("""\(([^)]+)\)""").find(it)?.groupValues?.get(1)?.uppercase()
+            val raw = ROOM_PAREN_REGEX.find(it)?.groupValues?.get(1)?.uppercase()
                 ?: it.uppercase().takeIf { it.isNotBlank() }
-            raw?.replace(Regex("""[/\\:*?"<>|]"""), " ")
-                ?.replace(Regex("""\s+"""), " ")
+            raw?.replace(ROOM_ILLEGAL_CHARS_REGEX, " ")
+                ?.replace(ROOM_WHITESPACE_REGEX, " ")
                 ?.trim()
                 ?.takeIf { s -> s.isNotBlank() }
         }

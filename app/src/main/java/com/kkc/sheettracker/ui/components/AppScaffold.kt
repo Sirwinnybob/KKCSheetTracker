@@ -114,17 +114,19 @@ fun AppBottomNavBar(
                     shadowElevation = 4.dp,
                     tonalElevation = 0.dp
                 ) {
-                    Box(modifier = Modifier.fillMaxWidth().then(
+                    val fullHazeSurface = MaterialTheme.colorScheme.surface
+                    val fullHazeModifier = remember(hazeState, fullHazeSurface) {
                         if (hazeState != null)
                             Modifier.hazeEffect(
                                 hazeState,
                                 style = HazeDefaults.style(
-                                    backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                                    backgroundColor = fullHazeSurface.copy(alpha = 0.88f),
                                     blurRadius = 25.dp
                                 )
                             )
                         else Modifier
-                    )) {
+                    }
+                    Box(modifier = Modifier.fillMaxWidth().then(fullHazeModifier)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -264,7 +266,7 @@ private fun MinimizedNavBar(
             animationSpec = tween(220),
             label = "navCorner"
         )
-        val minNavShape = RoundedCornerShape(cornerRadius)
+        val minNavShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = minNavShape,
@@ -272,17 +274,19 @@ private fun MinimizedNavBar(
             shadowElevation = 3.dp,
             tonalElevation = 0.dp
         ) {
-            Box(modifier = Modifier.fillMaxWidth().then(
+            val minHazeSurface = MaterialTheme.colorScheme.surface
+            val minHazeModifier = remember(hazeState, minHazeSurface) {
                 if (hazeState != null)
                     Modifier.hazeEffect(
                         hazeState,
                         style = HazeDefaults.style(
-                            backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                            backgroundColor = minHazeSurface.copy(alpha = 0.88f),
                             blurRadius = 25.dp
                         )
                     )
                 else Modifier
-            )) {
+            }
+            Box(modifier = Modifier.fillMaxWidth().then(minHazeModifier)) {
             val navBarMode = when {
                 searchDecoration != null -> NavBarMode.SEARCH
                 cncDecoration != null -> NavBarMode.CNC

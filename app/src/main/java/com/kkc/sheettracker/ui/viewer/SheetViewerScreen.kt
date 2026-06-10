@@ -87,6 +87,7 @@ import com.kkc.sheettracker.data.PreparedPageKey
 import com.kkc.sheettracker.data.PreparedStateInvalidationReason
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
+import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.PageMetadata
 import com.kkc.sheettracker.data.models.Part
@@ -120,6 +121,9 @@ import kotlin.math.sqrt
 import java.util.ArrayDeque
 
 private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+private val ROOM_PAREN_REGEX = Regex("""\(([^)]+)\)""")
+private val ROOM_ILLEGAL_CHARS_REGEX = Regex("""[/\\:*?"<>|]""")
+private val ROOM_WHITESPACE_REGEX = Regex("""\s+""")
 private const val OCR_TAG = "KKC_OCR"
 private const val VIEWER_REF_TAG = "KKC_VIEWER_REF"
 private const val VIEWER_PARITY_TAG = "KKC_APP_STATE_PARITY_VIEWER"
@@ -270,24 +274,26 @@ fun SheetViewerScreen(
     var renderEffectCount by remember { mutableIntStateOf(0) }
     var statusEffectCount by remember { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val cabinetSheetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
-    val hasAssemblyReference = remember(jobFolderName) {
-        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
+    val cabinetSheetIndex by produceState<CabinetSheetIndex?>(null, jobFolderName) {
+        value = withContext(Dispatchers.IO) { jobRepository.getCabinetSheetIndex(jobFolderName) }
     }
-    val hasPlansReference = remember(jobFolderName) {
-        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
+    val hasAssemblyReference by produceState(false, jobFolderName) {
+        value = withContext(Dispatchers.IO) { jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY) }
     }
-    val hasThreeDAssets = remember(jobFolderName) {
-        jobRepository.hasThreeDAssets(jobFolderName)
+    val hasPlansReference by produceState(false, jobFolderName) {
+        value = withContext(Dispatchers.IO) { jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS) }
+    }
+    val hasThreeDAssets by produceState(false, jobFolderName) {
+        value = withContext(Dispatchers.IO) { jobRepository.hasThreeDAssets(jobFolderName) }
     }
 
     fun normalizeRoomFolder(roomText: String?): String? {
         val raw = roomText?.let {
-            Regex("""\(([^)]+)\)""").find(it)?.groupValues?.get(1)?.uppercase()
+            ROOM_PAREN_REGEX.find(it)?.groupValues?.get(1)?.uppercase()
                 ?: it.uppercase().takeIf { s -> s.isNotBlank() }
         } ?: return null
-        return raw.replace(Regex("""[/\\:*?"<>|]"""), " ")
-            .replace(Regex("""\s+"""), " ")
+        return raw.replace(ROOM_ILLEGAL_CHARS_REGEX, " ")
+            .replace(ROOM_WHITESPACE_REGEX, " ")
             .trim()
             .takeIf { it.isNotBlank() }
     }
@@ -316,8 +322,10 @@ fun SheetViewerScreen(
 
     val pdfFile = remember { jobRepository.getPdfFile(jobFolderName, pdfFilename) }
     val fileFingerprint = currentMaterial?.fileFingerprint.orEmpty()
-    val pendingBadPartCount = remember(progressVersion, pdfFilename, fileFingerprint) {
-        progressStore.getPendingBadPartsForMaterial(jobFolderName, pdfFilename, fileFingerprint)
+    val pendingBadPartCount by produceState(0, progressVersion, pdfFilename, fileFingerprint) {
+        value = withContext(Dispatchers.IO) {
+            progressStore.getPendingBadPartsForMaterial(jobFolderName, pdfFilename, fileFingerprint)
+        }
     }
     val sheetFilesCache = remember(jobFolderName, pdfFilename, fileFingerprint) { mutableStateMapOf<Int, List<String>>() }
     val tocThumbCache = remember(jobFolderName, pdfFilename, fileFingerprint) { mutableStateMapOf<Int, Bitmap?>() }
@@ -511,7 +519,7 @@ fun SheetViewerScreen(
         persistViewTouch(force = false)
     }
 
-    DisposableEffect(lifecycleOwner, currentPage, fileFingerprint) {
+    DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
                 persistViewTouch(force = true)

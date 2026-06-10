@@ -361,7 +361,7 @@ fun ReferencePdfPane(
         onTotalPagesChanged(totalPages)
     }
 
-    LaunchedEffect(tocRequestToken, totalPages, onOpenSheetNavigator) {
+    LaunchedEffect(tocRequestToken, totalPages) {
         if (tocRequestToken > 0) {
             if (onOpenSheetNavigator != null) {
                 onOpenSheetNavigator()
@@ -377,11 +377,11 @@ fun ReferencePdfPane(
         detailForViewport = null
     }
     // Keep fallbackBitmap up-to-date so new pages fade in over the previous page.
-    LaunchedEffect(baseBitmap) {
+    SideEffect {
         if (baseBitmap != null) fallbackBitmap = baseBitmap
     }
 
-    LaunchedEffect(viewportState) {
+    SideEffect {
         onViewportStateChange(viewportState)
     }
 

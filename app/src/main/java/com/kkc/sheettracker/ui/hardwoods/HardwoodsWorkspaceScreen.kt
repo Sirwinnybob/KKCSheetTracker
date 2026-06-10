@@ -65,6 +65,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -117,8 +118,10 @@ import com.kkc.sheettracker.viewer3d.ViewerServer
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.max
 
 private data class HardwoodsPartSection(
@@ -180,15 +183,21 @@ fun HardwoodsWorkspaceScreen(
         scanState.snapshot.jobs.firstOrNull { it.folderName == jobFolderName }
     }
     val documents = remember(job?.index) { job?.index?.documents.orEmpty() }
-    val availableDocuments = remember(documents, jobFolderName, isDarkTheme) {
-        documents.filter { doc ->
-            doc.pdfFilename.isNotBlank() &&
-                jobRepository.getJobRootPdfFile(
-                    jobFolderName = jobFolderName,
-                    pdfFilename = doc.pdfFilename,
-                    preferDarkMode = isDarkTheme
-                ) != null
+    // Populated asynchronously on IO so getJobRootPdfFile (disk probe) never blocks composition.
+    val availableDocuments = remember(documents, jobFolderName, isDarkTheme) { mutableStateListOf<com.kkc.sheettracker.data.models.HardwoodDocumentIndex>() }
+    LaunchedEffect(documents, jobFolderName, isDarkTheme) {
+        val filtered = withContext(Dispatchers.IO) {
+            documents.filter { doc ->
+                doc.pdfFilename.isNotBlank() &&
+                    jobRepository.getJobRootPdfFile(
+                        jobFolderName = jobFolderName,
+                        pdfFilename = doc.pdfFilename,
+                        preferDarkMode = isDarkTheme
+                    ) != null
+            }
         }
+        availableDocuments.clear()
+        availableDocuments.addAll(filtered)
     }
     val isRipCutEntry = initialRowId == HARDWOODS_RIP_CUT_LIST_ROW_ID
     val isDoorPanelsEntry = initialRowId == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID

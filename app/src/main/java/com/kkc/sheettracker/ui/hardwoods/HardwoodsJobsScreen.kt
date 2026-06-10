@@ -39,10 +39,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -111,6 +114,10 @@ fun HardwoodsJobsScreen(
         deliveryScheduleRepository.fetchSchedule()
     }
 
+    // Badge cache: keyed by folderName, populated off the main thread.
+    // Cleared on each new scan generation so stale data never lingers.
+    val badgeCache = remember(scanState.snapshot.generation) { mutableStateMapOf<String, HardwoodsJobBadgeState>() }
+
     val filtered = remember(jobs, query, sortByName) {
         val base = if (query.isBlank()) jobs else jobs.filter {
             it.jobNumber.contains(query, ignoreCase = true) ||
@@ -124,11 +131,22 @@ fun HardwoodsJobsScreen(
         }
     }
 
+    // Load disk-I/O badge data per job off the main thread.
+    filtered.forEach { job ->
+        val generation = scanState.snapshot.generation
+        LaunchedEffect(job.folderName, generation) {
+            if (badgeCache.containsKey(job.folderName)) return@LaunchedEffect
+            badgeCache[job.folderName] = withContext(Dispatchers.IO) {
+                val hasDelivery = jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
+                val has3D = jobRepository.hasThreeDAssets(job.folderName)
+                val history = hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
+                HardwoodsJobBadgeState(hasDeliverySheet = hasDelivery, hasThreeDAssets = has3D, history = history)
+            }
+        }
+    }
+
     val hardwoodsUiStates = remember(filtered, scanState.snapshot.generation, progressVersion, scanState.snapshot.basePath) {
         filtered.map { job ->
-            val hasDeliverySheet = jobRepository.getJobPdfCatalog(job.folderName).deliverySheet != null
-            val hasThreeDAssets = jobRepository.hasThreeDAssets(job.folderName)
-            val history = hardwoodsRepository.loadHardwoodsRevisionHistory(job.folderName)
             val summary = progressStore.summarizeJob(job)
             val availableDocTypes = job.index?.documents
                 .orEmpty()
@@ -194,9 +212,6 @@ fun HardwoodsJobsScreen(
             )
             HardwoodsJobItemUiState(
                 job = job,
-                hasDeliverySheet = hasDeliverySheet,
-                hasThreeDAssets = hasThreeDAssets,
-                history = history,
                 counts = counts,
                 docCount = docCount,
                 docSegments = docSegments,
@@ -315,9 +330,7 @@ fun HardwoodsJobsScreen(
                 ) {
                     items(activeUiStates, key = { "active_${it.job.folderName}" }) { uiState ->
                         val job = uiState.job
-                        val hasDeliverySheet = uiState.hasDeliverySheet
-                        val hasThreeDAssets = uiState.hasThreeDAssets
-                        val history = uiState.history
+                        val badge = badgeCache[job.folderName]
                         val counts = uiState.counts
                         val docCount = uiState.docCount
                         val docSegments = uiState.docSegments
@@ -364,7 +377,7 @@ fun HardwoodsJobsScreen(
                                         contentColor = MaterialTheme.colorScheme.onErrorContainer
                                     )
                                 }
-                                if (history != null) {
+                                if (badge?.history != null) {
                                     TextButton(onClick = { selectedHistoryJob = job.folderName }) {
                                         Text("History")
                                     }
@@ -377,14 +390,14 @@ fun HardwoodsJobsScreen(
                                         .horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    if (hasDeliverySheet) {
+                                    if (badge?.hasDeliverySheet == true) {
                                         FilterChip(
                                             selected = false,
                                             onClick = { onViewCoverSheet(job) },
                                             label = { Text("Cover Sheet") }
                                         )
                                     }
-                                    if (hasThreeDAssets) {
+                                    if (badge?.hasThreeDAssets == true) {
                                         FilterChip(
                                             selected = false,
                                             onClick = { onView3D(job) },
@@ -421,9 +434,7 @@ fun HardwoodsJobsScreen(
                         }
                         items(pendingUiStates, key = { "pending_${it.job.folderName}" }) { uiState ->
                             val job = uiState.job
-                            val hasDeliverySheet = uiState.hasDeliverySheet
-                            val hasThreeDAssets = uiState.hasThreeDAssets
-                            val history = uiState.history
+                            val badge = badgeCache[job.folderName]
                             val counts = uiState.counts
                             val docCount = uiState.docCount
                             val docSegments = uiState.docSegments
@@ -470,7 +481,7 @@ fun HardwoodsJobsScreen(
                                             contentColor = MaterialTheme.colorScheme.onErrorContainer
                                         )
                                     }
-                                    if (history != null) {
+                                    if (badge?.history != null) {
                                         TextButton(onClick = { selectedHistoryJob = job.folderName }) {
                                             Text("History")
                                         }
@@ -483,14 +494,14 @@ fun HardwoodsJobsScreen(
                                             .horizontalScroll(rememberScrollState()),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        if (hasDeliverySheet) {
+                                        if (badge?.hasDeliverySheet == true) {
                                             FilterChip(
                                                 selected = false,
                                                 onClick = { onViewCoverSheet(job) },
                                                 label = { Text("Cover Sheet") }
                                             )
                                         }
-                                        if (hasThreeDAssets) {
+                                        if (badge?.hasThreeDAssets == true) {
                                             FilterChip(
                                                 selected = false,
                                                 onClick = { onView3D(job) },
@@ -559,11 +570,14 @@ internal fun HardwoodStatusCounts.toStatusCounts(): StatusCounts {
     )
 }
 
-data class HardwoodsJobItemUiState(
-    val job: HardwoodJob,
+internal data class HardwoodsJobBadgeState(
     val hasDeliverySheet: Boolean,
     val hasThreeDAssets: Boolean,
     val history: com.kkc.sheettracker.data.models.HardwoodRevisionHistory?,
+)
+
+data class HardwoodsJobItemUiState(
+    val job: HardwoodJob,
     val counts: com.kkc.sheettracker.data.models.HardwoodStatusCounts,
     val docCount: Int,
     val docSegments: List<MaterialSegmentData>,

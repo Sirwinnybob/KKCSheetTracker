@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -122,6 +123,8 @@ fun AssemblyJobsScreen(
     val deliverySchedule = remember(scanState.snapshot.generation) {
         deliveryScheduleRepository.fetchSchedule()
     }
+    // Cleared on each new scan generation; populated async per-item to avoid blocking composition.
+    val badgeCache = remember(scanState.snapshot.generation) { mutableStateMapOf<String, AssemblyJobBadgeState>() }
 
     val allCards = remember(scanState.snapshot.generation, cncProgressVersion, hardwoodProgressVersion) {
         assemblyStateStore.deriveJobCards()
@@ -153,8 +156,6 @@ fun AssemblyJobsScreen(
 
     val assemblyUiStates = remember(filtered, scanState.snapshot.generation, hardwoodProgressVersion) {
         filtered.map { card ->
-            val hasDeliverySheet = jobRepository.getJobPdfCatalog(card.folderName).deliverySheet != null
-            val hasHistory = hardwoodsRepository.loadHardwoodsRevisionHistory(card.folderName) != null
             val cncCounts = card.toCncStatusCounts()
             val hardwoodCounts = card.toHardwoodsStatusCounts()
             val combinedCounts = combineCounts(cncCounts, hardwoodCounts)
@@ -162,8 +163,6 @@ fun AssemblyJobsScreen(
                 "Hardwoods ${card.hardwoodsSummary.donePieces}/${card.hardwoodsSummary.totalPieces}"
             AssemblyJobItemUiState(
                 card = card,
-                hasDeliverySheet = hasDeliverySheet,
-                hasHistory = hasHistory,
                 cncCounts = cncCounts,
                 hardwoodCounts = hardwoodCounts,
                 combinedCounts = combinedCounts,
@@ -304,8 +303,16 @@ fun AssemblyJobsScreen(
                     ) {
                         items(activeUiStates, key = { "active_${it.card.folderName}" }) { uiState ->
                             val card = uiState.card
-                            val hasDeliverySheet = uiState.hasDeliverySheet
-                            val hasHistory = uiState.hasHistory
+                            val badge = badgeCache[card.folderName]
+                            LaunchedEffect(card.folderName, scanState.snapshot.generation) {
+                                if (badgeCache.containsKey(card.folderName)) return@LaunchedEffect
+                                badgeCache[card.folderName] = withContext(Dispatchers.IO) {
+                                    AssemblyJobBadgeState(
+                                        hasDeliverySheet = jobRepository.getJobPdfCatalog(card.folderName).deliverySheet != null,
+                                        hasHistory = hardwoodsRepository.loadHardwoodsRevisionHistory(card.folderName) != null
+                                    )
+                                }
+                            }
                             val cncCounts = uiState.cncCounts
                             val hardwoodCounts = uiState.hardwoodCounts
                             val combinedCounts = uiState.combinedCounts
@@ -344,14 +351,14 @@ fun AssemblyJobsScreen(
                                             contentColor = MaterialTheme.colorScheme.onErrorContainer
                                         )
                                     }
-                                    if (hasDeliverySheet) {
+                                    if (badge?.hasDeliverySheet == true) {
                                         FilterChip(
                                             selected = false,
                                             onClick = { onViewCoverSheet(card) },
                                             label = { Text("Cover Sheet") }
                                         )
                                     }
-                                    if (hasHistory) {
+                                    if (badge?.hasHistory == true) {
                                         TextButton(onClick = { selectedHistoryJob = card.folderName }) {
                                             Text("History")
                                         }
@@ -380,8 +387,16 @@ fun AssemblyJobsScreen(
                             }
                             items(pendingUiStates, key = { "pending_${it.card.folderName}" }) { uiState ->
                                 val card = uiState.card
-                                val hasDeliverySheet = uiState.hasDeliverySheet
-                                val hasHistory = uiState.hasHistory
+                                val badge = badgeCache[card.folderName]
+                                LaunchedEffect(card.folderName, scanState.snapshot.generation) {
+                                    if (badgeCache.containsKey(card.folderName)) return@LaunchedEffect
+                                    badgeCache[card.folderName] = withContext(Dispatchers.IO) {
+                                        AssemblyJobBadgeState(
+                                            hasDeliverySheet = jobRepository.getJobPdfCatalog(card.folderName).deliverySheet != null,
+                                            hasHistory = hardwoodsRepository.loadHardwoodsRevisionHistory(card.folderName) != null
+                                        )
+                                    }
+                                }
                                 val cncCounts = uiState.cncCounts
                                 val hardwoodCounts = uiState.hardwoodCounts
                                 val combinedCounts = uiState.combinedCounts
@@ -410,7 +425,7 @@ fun AssemblyJobsScreen(
                                                 contentColor = MaterialTheme.colorScheme.onErrorContainer
                                             )
                                         }
-                                        if (hasDeliverySheet) {
+                                        if (badge?.hasDeliverySheet == true) {
                                             FilterChip(
                                                 selected = false,
                                                 onClick = { onViewCoverSheet(card) },
@@ -631,10 +646,10 @@ private fun normalizeCounts(total: Int, complete: Int, bad: Int, skipped: Int): 
     )
 }
 
+data class AssemblyJobBadgeState(val hasDeliverySheet: Boolean, val hasHistory: Boolean)
+
 data class AssemblyJobItemUiState(
     val card: AssemblyJobCard,
-    val hasDeliverySheet: Boolean,
-    val hasHistory: Boolean,
     val cncCounts: StatusCounts,
     val hardwoodCounts: StatusCounts,
     val combinedCounts: StatusCounts,
