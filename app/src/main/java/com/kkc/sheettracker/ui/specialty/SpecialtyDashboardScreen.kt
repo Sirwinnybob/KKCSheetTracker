@@ -91,7 +91,7 @@ fun SpecialtyDashboardScreen(
     ) {
         LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = KKCSpacing.listContentHorizontal, vertical = KKCSpacing.listContentVertical),
+        contentPadding = PaddingValues(start = KKCSpacing.listContentHorizontal, top = KKCSpacing.listContentVertical, end = KKCSpacing.listContentHorizontal, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(KKCSpacing.listItemSpacing)
     ) {
         item(key = "summary") {

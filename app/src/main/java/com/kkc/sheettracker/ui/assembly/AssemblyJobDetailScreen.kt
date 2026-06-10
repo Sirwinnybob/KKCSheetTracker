@@ -94,7 +94,7 @@ fun AssemblyJobDetailScreen(
                 .fillMaxSize()
                 .padding(padding),
             state = listState,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "summary") {

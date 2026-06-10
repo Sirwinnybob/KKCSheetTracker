@@ -159,7 +159,7 @@ class BatchSyncTest {
 
         println("Hardwoods Documents and Matches:")
         hardwoodsIndex.documents.forEach { doc ->
-            if (doc.docType == HardwoodDocType.DOOR_LIST || doc.docType == HardwoodDocType.DOOR_CUT_LIST) {
+            if (doc.docType != HardwoodDocType.FACE_FRAME_CUT_LIST) {
                 println(" - Doc: ${doc.docType}, rows=${doc.rows.size}")
                 doc.rows.forEach { row ->
                     val matching = allCncParts.filter { preciseMatches(row, it.part) }

@@ -202,7 +202,7 @@ fun AssemblyDashboardScreen(
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = KKCSpacing.listContentHorizontal, vertical = KKCSpacing.inCardSpacing),
+                        contentPadding = PaddingValues(start = KKCSpacing.listContentHorizontal, top = KKCSpacing.inCardSpacing, end = KKCSpacing.listContentHorizontal, bottom = 112.dp),
                         verticalArrangement = Arrangement.spacedBy(KKCSpacing.listItemSpacing)
                     ) {
                         items(cards, key = { it.folderName }) { card ->

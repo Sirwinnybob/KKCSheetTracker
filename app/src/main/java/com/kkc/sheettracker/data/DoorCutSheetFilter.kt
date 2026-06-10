@@ -303,7 +303,7 @@ fun syncCncToHardwoods(
     val unitTypeMetadata = parseDoorCutUnitTypeMetadata(rawCutlistIndexJson)
 
     val targetDocs = hardwoodsIndex.documents.filter {
-        it.docType == HardwoodDocType.DOOR_CUT_LIST || it.docType == HardwoodDocType.DOOR_LIST
+        it.docType != HardwoodDocType.FACE_FRAME_CUT_LIST
     }
     if (targetDocs.isEmpty()) return
 

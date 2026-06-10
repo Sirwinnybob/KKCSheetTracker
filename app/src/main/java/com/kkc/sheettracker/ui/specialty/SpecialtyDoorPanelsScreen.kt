@@ -107,7 +107,7 @@ fun SpecialtyDoorPanelsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = KKCSpacing.screenHorizontal),
-            contentPadding = PaddingValues(vertical = KKCSpacing.listContentVertical),
+            contentPadding = PaddingValues(top = KKCSpacing.listContentVertical, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(KKCSpacing.m)
         ) {
             item(key = "job-title") {

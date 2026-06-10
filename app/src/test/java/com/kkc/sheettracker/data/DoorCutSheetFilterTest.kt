@@ -1,13 +1,21 @@
 package com.kkc.sheettracker.data
 
+import com.google.gson.Gson
+import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
+import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.Part
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class DoorCutSheetFilterTest {
+    private val gson = Gson()
+    private val jobFolder = "1234 - Test Job"
 
     @Test
     fun testParseDimension() {
@@ -82,5 +90,160 @@ class DoorCutSheetFilterTest {
             length = 30.5
         )
         assertFalse(preciseMatches(row, partWrongName))
+    }
+
+    @Test
+    fun testSyncCncToHardwoodsExcludesFaceFrameCutList() {
+        val baseDir = Files.createTempDirectory("door-cut-sheet-filter-test").toFile()
+        
+        // Seed CNC files and metadata
+        val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
+        val metadataDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(metadataDir, "deployment_gate.json").writeText("{\"deployed\": true}")
+        val cncDir = File(jobDir, "CNC").apply { mkdirs() }
+        File(cncDir, "1234 - White Melamine.pdf").writeText("pdf")
+        val cncMetaDir = File(cncDir, ".metadata").apply { mkdirs() }
+        File(cncMetaDir, "1234 - White Melamine.json").writeText(
+            """
+            {
+              "jobNumber": "1234",
+              "jobName": "Test Job",
+              "material": "White Melamine",
+              "pdfFilename": "1234 - White Melamine.pdf",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    {
+                      "number": 1,
+                      "width": 12.0,
+                      "length": 24.0,
+                      "name": "Side Panel",
+                      "cabNumber": 42,
+                      "room": "Kitchen"
+                    }
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+
+        // Seed ProgressStore state to show sheet 1 is complete
+        val progressStore = ProgressStore(
+            baseDir = baseDir,
+            tabletId = "tablet-a",
+            localStateDir = File(baseDir, ".local"),
+            readOnly = false
+        )
+        progressStore.markSheetComplete(
+            jobFolderName = jobFolder,
+            pdfFilename = "1234 - White Melamine.pdf",
+            page = 1,
+            fileFingerprint = "${File(cncDir, "1234 - White Melamine.pdf").length()}_${File(cncDir, "1234 - White Melamine.pdf").lastModified()}"
+        )
+
+        // Seed Hardwoods index containing FACE_FRAME_CUT_LIST, DOOR_CUT_LIST, DOOR_LIST, NAILER_CUT_LIST
+        val hardwoodDir = File(jobDir, ".metadata/hardwoods").apply { mkdirs() }
+        val hardwoodIndex = HardwoodCutlistIndex(
+            documents = listOf(
+                HardwoodDocumentIndex(
+                    docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+                    pdfFilename = "1234 - Face Frame Cut List.pdf",
+                    rows = listOf(
+                        HardwoodCutlistRow(
+                            rowId = "ff-row-1",
+                            qty = 1,
+                            material = "Poplar",
+                            description = "Side Panel",
+                            width = "12",
+                            length = "24",
+                            cabinets = listOf("42")
+                        )
+                    )
+                ),
+                HardwoodDocumentIndex(
+                    docType = HardwoodDocType.DOOR_CUT_LIST,
+                    pdfFilename = "1234 - Door Cut List.pdf",
+                    rows = listOf(
+                        HardwoodCutlistRow(
+                            rowId = "door-cut-row-1",
+                            qty = 1,
+                            material = "Poplar",
+                            description = "Side Panel",
+                            width = "12",
+                            length = "24",
+                            cabinets = listOf("42")
+                        )
+                    )
+                ),
+                HardwoodDocumentIndex(
+                    docType = HardwoodDocType.DOOR_LIST,
+                    pdfFilename = "1234 - Door List.pdf",
+                    rows = listOf(
+                        HardwoodCutlistRow(
+                            rowId = "door-list-row-1",
+                            qty = 1,
+                            material = "Poplar",
+                            description = "Side Panel",
+                            width = "12",
+                            length = "24",
+                            cabinets = listOf("42")
+                        )
+                    )
+                ),
+                HardwoodDocumentIndex(
+                    docType = HardwoodDocType.NAILER_CUT_LIST,
+                    pdfFilename = "1234 - Nailer Cut List.pdf",
+                    rows = listOf(
+                        HardwoodCutlistRow(
+                            rowId = "nailer-row-1",
+                            qty = 1,
+                            material = "Poplar",
+                            description = "Side Panel",
+                            width = "12",
+                            length = "24",
+                            cabinets = listOf("42")
+                        )
+                    )
+                )
+            )
+        )
+        File(hardwoodDir, "cutlist_index.json").writeText(gson.toJson(hardwoodIndex))
+
+        // Create repositories and progress store
+        val jobRepository = JobRepository(baseDir, isDebugBuild = true)
+        val hardwoodsRepository = HardwoodsRepository(baseDir)
+        val hardwoodsProgressStore = HardwoodsProgressStore(
+            baseDir = baseDir,
+            tabletId = "tablet-a",
+            readOnly = false
+        )
+
+        // Perform synchronization
+        syncCncToHardwoods(
+            jobFolderName = jobFolder,
+            jobRepository = jobRepository,
+            progressStore = progressStore,
+            hardwoodsRepository = hardwoodsRepository,
+            hardwoodsProgressStore = hardwoodsProgressStore
+        )
+
+        // Flush writes
+        hardwoodsProgressStore.awaitPendingWrites()
+
+        // Verify that FACE_FRAME_CUT_LIST is NOT synced (doneCount remains 0)
+        val ffProgress = hardwoodsProgressStore.getRowProgress(jobFolder, HardwoodDocType.FACE_FRAME_CUT_LIST.name, "ff-row-1")
+        assertEquals(0, ffProgress.doneCount)
+
+        // Verify that DOOR_CUT_LIST, DOOR_LIST, and NAILER_CUT_LIST ARE synced (doneCount is 1)
+        val doorCutProgress = hardwoodsProgressStore.getRowProgress(jobFolder, HardwoodDocType.DOOR_CUT_LIST.name, "door-cut-row-1")
+        assertEquals(1, doorCutProgress.doneCount)
+
+        val doorListProgress = hardwoodsProgressStore.getRowProgress(jobFolder, HardwoodDocType.DOOR_LIST.name, "door-list-row-1")
+        assertEquals(1, doorListProgress.doneCount)
+
+        val nailerProgress = hardwoodsProgressStore.getRowProgress(jobFolder, HardwoodDocType.NAILER_CUT_LIST.name, "nailer-row-1")
+        assertEquals(1, nailerProgress.doneCount)
     }
 }
