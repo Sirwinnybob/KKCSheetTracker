@@ -1083,10 +1083,13 @@ fun AssemblyViewerScreen(
     }
 
     if (showPartsSheet && cabinetParts != null) {
-        ModalBottomSheet(
-            onDismissRequest = { showPartsSheet = false }
-        ) {
-            PartsChecklistSheet(parts = cabinetParts)
+        val parts = cabinetParts
+        if (parts != null) {
+            ModalBottomSheet(
+                onDismissRequest = { showPartsSheet = false }
+            ) {
+                PartsChecklistSheet(parts = parts)
+            }
         }
     }
 }
