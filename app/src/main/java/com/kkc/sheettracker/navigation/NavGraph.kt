@@ -425,9 +425,9 @@ private fun MultiBackStackNavigation(
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SUPPLY, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.SUPPLY, NavDestination.SETTINGS)
         } else {
-            NavDestination.entries
+            NavDestination.entries.filter { it != NavDestination.SEARCH }
         }
     }
 
@@ -438,7 +438,8 @@ private fun MultiBackStackNavigation(
             jobsCurrentRoute?.startsWith("viewer/") == true ||
                 jobsCurrentRoute?.startsWith("referenceViewer/") == true ||
                 jobsCurrentRoute?.startsWith("hardwoods/workspace/") == true ||
-                jobsCurrentRoute?.startsWith("assembly/viewer/") == true
+                jobsCurrentRoute?.startsWith("assembly/viewer/") == true ||
+                jobsCurrentRoute?.startsWith("specialty/job/") == true
             )
     // Tracks whether the viewer screen's overlay UI is visible (for bottom nav hide/show).
     var viewerUiVisible by remember { mutableStateOf(true) }
@@ -794,6 +795,7 @@ private fun MultiBackStackNavigation(
                 supplyNotificationCount = supplyNotificationCount,
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
+                specialtyDecoration = navBarDeco.specialtyDecoration,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
                         if (employeeName.isNotBlank()) {
@@ -1793,9 +1795,9 @@ private fun LegacySingleStackNavigation(
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.SEARCH, NavDestination.HOURS, NavDestination.SUPPLY, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.SUPPLY, NavDestination.SETTINGS)
         } else {
-            NavDestination.entries
+            NavDestination.entries.filter { it != NavDestination.SEARCH }
         }
     }
     fun openSheetLegacy(jobFolderName: String, pdfFilename: String, page: Int) {
@@ -1904,7 +1906,8 @@ private fun LegacySingleStackNavigation(
     val isInViewer = currentRoute?.startsWith("viewer/") == true ||
         currentRoute?.startsWith("referenceViewer/") == true ||
         currentRoute?.startsWith("hardwoods/workspace/") == true ||
-        currentRoute?.startsWith("assembly/viewer/") == true
+        currentRoute?.startsWith("assembly/viewer/") == true ||
+        currentRoute?.startsWith("specialty/job/") == true
     var viewerUiVisible by remember { mutableStateOf(true) }
     androidx.compose.runtime.LaunchedEffect(isInViewer) { if (!isInViewer) viewerUiVisible = true }
     val navBarAlpha by animateFloatAsState(
@@ -2731,6 +2734,7 @@ private fun LegacySingleStackNavigation(
                 supplyNotificationCount = supplyNotificationCount,
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
+                specialtyDecoration = navBarDeco.specialtyDecoration,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
                         if (employeeName.isNotBlank()) {

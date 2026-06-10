@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -84,6 +85,7 @@ fun AppBottomNavBar(
     hazeState: HazeState? = null,
     searchDecoration: NavBarSearchDecoration? = null,
     cncDecoration: NavBarCncDecoration? = null,
+    specialtyDecoration: NavBarSpecialtyDecoration? = null,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -170,7 +172,8 @@ fun AppBottomNavBar(
                 supplyNotificationCount = supplyNotificationCount,
                 hazeState = hazeState,
                 searchDecoration = searchDecoration,
-                cncDecoration = cncDecoration
+                cncDecoration = cncDecoration,
+                specialtyDecoration = specialtyDecoration
             )
         }
     }
@@ -231,7 +234,7 @@ private fun FullNavItem(
     }
 }
 
-private enum class NavBarMode { NORMAL, SEARCH, CNC }
+private enum class NavBarMode { NORMAL, SEARCH, CNC, SPECIALTY }
 
 @Composable
 private fun MinimizedNavBar(
@@ -243,7 +246,8 @@ private fun MinimizedNavBar(
     supplyNotificationCount: Int,
     hazeState: HazeState? = null,
     searchDecoration: NavBarSearchDecoration? = null,
-    cncDecoration: NavBarCncDecoration? = null
+    cncDecoration: NavBarCncDecoration? = null,
+    specialtyDecoration: NavBarSpecialtyDecoration? = null
 ) {
     Box(
         modifier = Modifier
@@ -256,7 +260,7 @@ private fun MinimizedNavBar(
             )
     ) {
         val cornerRadius by animateDpAsState(
-            targetValue = if (searchDecoration != null || cncDecoration != null) 26.dp else 999.dp,
+            targetValue = if (searchDecoration != null || cncDecoration != null || specialtyDecoration != null) 26.dp else 999.dp,
             animationSpec = tween(220),
             label = "navCorner"
         )
@@ -282,6 +286,7 @@ private fun MinimizedNavBar(
             val navBarMode = when {
                 searchDecoration != null -> NavBarMode.SEARCH
                 cncDecoration != null -> NavBarMode.CNC
+                specialtyDecoration != null -> NavBarMode.SPECIALTY
                 else -> NavBarMode.NORMAL
             }
             AnimatedContent(
@@ -468,6 +473,46 @@ private fun MinimizedNavBar(
                                 Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(3.dp))
                                 Text(if (isComplete) "Done" else "Complete", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 7.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
+                        CompactNavIconRow(
+                            destinations = destinations,
+                            currentDestination = currentDestination,
+                            isCalculatorOpen = isCalculatorOpen,
+                            supplyNotificationCount = supplyNotificationCount,
+                            onNavigate = onNavigate,
+                            onCalculatorClick = onCalculatorClick
+                        )
+                    }
+                }
+            }
+            NavBarMode.SPECIALTY -> {
+                specialtyDecoration?.let { dec ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Button(
+                                onClick = dec.onAddItem,
+                                shape = MaterialTheme.shapes.extraLarge,
+                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Add Item", style = MaterialTheme.typography.labelMedium)
                             }
                         }
 

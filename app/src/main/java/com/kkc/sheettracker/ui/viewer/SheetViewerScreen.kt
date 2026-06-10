@@ -2802,7 +2802,7 @@ private fun PartsTable(
             Spacer(Modifier.width(actionColWidth))
         }
 
-        LazyColumn {
+        LazyColumn(contentPadding = PaddingValues(bottom = 160.dp)) {
             itemsIndexed(items = parts, key = { _, part -> part.number }) { rowIndex, part ->
                 val isBad = part.number in badParts
                 val isDraft = part.number in draftBadParts

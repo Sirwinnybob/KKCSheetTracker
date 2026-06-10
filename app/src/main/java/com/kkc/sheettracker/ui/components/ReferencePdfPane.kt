@@ -307,7 +307,8 @@ fun ReferencePdfPane(
     onOpenSheetNavigator: (() -> Unit)? = null,
     onSingleTap: (() -> Unit)? = null,
     compactArrows: Boolean = false,
-    preferDarkMode: Boolean = false
+    preferDarkMode: Boolean = false,
+    contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val pdfIdentityKey = when {
         pdfFile == null -> "missing"
@@ -531,7 +532,7 @@ fun ReferencePdfPane(
                     Text(unreadableText, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 else -> {
-                    Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize().padding(contentPadding)) {
                         val vw = viewportState.viewSize.width.toFloat().coerceAtLeast(1f)
                         val isSliding = slideProgress.value < 1f
                         val shouldShowDetail = detailBitmap != null &&
@@ -620,27 +621,6 @@ fun ReferencePdfPane(
                             }
                         }
                         when (renderState) {
-                            PdfRenderUiState.Loading -> {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(10.dp)
-                                        .background(
-                                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
-                                        Text("Rendering", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-                            }
                             is PdfRenderUiState.Error -> {
                                 val message = (renderState as PdfRenderUiState.Error).message
                                 Box(
@@ -656,7 +636,7 @@ fun ReferencePdfPane(
                                     Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer)
                                 }
                             }
-                            is PdfRenderUiState.Ready -> Unit
+                            is PdfRenderUiState.Ready, is PdfRenderUiState.Loading -> Unit
                         }
 
                         if (showNavigationButtons) {
@@ -871,14 +851,7 @@ private fun ZoomablePdfImage(
                 )
             }
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(28.dp))
-            }
+            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface))
         }
     }
 }

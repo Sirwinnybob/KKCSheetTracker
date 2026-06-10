@@ -28,9 +28,14 @@ data class NavBarCncDecoration(
     val onOpenSearch: () -> Unit
 )
 
+data class NavBarSpecialtyDecoration(
+    val onAddItem: () -> Unit
+)
+
 class NavBarDecorationState {
     var searchDecoration: NavBarSearchDecoration? by mutableStateOf(null)
     var cncDecoration: NavBarCncDecoration? by mutableStateOf(null)
+    var specialtyDecoration: NavBarSpecialtyDecoration? by mutableStateOf(null)
 }
 
 val LocalNavBarDecoration = compositionLocalOf { NavBarDecorationState() }

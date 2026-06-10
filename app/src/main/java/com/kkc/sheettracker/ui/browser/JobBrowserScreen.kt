@@ -315,7 +315,7 @@ fun JobBrowserScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(activeUiStates, key = { it.job.folderName }) { uiState ->

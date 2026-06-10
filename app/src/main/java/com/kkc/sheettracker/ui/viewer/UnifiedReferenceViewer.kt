@@ -432,7 +432,8 @@ fun UnifiedReferenceViewer(
     innerPadding: androidx.compose.ui.unit.Dp = 8.dp,
     tocRequestToken: Int = 0,
     onSingleTap: (() -> Unit)? = null,
-    compactArrows: Boolean = false
+    compactArrows: Boolean = false,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(0.dp)
 ) {
     var sourceTotalPages by remember(defaultPdfFilename, virtualMapping) { mutableIntStateOf(0) }
     val effectiveTotalPages = if (virtualMapping != null) {
@@ -517,7 +518,8 @@ fun UnifiedReferenceViewer(
         onOpenSheetNavigator = { showSheetNavigator = true },
         onSingleTap = onSingleTap,
         compactArrows = compactArrows,
-        preferDarkMode = preferDarkMode
+        preferDarkMode = preferDarkMode,
+        contentPadding = contentPadding
     )
 
     LaunchedEffect(tocRequestToken) {

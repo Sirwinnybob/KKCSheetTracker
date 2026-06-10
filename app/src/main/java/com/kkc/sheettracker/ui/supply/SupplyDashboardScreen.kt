@@ -101,7 +101,7 @@ fun SupplyDashboardScreen(
     val subscriptionData by subscriptionManager.subscriptionData.collectAsState()
     val notificationCount by subscriptionManager.notificationCount.collectAsState()
     var notifications by remember { mutableStateOf<List<SupplyNotificationItem>>(emptyList()) }
-    val pagerState = rememberPagerState(pageCount = { (categories.size + 1).coerceAtLeast(1) })
+    val pagerState = rememberPagerState(pageCount = { (categories.size + 2).coerceAtLeast(2) })
     val statusSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     suspend fun loadData() {
@@ -126,8 +126,8 @@ fun SupplyDashboardScreen(
     LaunchedEffect(basePath) { loadData() }
     LaunchedEffect(items, subscriptionData) { reloadUpdates() }
 
-    val currentCategoryId = if (!isLoading && searchQuery.isBlank() && categories.isNotEmpty() && pagerState.currentPage > 0) {
-        categories.getOrNull(pagerState.currentPage - 1)?.id
+    val currentCategoryId = if (!isLoading && searchQuery.isBlank() && categories.isNotEmpty() && pagerState.currentPage > 1) {
+        categories.getOrNull(pagerState.currentPage - 2)?.id
     } else null
 
     DashboardShell(
@@ -153,8 +153,8 @@ fun SupplyDashboardScreen(
                             showAddCategoryDialog = true
                         }
                     )
-                    if (pagerState.currentPage > 0) {
-                        val currentCat = categories.getOrNull(pagerState.currentPage - 1)
+                    if (pagerState.currentPage > 1) {
+                        val currentCat = categories.getOrNull(pagerState.currentPage - 2)
                         if (currentCat != null) {
                             val isSubscribed = subscriptionData.subscribedCategoryIds.contains(currentCat.id)
                             DropdownMenuItem(
@@ -243,11 +243,27 @@ fun SupplyDashboardScreen(
                                 }
                             }
                         )
+                        val attentionCount = items.count { (SUPPLY_STATUS_PRIORITY[it.status] ?: 99) < 5 }
+                        Tab(
+                            selected = pagerState.currentPage == 1,
+                            onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text("Needs Attention")
+                                    if (attentionCount > 0) {
+                                        Badge { Text(attentionCount.toString()) }
+                                    }
+                                }
+                            }
+                        )
                         categories.forEachIndexed { index, category ->
                             val isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id)
                             Tab(
-                                selected = pagerState.currentPage == index + 1,
-                                onClick = { scope.launch { pagerState.animateScrollToPage(index + 1) } },
+                                selected = pagerState.currentPage == index + 2,
+                                onClick = { scope.launch { pagerState.animateScrollToPage(index + 2) } },
                                 text = {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -272,17 +288,24 @@ fun SupplyDashboardScreen(
                     state = pagerState,
                     modifier = Modifier.weight(1f)
                 ) { page ->
-                    if (page == 0) {
-                        UpdatesPage(
-                            notifications = notifications,
-                            categories = categories,
-                            navController = navController,
-                            subscriptionManager = subscriptionManager,
-                            reloadUpdates = { scope.launch { reloadUpdates() } },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        val category = categories.getOrNull(page - 1)
+                    when (page) {
+                    0 -> UpdatesPage(
+                        notifications = notifications,
+                        categories = categories,
+                        navController = navController,
+                        subscriptionManager = subscriptionManager,
+                        reloadUpdates = { scope.launch { reloadUpdates() } },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    1 -> NeedsAttentionPage(
+                        items = items,
+                        categories = categories,
+                        navController = navController,
+                        onLongPress = { item -> statusSheetItem = items.firstOrNull { it.id == item.id } },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    else -> {
+                        val category = categories.getOrNull(page - 2)
                         if (category == null) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("No category")
@@ -292,7 +315,8 @@ fun SupplyDashboardScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .verticalScroll(rememberScrollState()),
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(bottom = 160.dp),
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
                                 DashboardWidgetRenderer(
@@ -315,6 +339,7 @@ fun SupplyDashboardScreen(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -394,7 +419,7 @@ private fun UpdatesPage(
     val scope = rememberCoroutineScope()
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(bottom = 16.dp),
+        contentPadding = PaddingValues(bottom = 160.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
@@ -517,4 +542,98 @@ private fun supplyAccent(status: String): DashboardAccent = when (status.upperca
     "ORDERED", "IN PROCESS", "ACKNOWLEDGED" -> DashboardAccent.INFO
     "IN STOCK", "COMPLETE", "RECEIVED" -> DashboardAccent.SUCCESS
     else -> DashboardAccent.NEUTRAL
+}
+
+private data class AttentionTier(
+    val title: String,
+    val statuses: Set<String>,
+    val accent: DashboardAccent
+)
+
+private val ATTENTION_TIERS = listOf(
+    AttentionTier("Critical", setOf("OUT", "ASAP"), DashboardAccent.DANGER),
+    AttentionTier("Urgent", setOf("MALFUNCTIONING", "NEED"), DashboardAccent.DANGER),
+    AttentionTier("Low Stock", setOf("LOW"), DashboardAccent.WARNING),
+    AttentionTier("In Progress", setOf("ORDERED", "IN PROCESS", "ACKNOWLEDGED"), DashboardAccent.INFO),
+)
+
+@Composable
+private fun NeedsAttentionPage(
+    items: List<SupplyItem>,
+    categories: List<SupplyCategory>,
+    navController: NavHostController,
+    onLongPress: (DashboardInventoryItemModel) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val categoryMap = remember(categories) { categories.associateBy { it.id } }
+
+    val tierGroups = remember(items) {
+        ATTENTION_TIERS.mapNotNull { tier ->
+            val tierItems = items
+                .filter { it.status.uppercase() in tier.statuses }
+                .sortedWith(compareBy({ categoryMap[it.categoryId]?.name ?: "" }, { it.name }))
+            if (tierItems.isEmpty()) null else tier to tierItems
+        }
+    }
+
+    if (tierGroups.isEmpty()) {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("All Clear", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "No items need attention right now",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 160.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        tierGroups.forEach { (tier, tierItems) ->
+            DashboardWidgetRenderer(
+                widgets = listOf(
+                    DashboardWidgetModel.InventoryBlock(
+                        key = "attention-${tier.title}",
+                        title = tier.title,
+                        subtitle = "${tierItems.size} item${if (tierItems.size == 1) "" else "s"}",
+                        items = tierItems.map { item ->
+                            val categoryName = categoryMap[item.categoryId]?.name
+                            val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
+                            val supporting = listOfNotNull(
+                                categoryName,
+                                quantity?.let { "Qty $it" },
+                                item.notes?.takeIf { it.isNotBlank() }
+                            ).joinToString(" • ").ifBlank { null }
+                            DashboardInventoryItemModel(
+                                id = item.id,
+                                title = item.name,
+                                subtitle = item.status,
+                                supportingText = supporting,
+                                badge = item.status,
+                                accent = supplyAccent(item.status)
+                            )
+                        }
+                    )
+                ),
+                onItemClick = { item ->
+                    if (item is DashboardInventoryItemModel) {
+                        navController.navigate("supply/item/${item.id}")
+                    }
+                },
+                onItemLongPress = { item ->
+                    if (item is DashboardInventoryItemModel) onLongPress(item)
+                }
+            )
+        }
+    }
 }

@@ -883,7 +883,7 @@ fun HardwoodsWorkspaceScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 18.dp),
+                        contentPadding = PaddingValues(bottom = 100.dp),
                         verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         partSections.forEach { section ->
@@ -1653,7 +1653,7 @@ private fun HardwoodsBoardStockList(
 
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(bottom = 18.dp),
+        contentPadding = PaddingValues(bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         // ── Admin board stock section (server-entered items) ──────────────────

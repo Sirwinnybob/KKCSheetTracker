@@ -310,7 +310,7 @@ fun HardwoodsJobsScreen(
                 val pendingUiStates = hardwoodsUiStates.filter { it.job.boardSection == 1 }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(activeUiStates, key = { "active_${it.job.folderName}" }) { uiState ->

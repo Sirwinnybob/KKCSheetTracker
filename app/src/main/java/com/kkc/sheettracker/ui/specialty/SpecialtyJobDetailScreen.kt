@@ -60,8 +60,11 @@ import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
+import com.kkc.sheettracker.ui.components.NavBarSpecialtyDecoration
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.completionKeysForItem
 import com.kkc.sheettracker.data.models.RefreshReason
@@ -150,6 +153,16 @@ fun SpecialtyJobDetailScreen(
     val completedItems = resolvedItems.count { isChecklistItemComplete(it, completionOverrides) }
     val totalItems = resolvedItems.size
 
+    val navBarDeco = LocalNavBarDecoration.current
+    DisposableEffect(navBarDeco) {
+        onDispose { navBarDeco.specialtyDecoration = null }
+    }
+    SideEffect {
+        navBarDeco.specialtyDecoration = NavBarSpecialtyDecoration(
+            onAddItem = { editingItem = null; showAddSheet = true }
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
@@ -162,23 +175,13 @@ fun SpecialtyJobDetailScreen(
                 }
             )
         },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { editingItem = null; showAddSheet = true }
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = "Add Item"
-                )
-            }
-        }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
             state = listState,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "summary") {

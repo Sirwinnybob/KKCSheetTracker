@@ -57,6 +57,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
@@ -104,8 +107,11 @@ import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import com.kkc.sheettracker.ui.components.StatusChip
-import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import com.kkc.sheettracker.ui.theme.KKCSpacing
+import dev.chrisbanes.haze.HazeDefaults
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
 import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
 import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageMapping
 import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageSource
@@ -617,10 +623,16 @@ fun AssemblyViewerScreen(
                 )
         }
     ) { padding ->
+        val isLandscape = LocalConfiguration.current.screenWidthDp > LocalConfiguration.current.screenHeightDp
+        val animatedTopPad by animateDpAsState(
+            targetValue = if (showUi) padding.calculateTopPadding() else 0.dp,
+            animationSpec = tween(220),
+            label = "scaffoldTopPad"
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(top = animatedTopPad, bottom = padding.calculateBottomPadding(), start = 0.dp, end = 0.dp)
                 .padding(horizontal = 2.dp, vertical = 2.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -809,7 +821,7 @@ fun AssemblyViewerScreen(
                     FullscreenPane.NONE -> {
                         AdaptiveSplitLayout(
                             modifier = Modifier.fillMaxSize(),
-                            initialFirstWeight = 0.5f,
+                            initialFirstWeight = if (isLandscape) 0.5f else 0.47f,
                             firstContent = { paneModifier ->
                                 PdfPaneWithFloatingControls(
                                     modifier = paneModifier,
@@ -880,6 +892,8 @@ fun AssemblyViewerScreen(
                                     onToggleFullscreen = { fullscreenPane = FullscreenPane.FIRST },
                                     showControls = showUi,
                                     onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
+                                    // In portrait the first pane's bottom edge is the divider, not the nav bar
+                                    hasNavBarBelow = isLandscape,
                                     customContent = if (firstPaneSource == PaneSource.CHECKLIST) {{
                                         ChecklistPane(
                                             modifier = Modifier.fillMaxSize(),
@@ -1103,35 +1117,52 @@ private fun PdfPaneWithFloatingControls(
     showControls: Boolean = true,
     onSingleTap: (() -> Unit)? = null,
     compactArrows: Boolean = false,
-    customContent: (@Composable () -> Unit)? = null
+    customContent: (@Composable () -> Unit)? = null,
+    // true for fullscreen panes and the bottom/right pane in split view (nav bar below them);
+    // false for the top pane in portrait split (bottom edge is the divider, not the nav bar)
+    hasNavBarBelow: Boolean = true
 ) {
-    // Animate the PDF content insets:
-    // showControls=true  → inset from top (control bar ~58dp) and bottom (nav bar ~88dp)
-    // showControls=false → 0dp both sides → true edge-to-edge full screen
-    val topContentPad by animateDpAsState(
+    // Two truly independent inset layers:
+    //
+    // Layer 1 — canvasPad (modifier): sizes the white Surface itself.
+    //   8dp from every screen edge when UI is visible → consistent canvas frame.
+    //   Collapses to 0dp when UI is hidden → true edge-to-edge full screen.
+    //
+    // Layer 2 — contentPadding (inside the Surface): positions the PDF fit-to-page
+    //   between the floating control pill and the nav bar. The Surface stays full-size;
+    //   only the PDF content origin shifts. ZoomablePdfImage's graphicsLayer transforms
+    //   can pan/zoom back into the bar areas (the Surface is not clipped to the content area).
+    val canvasPad by animateDpAsState(
+        targetValue = if (showControls) 8.dp else 0.dp,
+        animationSpec = tween(220),
+        label = "canvasPad"
+    )
+    val topBarPad by animateDpAsState(
         targetValue = if (showControls) 58.dp else 0.dp,
         animationSpec = tween(220),
-        label = "pdfTopPad"
+        label = "topBarPad"
     )
-    val botContentPad by animateDpAsState(
-        targetValue = if (showControls) 88.dp else 0.dp,
+    val botBarPad by animateDpAsState(
+        targetValue = if (showControls && hasNavBarBelow) 112.dp else 0.dp,
         animationSpec = tween(220),
-        label = "pdfBotPad"
+        label = "botBarPad"
     )
+    val hazeState = remember { HazeState() }
 
-    // Root Box fills the full pane including the area behind the top pill and bottom nav bar.
-    // The app background extends consistently behind both overlays.
+    // Root Box: blue-grey background fills the full pane edge-to-edge.
+    // The canvasPad inset reveals that blue-grey as a consistent 8dp border on all sides.
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // PDF content scales between the top control pill and the bottom nav bar pill
         if (customContent != null) {
-            Box(Modifier.fillMaxSize().padding(top = topContentPad, bottom = botContentPad)) {
+            Box(Modifier.fillMaxSize().padding(canvasPad).hazeSource(hazeState)) {
                 customContent()
             }
         } else {
             UnifiedReferenceViewer(
+                // canvasPad only — this is what sizes the white canvas
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = topContentPad, bottom = botContentPad),
+                    .padding(canvasPad)
+                    .hazeSource(hazeState),
                 displayPage = currentPage,
                 onDisplayPageChange = onCurrentPageChange,
                 defaultPdfFilename = pdfFilename.orEmpty(),
@@ -1155,27 +1186,45 @@ private fun PdfPaneWithFloatingControls(
                 innerPadding = 0.dp,
                 tocRequestToken = tocRequestToken,
                 onSingleTap = onSingleTap,
-                compactArrows = compactArrows
+                compactArrows = compactArrows,
+                // contentPadding only — shifts PDF fit-to-page between bars,
+                // independent of the canvas size
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    top = topBarPad,
+                    bottom = botBarPad,
+                    start = 0.dp,
+                    end = 0.dp
+                )
             )
         }
 
-        // Control pill overlays the top of the pane — slides in/out from the top edge
+        // Control pill: expands/collapses from centre like a CRT powering on/off
         AnimatedVisibility(
             visible = showControls,
-            enter = slideInVertically { -it },
-            exit = slideOutVertically { -it }
+            enter = expandVertically(animationSpec = tween(220), expandFrom = Alignment.CenterVertically),
+            exit = shrinkVertically(animationSpec = tween(180), shrinkTowards = Alignment.CenterVertically) +
+                   fadeOut(animationSpec = tween(160))
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.88f),
+                color = Color.Transparent,
                 shadowElevation = 4.dp,
                 tonalElevation = 0.dp,
-                shape = KKCShapeTokens.pill,
+                shape = MaterialTheme.shapes.medium,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 24.dp, top = 8.dp, end = 24.dp, bottom = 4.dp)
+                    .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = 4.dp)
             ) {
+                Box(
+                    modifier = Modifier.hazeEffect(
+                        hazeState,
+                        style = HazeDefaults.style(
+                            backgroundColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.88f),
+                            blurRadius = 25.dp
+                        )
+                    )
+                ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 0.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
@@ -1191,13 +1240,6 @@ private fun PdfPaneWithFloatingControls(
                     }
                     if (customContent == null) {
                         IconButton(
-                            onClick = { onCurrentPageChange((currentPage - 1).coerceAtLeast(1)) },
-                            enabled = totalPages > 0 && currentPage > 1,
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous", modifier = Modifier.size(20.dp))
-                        }
-                        IconButton(
                             onClick = onOpenToc,
                             enabled = totalPages > 0,
                             modifier = Modifier.size(38.dp)
@@ -1208,13 +1250,6 @@ private fun PdfPaneWithFloatingControls(
                             "$currentPage/${totalPages.coerceAtLeast(0)}",
                             style = MaterialTheme.typography.labelSmall
                         )
-                        IconButton(
-                            onClick = { onCurrentPageChange((currentPage + 1).coerceAtMost(totalPages.coerceAtLeast(1))) },
-                            enabled = totalPages > 0 && currentPage < totalPages,
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", modifier = Modifier.size(20.dp))
-                        }
                     }
                     IconButton(
                         onClick = onToggleFullscreen,
@@ -1226,6 +1261,7 @@ private fun PdfPaneWithFloatingControls(
                             modifier = Modifier.size(20.dp)
                         )
                     }
+                }
                 }
             }
         } // end AnimatedVisibility
@@ -1244,31 +1280,31 @@ private fun RowScope.PaneSourceControlsInline(
         selected = selectedSource == PaneSource.PLANS,
         onClick = { onSelectSource(PaneSource.PLANS) },
         label = { Text("Plans") },
-        shape = MaterialTheme.shapes.extraLarge
+        shape = MaterialTheme.shapes.small
     )
     FilterChip(
         selected = selectedSource == PaneSource.ASSEMBLY,
         onClick = { onSelectSource(PaneSource.ASSEMBLY) },
         label = { Text("Assembly") },
-        shape = MaterialTheme.shapes.extraLarge
+        shape = MaterialTheme.shapes.small
     )
     FilterChip(
         selected = selectedSource == PaneSource.DELIVERY,
         onClick = { onSelectSource(PaneSource.DELIVERY) },
         label = { Text("Delivery") },
-        shape = MaterialTheme.shapes.extraLarge
+        shape = MaterialTheme.shapes.small
     )
     FilterChip(
         selected = selectedSource == PaneSource.THREE_D,
         onClick = { onSelectSource(PaneSource.THREE_D) },
         label = { Text("3D") },
-        shape = MaterialTheme.shapes.extraLarge
+        shape = MaterialTheme.shapes.small
     )
     FilterChip(
         selected = selectedSource == PaneSource.CHECKLIST,
         onClick = { onSelectSource(PaneSource.CHECKLIST) },
         label = { Text("Checklist") },
-        shape = MaterialTheme.shapes.extraLarge
+        shape = MaterialTheme.shapes.small
     )
     if (!selectedOtherFilename.isNullOrBlank()) {
         FilterChip(
@@ -1281,11 +1317,11 @@ private fun RowScope.PaneSourceControlsInline(
                     overflow = TextOverflow.Ellipsis
                 )
             },
-            shape = MaterialTheme.shapes.extraLarge
+            shape = MaterialTheme.shapes.small
         )
     }
     if (hasOtherOptions) {
-        Button(onClick = onOpenOtherPicker) {
+        Button(onClick = onOpenOtherPicker, shape = MaterialTheme.shapes.small) {
             Text("Other Files")
         }
     }

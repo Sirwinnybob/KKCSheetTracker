@@ -80,7 +80,7 @@ fun ProgressPill(
     Box(
         modifier = modifier
             .height(22.dp)
-            .widthIn(min = 52.dp)
+            .widthIn(min = 52.dp, max = 80.dp)
             .shadow(elevation = 2.dp, shape = shape, clip = false)
             .clip(shape)
             .background(trackColor)
