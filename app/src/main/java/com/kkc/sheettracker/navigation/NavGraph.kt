@@ -84,7 +84,12 @@ import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
+import com.kkc.sheettracker.data.TimecardDiscovery
+import com.kkc.sheettracker.data.TimecardServerConfig
+import com.kkc.sheettracker.data.TimeclockMessagesRepository
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
+import com.kkc.sheettracker.ui.timecard.TimecardScreen
+import com.kkc.sheettracker.ui.timecard.TimecardStore
 import com.kkc.sheettracker.ui.assembly.AssemblyJobDetailScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
 import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
@@ -357,6 +362,11 @@ private fun MultiBackStackNavigation(
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
     val context = LocalContext.current
+    val timecardConfig = remember { TimecardServerConfig.create(context) }
+    val timecardDiscovery = remember { TimecardDiscovery(context) }
+    val timeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
+    val timecardStore = remember { TimecardStore(timecardConfig, timecardDiscovery, timeclockMessagesRepo) }
+    DisposableEffect(timecardStore) { onDispose { timecardStore.cancel() } }
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
     val specialtyRepository = remember(basePath, specialtyProgressStore) {
@@ -417,15 +427,16 @@ private fun MultiBackStackNavigation(
     val searchNavController = rememberNavController()
     val settingsNavController = rememberNavController()
     val hoursNavController = rememberNavController()
+    val timecardNavController = rememberNavController()
     val supplyNavController = rememberNavController()
     val homeTab = homeTopLevelTabForWorkMode(workMode)
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
-    var showHoursLoginDialog by remember { mutableStateOf(false) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
+    var showHoursLoginDialog by remember { mutableStateOf(false) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.SUPPLY, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.SETTINGS)
         } else {
             NavDestination.entries.filter { it != NavDestination.SEARCH }
         }
@@ -447,7 +458,7 @@ private fun MultiBackStackNavigation(
     androidx.compose.runtime.LaunchedEffect(isInViewer) { if (!isInViewer) viewerUiVisible = true }
     val navBarAlpha by animateFloatAsState(
         if (!isInViewer || viewerUiVisible) 1f else 0f,
-        tween(220), label = "navBarAlpha"
+        tween(286), label = "navBarAlpha"
     )
     val hazeState = remember { HazeState() }
     val navBarDeco = remember { NavBarDecorationState() }
@@ -473,6 +484,7 @@ private fun MultiBackStackNavigation(
         searchNavController,
         settingsNavController,
         hoursNavController,
+        timecardNavController,
         supplyNavController
     ) {
         NavigationCoordinator(
@@ -480,6 +492,7 @@ private fun MultiBackStackNavigation(
             jobsNavController = jobsNavController,
             searchNavController = searchNavController,
             hoursNavController = hoursNavController,
+            timecardNavController = timecardNavController,
             settingsNavController = settingsNavController,
             supplyNavController = supplyNavController,
             getHomeTab = { homeTab },
@@ -696,6 +709,18 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
+                androidx.compose.runtime.LaunchedEffect(selectedTab) {
+                    if (selectedTab == TopLevelTab.TIMECARD) {
+                        val pin = EmployeeDirectory.records.firstOrNull { it.name == employeeName }?.pin
+                        if (pin != null) timecardStore.autoFill(pin)
+                    } else {
+                        timecardStore.reset()
+                    }
+                }
+                TabLayer(visible = selectedTab == TopLevelTab.TIMECARD) {
+                    TimecardScreen(store = timecardStore)
+                }
+
                 TabLayer(visible = selectedTab == TopLevelTab.SETTINGS) {
                     SettingsTabHost(
                         navController = settingsNavController,
@@ -723,7 +748,8 @@ private fun MultiBackStackNavigation(
                         onSyncthingStartNow = onSyncthingStartNow,
                         onBack = {
                             coordinator.navigateTopLevel(homeTab)
-                        }
+                        },
+                        timecardConfig = timecardConfig
                     )
                 }
 
@@ -1604,7 +1630,8 @@ private fun SettingsTabHost(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    timecardConfig: TimecardServerConfig
 ) {
     NavHost(
         navController = navController,
@@ -1635,7 +1662,8 @@ private fun SettingsTabHost(
                 onSyncthingStartNow = onSyncthingStartNow,
                 onBack = onBack,
                 employeeName = employeeName,
-                onEmployeeNameChanged = onEmployeeNameChanged
+                onEmployeeNameChanged = onEmployeeNameChanged,
+                timecardConfig = timecardConfig
             )
         }
     }
@@ -1791,11 +1819,11 @@ private fun LegacySingleStackNavigation(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val startRoute = if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) "jobs" else "dashboard"
-    var showHoursLoginDialog by remember { mutableStateOf(false) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
+    var showHoursLoginDialog by remember { mutableStateOf(false) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.SUPPLY, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.SETTINGS)
         } else {
             NavDestination.entries.filter { it != NavDestination.SEARCH }
         }
@@ -1808,6 +1836,11 @@ private fun LegacySingleStackNavigation(
     }
 
     val legacyContext = LocalContext.current
+    val legacyTimecardConfig = remember { TimecardServerConfig.create(legacyContext) }
+    val legacyTimecardDiscovery = remember { TimecardDiscovery(legacyContext) }
+    val legacyTimeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
+    val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery, legacyTimeclockMessagesRepo) }
+    DisposableEffect(legacyTimecardStore) { onDispose { legacyTimecardStore.cancel() } }
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
             clockInState.clockIn(jobNumber, jobName, folderName, tabType)
@@ -1897,6 +1930,7 @@ private fun LegacySingleStackNavigation(
                 currentRoute?.startsWith("referenceViewer/") == true -> NavDestination.JOBS
             currentRoute == "search" -> NavDestination.SEARCH
             currentRoute == "hours" -> NavDestination.HOURS
+            currentRoute == "timecard" -> NavDestination.TIMECARD
             currentRoute?.startsWith("supply") == true -> NavDestination.SUPPLY
             currentRoute == "settings" -> NavDestination.SETTINGS
             else -> if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) NavDestination.JOBS else NavDestination.DASHBOARD
@@ -1912,7 +1946,7 @@ private fun LegacySingleStackNavigation(
     androidx.compose.runtime.LaunchedEffect(isInViewer) { if (!isInViewer) viewerUiVisible = true }
     val navBarAlpha by animateFloatAsState(
         if (!isInViewer || viewerUiVisible) 1f else 0f,
-        tween(220), label = "navBarAlpha"
+        tween(286), label = "navBarAlpha"
     )
     val hazeState = remember { HazeState() }
     val navBarDeco = remember { NavBarDecorationState() }
@@ -2651,6 +2685,19 @@ private fun LegacySingleStackNavigation(
                     Box(modifier = Modifier.fillMaxSize())
                 }
 
+                composable("timecard") {
+                    val autoFillPin = remember(employeeName) {
+                        EmployeeDirectory.records.firstOrNull { it.name == employeeName }?.pin
+                    }
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        if (autoFillPin != null) legacyTimecardStore.autoFill(autoFillPin)
+                    }
+                    DisposableEffect(Unit) {
+                        onDispose { legacyTimecardStore.reset() }
+                    }
+                    TimecardScreen(store = legacyTimecardStore)
+                }
+
                 composable("supply") {
                     SupplyTabHost(
                         navController = rememberNavController(),
@@ -2685,7 +2732,8 @@ private fun LegacySingleStackNavigation(
                         onSyncthingStartNow = onSyncthingStartNow,
                         onBack = { navController.popBackStack() },
                         employeeName = employeeName,
-                        onEmployeeNameChanged = onEmployeeNameChanged
+                        onEmployeeNameChanged = onEmployeeNameChanged,
+                        timecardConfig = legacyTimecardConfig
                     )
                 }
                 }
@@ -2912,48 +2960,6 @@ private fun isCurrentViewerTarget(
     return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page
 }
 
-@Composable
-private fun HoursTabHost(
-    navController: NavHostController,
-    employeeName: String,
-    isTabSelected: Boolean
-) {
-    val context = LocalContext.current
-    var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
-    var showLoginDialog by remember { mutableStateOf(false) }
-
-    androidx.compose.runtime.LaunchedEffect(isTabSelected) {
-        if (isTabSelected) {
-            if (sessionName != null) {
-                launchTimecardApp(context, sessionName)
-            } else {
-                showLoginDialog = true
-            }
-        }
-    }
-
-    if (showLoginDialog) {
-        HoursLoginDialog(
-            onLogin = { name ->
-                sessionName = name
-                showLoginDialog = false
-                launchTimecardApp(context, name)
-            },
-            onDismiss = { showLoginDialog = false }
-        )
-    }
-
-    NavHost(
-        navController = navController,
-        startDestination = "hours",
-        modifier = Modifier.fillMaxSize()
-    ) {
-        composable("hours") {
-            Box(modifier = Modifier.fillMaxSize())
-        }
-    }
-}
-
 private data class PendingClockOut(
     val jobName: String,
     val jobNumber: String,
@@ -3034,6 +3040,42 @@ private fun ClockOutEditDialog(
             }
         }
     )
+}
+
+@Composable
+private fun HoursTabHost(
+    navController: NavHostController,
+    employeeName: String,
+    isTabSelected: Boolean
+) {
+    val context = LocalContext.current
+    var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
+    var showLoginDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isTabSelected) {
+        if (isTabSelected) {
+            if (sessionName != null) {
+                launchTimecardApp(context, sessionName)
+            } else {
+                showLoginDialog = true
+            }
+        }
+    }
+
+    if (showLoginDialog) {
+        HoursLoginDialog(
+            onLogin = { name ->
+                sessionName = name
+                showLoginDialog = false
+                launchTimecardApp(context, name)
+            },
+            onDismiss = { showLoginDialog = false }
+        )
+    }
+
+    NavHost(navController = navController, startDestination = "hours", modifier = Modifier.fillMaxSize()) {
+        composable("hours") { Box(modifier = Modifier.fillMaxSize()) }
+    }
 }
 
 private fun launchTimecardApp(

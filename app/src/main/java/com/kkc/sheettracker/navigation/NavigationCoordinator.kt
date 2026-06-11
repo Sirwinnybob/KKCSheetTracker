@@ -14,6 +14,7 @@ enum class TopLevelTab(val route: String) {
     JOBS("jobs"),
     SEARCH("search"),
     HOURS("hours"),
+    TIMECARD("timecard"),
     SETTINGS("settings"),
     SUPPLY("supply");
 
@@ -24,6 +25,7 @@ enum class TopLevelTab(val route: String) {
                 NavDestination.JOBS -> JOBS
                 NavDestination.SEARCH -> SEARCH
                 NavDestination.HOURS -> HOURS
+                NavDestination.TIMECARD -> TIMECARD
                 NavDestination.SETTINGS -> SETTINGS
                 NavDestination.SUPPLY -> SUPPLY
             }
@@ -35,6 +37,7 @@ enum class TopLevelTab(val route: String) {
                 JOBS -> NavDestination.JOBS
                 SEARCH -> NavDestination.SEARCH
                 HOURS -> NavDestination.HOURS
+                TIMECARD -> NavDestination.TIMECARD
                 SETTINGS -> NavDestination.SETTINGS
                 SUPPLY -> NavDestination.SUPPLY
             }
@@ -47,6 +50,7 @@ class NavigationCoordinator(
     private val jobsNavController: NavHostController,
     private val searchNavController: NavHostController,
     private val hoursNavController: NavHostController,
+    private val timecardNavController: NavHostController,
     private val settingsNavController: NavHostController,
     private val supplyNavController: NavHostController,
     private val getHomeTab: () -> TopLevelTab,
@@ -62,6 +66,7 @@ class NavigationCoordinator(
             TopLevelTab.JOBS -> jobsNavController
             TopLevelTab.SEARCH -> searchNavController
             TopLevelTab.HOURS -> hoursNavController
+            TopLevelTab.TIMECARD -> timecardNavController
             TopLevelTab.SETTINGS -> settingsNavController
             TopLevelTab.SUPPLY -> supplyNavController
         }

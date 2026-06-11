@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -17,10 +18,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.EmployeeDirectory
+import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
@@ -50,6 +53,7 @@ fun SettingsScreen(
     onEmployeeNameChanged: (String) -> Unit,
     useStandardSheets: Boolean = false,
     onUseStandardSheetsChanged: (Boolean) -> Unit = {},
+    timecardConfig: TimecardServerConfig,
 ) {
     var editTabletId by remember { mutableStateOf(tabletId) }
     var editBasePath by remember { mutableStateOf(basePath) }
@@ -72,6 +76,11 @@ fun SettingsScreen(
     var tabletSaved by remember { mutableStateOf(false) }
     var basePathSaved by remember { mutableStateOf(false) }
     var syncthingApiKeySaved by remember { mutableStateOf(false) }
+    val currentServerIp by timecardConfig.serverIpFlow.collectAsState(initial = null)
+    var editServerIp by remember(currentServerIp) { mutableStateOf(currentServerIp ?: "") }
+    var serverIpDirty by remember(currentServerIp) { mutableStateOf(false) }
+    var serverIpSaved by remember { mutableStateOf(false) }
+    val timecardScope = rememberCoroutineScope()
 
     LaunchedEffect(tabletSaved) {
         if (tabletSaved) {
@@ -97,6 +106,12 @@ fun SettingsScreen(
             employeeNameSaved = false
         }
     }
+    LaunchedEffect(serverIpSaved) {
+        if (serverIpSaved) {
+            delay(1600)
+            serverIpSaved = false
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -119,7 +134,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             SettingsSection(title = "Appearance", accentColor = MaterialTheme.colorScheme.primary) {
@@ -442,6 +457,52 @@ fun SettingsScreen(
                         enabled = syncthingApiKey.isNotBlank()
                     ) {
                         Text("Start Now")
+                    }
+                }
+            }
+
+            SettingsSection(
+                title = "Timeclock",
+                accentColor = MaterialTheme.colorScheme.secondary
+            ) {
+                OutlinedTextField(
+                    value = editServerIp,
+                    onValueChange = {
+                        editServerIp = it
+                        serverIpDirty = (it.trim() != (currentServerIp ?: ""))
+                    },
+                    label = { Text("Server IP address") },
+                    placeholder = { Text("Auto (mDNS discovery)") },
+                    supportingText = { Text("Leave blank to use automatic discovery. Enter an IP to skip mDNS.") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (serverIpSaved) {
+                        Text(
+                            "Saved",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            timecardScope.launch {
+                                timecardConfig.setManualIp(editServerIp.ifBlank { null })
+                            }
+                            serverIpDirty = false
+                            serverIpSaved = true
+                        },
+                        enabled = serverIpDirty
+                    ) {
+                        Text("Save")
                     }
                 }
             }

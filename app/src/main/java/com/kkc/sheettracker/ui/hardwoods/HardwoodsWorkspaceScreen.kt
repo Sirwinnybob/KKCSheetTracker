@@ -183,8 +183,7 @@ fun HardwoodsWorkspaceScreen(
         scanState.snapshot.jobs.firstOrNull { it.folderName == jobFolderName }
     }
     val documents = remember(job?.index) { job?.index?.documents.orEmpty() }
-    // Populated asynchronously on IO so getJobRootPdfFile (disk probe) never blocks composition.
-    val availableDocuments = remember(documents, jobFolderName, isDarkTheme) { mutableStateListOf<com.kkc.sheettracker.data.models.HardwoodDocumentIndex>() }
+    var availableDocuments by remember(documents, jobFolderName, isDarkTheme) { mutableStateOf<List<com.kkc.sheettracker.data.models.HardwoodDocumentIndex>>(emptyList()) }
     LaunchedEffect(documents, jobFolderName, isDarkTheme) {
         val filtered = withContext(Dispatchers.IO) {
             documents.filter { doc ->
@@ -196,8 +195,7 @@ fun HardwoodsWorkspaceScreen(
                     ) != null
             }
         }
-        availableDocuments.clear()
-        availableDocuments.addAll(filtered)
+        availableDocuments = filtered
     }
     val isRipCutEntry = initialRowId == HARDWOODS_RIP_CUT_LIST_ROW_ID
     val isDoorPanelsEntry = initialRowId == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
