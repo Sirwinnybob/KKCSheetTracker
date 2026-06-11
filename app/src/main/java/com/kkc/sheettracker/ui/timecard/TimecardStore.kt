@@ -5,6 +5,8 @@ import com.kkc.sheettracker.data.PunchStatus
 import com.kkc.sheettracker.data.TimecardDiscovery
 import com.kkc.sheettracker.data.TimecardRepository
 import com.kkc.sheettracker.data.TimecardServerConfig
+import com.kkc.sheettracker.data.TimeclockMessagesRepository
+import java.time.LocalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,7 +33,8 @@ sealed class TimecardUiState {
 
 class TimecardStore(
     private val config: TimecardServerConfig,
-    private val discovery: TimecardDiscovery
+    private val discovery: TimecardDiscovery,
+    private val messagesRepo: TimeclockMessagesRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -119,7 +122,18 @@ class TimecardStore(
         try {
             val status = repo?.getStatus(pin)
             (_state.value as? TimecardUiState.Ready)?.let {
-                _state.value = it.copy(punchStatus = status, isLoading = false)
+                // If local employee list was empty at startup, fall back to name from server status
+                val matched = it.matchedEmployee
+                    ?: if (status?.found == true && status.name != null)
+                        EmployeeInfo(pin = pin, name = status.name, displayName = status.displayName ?: "")
+                    else null
+                _state.value = it.copy(punchStatus = status, isLoading = false, matchedEmployee = matched)
+            }
+            if (status?.found == false) {
+                delay(1000)
+                (_state.value as? TimecardUiState.Ready)?.let {
+                    if (it.pin == pin) _state.value = it.copy(pin = "", matchedEmployee = null, punchStatus = null)
+                }
             }
         } catch (e: Exception) {
             (_state.value as? TimecardUiState.Ready)?.let {
@@ -138,11 +152,11 @@ class TimecardStore(
             try {
                 val result = repo?.punch(pin) ?: return@launch
                 val isClockIn = result.action == "in"
+                val isLunch = isLunchTime()
                 val message = if (isClockIn) {
-                    "Clocked in! Have a great shift."
+                    messagesRepo.clockInMessage(isLunch)
                 } else {
-                    result.hoursWorked?.let { "You worked ${"%.1f".format(it)} hrs today. See you!" }
-                        ?: "Clocked out."
+                    messagesRepo.clockOutMessage(isLunch, result.hoursWorked)
                 }
                 (_state.value as? TimecardUiState.Ready)?.let {
                     _state.value = it.copy(
@@ -151,7 +165,7 @@ class TimecardStore(
                         resultIsClockIn = isClockIn
                     )
                 }
-                delay(2500)
+                delay(5500)
                 (_state.value as? TimecardUiState.Ready)?.let {
                     _state.value = it.copy(
                         pin = "",
@@ -167,10 +181,45 @@ class TimecardStore(
                         resultMessage = "Error — please try again."
                     )
                 }
-                delay(2500)
+                delay(5500)
                 (_state.value as? TimecardUiState.Ready)?.let {
                     _state.value = it.copy(resultMessage = null)
                 }
+            }
+        }
+    }
+
+    private fun isLunchTime(): Boolean {
+        val now = LocalTime.now()
+        val minutes = now.hour * 60 + now.minute
+        return minutes in 675..795  // 11:15 AM to 1:15 PM
+    }
+
+    fun reset() {
+        val current = _state.value as? TimecardUiState.Ready ?: return
+        _state.value = current.copy(
+            pin = "",
+            matchedEmployee = null,
+            punchStatus = null,
+            isLoading = false,
+            resultMessage = null
+        )
+    }
+
+    fun autoFill(pin: String) {
+        if (pin.length != 3) return
+        scope.launch {
+            // Wait up to 2s for Ready state (server may still be discovering)
+            repeat(20) {
+                if (_state.value is TimecardUiState.Ready) return@repeat
+                delay(100)
+            }
+            val current = _state.value as? TimecardUiState.Ready ?: return@launch
+            if (current.pin.isNotEmpty() || current.isLoading || current.resultMessage != null) return@launch
+            delay(350)
+            for (digit in pin) {
+                digitPressed(digit.toString())
+                delay(130)
             }
         }
     }

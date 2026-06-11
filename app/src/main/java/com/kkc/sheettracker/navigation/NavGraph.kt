@@ -86,6 +86,7 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.data.TimecardDiscovery
 import com.kkc.sheettracker.data.TimecardServerConfig
+import com.kkc.sheettracker.data.TimeclockMessagesRepository
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
 import com.kkc.sheettracker.ui.timecard.TimecardScreen
 import com.kkc.sheettracker.ui.timecard.TimecardStore
@@ -363,7 +364,8 @@ private fun MultiBackStackNavigation(
     val context = LocalContext.current
     val timecardConfig = remember { TimecardServerConfig.create(context) }
     val timecardDiscovery = remember { TimecardDiscovery(context) }
-    val timecardStore = remember { TimecardStore(timecardConfig, timecardDiscovery) }
+    val timeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
+    val timecardStore = remember { TimecardStore(timecardConfig, timecardDiscovery, timeclockMessagesRepo) }
     DisposableEffect(timecardStore) { onDispose { timecardStore.cancel() } }
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
@@ -456,7 +458,7 @@ private fun MultiBackStackNavigation(
     androidx.compose.runtime.LaunchedEffect(isInViewer) { if (!isInViewer) viewerUiVisible = true }
     val navBarAlpha by animateFloatAsState(
         if (!isInViewer || viewerUiVisible) 1f else 0f,
-        tween(220), label = "navBarAlpha"
+        tween(286), label = "navBarAlpha"
     )
     val hazeState = remember { HazeState() }
     val navBarDeco = remember { NavBarDecorationState() }
@@ -707,6 +709,14 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
+                androidx.compose.runtime.LaunchedEffect(selectedTab) {
+                    if (selectedTab == TopLevelTab.TIMECARD) {
+                        val pin = EmployeeDirectory.records.firstOrNull { it.name == employeeName }?.pin
+                        if (pin != null) timecardStore.autoFill(pin)
+                    } else {
+                        timecardStore.reset()
+                    }
+                }
                 TabLayer(visible = selectedTab == TopLevelTab.TIMECARD) {
                     TimecardScreen(store = timecardStore)
                 }
@@ -1828,7 +1838,8 @@ private fun LegacySingleStackNavigation(
     val legacyContext = LocalContext.current
     val legacyTimecardConfig = remember { TimecardServerConfig.create(legacyContext) }
     val legacyTimecardDiscovery = remember { TimecardDiscovery(legacyContext) }
-    val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery) }
+    val legacyTimeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
+    val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery, legacyTimeclockMessagesRepo) }
     DisposableEffect(legacyTimecardStore) { onDispose { legacyTimecardStore.cancel() } }
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
@@ -1935,7 +1946,7 @@ private fun LegacySingleStackNavigation(
     androidx.compose.runtime.LaunchedEffect(isInViewer) { if (!isInViewer) viewerUiVisible = true }
     val navBarAlpha by animateFloatAsState(
         if (!isInViewer || viewerUiVisible) 1f else 0f,
-        tween(220), label = "navBarAlpha"
+        tween(286), label = "navBarAlpha"
     )
     val hazeState = remember { HazeState() }
     val navBarDeco = remember { NavBarDecorationState() }
@@ -2675,6 +2686,15 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable("timecard") {
+                    val autoFillPin = remember(employeeName) {
+                        EmployeeDirectory.records.firstOrNull { it.name == employeeName }?.pin
+                    }
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        if (autoFillPin != null) legacyTimecardStore.autoFill(autoFillPin)
+                    }
+                    DisposableEffect(Unit) {
+                        onDispose { legacyTimecardStore.reset() }
+                    }
                     TimecardScreen(store = legacyTimecardStore)
                 }
 

@@ -26,8 +26,10 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.foundation.shape.CircleShape
+import com.kkc.sheettracker.ui.timecard.BgPickerSheet
+import com.kkc.sheettracker.ui.timecard.TimecardIcon
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
@@ -71,7 +73,7 @@ enum class NavDestination(
     JOBS("jobs", "Jobs", Icons.AutoMirrored.Filled.List, Icons.AutoMirrored.Outlined.List),
     SEARCH("search", "Search", Icons.Filled.Search, Icons.Outlined.Search),
     HOURS("hours", "Hours", Icons.Filled.AccessTime, Icons.Outlined.AccessTime),
-    TIMECARD("timecard", "Timecard", Icons.Filled.Timer, Icons.Outlined.Timer),
+    TIMECARD("timecard", "Timeclock", TimecardIcon, TimecardIcon),
     SUPPLY("supply", "Supply", Icons.Filled.ShoppingCart, Icons.Outlined.ShoppingCart),
     SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
@@ -91,11 +93,16 @@ fun AppBottomNavBar(
     specialtyDecoration: NavBarSpecialtyDecoration? = null,
     modifier: Modifier = Modifier
 ) {
+    var showBgPicker by remember { mutableStateOf(false) }
+    if (showBgPicker) {
+        BgPickerSheet(onDismiss = { showBgPicker = false })
+    }
+
     Box(modifier = modifier.fillMaxWidth()) {
         AnimatedVisibility(
             visible = !minimized,
-            enter = slideInVertically(tween(200)) { it },
-            exit = slideOutVertically(tween(200)) { it },
+            enter = slideInVertically(tween(260)) { it },
+            exit = slideOutVertically(tween(260)) { it },
             modifier = Modifier.fillMaxWidth()
         ) {
             Box(
@@ -153,7 +160,9 @@ fun AppBottomNavBar(
                                 onClick = { onNavigate(dest) },
                                 icon = if (selected) dest.selectedIcon else dest.unselectedIcon,
                                 label = dest.label,
-                                badgeCount = if (dest == NavDestination.SUPPLY) supplyNotificationCount else 0
+                                badgeCount = if (dest == NavDestination.SUPPLY) supplyNotificationCount else 0,
+                                showEditOverlay = dest == NavDestination.TIMECARD && selected,
+                                onEditClick = { showBgPicker = true }
                             )
                         }
                     }
@@ -164,8 +173,8 @@ fun AppBottomNavBar(
 
         AnimatedVisibility(
             visible = minimized,
-            enter = slideInVertically(tween(200)) { it },
-            exit = slideOutVertically(tween(200)) { it },
+            enter = slideInVertically(tween(260)) { it },
+            exit = slideOutVertically(tween(260)) { it },
             modifier = Modifier.fillMaxWidth()
         ) {
             MinimizedNavBar(
@@ -178,7 +187,8 @@ fun AppBottomNavBar(
                 hazeState = hazeState,
                 searchDecoration = searchDecoration,
                 cncDecoration = cncDecoration,
-                specialtyDecoration = specialtyDecoration
+                specialtyDecoration = specialtyDecoration,
+                onTimeclockBgEdit = { showBgPicker = true }
             )
         }
     }
@@ -194,27 +204,38 @@ private fun FullNavItem(
     onClick: () -> Unit,
     icon: ImageVector,
     label: String,
-    badgeCount: Int = 0
+    badgeCount: Int = 0,
+    showEditOverlay: Boolean = false,
+    onEditClick: () -> Unit = {}
 ) {
     val indicatorShape = MaterialTheme.shapes.extraLarge
     val selectedTint = MaterialTheme.colorScheme.primary
     val unselectedTint = MaterialTheme.colorScheme.onSurfaceVariant
     val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
 
-    Column(
-        modifier = Modifier
-            .clip(indicatorShape)
-            .background(
-                color = if (selected) indicatorColor else Color.Transparent,
-                shape = indicatorShape
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
-    ) {
-        if (badgeCount > 0) {
-            BadgedBox(badge = { Badge { Text(badgeCount.toString()) } }) {
+    Box {
+        Column(
+            modifier = Modifier
+                .clip(indicatorShape)
+                .background(
+                    color = if (selected) indicatorColor else Color.Transparent,
+                    shape = indicatorShape
+                )
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            if (badgeCount > 0) {
+                BadgedBox(badge = { Badge { Text(badgeCount.toString()) } }) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        modifier = Modifier.size(22.dp),
+                        tint = if (selected) selectedTint else unselectedTint
+                    )
+                }
+            } else {
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
@@ -222,20 +243,41 @@ private fun FullNavItem(
                     tint = if (selected) selectedTint else unselectedTint
                 )
             }
-        } else {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                modifier = Modifier.size(22.dp),
-                tint = if (selected) selectedTint else unselectedTint
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) selectedTint else unselectedTint
             )
         }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) selectedTint else unselectedTint
-        )
+        if (showEditOverlay) {
+            NavEditBadge(onClick = onEditClick, modifier = Modifier.align(Alignment.TopEnd))
+        }
+    }
+}
+
+@Composable
+private fun NavEditBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.TopEnd
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Edit,
+                contentDescription = "Edit background",
+                modifier = Modifier.size(10.dp),
+                tint = Color.White
+            )
+        }
     }
 }
 
@@ -252,7 +294,8 @@ private fun MinimizedNavBar(
     hazeState: HazeState? = null,
     searchDecoration: NavBarSearchDecoration? = null,
     cncDecoration: NavBarCncDecoration? = null,
-    specialtyDecoration: NavBarSpecialtyDecoration? = null
+    specialtyDecoration: NavBarSpecialtyDecoration? = null,
+    onTimeclockBgEdit: () -> Unit = {}
 ) {
     Box(
         modifier = Modifier
@@ -266,7 +309,7 @@ private fun MinimizedNavBar(
     ) {
         val cornerRadius by animateDpAsState(
             targetValue = if (searchDecoration != null || cncDecoration != null || specialtyDecoration != null) 26.dp else 999.dp,
-            animationSpec = tween(220),
+            animationSpec = tween(286),
             label = "navCorner"
         )
         val minNavShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
@@ -299,7 +342,7 @@ private fun MinimizedNavBar(
             AnimatedContent(
                 targetState = navBarMode,
                 transitionSpec = {
-                    fadeIn(tween(220)) togetherWith fadeOut(tween(200)) using
+                    fadeIn(tween(286)) togetherWith fadeOut(tween(260)) using
                         SizeTransform(clip = false)
                 },
                 label = "navBarModeContent"
@@ -384,7 +427,8 @@ private fun MinimizedNavBar(
                         isCalculatorOpen = isCalculatorOpen,
                         supplyNotificationCount = supplyNotificationCount,
                         onNavigate = onNavigate,
-                        onCalculatorClick = onCalculatorClick
+                        onCalculatorClick = onCalculatorClick,
+                        onTimeclockBgEdit = onTimeclockBgEdit
                     )
                 }
                 } // let
@@ -584,23 +628,31 @@ private fun MinimizedNavBar(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(indicatorShape)
-                                .background(
-                                    color = if (selected) indicatorColor else Color.Transparent,
-                                    shape = indicatorShape
-                                )
-                                .clickable { onNavigate(dest) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                                BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                        Box {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(indicatorShape)
+                                    .background(
+                                        color = if (selected) indicatorColor else Color.Transparent,
+                                        shape = indicatorShape
+                                    )
+                                    .clickable { onNavigate(dest) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                                    BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                                        iconContent()
+                                    }
+                                } else {
                                     iconContent()
                                 }
-                            } else {
-                                iconContent()
+                            }
+                            if (dest == NavDestination.TIMECARD && selected) {
+                                NavEditBadge(
+                                    onClick = onTimeclockBgEdit,
+                                    modifier = Modifier.align(Alignment.TopEnd)
+                                )
                             }
                         }
                     }
@@ -620,7 +672,8 @@ private fun CompactNavIconRow(
     isCalculatorOpen: Boolean,
     supplyNotificationCount: Int,
     onNavigate: (NavDestination) -> Unit,
-    onCalculatorClick: () -> Unit
+    onCalculatorClick: () -> Unit,
+    onTimeclockBgEdit: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -664,23 +717,31 @@ private fun CompactNavIconRow(
                     modifier = Modifier.size(18.dp)
                 )
             }
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(indicatorShape)
-                    .background(
-                        color = if (selected) indicatorColor else Color.Transparent,
-                        shape = indicatorShape
-                    )
-                    .clickable { onNavigate(dest) },
-                contentAlignment = Alignment.Center
-            ) {
-                if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                    BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(indicatorShape)
+                        .background(
+                            color = if (selected) indicatorColor else Color.Transparent,
+                            shape = indicatorShape
+                        )
+                        .clickable { onNavigate(dest) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                        BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                            iconContent()
+                        }
+                    } else {
                         iconContent()
                     }
-                } else {
-                    iconContent()
+                }
+                if (dest == NavDestination.TIMECARD && selected) {
+                    NavEditBadge(
+                        onClick = onTimeclockBgEdit,
+                        modifier = Modifier.align(Alignment.TopEnd)
+                    )
                 }
             }
         }
