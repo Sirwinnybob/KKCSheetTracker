@@ -25,8 +25,8 @@ class TimecardDiscovery(private val context: Context) {
             suspendCancellableCoroutine { cont ->
                 var discoveryListener: NsdManager.DiscoveryListener? = null
 
-                @Volatile var discoveryStarted = false
-                @Volatile var cancelPending = false
+                val discoveryStarted = AtomicBoolean(false)
+                val cancelPending = AtomicBoolean(false)
 
                 val resolveListener = object : NsdManager.ResolveListener {
                     override fun onResolveFailed(info: NsdServiceInfo, code: Int) {
@@ -60,8 +60,8 @@ class TimecardDiscovery(private val context: Context) {
 
                     override fun onDiscoveryStarted(type: String) {
                         Log.d(TAG, "Discovery started for $type")
-                        discoveryStarted = true
-                        if (cancelPending) {
+                        discoveryStarted.set(true)
+                        if (cancelPending.get()) {
                             try {
                                 nsdManager.stopServiceDiscovery(this)
                             } catch (e: Exception) {
@@ -88,14 +88,14 @@ class TimecardDiscovery(private val context: Context) {
                 nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
 
                 cont.invokeOnCancellation {
-                    if (discoveryStarted) {
+                    if (discoveryStarted.get()) {
                         try {
                             discoveryListener?.let { nsdManager.stopServiceDiscovery(it) }
                         } catch (e: Exception) {
                             Log.w(TAG, "Error stopping discovery: ${e.message}")
                         }
                     } else {
-                        cancelPending = true
+                        cancelPending.set(true)
                     }
                 }
             }
