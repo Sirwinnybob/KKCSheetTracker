@@ -84,7 +84,11 @@ import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
+import com.kkc.sheettracker.data.TimecardDiscovery
+import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
+import com.kkc.sheettracker.ui.timecard.TimecardScreen
+import com.kkc.sheettracker.ui.timecard.TimecardStore
 import com.kkc.sheettracker.ui.assembly.AssemblyJobDetailScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
 import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
@@ -357,6 +361,10 @@ private fun MultiBackStackNavigation(
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
     val context = LocalContext.current
+    val timecardConfig = remember { TimecardServerConfig.create(context) }
+    val timecardDiscovery = remember { TimecardDiscovery(context) }
+    val timecardStore = remember { TimecardStore(timecardConfig, timecardDiscovery) }
+    DisposableEffect(timecardStore) { onDispose { timecardStore.cancel() } }
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
     val specialtyRepository = remember(basePath, specialtyProgressStore) {
@@ -420,7 +428,6 @@ private fun MultiBackStackNavigation(
     val supplyNavController = rememberNavController()
     val homeTab = homeTopLevelTabForWorkMode(workMode)
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
-    var showHoursLoginDialog by remember { mutableStateOf(false) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
@@ -689,11 +696,7 @@ private fun MultiBackStackNavigation(
                 }
 
                 TabLayer(visible = selectedTab == TopLevelTab.HOURS) {
-                    HoursTabHost(
-                        navController = hoursNavController,
-                        employeeName = employeeName,
-                        isTabSelected = selectedTab == TopLevelTab.HOURS
-                    )
+                    TimecardScreen(store = timecardStore)
                 }
 
                 TabLayer(visible = selectedTab == TopLevelTab.SETTINGS) {
@@ -723,7 +726,8 @@ private fun MultiBackStackNavigation(
                         onSyncthingStartNow = onSyncthingStartNow,
                         onBack = {
                             coordinator.navigateTopLevel(homeTab)
-                        }
+                        },
+                        timecardConfig = timecardConfig
                     )
                 }
 
@@ -737,17 +741,6 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
-                if (showHoursLoginDialog) {
-                    HoursLoginDialog(
-                        initialInput = employeeName,
-                        suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
-                        onLogin = { name ->
-                            showHoursLoginDialog = false
-                            launchTimecardApp(context, EmployeeDirectory.resolveNameOrPin(name))
-                        },
-                        onDismiss = { showHoursLoginDialog = false }
-                    )
-                }
                 pendingClockIn?.let { pending ->
                     val selected = employeeName.takeIf { it.isNotBlank() }.orEmpty()
                     HoursLoginDialog(
@@ -797,15 +790,7 @@ private fun MultiBackStackNavigation(
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,
                 onNavigate = { dest ->
-                    if (dest == NavDestination.HOURS) {
-                        if (employeeName.isNotBlank()) {
-                            launchTimecardApp(context, employeeName)
-                        } else {
-                            showHoursLoginDialog = true
-                        }
-                    } else {
-                        coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
-                    }
+                    coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
                 }
             )
         }
@@ -1604,7 +1589,8 @@ private fun SettingsTabHost(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    timecardConfig: TimecardServerConfig
 ) {
     NavHost(
         navController = navController,
@@ -1635,7 +1621,8 @@ private fun SettingsTabHost(
                 onSyncthingStartNow = onSyncthingStartNow,
                 onBack = onBack,
                 employeeName = employeeName,
-                onEmployeeNameChanged = onEmployeeNameChanged
+                onEmployeeNameChanged = onEmployeeNameChanged,
+                timecardConfig = timecardConfig
             )
         }
     }
@@ -1791,7 +1778,6 @@ private fun LegacySingleStackNavigation(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val startRoute = if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) "jobs" else "dashboard"
-    var showHoursLoginDialog by remember { mutableStateOf(false) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
@@ -1808,6 +1794,10 @@ private fun LegacySingleStackNavigation(
     }
 
     val legacyContext = LocalContext.current
+    val legacyTimecardConfig = remember { TimecardServerConfig.create(legacyContext) }
+    val legacyTimecardDiscovery = remember { TimecardDiscovery(legacyContext) }
+    val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery) }
+    DisposableEffect(legacyTimecardStore) { onDispose { legacyTimecardStore.cancel() } }
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
             clockInState.clockIn(jobNumber, jobName, folderName, tabType)
@@ -2625,30 +2615,7 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable("hours") {
-                    val context = LocalContext.current
-                    var legacySessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
-                    var legacyShowDialog by remember { mutableStateOf(false) }
-
-                    androidx.compose.runtime.LaunchedEffect(Unit) {
-                        if (legacySessionName != null) {
-                            launchTimecardApp(context, legacySessionName)
-                        } else {
-                            legacyShowDialog = true
-                        }
-                    }
-
-                    if (legacyShowDialog) {
-                        HoursLoginDialog(
-                            onLogin = { name ->
-                                legacySessionName = name
-                                legacyShowDialog = false
-                                launchTimecardApp(context, name)
-                            },
-                            onDismiss = { legacyShowDialog = false }
-                        )
-                    }
-
-                    Box(modifier = Modifier.fillMaxSize())
+                    TimecardScreen(store = legacyTimecardStore)
                 }
 
                 composable("supply") {
@@ -2685,22 +2652,12 @@ private fun LegacySingleStackNavigation(
                         onSyncthingStartNow = onSyncthingStartNow,
                         onBack = { navController.popBackStack() },
                         employeeName = employeeName,
-                        onEmployeeNameChanged = onEmployeeNameChanged
+                        onEmployeeNameChanged = onEmployeeNameChanged,
+                        timecardConfig = legacyTimecardConfig
                     )
                 }
                 }
 
-                if (showHoursLoginDialog) {
-                    HoursLoginDialog(
-                        initialInput = employeeName,
-                        suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
-                        onLogin = { name ->
-                            showHoursLoginDialog = false
-                            launchTimecardApp(legacyContext, EmployeeDirectory.resolveNameOrPin(name))
-                        },
-                        onDismiss = { showHoursLoginDialog = false }
-                    )
-                }
                 pendingClockOut?.let { pending ->
                     ClockOutEditDialog(
                         jobName = pending.jobName,
@@ -2736,14 +2693,6 @@ private fun LegacySingleStackNavigation(
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,
                 onNavigate = { dest ->
-                    if (dest == NavDestination.HOURS) {
-                        if (employeeName.isNotBlank()) {
-                            launchTimecardApp(legacyContext, employeeName)
-                        } else {
-                            showHoursLoginDialog = true
-                        }
-                        return@AppBottomNavBar
-                    }
                     if (currentRoute == dest.route) return@AppBottomNavBar
                     check(dest.route in visibleDestinations.map { it.route }) {
                         "Invalid top-level destination route: ${dest.route}"
@@ -2910,48 +2859,6 @@ private fun isCurrentViewerTarget(
     val currentPdf = args.getString("pdfFilename") ?: return false
     val currentPage = args.getInt("startPage")
     return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page
-}
-
-@Composable
-private fun HoursTabHost(
-    navController: NavHostController,
-    employeeName: String,
-    isTabSelected: Boolean
-) {
-    val context = LocalContext.current
-    var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
-    var showLoginDialog by remember { mutableStateOf(false) }
-
-    androidx.compose.runtime.LaunchedEffect(isTabSelected) {
-        if (isTabSelected) {
-            if (sessionName != null) {
-                launchTimecardApp(context, sessionName)
-            } else {
-                showLoginDialog = true
-            }
-        }
-    }
-
-    if (showLoginDialog) {
-        HoursLoginDialog(
-            onLogin = { name ->
-                sessionName = name
-                showLoginDialog = false
-                launchTimecardApp(context, name)
-            },
-            onDismiss = { showLoginDialog = false }
-        )
-    }
-
-    NavHost(
-        navController = navController,
-        startDestination = "hours",
-        modifier = Modifier.fillMaxSize()
-    ) {
-        composable("hours") {
-            Box(modifier = Modifier.fillMaxSize())
-        }
-    }
 }
 
 private data class PendingClockOut(

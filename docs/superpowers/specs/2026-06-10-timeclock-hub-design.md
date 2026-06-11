@@ -154,21 +154,44 @@ Composable screens:
 
 *Not found state:* Icon + "Server not found" + "Open Settings" button linking to server IP field
 
-*PIN entry state:*
-- 3-digit PIN numpad (large tap targets, tablet-friendly)
-- As each digit is typed: local employee list lookup → show matched name in real time (mirrors physical timeclock UX)
-- On 3rd digit entered: automatically call `GET /api/status`
+*PIN entry state (layout never shifts — all regions are fixed height):*
 
-*Status display:*
-- Employee name (large)
-- "CLOCKED IN since 8:32 AM" or "CLOCKED OUT"
-- One large button: **Clock In** or **Clock Out**
-- On tap: call `POST /api/punch`
+```
+┌─────────────────────────────────┐  ← frosted glass card, fixed 144dp height
+│   ●  ○  ○                      │  ← 3 dots, always visible. fill as digits typed
+│   Chris Tennent                 │  ← name line: reserved, fades in on 3rd digit
+│   CLOCKED OUT                   │  ← status line: reserved, updates in place
+└─────────────────────────────────┘
 
-*Result display (auto-dismiss after 3 seconds):*
-- Clock in: "Clocked in! Have a great shift."
-- Clock out: "You worked **4.5 hrs** today. See you!"
-- Returns to PIN entry
+  ┌────┐  ┌────┐  ┌────┐
+  │  1 │  │  2 │  │  3 │         ← frosted glass buttons, lighter top border for depth
+  │  4 │  │  5 │  │  6 │           22sp digits, 68dp tall, 13dp radius
+  │  7 │  │  8 │  │  9 │
+  │  ⌫ │  │  0 │  │    │         ← bottom-right cell empty/invisible
+  └────┘  └────┘  └────┘
+
+  ┌─────────────────────────────┐
+  │        CLOCK IN             │  ← pill button, always visible, disabled until ready
+  └─────────────────────────────┘    blue when clocking in, amber when clocking out
+```
+
+- Name shows only after all 3 digits entered (not partial — avoids wrong-name flicker)
+- On 3rd digit: auto-call `GET /api/status`, name fades in, status + button update
+- Unknown PIN: name shows "Unknown ID" at low opacity, status shows error, button stays disabled
+- On action tap: button shows "Clocking in…" / "Clocking out…" briefly, then result
+
+*Result display (auto-dismiss after 2.5 seconds, then reset to blank PIN):*
+- Clock in: "Clocked in! Have a great shift." (status line, blue)
+- Clock out: "You worked **4.5 hrs** today. See you!" (status line, green)
+- Confirmation shown in the action button ("✓ Clocked In" / "✓ Clocked Out")
+
+**Visual style:** No hardcoded colors — all surfaces use `MaterialTheme.colorScheme` tokens so the screen adapts to light and dark mode automatically, matching the rest of the app.
+
+- Screen background: `MaterialTheme.colorScheme.background`
+- Display card: `Surface` with `hazeEffect` (same `HazeState` as the rest of the screen) + `BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(0.25f))`; top border slightly lighter for depth via `outline.copy(0.4f)` on the top edge
+- Numpad buttons: `Surface(tonalElevation = 4.dp, shadowElevation = 2.dp, shape = RoundedCornerShape(13.dp))` — tonal elevation gives the frosted raised look in both modes
+- Status colors: use semantic `MaterialTheme.colorScheme.primary` (clocked in) and `MaterialTheme.colorScheme.tertiary` (clocked out) for status text; error state uses `MaterialTheme.colorScheme.error`
+- Action button: standard `Button` (Clock In = `primary`, Clock Out = `tertiary` container, disabled = system default)
 
 ### Modified Files
 
