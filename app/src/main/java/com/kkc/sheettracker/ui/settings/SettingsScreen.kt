@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -54,6 +55,7 @@ fun SettingsScreen(
     useStandardSheets: Boolean = false,
     onUseStandardSheetsChanged: (Boolean) -> Unit = {},
     timecardConfig: TimecardServerConfig,
+    onOpenAssemblyViewerDefaults: () -> Unit = {},
 ) {
     var editTabletId by remember { mutableStateOf(tabletId) }
     var editBasePath by remember { mutableStateOf(basePath) }
@@ -77,7 +79,7 @@ fun SettingsScreen(
     var basePathSaved by remember { mutableStateOf(false) }
     var syncthingApiKeySaved by remember { mutableStateOf(false) }
     val currentServerIp by timecardConfig.serverIpFlow.collectAsState(initial = null)
-    var editServerIp by remember(currentServerIp) { mutableStateOf(currentServerIp ?: "") }
+    var editServerIp by remember(currentServerIp) { mutableStateOf(currentServerIp ?: "192.168.1.15") }
     var serverIpDirty by remember(currentServerIp) { mutableStateOf(false) }
     var serverIpSaved by remember { mutableStateOf(false) }
     val timecardScope = rememberCoroutineScope()
@@ -209,6 +211,29 @@ fun SettingsScreen(
                         selected = workMode == WorkMode.SPECIALTY,
                         onClick = { onWorkModeChanged(WorkMode.SPECIALTY) },
                         label = { Text("Specialty") }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenAssemblyViewerDefaults() }
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Assembly viewer defaults", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Layout, panes, fullscreen",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        "Open",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }

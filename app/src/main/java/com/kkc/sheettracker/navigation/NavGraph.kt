@@ -98,12 +98,14 @@ import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
 import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
 import com.kkc.sheettracker.ui.browser.JobBrowserScreen
+import com.kkc.sheettracker.ui.settings.AssemblyViewerDefaultsScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarDecorationState
 import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
 import com.kkc.sheettracker.ui.components.ClockInOverlay
 import com.kkc.sheettracker.ui.components.NavDestination
+import com.kkc.sheettracker.ui.components.PersistentNavigationBarHider
 import com.kkc.sheettracker.ui.components.rememberCalculatorOverlayState
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardScreen
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardSpec
@@ -360,6 +362,7 @@ private fun MultiBackStackNavigation(
     supplySubscriptionManager: SupplySubscriptionManager
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
+    PersistentNavigationBarHider()
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
@@ -593,7 +596,7 @@ private fun MultiBackStackNavigation(
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
-            contentWindowInsets = WindowInsets.statusBars
+            contentWindowInsets = WindowInsets(0, 0, 0, 0)
         ) { paddingValues ->
             // hazeSource fills full screen (no bottomBar slot) — blur sees content behind the pill
             Box(
@@ -754,7 +757,8 @@ private fun MultiBackStackNavigation(
                         onBack = {
                             coordinator.navigateTopLevel(homeTab)
                         },
-                        timecardConfig = timecardConfig
+                        timecardConfig = timecardConfig,
+                        assemblyViewerDefaultsStore = assemblyViewerDefaultsStore
                     )
                 }
 
@@ -1664,7 +1668,8 @@ private fun SettingsTabHost(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     onBack: () -> Unit,
-    timecardConfig: TimecardServerConfig
+    timecardConfig: TimecardServerConfig,
+    assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore
 ) {
     NavHost(
         navController = navController,
@@ -1696,7 +1701,18 @@ private fun SettingsTabHost(
                 onBack = onBack,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
-                timecardConfig = timecardConfig
+                timecardConfig = timecardConfig,
+                onOpenAssemblyViewerDefaults = {
+                    navController.navigate("settings/assemblyViewerDefaults") {
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+        composable("settings/assemblyViewerDefaults") {
+            AssemblyViewerDefaultsScreen(
+                store = assemblyViewerDefaultsStore,
+                onBack = { navController.popBackStack() },
             )
         }
     }
@@ -1812,6 +1828,7 @@ private fun LegacySingleStackNavigation(
     supplySubscriptionManager: SupplySubscriptionManager
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
+    PersistentNavigationBarHider()
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
@@ -1989,7 +2006,7 @@ private fun LegacySingleStackNavigation(
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
-            contentWindowInsets = WindowInsets.statusBars
+            contentWindowInsets = WindowInsets(0, 0, 0, 0)
         ) { paddingValues ->
             Box(
                 modifier = Modifier
@@ -2794,7 +2811,19 @@ private fun LegacySingleStackNavigation(
                         onBack = { navController.popBackStack() },
                         employeeName = employeeName,
                         onEmployeeNameChanged = onEmployeeNameChanged,
-                        timecardConfig = legacyTimecardConfig
+                        timecardConfig = legacyTimecardConfig,
+                        onOpenAssemblyViewerDefaults = {
+                            navController.navigate("settings/assemblyViewerDefaults") {
+                                launchSingleTop = true
+                            }
+                        }
+                    )
+                }
+
+                composable("settings/assemblyViewerDefaults") {
+                    AssemblyViewerDefaultsScreen(
+                        store = legacyAssemblyViewerDefaultsStore,
+                        onBack = { navController.popBackStack() },
                     )
                 }
                 }
