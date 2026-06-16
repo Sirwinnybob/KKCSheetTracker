@@ -79,7 +79,7 @@ fun SettingsScreen(
     var basePathSaved by remember { mutableStateOf(false) }
     var syncthingApiKeySaved by remember { mutableStateOf(false) }
     val currentServerIp by timecardConfig.serverIpFlow.collectAsState(initial = null)
-    var editServerIp by remember(currentServerIp) { mutableStateOf(currentServerIp ?: "192.168.1.15") }
+    var editServerIp by remember(currentServerIp) { mutableStateOf(currentServerIp ?: "") }
     var serverIpDirty by remember(currentServerIp) { mutableStateOf(false) }
     var serverIpSaved by remember { mutableStateOf(false) }
     val timecardScope = rememberCoroutineScope()
