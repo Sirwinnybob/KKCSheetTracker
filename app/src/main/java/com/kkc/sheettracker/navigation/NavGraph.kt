@@ -59,8 +59,10 @@ import androidx.navigation.navArgument
 import com.kkc.sheettracker.clock.ClockInNotificationContract
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
+import com.kkc.sheettracker.data.AssemblyPaneView
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
+import com.kkc.sheettracker.data.AssemblyViewLayout
 import com.kkc.sheettracker.data.AssemblyViewerDefaultsStore
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.data.EmployeeDirectory
@@ -1498,14 +1500,18 @@ private fun JobsTabHost(
         }
 
         composable(
-            "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}?source={source}&cab={cab}&room={room}",
+            "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}?source={source}&cab={cab}&room={room}&layout={layout}&first={first}&second={second}&hideUi={hideUi}",
             arguments = listOf(
                 navArgument("folderName") { type = NavType.StringType },
                 navArgument("startPageAssembly") { type = NavType.IntType },
                 navArgument("startPagePlans") { type = NavType.IntType },
                 navArgument("source") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("cab") { type = NavType.StringType; nullable = true; defaultValue = null },
-                navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
+                navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("layout") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("first") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("second") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("hideUi") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStack ->
             val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
@@ -1516,6 +1522,13 @@ private fun JobsTabHost(
             val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
             val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
             val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
+            val initialLayout = backStack.arguments?.getString("layout")
+                ?.let { runCatching { AssemblyViewLayout.valueOf(it) }.getOrNull() }
+            val initialFirstPane = backStack.arguments?.getString("first")
+                ?.let { runCatching { AssemblyPaneView.valueOf(it) }.getOrNull() }
+            val initialSecondPane = backStack.arguments?.getString("second")
+                ?.let { runCatching { AssemblyPaneView.valueOf(it) }.getOrNull() }
+            val initialHideUi = backStack.arguments?.getString("hideUi") == "1"
             val refreshGeneration = assemblyScanCoordinator.state.collectAsState().value.snapshot.generation
             val isClockedInHere = clockInState.snapshot.isActive &&
                 clockInState.snapshot.folderName == jobFolderName
@@ -1530,6 +1543,10 @@ private fun JobsTabHost(
                 initialSource = initialSource,
                 initialCabinet = initialCabinet,
                 initialRoom = initialRoom,
+                initialLayout = initialLayout,
+                initialFirstPane = initialFirstPane,
+                initialSecondPane = initialSecondPane,
+                initialHideUi = initialHideUi,
                 refreshGeneration = refreshGeneration,
                 isDarkTheme = isDarkTheme,
                 isClockedInHere = isClockedInHere,
@@ -2562,14 +2579,18 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable(
-                    "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}?source={source}&cab={cab}&room={room}",
+                    "assembly/viewer/{folderName}/{startPageAssembly}/{startPagePlans}?source={source}&cab={cab}&room={room}&layout={layout}&first={first}&second={second}&hideUi={hideUi}",
                     arguments = listOf(
                         navArgument("folderName") { type = NavType.StringType },
                         navArgument("startPageAssembly") { type = NavType.IntType },
                         navArgument("startPagePlans") { type = NavType.IntType },
                         navArgument("source") { type = NavType.StringType; nullable = true; defaultValue = null },
                         navArgument("cab") { type = NavType.StringType; nullable = true; defaultValue = null },
-                        navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null }
+                        navArgument("room") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("layout") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("first") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("second") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("hideUi") { type = NavType.StringType; nullable = true; defaultValue = null }
                     )
                 ) { backStack ->
                     val jobFolderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
@@ -2580,6 +2601,13 @@ private fun LegacySingleStackNavigation(
                     val initialSource = backStack.arguments?.getString("source")?.let { URLDecoder.decode(it, "UTF-8") }
                     val initialCabinet = backStack.arguments?.getString("cab")?.let { URLDecoder.decode(it, "UTF-8") }
                     val initialRoom = backStack.arguments?.getString("room")?.let { URLDecoder.decode(it, "UTF-8") }
+                    val initialLayout = backStack.arguments?.getString("layout")
+                        ?.let { runCatching { AssemblyViewLayout.valueOf(it) }.getOrNull() }
+                    val initialFirstPane = backStack.arguments?.getString("first")
+                        ?.let { runCatching { AssemblyPaneView.valueOf(it) }.getOrNull() }
+                    val initialSecondPane = backStack.arguments?.getString("second")
+                        ?.let { runCatching { AssemblyPaneView.valueOf(it) }.getOrNull() }
+                    val initialHideUi = backStack.arguments?.getString("hideUi") == "1"
                     val refreshGeneration = assemblyScanCoordinator.state.collectAsState().value.snapshot.generation
                     val isClockedInHere = clockInState.snapshot.isActive &&
                         clockInState.snapshot.folderName == jobFolderName
@@ -2592,6 +2620,10 @@ private fun LegacySingleStackNavigation(
                         initialSource = initialSource,
                         initialCabinet = initialCabinet,
                         initialRoom = initialRoom,
+                        initialLayout = initialLayout,
+                        initialFirstPane = initialFirstPane,
+                        initialSecondPane = initialSecondPane,
+                        initialHideUi = initialHideUi,
                         startPageAssembly = startPageAssembly,
                         startPagePlans = startPagePlans,
                         refreshGeneration = refreshGeneration,
@@ -2932,13 +2964,21 @@ private fun assemblyViewerRoute(
     plansPage: Int,
     source: String? = null,
     cabinet: String? = null,
-    room: String? = null
+    room: String? = null,
+    layout: AssemblyViewLayout? = null,
+    firstPane: AssemblyPaneView? = null,
+    secondPane: AssemblyPaneView? = null,
+    hideUiOnOpen: Boolean? = null,
 ): String {
     val base = "assembly/viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/$assemblyPage/$plansPage"
     val query = buildList {
         if (!source.isNullOrBlank()) add("source=${URLEncoder.encode(source, "UTF-8")}")
         if (!cabinet.isNullOrBlank()) add("cab=${URLEncoder.encode(cabinet, "UTF-8")}")
         if (!room.isNullOrBlank()) add("room=${URLEncoder.encode(room, "UTF-8")}")
+        if (layout != null) add("layout=${layout.name}")
+        if (firstPane != null) add("first=${firstPane.name}")
+        if (secondPane != null) add("second=${secondPane.name}")
+        if (hideUiOnOpen != null) add("hideUi=${if (hideUiOnOpen) 1 else 0}")
     }
     return if (query.isEmpty()) base else "$base?${query.joinToString("&")}"
 }

@@ -90,7 +90,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
+import com.kkc.sheettracker.data.AssemblyPaneView
 import com.kkc.sheettracker.data.AssemblyStateStore
+import com.kkc.sheettracker.data.AssemblyViewLayout
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.AssemblyBomEntry
@@ -162,6 +164,10 @@ fun AssemblyViewerScreen(
     initialSource: String? = null,
     initialCabinet: String? = null,
     initialRoom: String? = null,
+    initialLayout: AssemblyViewLayout? = null,
+    initialFirstPane: AssemblyPaneView? = null,
+    initialSecondPane: AssemblyPaneView? = null,
+    initialHideUi: Boolean = false,
     refreshGeneration: Long = 0L,
     isDarkTheme: Boolean,
     onBack: () -> Unit,
@@ -301,14 +307,18 @@ fun AssemblyViewerScreen(
         val saved = prefs.getString("${resumePrefix}_fullscreen", null)
         mutableStateOf(
             runCatching { saved?.let { FullscreenPane.valueOf(it) } }.getOrNull()
-                ?: if (initialPaneSource == PaneSource.THREE_D) FullscreenPane.FIRST else FullscreenPane.NONE
+                ?: when {
+                    initialPaneSource == PaneSource.THREE_D -> FullscreenPane.FIRST
+                    initialLayout == AssemblyViewLayout.SINGLE -> FullscreenPane.FIRST
+                    else -> FullscreenPane.NONE
+                }
         )
     }
 
     // True fullscreen: hide system bars for the lifetime of this screen.
     ImmersiveSystemBars()
     // Tap-to-show/hide overlay UI (top bar + floating controls + bottom nav).
-    var showUi by rememberSaveable { mutableStateOf(true) }
+    var showUi by rememberSaveable { mutableStateOf(!initialHideUi) }
     // Restore bottom nav visibility when navigating back.
     DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
 
@@ -316,10 +326,14 @@ fun AssemblyViewerScreen(
         val saved = prefs.getString("${resumePrefix}_first_source", null)
         mutableStateOf(
             runCatching { saved?.let { PaneSource.valueOf(it) } }.getOrNull()
-                ?: (initialPaneSource ?: PaneSource.PLANS)
+                ?: initialPaneSource
+                ?: initialFirstPane?.toPaneSource()
+                ?: PaneSource.PLANS
         )
     }
-    var secondPaneSource by rememberSaveable { mutableStateOf(PaneSource.ASSEMBLY) }
+    var secondPaneSource by rememberSaveable {
+        mutableStateOf(initialSecondPane?.toPaneSource() ?: PaneSource.ASSEMBLY)
+    }
     var firstPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
     var secondPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
     var firstPaneDeliveryPage by rememberSaveable { mutableIntStateOf(1) }
@@ -1666,4 +1680,12 @@ private fun HardwoodPartRow(row: AssemblyHardwoodRow) {
             StatusChip(text = label, backgroundColor = bg, contentColor = fg)
         }
     }
+}
+
+private fun AssemblyPaneView.toPaneSource(): PaneSource = when (this) {
+    AssemblyPaneView.ASSEMBLY -> PaneSource.ASSEMBLY
+    AssemblyPaneView.PLANS -> PaneSource.PLANS
+    AssemblyPaneView.DELIVERY -> PaneSource.DELIVERY
+    AssemblyPaneView.THREE_D -> PaneSource.THREE_D
+    AssemblyPaneView.CHECKLIST -> PaneSource.CHECKLIST
 }
