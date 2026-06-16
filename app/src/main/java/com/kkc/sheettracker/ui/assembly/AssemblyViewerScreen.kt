@@ -331,8 +331,13 @@ fun AssemblyViewerScreen(
                 ?: PaneSource.PLANS
         )
     }
-    var secondPaneSource by rememberSaveable {
-        mutableStateOf(initialSecondPane?.toPaneSource() ?: PaneSource.ASSEMBLY)
+    var secondPaneSource by rememberSaveable(initialSource) {
+        val saved = prefs.getString("${resumePrefix}_second_source", null)
+        mutableStateOf(
+            runCatching { saved?.let { PaneSource.valueOf(it) } }.getOrNull()
+                ?: initialSecondPane?.toPaneSource()
+                ?: PaneSource.ASSEMBLY
+        )
     }
     var firstPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
     var secondPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
@@ -349,11 +354,12 @@ fun AssemblyViewerScreen(
     var viewerServerError by remember { mutableStateOf<String?>(null) }
     var detectedRoom by rememberSaveable(initialRoom) { mutableStateOf(initialRoom) }
 
-    LaunchedEffect(assemblyPage, plansPage, firstPaneSource, fullscreenPane) {
+    LaunchedEffect(assemblyPage, plansPage, firstPaneSource, secondPaneSource, fullscreenPane) {
         prefs.edit()
             .putInt("${resumePrefix}_assembly_page", assemblyPage)
             .putInt("${resumePrefix}_plans_page", plansPage)
             .putString("${resumePrefix}_first_source", firstPaneSource.name)
+            .putString("${resumePrefix}_second_source", secondPaneSource.name)
             .putString("${resumePrefix}_fullscreen", fullscreenPane.name)
             .apply()
     }
