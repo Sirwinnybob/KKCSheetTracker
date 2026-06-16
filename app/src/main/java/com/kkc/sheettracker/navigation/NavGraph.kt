@@ -105,7 +105,6 @@ import com.kkc.sheettracker.ui.components.NavBarDecorationState
 import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
 import com.kkc.sheettracker.ui.components.ClockInOverlay
 import com.kkc.sheettracker.ui.components.NavDestination
-import com.kkc.sheettracker.ui.components.PersistentNavigationBarHider
 import com.kkc.sheettracker.ui.components.rememberCalculatorOverlayState
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardScreen
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardSpec
@@ -362,7 +361,6 @@ private fun MultiBackStackNavigation(
     supplySubscriptionManager: SupplySubscriptionManager
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
-    PersistentNavigationBarHider()
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
     val activity = LocalContext.current as? Activity
     val calculatorState = rememberCalculatorOverlayState()
@@ -596,7 +594,7 @@ private fun MultiBackStackNavigation(
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0)
+            contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
             // hazeSource fills full screen (no bottomBar slot) — blur sees content behind the pill
             Box(
@@ -1828,7 +1826,6 @@ private fun LegacySingleStackNavigation(
     supplySubscriptionManager: SupplySubscriptionManager
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
-    PersistentNavigationBarHider()
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
@@ -2006,7 +2003,7 @@ private fun LegacySingleStackNavigation(
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0)
+            contentWindowInsets = WindowInsets.statusBars
         ) { paddingValues ->
             Box(
                 modifier = Modifier
