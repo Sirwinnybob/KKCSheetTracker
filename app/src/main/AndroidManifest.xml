@@ -17,6 +17,11 @@
         <package android:name="com.nutomic.syncthingandroid" />
         <package android:name="com.github.catfriend1.syncthingfork" />
         <package android:name="com.example.timecard" />
+        <package android:name="com.kkc.updateragent" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.android.package-archive" />
+        </intent>
     </queries>
 
     <application

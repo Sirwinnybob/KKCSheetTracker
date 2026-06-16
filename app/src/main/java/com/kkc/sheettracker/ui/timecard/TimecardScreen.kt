@@ -41,6 +41,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import com.kkc.sheettracker.data.TimecardBgConfig
 import com.kkc.sheettracker.data.TimecardBgStore
+import com.kkc.sheettracker.ui.theme.FixedDensityWrapper
 
 private val ClockInGreen = Color(0xFF2E7D32)
 private val ClockOutRed = Color(0xFFC62828)
@@ -58,12 +59,20 @@ fun TimecardScreen(store: TimecardStore) {
     val bgConfig by bgStore.configFlow.collectAsState(initial = TimecardBgConfig())
     val hazeState = remember { HazeState() }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        TimeclockBackground(config = bgConfig, modifier = Modifier.fillMaxSize().hazeSource(hazeState))
-        when (val s = state) {
-            is TimecardUiState.Searching -> TimecardSearchingState()
-            is TimecardUiState.NotFound -> TimecardNotFoundState()
-            is TimecardUiState.Ready -> TimecardReadyState(store = store, ready = s, hazeState = hazeState)
+    FixedDensityWrapper {
+        Box(modifier = Modifier.fillMaxSize()) {
+            TimeclockBackground(config = bgConfig, modifier = Modifier.fillMaxSize().hazeSource(hazeState))
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+            ) {
+                when (val s = state) {
+                    is TimecardUiState.Searching -> TimecardSearchingState()
+                    is TimecardUiState.NotFound -> TimecardNotFoundState()
+                    is TimecardUiState.Ready -> TimecardReadyState(store = store, ready = s, hazeState = hazeState)
+                }
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import java.io.File
 import java.time.Instant
 
 class UpdateWorker(
@@ -28,7 +29,7 @@ class UpdateWorker(
         val policy = repository.readPolicy(paths) ?: return Result.success()
         val manifest = repository.readManifest(paths) ?: return Result.success()
 
-        val tabletId = resolveTabletId()
+        val tabletId = resolveTabletId(paths)
         val logFile = paths.tabletLogFile(tabletId)
         val fallbackSignalFile = paths.fallbackRequiredFile(tabletId)
 
@@ -158,7 +159,14 @@ class UpdateWorker(
         return Result.success()
     }
 
-    private fun resolveTabletId(): String {
+    private fun resolveTabletId(paths: UpdatePaths): String {
+        val sharedFile = File(paths.appUpdatesRoot, "tablet_id.txt")
+        if (sharedFile.isFile) {
+            val id = runCatching { sharedFile.readText().trim() }.getOrNull()
+            if (!id.isNullOrBlank()) {
+                return id
+            }
+        }
         val prefs = applicationContext.getSharedPreferences("kkc_tracker", Context.MODE_PRIVATE)
         val existing = prefs.getString("tablet_id", null)
         return if (existing.isNullOrBlank()) "unknown-tablet" else existing

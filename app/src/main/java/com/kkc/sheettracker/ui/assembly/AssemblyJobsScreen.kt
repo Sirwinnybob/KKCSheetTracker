@@ -73,6 +73,7 @@ import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.JobBoardGrid
 import com.kkc.sheettracker.ui.components.JobBoardItem
+import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.SortToggleBar
@@ -178,7 +179,7 @@ fun AssemblyJobsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("KKC Sheet Tracker - Assembly") },
+                title = { Text("KKC Dashboard - Assembly") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -200,8 +201,7 @@ fun AssemblyJobsScreen(
                             contentDescription = if (boardView) "List View" else "Board View"
                         )
                     }
-                    IconButton(onClick = onSearchClick) { Icon(Icons.Default.Search, "Search") }
-                    IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
+                    TopBarClock()
                 }
             )
         }

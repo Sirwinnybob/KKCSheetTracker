@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -103,6 +105,7 @@ fun DashboardScreen(
             val badItems = mutableListOf<DashboardFlaggedSheetItem>()
             val skippedItems = mutableListOf<DashboardFlaggedSheetItem>()
             val recentItems = mutableListOf<DashboardRecentMaterialItem>()
+            val remakeItems = mutableListOf<DashboardRecentMaterialItem>()
 
             for (job in jobs) {
                 progressStore.pruneLocalStateForJob(job.folderName, job.materials)
@@ -143,6 +146,30 @@ fun DashboardScreen(
                             counts = materialCounts,
                             completionFraction = if (materialCounts.total > 0) materialCounts.complete.toFloat() / materialCounts.total.toFloat() else 0f,
                             thumbnailPath = pageMeta?.thumbnailPath
+                        )
+                    }
+                    val remakeLabel = material.metadata?.remakeLabel
+                    if (remakeLabel != null && materialCounts.complete < materialCounts.total) {
+                        val trackablePages = progressStore.getMaterialTrackablePages(material)
+                        val nextPage = nextIncompletePage(
+                            trackablePages = trackablePages,
+                            progressStore = progressStore,
+                            jobFolderName = job.folderName,
+                            material = material,
+                            fallbackPage = trackablePages.firstOrNull() ?: 1
+                        )
+                        remakeItems += DashboardRecentMaterialItem(
+                            jobFolderName = job.folderName,
+                            jobNumber = job.jobNumber,
+                            materialName = material.materialName,
+                            pdfFilename = material.pdfFilename,
+                            fileFingerprint = material.fileFingerprint,
+                            lastTouchedPage = nextPage,
+                            nextIncompletePage = nextPage,
+                            lastTouchedAtMs = 0L,
+                            counts = materialCounts,
+                            completionFraction = if (materialCounts.total > 0) materialCounts.complete.toFloat() / materialCounts.total.toFloat() else 0f,
+                            thumbnailPath = null
                         )
                     }
                     for (page in progressStore.getMaterialTrackablePages(material)) {
@@ -200,7 +227,9 @@ fun DashboardScreen(
                 skippedItems = skippedItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
                 recentInProgressMaterials = recentItems
                     .sortedByDescending { it.lastTouchedAtMs }
-                    .take(DASHBOARD_RECENT_LIMIT)
+                    .take(DASHBOARD_RECENT_LIMIT),
+                incompleteRemakeMaterials = remakeItems
+                    .sortedWith(compareBy({ it.jobFolderName }, { it.materialName }))
             )
         }
         stats = legacyModel
@@ -231,6 +260,7 @@ fun DashboardScreen(
     // stats is always the authoritative source: equals appDashboard when useAppState=true,
     // equals the freshly computed legacy model when useAppState=false.
     val recentInProgress = stats.recentInProgressMaterials
+    val incompleteRemakes = stats.incompleteRemakeMaterials
 
     Scaffold(
         topBar = {
@@ -400,6 +430,13 @@ fun DashboardScreen(
                         }
                     }
                 }
+            }
+
+            if (incompleteRemakes.isNotEmpty()) {
+                RemakesWidget(
+                    items = incompleteRemakes,
+                    onOpenSheet = onOpenSheet
+                )
             }
 
             QualityAlertCard(
@@ -790,6 +827,126 @@ private fun StatCard(
                 label,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun RemakesWidget(
+    items: List<DashboardRecentMaterialItem>,
+    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
+) {
+    val remakeColor = KKCThemeColors.statusColors.remakeBg
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(remakeColor, MaterialTheme.shapes.small)
+                )
+                Text(
+                    "Incomplete Remakes",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "${items.size}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items.forEach { item ->
+                    RemakeMaterialCard(
+                        item = item,
+                        remakeColor = remakeColor,
+                        onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemakeMaterialCard(
+    item: DashboardRecentMaterialItem,
+    remakeColor: Color,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .width(220.dp)
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(2.dp, remakeColor),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                item.jobFolderName,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                item.materialName,
+                style = MaterialTheme.typography.bodySmall,
+                color = remakeColor,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "Next sheet ${item.nextIncompletePage}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "${item.counts.complete}/${item.counts.total}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                ProgressPill(
+                    done = item.counts.complete,
+                    total = item.counts.total,
+                    state = ProgressState.from(item.counts.complete, item.counts.total)
+                )
+            }
+            LinearProgressIndicator(
+                progress = { item.completionFraction.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+                color = remakeColor,
+                trackColor = remakeColor.copy(alpha = 0.2f)
             )
         }
     }

@@ -167,6 +167,7 @@ class AppStateStore(
         val badItems = mutableListOf<DashboardFlaggedSheetItem>()
         val skippedItems = mutableListOf<DashboardFlaggedSheetItem>()
         val recentInProgressMaterials = mutableListOf<DashboardRecentMaterialItem>()
+        val incompleteRemakeMaterials = mutableListOf<DashboardRecentMaterialItem>()
 
         var totalSheets = 0
         var completedSheets = 0
@@ -257,6 +258,29 @@ class AppStateStore(
                         )
                     }
                 }
+
+                val remakeLabel = material.metadata?.remakeLabel
+                if (remakeLabel != null && materialUiModel.counts.complete < materialUiModel.counts.total) {
+                    val visiblePages = trackablePages(material)
+                    val nextIncompletePage = nextIncompletePage(
+                        trackablePages = visiblePages,
+                        pageStatusByNumber = materialDerivation.pageStatusByNumber,
+                        fallbackPage = visiblePages.firstOrNull() ?: 1
+                    )
+                    incompleteRemakeMaterials += DashboardRecentMaterialItem(
+                        jobFolderName = job.folderName,
+                        jobNumber = job.jobNumber,
+                        materialName = material.materialName,
+                        pdfFilename = material.pdfFilename,
+                        fileFingerprint = material.fileFingerprint,
+                        lastTouchedPage = nextIncompletePage,
+                        nextIncompletePage = nextIncompletePage,
+                        lastTouchedAtMs = 0L,
+                        counts = materialUiModel.counts,
+                        completionFraction = materialUiModel.completionFraction,
+                        thumbnailPath = null
+                    )
+                }
             }
 
             totalSheets += jobTotal
@@ -290,7 +314,9 @@ class AppStateStore(
             skippedItems = skippedItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
             recentInProgressMaterials = recentInProgressMaterials
                 .sortedByDescending { it.lastTouchedAtMs }
-                .take(DASHBOARD_RECENT_LIMIT)
+                .take(DASHBOARD_RECENT_LIMIT),
+            incompleteRemakeMaterials = incompleteRemakeMaterials
+                .sortedWith(compareBy({ it.jobFolderName }, { it.materialName }))
         )
 
         return DerivationOutput(

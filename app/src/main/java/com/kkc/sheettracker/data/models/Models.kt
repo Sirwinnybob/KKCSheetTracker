@@ -702,7 +702,8 @@ data class DashboardUiModel(
     val skippedSheets: Int = 0,
     val badItems: List<DashboardFlaggedSheetItem> = emptyList(),
     val skippedItems: List<DashboardFlaggedSheetItem> = emptyList(),
-    val recentInProgressMaterials: List<DashboardRecentMaterialItem> = emptyList()
+    val recentInProgressMaterials: List<DashboardRecentMaterialItem> = emptyList(),
+    val incompleteRemakeMaterials: List<DashboardRecentMaterialItem> = emptyList()
 )
 
 enum class SpecialtyItemCategory {

@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data
 
 import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -11,7 +12,7 @@ class HardwoodsRevisionHistoryTest {
 
     @Test
     fun loadHardwoodsRevisionHistory_parsesRevisionFile() {
-        val root = createTempDir(prefix = "hardwoods-history-test")
+        val root = Files.createTempDirectory("hardwoods-history-test").toFile()
         try {
             val job = File(root, "998 - TEST")
             val metadata = File(job, ".metadata/hardwoods")
@@ -48,7 +49,7 @@ class HardwoodsRevisionHistoryTest {
 
     @Test
     fun getRowRevisionStates_returnsKeyedMap() {
-        val root = createTempDir(prefix = "hardwoods-history-map-test")
+        val root = Files.createTempDirectory("hardwoods-history-map-test").toFile()
         try {
             val job = File(root, "998 - TEST")
             val metadata = File(job, ".metadata/hardwoods")

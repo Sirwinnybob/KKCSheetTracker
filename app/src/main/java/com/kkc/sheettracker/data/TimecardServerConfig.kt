@@ -17,6 +17,8 @@ private val Context.timecardDataStore: DataStore<Preferences> by preferencesData
     name = "timeclock_config"
 )
 
+private const val DEFAULT_HUB_IP = "192.168.1.15"
+
 private object TimecardConfigKeys {
     val serverIp = stringPreferencesKey("server_ip")
     val cachedUrl = stringPreferencesKey("cached_server_url")
@@ -34,7 +36,7 @@ class TimecardServerConfig(
                 throw throwable
             }
         }
-        .map { prefs -> prefs[TimecardConfigKeys.serverIp]?.takeIf { it.isNotBlank() } }
+        .map { prefs -> prefs[TimecardConfigKeys.serverIp]?.takeIf { it.isNotBlank() } ?: DEFAULT_HUB_IP }
 
     val cachedUrlFlow: Flow<String?> = dataStore.data
         .catch { throwable ->
@@ -48,7 +50,7 @@ class TimecardServerConfig(
 
     suspend fun getManualIp(): String? =
         dataStore.data
-            .map { prefs -> prefs[TimecardConfigKeys.serverIp]?.takeIf { it.isNotBlank() } }
+            .map { prefs -> prefs[TimecardConfigKeys.serverIp]?.takeIf { it.isNotBlank() } ?: DEFAULT_HUB_IP }
             .first()
 
     suspend fun setManualIp(ip: String?) {

@@ -68,6 +68,7 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.ui.components.JobBoardGrid
 import com.kkc.sheettracker.ui.components.JobBoardItem
+import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
@@ -227,7 +228,7 @@ fun HardwoodsJobsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("KKC Sheet Tracker - Hardwoods") },
+                title = { Text("KKC Dashboard - Hardwoods") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -248,8 +249,7 @@ fun HardwoodsJobsScreen(
                             contentDescription = if (boardView) "List View" else "Board View"
                         )
                     }
-                    IconButton(onClick = onSearchClick) { Icon(Icons.Default.Search, "Search") }
-                    IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
+                    TopBarClock()
                 }
             )
         }

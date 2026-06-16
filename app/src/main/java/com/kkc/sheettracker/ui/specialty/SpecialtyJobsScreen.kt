@@ -61,6 +61,7 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.ui.components.JobBoardGrid
 import com.kkc.sheettracker.ui.components.JobBoardItem
+import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
@@ -119,7 +120,7 @@ fun SpecialtyJobsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("KKC Sheet Tracker - Specialty") },
+                title = { Text("KKC Dashboard - Specialty") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -140,12 +141,7 @@ fun SpecialtyJobsScreen(
                             contentDescription = if (boardView) "List View" else "Board View"
                         )
                     }
-                    IconButton(onClick = onSearchClick) {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
-                    }
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
+                    TopBarClock()
                 }
             )
         }

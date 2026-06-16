@@ -35,7 +35,8 @@ fun parseJobLabelColor(hex: String): Color = try {
 
 data class MaterialSegmentData(
     val materialName: String,
-    val counts: StatusCounts
+    val counts: StatusCounts,
+    val isRemake: Boolean = false
 )
 
 @Composable
@@ -567,6 +568,8 @@ private fun MaterialSegmentedProgressBar(
             val skipped = segment.counts.skipped.coerceAtLeast(0)
             val completeClean = (segment.counts.complete - bad).coerceAtLeast(0)
             val remaining = (total - segment.counts.complete - skipped).coerceAtLeast(0)
+            val isRemakeIncomplete = segment.isRemake && remaining > 0
+            val remainingColor = if (isRemakeIncomplete) colors.remakeBg else MaterialTheme.colorScheme.outlineVariant
 
             Row(
                 modifier = Modifier
@@ -602,7 +605,7 @@ private fun MaterialSegmentedProgressBar(
                         modifier = Modifier
                             .fillMaxHeight()
                             .weight(remaining.toFloat())
-                            .background(MaterialTheme.colorScheme.outlineVariant)
+                            .background(remainingColor)
                     )
                 }
             }

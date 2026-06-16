@@ -53,6 +53,7 @@ import com.kkc.sheettracker.ui.migration.MigrationRequiredScreen
 import com.kkc.sheettracker.ui.theme.KKCTheme
 import com.kkc.sheettracker.update.DeviceOwnerUpdateFallback
 import com.kkc.sheettracker.update.UpdateManager
+import com.kkc.sheettracker.update.ExternalAppUpdate
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -86,12 +87,23 @@ class MainActivity : ComponentActivity() {
 
         val basePath = prefs.getString("base_path", null)
             ?: findDefaultBasePath()
+
+        // Write the tablet ID to a shared file so that updater-agent can read it
+        runCatching {
+            val appUpdatesDir = File(basePath, ".appupdates")
+            if (!appUpdatesDir.exists()) {
+                appUpdatesDir.mkdirs()
+            }
+            File(appUpdatesDir, "tablet_id.txt").writeText(tabletId)
+        }
         val useLegacyUpdatePrompt = DeviceOwnerUpdateFallback(this)
             .shouldUseLegacyPrompt(basePath = basePath, tabletId = tabletId)
-        updateManager = UpdateManager(this)
-        if (useLegacyUpdatePrompt) {
-            updateManager.checkForUpdates()
+        updateManager = UpdateManager(this).apply {
+            this.basePath = basePath
+            this.tabletId = tabletId
+            isSilentUpdateSupported = !useLegacyUpdatePrompt
         }
+        updateManager.checkForUpdates(checkSelf = true)
         val migrationMarkerPath = File(basePath, ".appupdates/migration_complete.json")
         val migrationReady = migrationMarkerPath.isFile
         val persistedViewOnlyOptIn = prefs.getBoolean("allow_view_only_without_migration", false)
@@ -258,15 +270,65 @@ class MainActivity : ComponentActivity() {
                     )
 
                     if (updateManager.pendingUpdateApk != null) {
+                        val isSilent = updateManager.isSilentUpdateSupported
+                        AlertDialog(
+                            onDismissRequest = {},
+                            title = { Text(if (isSilent) "Update Ready" else "Update Available") },
+                            text = {
+                                Text(
+                                    if (isSilent) "A new version of KKC Sheet Tracker is ready to install. Update now? (The app will close and update silently)"
+                                    else "A new version of KKC Sheet Tracker is available. Install now?"
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        if (isSilent) {
+                                            updateManager.installPendingUpdateSilently()
+                                        } else {
+                                            updateManager.installPendingUpdate()
+                                        }
+                                    }
+                                ) {
+                                    Text(if (isSilent) "Update" else "Install")
+                                }
+                            },
+                            dismissButton = if (isSilent) {
+                                {
+                                    TextButton(onClick = { updateManager.installPendingUpdate() }) {
+                                        Text("Manual Install")
+                                    }
+                                }
+                            } else null
+                        )
+                    }
+
+                    val pendingExternal = updateManager.pendingExternalUpdate
+                    if (pendingExternal != null) {
                         AlertDialog(
                             onDismissRequest = {},
                             title = { Text("Update Available") },
-                            text = { Text("A new version of KKC Sheet Tracker is available. Install now?") },
+                            text = { Text("A new version of ${pendingExternal.appName} (${pendingExternal.versionName}) is available. Install now?") },
                             confirmButton = {
-                                Button(onClick = { updateManager.installPendingUpdate() }) {
+                                Button(
+                                    onClick = {
+                                        updateManager.installExternalUpdate(pendingExternal)
+                                    }
+                                ) {
                                     Text("Install")
                                 }
-                            }
+                            },
+                            dismissButton = if (pendingExternal.canSkip) {
+                                {
+                                    TextButton(
+                                        onClick = {
+                                            updateManager.skipExternalUpdate(pendingExternal)
+                                        }
+                                    ) {
+                                        Text("Skip")
+                                    }
+                                }
+                            } else null
                         )
                     }
 
@@ -384,6 +446,9 @@ class MainActivity : ComponentActivity() {
         }
         if (::scanCoordinator.isInitialized) {
             scanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = false)
+        }
+        if (::updateManager.isInitialized) {
+            updateManager.checkForUpdates(checkSelf = true)
         }
     }
 

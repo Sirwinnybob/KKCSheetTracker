@@ -47,6 +47,10 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -745,5 +749,63 @@ private fun CompactNavIconRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * Inline clock shown inside the nav bar, directly left of the Settings icon.
+ * [compact] = true for the minimized/compact icon-only bar; false for the full label bar.
+ * Updates every 30 seconds.
+ */
+@Composable
+private fun NavClockItem(compact: Boolean) {
+    val fmt = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    var timeText by remember { mutableStateOf(fmt.format(Date())) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            timeText = fmt.format(Date())
+        }
+    }
+    Box(
+        modifier = Modifier.padding(horizontal = if (compact) 6.dp else 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = timeText,
+            style = if (compact) MaterialTheme.typography.labelMedium
+                    else MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Kept for compatibility — no longer used as an overlay but available if needed. */
+@Composable
+fun AppStatusClock(modifier: Modifier = Modifier) {
+    NavClockItem(compact = false)
+}
+
+@Composable
+fun TopBarClock(modifier: Modifier = Modifier) {
+    val fmt = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    var timeText by remember { mutableStateOf(fmt.format(Date())) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            timeText = fmt.format(Date())
+        }
+    }
+    Box(
+        modifier = modifier.padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = timeText,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }

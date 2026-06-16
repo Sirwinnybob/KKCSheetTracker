@@ -72,6 +72,7 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
 import com.kkc.sheettracker.ui.components.JobBoardGrid
+import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.CountStatusChip
@@ -170,16 +171,19 @@ fun JobBrowserScreen(
             else counts.complete.toFloat() / counts.total.toFloat()
             val materialSegments = if (useAppState && appModel != null) {
                 appModel.materials.map { material ->
+                    val jobMaterial = job.materials.find { it.pdfFilename == material.pdfFilename }
                     MaterialSegmentData(
                         materialName = material.materialName,
-                        counts = material.counts
+                        counts = material.counts,
+                        isRemake = jobMaterial?.metadata?.remakeLabel != null
                     )
                 }
             } else {
                 job.materials.map { material ->
                     MaterialSegmentData(
                         materialName = material.materialName,
-                        counts = progressStore.getMaterialStatusCounts(job.folderName, material)
+                        counts = progressStore.getMaterialStatusCounts(job.folderName, material),
+                        isRemake = material.metadata?.remakeLabel != null
                     )
                 }
             }
@@ -217,7 +221,7 @@ fun JobBrowserScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("KKC Sheet Tracker") },
+                title = { Text("KKC Dashboard - CNC") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -236,8 +240,7 @@ fun JobBrowserScreen(
                             contentDescription = if (boardView) "List View" else "Board View"
                         )
                     }
-                    IconButton(onClick = onSearchClick) { Icon(Icons.Default.Search, "Search") }
-                    IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
+                    TopBarClock()
                 }
             )
         }

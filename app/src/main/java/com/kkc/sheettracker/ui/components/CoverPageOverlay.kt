@@ -14,11 +14,14 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -203,6 +206,7 @@ fun CoverPageOverlay(
             onClick = onDismiss,
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(16.dp)
                 .size(48.dp)
                 .background(Color.Black.copy(alpha = 0.4f), shape = RoundedCornerShape(50))
@@ -219,9 +223,10 @@ fun CoverPageOverlay(
                 color = Color.White,
                 strokeWidth = 2.dp,
                 modifier = Modifier
-                    .size(24.dp)
                     .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(bottom = 32.dp)
+                    .size(24.dp)
             )
         }
     }

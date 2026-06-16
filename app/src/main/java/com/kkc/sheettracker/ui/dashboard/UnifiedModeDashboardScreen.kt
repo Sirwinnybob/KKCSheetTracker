@@ -7,14 +7,18 @@ import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -40,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
@@ -199,6 +204,12 @@ private fun CncDashboardContent(
             jobRepository = jobRepository,
             onOpenSheet = onOpenSheet
         )
+        if (dashboard.incompleteRemakeMaterials.isNotEmpty()) {
+            CncRemakesSection(
+                items = dashboard.incompleteRemakeMaterials,
+                onOpenSheet = onOpenSheet
+            )
+        }
         TextButton(onClick = onNavigateToJobs) { Text("View All Jobs") }
     }
 
@@ -278,6 +289,103 @@ private fun CncRecentMaterialsSection(
     }
 }
 
+@Composable
+private fun CncRemakesSection(
+    items: List<DashboardRecentMaterialItem>,
+    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
+) {
+    val remakeColor = KKCThemeColors.statusColors.remakeBg
+    DashboardSurfaceCard {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(remakeColor, CircleShape)
+            )
+            DashboardSectionHeader(
+                title = "Incomplete Remakes",
+                subtitle = "${items.size} remake${if (items.size == 1) "" else "s"} pending"
+            )
+        }
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items.forEach { item ->
+                CncRemakeMaterialCard(
+                    item = item,
+                    remakeColor = remakeColor,
+                    onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CncRemakeMaterialCard(
+    item: DashboardRecentMaterialItem,
+    remakeColor: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit
+) {
+    val tileShape = DashboardSurfaceDefaults.sectionShape
+    DashboardSurfaceCard(
+        modifier = Modifier
+            .width(220.dp)
+            .clickable(onClick = onClick)
+            .border(width = 2.dp, color = remakeColor, shape = tileShape),
+        shape = tileShape,
+        contentPadding = PaddingValues(12.dp)
+    ) {
+        Text(
+            item.jobFolderName,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            item.materialName,
+            style = MaterialTheme.typography.bodySmall,
+            color = remakeColor,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            "Next sheet ${item.nextIncompletePage}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "${item.counts.complete}/${item.counts.total}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            ProgressPill(
+                done = item.counts.complete,
+                total = item.counts.total,
+                state = ProgressState.from(item.counts.complete, item.counts.total)
+            )
+        }
+        LinearProgressIndicator(
+            progress = { item.completionFraction.coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth(),
+            color = remakeColor,
+            trackColor = remakeColor.copy(alpha = 0.2f)
+        )
+    }
+}
+
 private fun loadRecentMaterialThumbnail(
     jobRepository: JobRepository,
     item: DashboardRecentMaterialItem
@@ -345,6 +453,7 @@ private fun CncRecentMaterialCard(
     DashboardSurfaceCard(
         modifier = Modifier
             .width(268.dp)
+            .clickable(onClick = onClick)
             .border(
                 width = 1.dp,
                 color = DashboardSurfaceDefaults.outlineColor(tileAccent).copy(alpha = 0.45f),
@@ -352,7 +461,7 @@ private fun CncRecentMaterialCard(
             ),
         accent = tileAccent,
         shape = tileShape,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)
+        contentPadding = PaddingValues(12.dp)
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -427,7 +536,6 @@ private fun CncRecentMaterialCard(
                 DashboardAccentPill("S ${item.counts.skipped}", DashboardAccent.WARNING)
                 DashboardAccentPill("R ${item.counts.notStarted}", DashboardAccent.INFO)
             }
-            TextButton(onClick = onClick) { Text("Open Sheet") }
         }
     }
 }

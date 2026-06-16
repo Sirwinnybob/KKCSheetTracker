@@ -46,13 +46,13 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.models.SupplyCategory
 import com.kkc.sheettracker.data.models.SupplyItem
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
+import com.kkc.sheettracker.ui.components.TopBarClock
 import kotlin.math.roundToInt
 
 fun buildCncDashboardWidgets(
     dashboard: DashboardUiModel
 ): List<DashboardWidgetModel> {
     val completionFraction = safeFraction(dashboard.completedSheets, dashboard.totalSheets)
-    val remainingSheets = remainingCount(dashboard.completedSheets, dashboard.totalSheets)
     val alertAccent = qualityAccent(
         badCount = dashboard.badPartsSheets,
         skippedCount = dashboard.skippedSheets
@@ -81,7 +81,7 @@ fun buildCncDashboardWidgets(
                     label = "Bad Parts",
                     value = dashboard.badPartsSheets.toString(),
                     accent = if (dashboard.badPartsSheets > 0) DashboardAccent.DANGER else DashboardAccent.NEUTRAL,
-                    action = if (dashboard.badPartsSheets > 0) DashboardStatAction.BAD_PARTS else null
+                    action = DashboardStatAction.BAD_PARTS
                 ),
                 DashboardStatModel(
                     label = "Skipped",
@@ -95,16 +95,6 @@ fun buildCncDashboardWidgets(
                     accent = DashboardAccent.INFO
                 )
             )
-        ),
-        DashboardWidgetModel.AlertBlock(
-            key = "cnc-alert",
-            title = "Quality Alert",
-            message = buildQualityAlertMessage(
-                badCount = dashboard.badPartsSheets,
-                skippedCount = dashboard.skippedSheets
-            ),
-            supportingText = "$remainingSheets ${pluralize("sheet", remainingSheets)} remaining",
-            accent = alertAccent
         ),
         DashboardWidgetModel.RecentItemsBlock(
             key = "cnc-recents",
@@ -364,16 +354,12 @@ fun DashboardShell(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(title)
-                        if (!subtitle.isNullOrBlank()) {
-                            Text(
-                                subtitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    val displayTitle = if (!subtitle.isNullOrBlank()) {
+                        "KKC Dashboard - $subtitle"
+                    } else {
+                        title
                     }
+                    Text(displayTitle)
                 },
                 actions = {
                     if (onRefresh != null) {
@@ -382,6 +368,7 @@ fun DashboardShell(
                         }
                     }
                     topBarActions()
+                    TopBarClock()
                 }
             )
         },

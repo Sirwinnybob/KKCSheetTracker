@@ -38,3 +38,34 @@ fun ImmersiveSystemBars() {
         }
     }
 }
+
+/**
+ * Persistently hides both the status bar (notification bar) and the system navigation bar
+ * (back/home/recents) for the lifetime of this composable.
+ *
+ * Intended to be placed at the root app level so the app is always in true edge-to-edge
+ * mode. Uses BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE so users can still swipe either bar
+ * into view temporarily when needed.
+ *
+ * On dispose, system bars are restored.
+ */
+@Composable
+fun PersistentNavigationBarHider() {
+    val view = LocalView.current
+    val isInspection = LocalInspectionMode.current
+    if (!isInspection) {
+        DisposableEffect(Unit) {
+            val activity = view.context as? Activity
+                ?: return@DisposableEffect onDispose {}
+            val window = activity.window
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowInsetsControllerCompat(window, view)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            onDispose {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+}

@@ -2,4 +2,5 @@
 <paths>
     <external-path name="external_files" path="." />
     <cache-path name="supply_temp" path="supply_temp/" />
+    <cache-path name="cache_files" path="." />
 </paths>
