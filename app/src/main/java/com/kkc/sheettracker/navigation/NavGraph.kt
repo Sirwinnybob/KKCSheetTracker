@@ -61,6 +61,7 @@ import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
+import com.kkc.sheettracker.data.AssemblyViewerDefaultsStore
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.data.EmployeeDirectory
 import com.kkc.sheettracker.data.HardwoodsProgressStore
@@ -363,6 +364,7 @@ private fun MultiBackStackNavigation(
     val compactWidth = rememberCompactWidthClass()
     val context = LocalContext.current
     val timecardConfig = remember { TimecardServerConfig.create(context) }
+    val assemblyViewerDefaultsStore = remember { AssemblyViewerDefaultsStore.create(context) }
     val timecardDiscovery = remember { TimecardDiscovery(context) }
     val timeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
     val timecardStore = remember { TimecardStore(timecardConfig, timecardDiscovery, timeclockMessagesRepo) }
@@ -1837,6 +1839,7 @@ private fun LegacySingleStackNavigation(
 
     val legacyContext = LocalContext.current
     val legacyTimecardConfig = remember { TimecardServerConfig.create(legacyContext) }
+    val legacyAssemblyViewerDefaultsStore = remember { AssemblyViewerDefaultsStore.create(legacyContext) }
     val legacyTimecardDiscovery = remember { TimecardDiscovery(legacyContext) }
     val legacyTimeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
     val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery, legacyTimeclockMessagesRepo) }
