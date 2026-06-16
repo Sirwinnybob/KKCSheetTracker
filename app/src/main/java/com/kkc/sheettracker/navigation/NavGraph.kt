@@ -659,6 +659,7 @@ private fun MultiBackStackNavigation(
                         basePath = basePath,
                         clockInState = clockInState,
                         deliveryScheduleRepository = deliveryScheduleRepository,
+                        assemblyViewerDefaultsStore = assemblyViewerDefaultsStore,
                         onClockIn = onClockIn,
                         onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
                         onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) },
@@ -973,12 +974,14 @@ private fun JobsTabHost(
     basePath: String,
     clockInState: ClockInState,
     deliveryScheduleRepository: DeliveryScheduleRepository,
+    assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore,
     onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onUiVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
     NavHost(
         navController = navController,
         startDestination = "jobs",
@@ -1084,8 +1087,19 @@ private fun JobsTabHost(
                         deliveryScheduleRepository = deliveryScheduleRepository,
                         specialtyProgressVersionHint = specialtyProgressVersion,
                         onJobClick = { card ->
-                            navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
-                                launchSingleTop = true
+                            coroutineScope.launch {
+                                val d = assemblyViewerDefaultsStore.current()
+                                navController.navigate(
+                                    assemblyViewerRoute(
+                                        jobFolderName = card.folderName,
+                                        assemblyPage = 1,
+                                        plansPage = 1,
+                                        layout = d.layout,
+                                        firstPane = d.firstPane,
+                                        secondPane = d.secondPane,
+                                        hideUiOnOpen = d.hideUiOnOpen,
+                                    )
+                                ) { launchSingleTop = true }
                             }
                         },
                         onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
@@ -1857,6 +1871,7 @@ private fun LegacySingleStackNavigation(
     val legacyContext = LocalContext.current
     val legacyTimecardConfig = remember { TimecardServerConfig.create(legacyContext) }
     val legacyAssemblyViewerDefaultsStore = remember { AssemblyViewerDefaultsStore.create(legacyContext) }
+    val legacyCoroutineScope = rememberCoroutineScope()
     val legacyTimecardDiscovery = remember { TimecardDiscovery(legacyContext) }
     val legacyTimeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
     val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery, legacyTimeclockMessagesRepo) }
@@ -2170,8 +2185,19 @@ private fun LegacySingleStackNavigation(
                                 deliveryScheduleRepository = deliveryScheduleRepository,
                                 specialtyProgressVersionHint = specialtyProgressVersion,
                                 onJobClick = { card ->
-                                    navController.navigate(assemblyViewerRoute(card.folderName, 1, 1)) {
-                                        launchSingleTop = true
+                                    legacyCoroutineScope.launch {
+                                        val d = legacyAssemblyViewerDefaultsStore.current()
+                                        navController.navigate(
+                                            assemblyViewerRoute(
+                                                jobFolderName = card.folderName,
+                                                assemblyPage = 1,
+                                                plansPage = 1,
+                                                layout = d.layout,
+                                                firstPane = d.firstPane,
+                                                secondPane = d.secondPane,
+                                                hideUiOnOpen = d.hideUiOnOpen,
+                                            )
+                                        ) { launchSingleTop = true }
                                     }
                                 },
                                 onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
