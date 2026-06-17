@@ -43,6 +43,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -237,6 +240,7 @@ fun HardwoodsWorkspaceScreen(
         )
     }
     var showChangedOnly by rememberSaveable(jobFolderName) { mutableStateOf(false) }
+    var isClassicView by rememberSaveable(jobFolderName) { mutableStateOf(false) }
     LaunchedEffect(jobFolderName, initialDocType, initialRowId) {
         when {
             isDoorPanelsEntry -> {
@@ -824,6 +828,27 @@ fun HardwoodsWorkspaceScreen(
                         }
                     }
                 }
+                if (!showRipCutList && selectedDoc != null) {
+                    Spacer(Modifier.height(4.dp))
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        SegmentedButton(
+                            selected = !isClassicView,
+                            onClick = { isClassicView = false },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                            label = { Text("List View") }
+                        )
+                        SegmentedButton(
+                            selected = isClassicView,
+                            onClick = { isClassicView = true },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                            label = { Text("Classic View") }
+                        )
+                    }
+                }
                 Spacer(Modifier.height(6.dp))
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f),
@@ -879,6 +904,60 @@ fun HardwoodsWorkspaceScreen(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("No metadata for selected cut list", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                } else if (isClassicView) {
+                    val activeStrokes = remember(progressVersion, jobFolderName) {
+                        hardwoodsProgressStore.getActiveStrokes(jobFolderName)
+                    }
+                    ClassicCutListTable(
+                        docType = selectedDoc.docType,
+                        rows = rows,
+                        rowProgressMap = rowProgressMap,
+                        onIncrementProgress = { rowId, currentDone, maxQty ->
+                            hardwoodsProgressStore.setDoneCount(
+                                jobFolderName = jobFolderName,
+                                docType = selectedDoc.docType.name,
+                                rowId = rowId,
+                                qty = maxQty,
+                                doneCount = currentDone + 1
+                            )
+                        },
+                        onDecrementProgress = { rowId, currentDone, maxQty ->
+                            hardwoodsProgressStore.setDoneCount(
+                                jobFolderName = jobFolderName,
+                                docType = selectedDoc.docType.name,
+                                rowId = rowId,
+                                qty = maxQty,
+                                doneCount = currentDone - 1
+                            )
+                        },
+                        onToggleSkip = { rowId, currentSkipped ->
+                            val rowUi = rowDisplayMap[rowId]
+                            if (rowUi?.isMultiCab == true) {
+                                val targetRow = rows.firstOrNull { it.rowId == rowId }
+                                if (targetRow != null) {
+                                    cabSkipRow = targetRow
+                                }
+                            } else {
+                                hardwoodsProgressStore.setSkipped(
+                                    jobFolderName = jobFolderName,
+                                    docType = selectedDoc.docType.name,
+                                    rowId = rowId,
+                                    skipped = !currentSkipped
+                                )
+                            }
+                        },
+                        activeStrokes = activeStrokes,
+                        onSaveStrokes = { strokes, deletedIds ->
+                            hardwoodsProgressStore.saveTabletMarkup(
+                                jobFolderName = jobFolderName,
+                                strokes = strokes,
+                                deletedStrokeIds = deletedIds
+                            )
+                        },
+                        isDarkTheme = isDarkTheme,
+                        widthColorBands = widthColorBands,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 } else {
                     val isDoorListDoc = selectedDoc.docType == HardwoodDocType.DOOR_LIST
                     val collapsedPartSections = remember(selectedDoc.docType.name, partSections, collapsedPartSectionsByDoc) {

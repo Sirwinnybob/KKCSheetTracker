@@ -119,6 +119,10 @@ class JobRepository(
         return File(baseDir, "$jobFolderName/CNC/$pdfFilename")
     }
 
+    fun getJobDirectory(jobFolderName: String): File {
+        return File(baseDir, jobFolderName)
+    }
+
     fun getJobRootPdfFile(
         jobFolderName: String,
         pdfFilename: String,

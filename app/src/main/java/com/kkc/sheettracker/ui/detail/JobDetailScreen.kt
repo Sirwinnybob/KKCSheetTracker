@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +21,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Print
+import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -111,6 +115,7 @@ fun JobDetailScreen(
     }
     val listState = rememberLazyListState()
     var suppressLeavePrompt by remember { mutableStateOf(false) }
+    var showPrintDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(scanState.snapshot.generation, jobFolderName) {
         withContext(Dispatchers.IO) {
@@ -243,6 +248,17 @@ fun JobDetailScreen(
                                 Text("View 3D")
                             }
                         }
+                        Button(
+                            onClick = { showPrintDialog = true }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Print,
+                                contentDescription = null,
+                                modifier = Modifier.size(ButtonDefaults.IconSize)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Print")
+                        }
                     }
                 }
 
@@ -356,5 +372,12 @@ fun JobDetailScreen(
                 }
             }
         }
+    }
+    if (showPrintDialog) {
+        PrintDocumentsBottomSheet(
+            jobFolderName = jobFolderName,
+            jobRepository = jobRepository,
+            onDismissRequest = { showPrintDialog = false }
+        )
     }
 }

@@ -343,7 +343,7 @@ private fun DisplayCard(
                 // Employee name — "Last, First" reversed to "First Last"
                 val rawName = when {
                     ready.pin.length == 3 && ready.matchedEmployee != null ->
-                        ready.matchedEmployee.name.ifBlank { ready.matchedEmployee.displayName }
+                        ready.matchedEmployee.displayName.ifBlank { ready.matchedEmployee.name }
                     ready.pin.length == 3 -> "Unknown PIN"
                     else -> " "
                 }

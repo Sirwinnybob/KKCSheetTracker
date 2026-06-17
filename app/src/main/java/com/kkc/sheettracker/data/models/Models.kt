@@ -428,6 +428,23 @@ data class HardwoodTrackerAction(
     val timestamp: String = ""
 )
 
+data class HardwoodInkStroke(
+    val id: String = "",
+    val docType: String = "",
+    val page: Int = 1,
+    val rowId: String = "",
+    val color: Int = 0,
+    val lineWidth: Float = 4.0f,
+    val isHighlighter: Boolean = false,
+    val points: List<Float> = emptyList()
+)
+
+data class HardwoodTabletMarkup(
+    val tabletId: String = "",
+    val strokes: List<HardwoodInkStroke> = emptyList(),
+    val deletedStrokeIds: List<String> = emptyList()
+)
+
 data class HardwoodTotalsTallyKey(
     val docType: String = "",
     val blockIndex: Int = 0,

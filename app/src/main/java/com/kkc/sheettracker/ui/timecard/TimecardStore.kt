@@ -6,6 +6,7 @@ import com.kkc.sheettracker.data.TimecardDiscovery
 import com.kkc.sheettracker.data.TimecardRepository
 import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.data.TimeclockMessagesRepository
+import java.io.File
 import java.time.LocalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +35,8 @@ sealed class TimecardUiState {
 class TimecardStore(
     private val config: TimecardServerConfig,
     private val discovery: TimecardDiscovery,
-    private val messagesRepo: TimeclockMessagesRepository
+    private val messagesRepo: TimeclockMessagesRepository,
+    private val baseDir: File
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -80,7 +82,11 @@ class TimecardStore(
         repo = TimecardRepository(serverUrl)
         return try {
             val employees = repo!!.getEmployees()
-            _state.value = TimecardUiState.Ready(employees = employees)
+            val resolvedEmployees = employees.map { emp ->
+                val customName = getCustomDisplayName(emp.pin)
+                if (customName != null) emp.copy(displayName = customName) else emp
+            }
+            _state.value = TimecardUiState.Ready(employees = resolvedEmployees)
             true
         } catch (e: Exception) {
             if (clearCacheOnFailure) config.setCachedUrl(null)
@@ -127,7 +133,11 @@ class TimecardStore(
                     ?: if (status?.found == true && status.name != null)
                         EmployeeInfo(pin = pin, name = status.name, displayName = status.displayName ?: "")
                     else null
-                _state.value = it.copy(punchStatus = status, isLoading = false, matchedEmployee = matched)
+                val finalMatched = matched?.let { emp ->
+                    val customName = getCustomDisplayName(emp.pin)
+                    if (customName != null) emp.copy(displayName = customName) else emp
+                }
+                _state.value = it.copy(punchStatus = status, isLoading = false, matchedEmployee = finalMatched)
             }
             if (status?.found == false) {
                 delay(1000)
@@ -226,5 +236,53 @@ class TimecardStore(
 
     fun cancel() {
         scope.cancel()
+    }
+
+    /**
+     * Resolves the custom display name locally on the tablet.
+     * Checks if 'feature_display_name' exists in the employee's inventory.
+     */
+    private fun getCustomDisplayName(pin: String): String? {
+        val timeCardsDir = File(baseDir, ".time_cards")
+        if (!timeCardsDir.exists() || !timeCardsDir.isDirectory) return null
+
+        val employeesFile = File(timeCardsDir, "employees.json")
+        if (!employeesFile.exists() || !employeesFile.isFile) return null
+
+        return try {
+            val employeesJson = employeesFile.readText()
+            val jsonArray = org.json.JSONArray(employeesJson)
+            var employeeName: String? = null
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                if (obj.optString("id") == pin) {
+                    employeeName = obj.optString("name")
+                    break
+                }
+            }
+            if (employeeName == null) return null
+
+            val profileFile = File(File(timeCardsDir, employeeName), "profile.json")
+            if (!profileFile.exists() || !profileFile.isFile) return null
+
+            val profileJson = profileFile.readText()
+            val profileObj = org.json.JSONObject(profileJson)
+            val inventory = profileObj.optJSONArray("inventory")
+            val displayName = profileObj.optString("displayName", "")
+
+            var hasFeature = false
+            if (inventory != null) {
+                for (j in 0 until inventory.length()) {
+                    if (inventory.optString(j) == "feature_display_name") {
+                        hasFeature = true
+                        break
+                    }
+                }
+            }
+
+            if (hasFeature && displayName.isNotBlank()) displayName.trim() else null
+        } catch (e: Exception) {
+            null
+        }
     }
 }

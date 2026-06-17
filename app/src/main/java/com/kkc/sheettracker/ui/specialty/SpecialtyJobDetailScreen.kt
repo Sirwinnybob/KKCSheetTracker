@@ -61,15 +61,21 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSpecialtyDecoration
+import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.completionKeysForItem
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import androidx.compose.material.icons.filled.Print
+import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.StatusCounts
@@ -83,6 +89,7 @@ import java.io.File
 fun SpecialtyJobDetailScreen(
     jobFolderName: String,
     specialtyStateStore: SpecialtyStateStore,
+    jobRepository: JobRepository,
     hasAssemblySheet: Boolean,
     hasPlansElevations: Boolean,
     hasDeliverySheet: Boolean,
@@ -104,6 +111,7 @@ fun SpecialtyJobDetailScreen(
     val inFlightUpdates = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
     var toggleErrorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var showAddSheet by remember(jobFolderName) { mutableStateOf(false) }
+    var showPrintDialog by remember { mutableStateOf(false) }
     var editingItem by remember(jobFolderName) { mutableStateOf<com.kkc.sheettracker.data.models.TabletSpecialtyItem?>(null) }
     var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
     val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
@@ -201,7 +209,8 @@ fun SpecialtyJobDetailScreen(
             item(key = "actions-reference") {
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (hasAssemblySheet) {
                         Button(onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }) {
@@ -222,6 +231,15 @@ fun SpecialtyJobDetailScreen(
                         Button(onClick = onOpenThreeD) {
                             Text("View 3D")
                         }
+                    }
+                    Button(onClick = { showPrintDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Print,
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.IconSize)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Print")
                     }
                 }
             }
@@ -465,6 +483,13 @@ fun SpecialtyJobDetailScreen(
                 dismissButton = {
                     TextButton(onClick = { deleteTargetItemId = null }) { Text("Cancel") }
                 }
+            )
+        }
+        if (showPrintDialog) {
+            PrintDocumentsBottomSheet(
+                jobFolderName = jobFolderName,
+                jobRepository = jobRepository,
+                onDismissRequest = { showPrintDialog = false }
             )
         }
     }

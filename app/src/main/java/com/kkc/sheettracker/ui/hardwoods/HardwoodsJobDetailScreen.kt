@@ -8,14 +8,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Print
+import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -117,6 +122,7 @@ fun HardwoodsJobDetailScreen(
         summary.documents.associateBy { it.docType }
     }
     var suppressLeavePrompt by remember { mutableStateOf(false) }
+    var showPrintDialog by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.DisposableEffect(isClockedInHere) {
         val shouldNotify = isClockedInHere
@@ -166,7 +172,8 @@ fun HardwoodsJobDetailScreen(
         ) {
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 if (hasAssemblySheet) {
                     Button(onClick = {
@@ -199,6 +206,15 @@ fun HardwoodsJobDetailScreen(
                     }) {
                         Text("View 3D")
                     }
+                }
+                Button(onClick = { showPrintDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Print,
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.IconSize)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Print")
                 }
             }
 
@@ -307,6 +323,13 @@ fun HardwoodsJobDetailScreen(
                 jobFolderName = jobFolderName,
                 specialtyStateStore = specialtyStateStore,
                 mode = SpecialtySurfaceMode.HARDWOODS
+            )
+        }
+        if (showPrintDialog) {
+            PrintDocumentsBottomSheet(
+                jobFolderName = jobFolderName,
+                jobRepository = jobRepository,
+                onDismissRequest = { showPrintDialog = false }
             )
         }
     }

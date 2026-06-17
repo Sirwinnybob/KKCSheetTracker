@@ -4,15 +4,21 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Print
+import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -66,6 +72,7 @@ fun AssemblyJobDetailScreen(
     val completionOverrides = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
     val inFlightUpdates = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
     var toggleErrorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
+    var showPrintDialog by remember { mutableStateOf(false) }
 
     val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
         specialtyStateStore.getResolvedItems(jobFolderName)
@@ -117,6 +124,15 @@ fun AssemblyJobDetailScreen(
                 ) {
                     Button(onClick = onOpenSplitView) {
                         Text("Split View")
+                    }
+                    Button(onClick = { showPrintDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Print,
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.IconSize)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Print")
                     }
                 }
             }
@@ -182,5 +198,12 @@ fun AssemblyJobDetailScreen(
                 }
             }
         }
+    }
+    if (showPrintDialog) {
+        PrintDocumentsBottomSheet(
+            jobFolderName = jobFolderName,
+            jobRepository = jobRepository,
+            onDismissRequest = { showPrintDialog = false }
+        )
     }
 }

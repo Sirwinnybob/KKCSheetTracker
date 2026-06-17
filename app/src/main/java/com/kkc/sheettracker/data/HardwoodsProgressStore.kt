@@ -15,6 +15,8 @@ import com.kkc.sheettracker.data.models.HardwoodTabletProgress
 import com.kkc.sheettracker.data.models.HardwoodTotalsTallyKey
 import com.kkc.sheettracker.data.models.HardwoodTrackerActions
 import com.kkc.sheettracker.data.models.HardwoodTrackerAction
+import com.kkc.sheettracker.data.models.HardwoodInkStroke
+import com.kkc.sheettracker.data.models.HardwoodTabletMarkup
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import kotlinx.coroutines.CoroutineScope
@@ -177,7 +179,8 @@ class HardwoodsProgressStore(
             ?.filter {
                 it.isFile &&
                     it.extension.equals("json", ignoreCase = true) &&
-                    !it.name.startsWith(".")
+                    !it.name.startsWith(".") &&
+                    !it.name.endsWith(".markup.json", ignoreCase = true)
             }
             ?.mapNotNull { file ->
                 runCatching { gson.fromJson(file.readText(), HardwoodTabletProgress::class.java) }
@@ -185,6 +188,70 @@ class HardwoodsProgressStore(
                     ?.let { sanitizeProgress(it, fallbackTabletId = file.nameWithoutExtension) }
             }
             ?: emptyList()
+    }
+
+    private fun tabletMarkupFile(jobFolderName: String): File = File(trackerDir(jobFolderName), "$tabletId.markup.json")
+
+    fun loadTabletMarkup(jobFolderName: String): HardwoodTabletMarkup {
+        val file = tabletMarkupFile(jobFolderName)
+        if (!file.exists()) return HardwoodTabletMarkup(tabletId = tabletId)
+        return try {
+            gson.fromJson(file.readText(), HardwoodTabletMarkup::class.java) ?: HardwoodTabletMarkup(tabletId = tabletId)
+        } catch (_: Exception) {
+            HardwoodTabletMarkup(tabletId = tabletId)
+        }
+    }
+
+    fun saveTabletMarkup(
+        jobFolderName: String,
+        strokes: List<HardwoodInkStroke>,
+        deletedStrokeIds: List<String>
+    ) {
+        if (readOnly) return
+        val writeMutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
+        ioScope.launch {
+            writeMutex.withLock {
+                val dir = trackerDir(jobFolderName)
+                dir.mkdirs()
+                val markup = HardwoodTabletMarkup(
+                    tabletId = tabletId,
+                    strokes = strokes,
+                    deletedStrokeIds = deletedStrokeIds
+                )
+                val tmpFile = File(dir, "$tabletId.markup.json.tmp")
+                val destFile = tabletMarkupFile(jobFolderName)
+                try {
+                    tmpFile.writeText(gson.toJson(markup))
+                    if (!tmpFile.renameTo(destFile)) {
+                        tmpFile.copyTo(destFile, overwrite = true)
+                        tmpFile.delete()
+                    }
+                    _progressVersion.value++
+                } catch (e: Exception) {
+                    android.util.Log.e("HardwoodsProgressStore", "Error saving markup: ${e.localizedMessage}")
+                }
+            }
+        }
+    }
+
+    fun getActiveStrokes(jobFolderName: String): List<HardwoodInkStroke> {
+        val dir = trackerDir(jobFolderName)
+        if (!dir.exists()) return emptyList()
+        val allMarkup = dir.listFiles()
+            ?.filter {
+                it.isFile &&
+                    it.name.endsWith(".markup.json", ignoreCase = true) &&
+                    !it.name.startsWith(".")
+            }
+            ?.mapNotNull { file ->
+                runCatching { gson.fromJson(file.readText(), HardwoodTabletMarkup::class.java) }
+                    .getOrNull()
+            }
+            .orEmpty()
+
+        val allDeletedIds = allMarkup.flatMap { it.deletedStrokeIds.orEmpty() }.toSet()
+        return allMarkup.flatMap { it.strokes.orEmpty() }
+            .filter { it.id !in allDeletedIds }
     }
 
     private fun loadAllActions(jobFolderName: String): List<HardwoodTrackerAction> {

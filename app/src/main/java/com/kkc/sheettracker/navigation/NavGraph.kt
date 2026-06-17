@@ -370,7 +370,7 @@ private fun MultiBackStackNavigation(
     val assemblyViewerDefaultsStore = remember { AssemblyViewerDefaultsStore.create(context) }
     val timecardDiscovery = remember { TimecardDiscovery(context) }
     val timeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
-    val timecardStore = remember { TimecardStore(timecardConfig, timecardDiscovery, timeclockMessagesRepo) }
+    val timecardStore = remember { TimecardStore(timecardConfig, timecardDiscovery, timeclockMessagesRepo, File(basePath)) }
     DisposableEffect(timecardStore) { onDispose { timecardStore.cancel() } }
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
@@ -1247,6 +1247,7 @@ private fun JobsTabHost(
             SpecialtyJobDetailScreen(
                 jobFolderName = folderName,
                 specialtyStateStore = specialtyStateStore,
+                jobRepository = jobRepository,
                 hasAssemblySheet = hasAssemblySheet,
                 hasPlansElevations = hasPlansElevations,
                 hasDeliverySheet = hasDeliverySheet,
@@ -1888,7 +1889,7 @@ private fun LegacySingleStackNavigation(
     val legacyCoroutineScope = rememberCoroutineScope()
     val legacyTimecardDiscovery = remember { TimecardDiscovery(legacyContext) }
     val legacyTimeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
-    val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery, legacyTimeclockMessagesRepo) }
+    val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery, legacyTimeclockMessagesRepo, File(basePath)) }
     DisposableEffect(legacyTimecardStore) { onDispose { legacyTimecardStore.cancel() } }
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
@@ -2339,6 +2340,7 @@ private fun LegacySingleStackNavigation(
                     SpecialtyJobDetailScreen(
                         jobFolderName = folderName,
                         specialtyStateStore = specialtyStateStore,
+                        jobRepository = jobRepository,
                         hasAssemblySheet = hasAssemblySheet,
                         hasPlansElevations = hasPlansElevations,
                         hasDeliverySheet = hasDeliverySheet,
