@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -31,10 +32,13 @@ private val MIN_FIRST_SIZE = 120.dp
 private val MIN_SECOND_SIZE = 220.dp
 private val HANDLE_SIZE = 24.dp
 
+enum class SplitFullscreen { NONE, FIRST, SECOND }
+
 @Composable
 fun AdaptiveSplitLayout(
     modifier: Modifier = Modifier,
     initialFirstWeight: Float = DEFAULT_FIRST_WEIGHT,
+    fullscreen: SplitFullscreen = SplitFullscreen.NONE,
     firstContent: @Composable (Modifier) -> Unit,
     secondContent: @Composable (Modifier) -> Unit
 ) {
@@ -44,6 +48,7 @@ fun AdaptiveSplitLayout(
         HorizontalSplitLayout(
             modifier = modifier,
             initialLeftWeight = initialFirstWeight,
+            fullscreen = fullscreen,
             leftContent = firstContent,
             rightContent = secondContent
         )
@@ -51,6 +56,7 @@ fun AdaptiveSplitLayout(
         VerticalSplitLayout(
             modifier = modifier,
             initialTopWeight = initialFirstWeight,
+            fullscreen = fullscreen,
             topContent = firstContent,
             bottomContent = secondContent
         )
@@ -61,6 +67,7 @@ fun AdaptiveSplitLayout(
 private fun HorizontalSplitLayout(
     modifier: Modifier = Modifier,
     initialLeftWeight: Float = DEFAULT_FIRST_WEIGHT,
+    fullscreen: SplitFullscreen = SplitFullscreen.NONE,
     leftContent: @Composable (Modifier) -> Unit,
     rightContent: @Composable (Modifier) -> Unit
 ) {
@@ -86,48 +93,64 @@ private fun HorizontalSplitLayout(
             leftWidthPx = clampedLeftPx(leftWidthPx)
         }
     ) {
-        val leftDp = with(density) { leftWidthPx.coerceAtLeast(minLeftPx).toDp() }
-        leftContent(Modifier.fillMaxHeight().width(leftDp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(HANDLE_SIZE)
-                .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        leftWidthPx = clampedLeftPx(leftWidthPx + dragAmount.x)
-                    }
+        when (fullscreen) {
+            SplitFullscreen.FIRST -> {
+                leftContent(Modifier.fillMaxHeight().weight(1f))
+                Box(Modifier.width(0.dp).fillMaxHeight()) {
+                    rightContent(Modifier.fillMaxSize())
                 }
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onDoubleTap = {
-                            if (totalSize.width > 0) {
-                                leftWidthPx = clampedLeftPx(totalSize.width * DEFAULT_FIRST_WEIGHT)
+            }
+            SplitFullscreen.SECOND -> {
+                Box(Modifier.width(0.dp).fillMaxHeight()) {
+                    leftContent(Modifier.fillMaxSize())
+                }
+                rightContent(Modifier.fillMaxHeight().weight(1f))
+            }
+            SplitFullscreen.NONE -> {
+                val leftDp = with(density) { leftWidthPx.coerceAtLeast(minLeftPx).toDp() }
+                leftContent(Modifier.fillMaxHeight().width(leftDp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(HANDLE_SIZE)
+                        .pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                leftWidthPx = clampedLeftPx(leftWidthPx + dragAmount.x)
                             }
                         }
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    if (totalSize.width > 0) {
+                                        leftWidthPx = clampedLeftPx(totalSize.width * DEFAULT_FIRST_WEIGHT)
+                                    }
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(KKCShapeTokens.splitDividerThickness)
+                            .background(MaterialTheme.colorScheme.outlineVariant)
                     )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(KKCShapeTokens.splitDividerThickness)
-                    .background(MaterialTheme.colorScheme.outlineVariant)
-            )
-            Box(
-                modifier = Modifier
-                    .width(KKCShapeTokens.splitHandleBarThickness)
-                    .height(48.dp)
-                    .background(
-                        MaterialTheme.colorScheme.outline.copy(alpha = KKCAlpha.handleBar),
-                        shape = KKCShapeTokens.pill
+                    Box(
+                        modifier = Modifier
+                            .width(KKCShapeTokens.splitHandleBarThickness)
+                            .height(48.dp)
+                            .background(
+                                MaterialTheme.colorScheme.outline.copy(alpha = KKCAlpha.handleBar),
+                                shape = KKCShapeTokens.pill
+                            )
                     )
-            )
-        }
+                }
 
-        rightContent(Modifier.weight(1f))
+                rightContent(Modifier.weight(1f))
+            }
+        }
     }
 }
 

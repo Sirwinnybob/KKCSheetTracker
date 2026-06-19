@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -28,6 +30,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -84,9 +89,15 @@ fun HardwoodsJobBrowserScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Hardwoods") },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        "Hardwoods",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 actions = {
@@ -95,7 +106,8 @@ fun HardwoodsJobBrowserScreen(
                     }
                     IconButton(onClick = onSearchClick) { Icon(Icons.Default.Search, "Search") }
                     IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
-                }
+                },
+                windowInsets = WindowInsets.statusBars
             )
         }
     ) { padding ->

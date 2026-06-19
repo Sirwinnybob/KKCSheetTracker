@@ -9,6 +9,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -610,6 +612,23 @@ private fun MaterialSegmentedProgressBar(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun PinButton(
+    isPinned: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    IconButton(onClick = onClick, modifier = modifier.size(36.dp)) {
+        Icon(
+            imageVector = if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+            contentDescription = if (isPinned) "Unpin job" else "Pin job",
+            tint = if (isPinned) MaterialTheme.colorScheme.primary
+                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+            modifier = Modifier.size(20.dp)
+        )
     }
 }
 

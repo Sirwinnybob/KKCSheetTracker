@@ -166,7 +166,7 @@ class UpdateManager(private val activity: Activity) {
             val apkVersion = getApkVersionCode(apk)
             if (apkVersion > newestVersionCode ||
                 (apkVersion == newestVersionCode && apkVersion >= 0 &&
-                    (newestApk == null || apk.lastModified() > newestApk!!.lastModified()))
+                    (newestApk == null || apk.lastModified() > newestApk.lastModified()))
             ) {
                 newestVersionCode = apkVersion
                 newestApk = apk
@@ -174,8 +174,8 @@ class UpdateManager(private val activity: Activity) {
         }
 
         if (newestApk != null) {
-            Log.d(TAG, "Reinstalling ${newestApk!!.name} v$newestVersionCode")
-            installApk(newestApk!!)
+            Log.d(TAG, "Reinstalling ${newestApk.name} v$newestVersionCode")
+            installApk(newestApk)
         } else {
             Toast.makeText(activity, "No valid APK found", Toast.LENGTH_SHORT).show()
         }
@@ -251,7 +251,7 @@ class UpdateManager(private val activity: Activity) {
             if (apkVersion > currentVersionCode &&
                 (apkVersion > newestVersionCode ||
                     (apkVersion == newestVersionCode &&
-                        (newestApk == null || apk.lastModified() > newestApk!!.lastModified())))
+                        (newestApk == null || apk.lastModified() > newestApk.lastModified())))
             ) {
                 newestVersionCode = apkVersion
                 newestApk = apk

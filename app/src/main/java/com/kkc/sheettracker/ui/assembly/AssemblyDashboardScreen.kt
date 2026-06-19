@@ -49,6 +49,7 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 
@@ -88,9 +89,15 @@ fun AssemblyDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Assembly") },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        "Assembly",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 windowInsets = WindowInsets.statusBars,

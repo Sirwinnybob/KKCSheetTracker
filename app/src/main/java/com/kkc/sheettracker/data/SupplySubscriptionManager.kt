@@ -123,8 +123,8 @@ class SupplySubscriptionManager(
             val currentItem = repository.getItem(itemId) ?: return@withContext
             val currentComments = repository.getComments(itemId)
             val snapshot = SupplyItemSnapshot(
-                lastSeenUpdatedAt = currentItem.updatedAt ?: "",
-                lastSeenStatusAt = currentItem.statusAt ?: "",
+                lastSeenUpdatedAt = currentItem.updatedAt,
+                lastSeenStatusAt = currentItem.statusAt,
                 lastSeenCommentIds = currentComments.map { it.id },
                 lastSeenAttachmentIds = currentItem.attachmentIds.map { it.id }
             )
@@ -167,12 +167,12 @@ class SupplySubscriptionManager(
             val changes = mutableListOf<SupplyChange>()
 
             // 1. Details change (updatedAt)
-            if (item.updatedAt != snapshot.lastSeenUpdatedAt && (item.updatedAt ?: "").isNotBlank()) {
+            if (item.updatedAt != snapshot.lastSeenUpdatedAt && item.updatedAt.isNotBlank()) {
                 changes.add(SupplyChange.DetailsUpdated)
             }
 
             // 2. Status change (statusAt)
-            if (item.statusAt != snapshot.lastSeenStatusAt && (item.statusAt ?: "").isNotBlank()) {
+            if (item.statusAt != snapshot.lastSeenStatusAt && item.statusAt.isNotBlank()) {
                 changes.add(SupplyChange.StatusChanged(item.status))
             }
 

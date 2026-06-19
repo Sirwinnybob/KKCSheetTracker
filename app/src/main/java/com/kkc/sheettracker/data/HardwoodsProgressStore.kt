@@ -281,7 +281,7 @@ class HardwoodsProgressStore(
         return HardwoodTrackerAction(
             docType = (action.docType as String?).orEmpty(),
             rowId = (action.rowId as String?).orEmpty(),
-            totalsKey = (action.totalsKey as String?)?.trim()?.takeIf { it.isNotBlank() },
+            totalsKey = action.totalsKey?.trim()?.takeIf { it.isNotBlank() },
             action = safeAction,
             value = action.value,
             timestamp = (action.timestamp as String?).orEmpty()

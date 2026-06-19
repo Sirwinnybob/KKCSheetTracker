@@ -3,6 +3,10 @@ package com.kkc.sheettracker.ui.hardwoods
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import java.util.Locale
 
+private val MIXED_FRACTION_REGEX = Regex("""(-?\d+)\s+(\d+)\s*/\s*(\d+)""")
+private val FRACTION_ONLY_REGEX = Regex("""(-?\d+)\s*/\s*(\d+)""")
+private val DECIMAL_REGEX = Regex("""-?\d+(?:\.\d+)?""")
+
 enum class HardwoodsRowSortMode {
     CutlistOrder,
     WidthDescLengthDesc,
@@ -121,7 +125,7 @@ private fun parseDimensionKey(value: String): DimensionKey {
 private fun parseDimensionNumber(normalized: String): Double? {
     if (normalized.isBlank()) return null
 
-    val mixedFraction = Regex("""(-?\d+)\s+(\d+)\s*/\s*(\d+)""").find(normalized)
+    val mixedFraction = MIXED_FRACTION_REGEX.find(normalized)
     if (mixedFraction != null) {
         val whole = mixedFraction.groupValues[1].toDoubleOrNull() ?: return null
         val numerator = mixedFraction.groupValues[2].toDoubleOrNull() ?: return null
@@ -130,7 +134,7 @@ private fun parseDimensionNumber(normalized: String): Double? {
         return whole + (numerator / denominator)
     }
 
-    val fractionOnly = Regex("""(-?\d+)\s*/\s*(\d+)""").find(normalized)
+    val fractionOnly = FRACTION_ONLY_REGEX.find(normalized)
     if (fractionOnly != null) {
         val numerator = fractionOnly.groupValues[1].toDoubleOrNull() ?: return null
         val denominator = fractionOnly.groupValues[2].toDoubleOrNull() ?: return null
@@ -138,5 +142,5 @@ private fun parseDimensionNumber(normalized: String): Double? {
         return numerator / denominator
     }
 
-    return Regex("""-?\d+(?:\.\d+)?""").find(normalized)?.value?.toDoubleOrNull()
+    return DECIMAL_REGEX.find(normalized)?.value?.toDoubleOrNull()
 }

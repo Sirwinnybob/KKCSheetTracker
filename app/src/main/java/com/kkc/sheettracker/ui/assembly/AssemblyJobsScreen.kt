@@ -28,6 +28,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -58,6 +59,8 @@ import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.components.PinButton
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.HardwoodsProgressStore
@@ -98,6 +101,8 @@ fun AssemblyJobsScreen(
     specialtyStateStore: SpecialtyStateStore,
     deliveryScheduleRepository: DeliveryScheduleRepository,
     specialtyProgressVersionHint: Long = 0L,
+    pinnedFolderNames: List<String> = emptyList(),
+    onTogglePin: (folderName: String, isCurrentlyPinned: Boolean) -> Unit = { _, _ -> },
     onJobClick: (AssemblyJobCard) -> Unit,
     onOpenHardwoodsChange: (jobFolderName: String, docType: HardwoodDocType, rowId: String) -> Unit,
     onViewCoverSheet: (AssemblyJobCard) -> Unit,
@@ -172,6 +177,13 @@ fun AssemblyJobsScreen(
         }
     }
 
+    val positionMap = remember(filtered) {
+        filtered.mapIndexed { i, card -> card.folderName to (i + 1) }.toMap()
+    }
+    val pinnedUiStates = remember(pinnedFolderNames, assemblyUiStates) {
+        pinnedFolderNames.mapNotNull { folder -> assemblyUiStates.find { it.card.folderName == folder } }
+    }
+
     LaunchedEffect(Unit) {
         assemblyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = false)
     }
@@ -179,9 +191,15 @@ fun AssemblyJobsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("KKC Dashboard - Assembly") },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        "KKC Dashboard - Assembly",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 windowInsets = WindowInsets.statusBars,
@@ -301,6 +319,62 @@ fun AssemblyJobsScreen(
                         contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        if (pinnedUiStates.isNotEmpty()) {
+                            item(key = "pinned_header") {
+                                Text(
+                                    "Pinned",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                                )
+                            }
+                            items(pinnedUiStates, key = { "pinned_${it.card.folderName}" }) { uiState ->
+                                val card = uiState.card
+                                val badge = badgeCache[card.folderName]
+                                val cncCounts = uiState.cncCounts
+                                val hardwoodCounts = uiState.hardwoodCounts
+                                val combinedCounts = uiState.combinedCounts
+                                val pos = positionMap[card.folderName]
+                                val label = if (pos != null) "$pos of ${filtered.size}" else null
+                                ProgressCard(
+                                    title = card.folderName,
+                                    subtitle = uiState.subtitle,
+                                    fraction = if (combinedCounts.total <= 0) 0f else combinedCounts.complete.toFloat() / combinedCounts.total.toFloat(),
+                                    expanded = false,
+                                    onToggleExpanded = {},
+                                    onClick = { onJobClick(card) },
+                                    hidePrimaryProgressBar = true,
+                                    showExpandToggle = false,
+                                    headerActions = {
+                                        if (label != null) {
+                                            StatusChip(
+                                                text = label,
+                                                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                        card.labels.forEach { lbl ->
+                                            StatusChip(
+                                                text = lbl.name,
+                                                backgroundColor = parseJobLabelColor(lbl.colorHex),
+                                                contentColor = Color.White
+                                            )
+                                        }
+                                        if (badge?.hasDeliverySheet == true) {
+                                            FilterChip(selected = false, onClick = { onViewCoverSheet(card) }, label = { Text("Cover Sheet") })
+                                        }
+                                        val isPinned = card.folderName in pinnedFolderNames
+                                        PinButton(isPinned = isPinned, onClick = { onTogglePin(card.folderName, isPinned) })
+                                    },
+                                    inlineContent = {
+                                        DualModeProgressBars(cncCounts = cncCounts, hardwoodCounts = hardwoodCounts)
+                                    }
+                                )
+                            }
+                            item(key = "pinned_divider") {
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            }
+                        }
                         items(activeUiStates, key = { "active_${it.card.folderName}" }) { uiState ->
                             val card = uiState.card
                             val badge = badgeCache[card.folderName]
@@ -363,6 +437,8 @@ fun AssemblyJobsScreen(
                                             Text("History")
                                         }
                                     }
+                                    val isPinned = card.folderName in pinnedFolderNames
+                                    PinButton(isPinned = isPinned, onClick = { onTogglePin(card.folderName, isPinned) })
                                 },
                                 inlineContent = {
                                     DualModeProgressBars(
@@ -432,6 +508,8 @@ fun AssemblyJobsScreen(
                                                 label = { Text("Cover Sheet") }
                                             )
                                         }
+                                        val isPinned = card.folderName in pinnedFolderNames
+                                        PinButton(isPinned = isPinned, onClick = { onTogglePin(card.folderName, isPinned) })
                                     },
                                     inlineContent = {
                                         DualModeProgressBars(

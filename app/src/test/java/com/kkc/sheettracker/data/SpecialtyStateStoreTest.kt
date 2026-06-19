@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.data
 
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -121,6 +122,68 @@ class SpecialtyStateStoreTest {
         assertTrue(resolved.isComplete)
         assertTrue(resolved.completionByKey[SpecialtyProgressStore.ITEM_COMPLETION_KEY]?.completed == true)
         assertTrue(resolved.completionByKey.keys == setOf(SpecialtyProgressStore.ITEM_COMPLETION_KEY))
+    }
+
+    @Test
+    fun refreshJobOnOpen_invalidatesResolvedCacheBeforeBackgroundRefresh() = runBlocking {
+        val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
+        writeSpecialtyItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id": "item-1",
+                      "name": "Original",
+                      "category": "CUSTOM",
+                      "stations": ["CNC"]
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val repository = SpecialtyRepository(baseDir = baseDir, progressStore = progressStore)
+        val scanCoordinator = SpecialtyScanCoordinator(repository)
+        val stateStore = SpecialtyStateStore(
+            specialtyScanCoordinator = scanCoordinator,
+            specialtyProgressStore = progressStore,
+            sheetRipProgressStore = SheetRipProgressStore(baseDir = baseDir),
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet")
+        )
+
+        assertEquals(1, stateStore.getResolvedItems(jobFolderName).size)
+        val versionBefore = stateStore.progressVersion.value
+
+        writeSpecialtyItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id": "item-1",
+                      "name": "Original",
+                      "category": "CUSTOM",
+                      "stations": ["CNC"]
+                    },
+                    {
+                      "id": "item-2",
+                      "name": "Fresh Item",
+                      "category": "CUSTOM",
+                      "stations": ["SAW"]
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        stateStore.refreshJobOnOpen(jobFolderName)
+
+        assertTrue(stateStore.progressVersion.value > versionBefore)
+        assertEquals(2, stateStore.getResolvedItems(jobFolderName).size)
     }
 
     private fun writeSpecialtyItems(baseDir: File, jobFolderName: String, body: String) {

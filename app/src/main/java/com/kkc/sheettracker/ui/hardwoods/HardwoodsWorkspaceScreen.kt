@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -43,6 +45,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.ui.components.ClockInButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -93,6 +97,7 @@ import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.filterDoorCutRowsToSheets
 import com.kkc.sheettracker.data.loadHardwoodsCutlistIndexRawJson
 import com.kkc.sheettracker.data.parseDoorCutUnitTypeMetadata
@@ -103,6 +108,7 @@ import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import com.kkc.sheettracker.ui.components.ChangedBadge
 import com.kkc.sheettracker.ui.components.ProgressPill
 import com.kkc.sheettracker.ui.components.ProgressState
@@ -110,6 +116,8 @@ import com.kkc.sheettracker.ui.components.RevisionBadge
 import com.kkc.sheettracker.ui.components.SectionProgressHeader
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
+import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
 import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageMapping
 import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageSource
@@ -170,7 +178,8 @@ fun HardwoodsWorkspaceScreen(
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    clockInState: ClockInState? = null
 ) {
     val context = LocalContext.current
     val config = LocalConfiguration.current
@@ -222,21 +231,28 @@ fun HardwoodsWorkspaceScreen(
     var doorPanelGroupMode by rememberSaveable(jobFolderName) {
         mutableStateOf(DoorPanelGroupMode.ByMaterial)
     }
+    var rawCutlistIndexJson by remember(scanState.snapshot.basePath, jobFolderName) { mutableStateOf<String?>(null) }
+    LaunchedEffect(scanState.snapshot.basePath, jobFolderName) {
+        val json = withContext(Dispatchers.IO) {
+            loadHardwoodsCutlistIndexRawJson(
+                basePath = scanState.snapshot.basePath,
+                jobFolderName = jobFolderName
+            )
+        }
+        rawCutlistIndexJson = json
+    }
+
     val rows = remember(
         rawRows,
         selectedDocType,
         useDoorPanelsSheetFilter.value,
-        scanState.snapshot.basePath,
-        jobFolderName
+        rawCutlistIndexJson
     ) {
         applyDoorPanelsSheetFilter(
             rows = rawRows,
             selectedDocType = selectedDocType,
             enabled = useDoorPanelsSheetFilter.value,
-            rawCutlistIndexJson = loadHardwoodsCutlistIndexRawJson(
-                basePath = scanState.snapshot.basePath,
-                jobFolderName = jobFolderName
-            )
+            rawCutlistIndexJson = rawCutlistIndexJson ?: ""
         )
     }
     var showChangedOnly by rememberSaveable(jobFolderName) { mutableStateOf(false) }
@@ -361,6 +377,8 @@ fun HardwoodsWorkspaceScreen(
     var lastJumpCab by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var collapsedPartSectionsByDoc by rememberSaveable(jobFolderName) { mutableStateOf(mapOf<String, Set<String>>()) }
     var showReferencePane by remember(jobFolderName) { mutableStateOf(true) }
+    var referenceMarkupEnabled by rememberSaveable(jobFolderName) { mutableStateOf(false) }
+    val sharedMarkupToolState = rememberPdfMarkupToolState()
     val skippedCabinetMap = remember(progressVersion, jobFolderName) { hardwoodsProgressStore.getSkippedCabinetMap(jobFolderName) }
 
     val resumePrefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
@@ -731,7 +749,13 @@ fun HardwoodsWorkspaceScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("${job?.folderName ?: jobFolderName} - Hardwoods") },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        "${job?.folderName ?: jobFolderName} - Hardwoods",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -740,18 +764,26 @@ fun HardwoodsWorkspaceScreen(
                 actions = {
                     val clockInJob = job
                     if (clockInJob != null) {
-                        Button(
-                            onClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF38A169),
-                                contentColor = Color.White
+                        if (clockInState != null) {
+                            ClockInButton(
+                                clockInState = clockInState,
+                                isClockedInHere = isClockedInHere,
+                                onClockInClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) }
                             )
-                        ) {
-                            Text(
-                                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
+                        } else {
+                            Button(
+                                onClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF38A169),
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Text(
+                                    if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     }
                     TextButton(onClick = { showReferencePane = !showReferencePane }) {
@@ -759,9 +791,10 @@ fun HardwoodsWorkspaceScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
+                ),
+                windowInsets = WindowInsets.statusBars
             )
         },
         snackbarHost = { SnackbarHost(snackbar) }
@@ -954,8 +987,12 @@ fun HardwoodsWorkspaceScreen(
                                 deletedStrokeIds = deletedIds
                             )
                         },
+                        onRowLongPress = { row -> startRowJump(row) },
                         isDarkTheme = isDarkTheme,
                         widthColorBands = widthColorBands,
+                        toolState = sharedMarkupToolState,
+                        showMarkupToolbar = false,
+                        hostMarkupToolbarInNavBar = true,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -1177,7 +1214,11 @@ fun HardwoodsWorkspaceScreen(
                         }
                     }
                 },
-                onOpenIn3DApp = { openIn3DApp(detectedRoom ?: resolveThreeDTarget().room) }
+                onOpenIn3DApp = { openIn3DApp(detectedRoom ?: resolveThreeDTarget().room) },
+                markupEnabled = isClassicView || referenceMarkupEnabled,
+                onToggleMarkupEnabled = { referenceMarkupEnabled = !referenceMarkupEnabled },
+                markupToolState = sharedMarkupToolState,
+                ownsNavBarMarkupControls = !isClassicView
             )
         }
 
@@ -1499,8 +1540,23 @@ private fun ReferencePane(
     serverPort: Int,
     serverError: String?,
     onThreeDFullScreen: () -> Unit,
-    onOpenIn3DApp: () -> Unit
+    onOpenIn3DApp: () -> Unit,
+    markupEnabled: Boolean,
+    onToggleMarkupEnabled: () -> Unit,
+    markupToolState: PdfMarkupToolState,
+    ownsNavBarMarkupControls: Boolean
 ) {
+    val context = LocalContext.current
+    val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
+    val pdfMarkupStore = remember {
+        val basePath = trackerPrefs.getString("base_path", null)
+        val tabletId = trackerPrefs.getString("tablet_id", null)
+        if (basePath.isNullOrBlank() || tabletId.isNullOrBlank()) {
+            null
+        } else {
+            PdfMarkupStore(File(basePath), tabletId)
+        }
+    }
     val cabinetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
     val hasAssemblyReference = remember(jobFolderName) {
         jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
@@ -1655,7 +1711,13 @@ private fun ReferencePane(
             } else {
                 null
             },
-            showDocControls = docControls
+            showDocControls = docControls,
+            pdfMarkupStore = pdfMarkupStore,
+            pdfMarkupJobFolderName = jobFolderName,
+            markupEnabled = markupEnabled,
+            onToggleMarkupEnabled = onToggleMarkupEnabled,
+            markupToolState = markupToolState,
+            ownsNavBarMarkupControls = ownsNavBarMarkupControls
         )
     }
 }
@@ -1850,7 +1912,7 @@ private fun HardwoodsBoardStockList(
                         items(groupItems, key = { "admin-item:${it.id}" }) { item ->
                             val isNoneItem = item.feet == null
                             val boards = if (isNoneItem) 0
-                                         else kotlin.math.ceil(item.feet!! / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
+                                         else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                             val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
                             val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
                             val itemSkipped = !isNoneItem && (matSkipped || ((totalsDoneMap[skipKey] ?: 0) > 0))
@@ -1923,7 +1985,7 @@ private fun HardwoodsBoardStockList(
                                                 )
                                             } else {
                                                 Text(
-                                                    "Need $boards boards  ·  ${item.feet!!.toInt()} ft",
+                                                    "Need $boards boards  ·  ${item.feet.toInt()} ft",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     maxLines = 1,

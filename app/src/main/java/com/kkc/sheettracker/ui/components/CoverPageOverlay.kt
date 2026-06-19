@@ -10,6 +10,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -43,11 +44,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.JobRepository
@@ -104,6 +108,12 @@ fun CoverPageOverlay(
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    // Tracked passively (PointerEventPass.Initial) on every pointer event so the
+    // transformable() gesture below knows where the pinch is actually centered;
+    // TransformableState's onTransformation callback only receives zoom/pan deltas,
+    // never the centroid, so it can't tell where the fingers are on its own.
+    var pinchCentroid by remember { mutableStateOf(Offset.Zero) }
 
     val scaleAnim = remember { Animatable(1f) }
     val offsetXAnim = remember { Animatable(0f) }
@@ -123,8 +133,16 @@ fun CoverPageOverlay(
     val state = rememberTransformableState { zoomChange, panChange, _ ->
         val nextScale = (scale * zoomChange).coerceIn(1f, 5f)
         val (maxPanX, maxPanY) = getMaxOffset(nextScale)
-        val nextOffsetX = (offset.x + panChange.x * scale).coerceIn(-maxPanX, maxPanX)
-        val nextOffsetY = (offset.y + panChange.y * scale).coerceIn(-maxPanY, maxPanY)
+        // Compensate for graphicsLayer's center-anchored scaling so the pinch
+        // centroid stays under the fingers instead of the zoom always appearing
+        // to originate from the view's center.
+        val appliedZoomChange = nextScale / scale
+        val anchorX = pinchCentroid.x - containerSize.width / 2f
+        val anchorY = pinchCentroid.y - containerSize.height / 2f
+        val nextOffsetX = (offset.x * appliedZoomChange + panChange.x * scale + anchorX * (1f - appliedZoomChange))
+            .coerceIn(-maxPanX, maxPanX)
+        val nextOffsetY = (offset.y * appliedZoomChange + panChange.y * scale + anchorY * (1f - appliedZoomChange))
+            .coerceIn(-maxPanY, maxPanY)
         scale = nextScale
         offset = Offset(nextOffsetX, nextOffsetY)
     }
@@ -132,6 +150,7 @@ fun CoverPageOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { containerSize = it }
             .background(Color.Black.copy(alpha = 0.92f))
             .pointerInput(scale, offset) {
                 detectTapGestures(
@@ -145,6 +164,16 @@ fun CoverPageOverlay(
                         offset = Offset.Zero
                     }
                 )
+            }
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.any { it.pressed }) {
+                            pinchCentroid = event.calculateCentroid(useCurrent = true)
+                        }
+                    }
+                }
             }
             .transformable(state = state),
         contentAlignment = Alignment.Center

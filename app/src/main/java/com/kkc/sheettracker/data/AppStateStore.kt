@@ -3,7 +3,6 @@ package com.kkc.sheettracker.data
 import android.util.Log
 import com.kkc.sheettracker.data.models.AppDerivationStatus
 import com.kkc.sheettracker.data.models.AppUiState
-import com.kkc.sheettracker.data.models.DashboardFlaggedSheetItem
 import com.kkc.sheettracker.data.models.DashboardRecentMaterialItem
 import com.kkc.sheettracker.data.models.DashboardUiModel
 import com.kkc.sheettracker.data.models.JobMaterialKey
@@ -164,8 +163,6 @@ class AppStateStore(
         val sheetStatusMap = LinkedHashMap<SheetStatusKey, SheetStatusSnapshot>()
         val materialMap = LinkedHashMap<JobMaterialKey, MaterialUiModel>()
         val jobModels = ArrayList<JobUiModel>(jobs.size)
-        val badItems = mutableListOf<DashboardFlaggedSheetItem>()
-        val skippedItems = mutableListOf<DashboardFlaggedSheetItem>()
         val recentInProgressMaterials = mutableListOf<DashboardRecentMaterialItem>()
         val incompleteRemakeMaterials = mutableListOf<DashboardRecentMaterialItem>()
 
@@ -200,34 +197,6 @@ class AppStateStore(
                 jobSkipped += materialUiModel.counts.skipped
                 jobNotStarted += materialUiModel.counts.notStarted
                 jobTotal += materialUiModel.counts.total
-
-                materialDerivation.pageStatusByNumber.forEach { (page, snapshot) ->
-                    when (snapshot.status) {
-                        SheetStatus.HAS_BAD_PARTS -> {
-                            badItems += DashboardFlaggedSheetItem(
-                                jobFolderName = job.folderName,
-                                materialName = material.materialName,
-                                pdfFilename = material.pdfFilename,
-                                fileFingerprint = material.fileFingerprint,
-                                sheetPage = page,
-                                committedBadCount = snapshot.committedBadCount,
-                                hasDraftBadParts = snapshot.hasDraftBadParts
-                            )
-                        }
-                        SheetStatus.SKIPPED -> {
-                            skippedItems += DashboardFlaggedSheetItem(
-                                jobFolderName = job.folderName,
-                                materialName = material.materialName,
-                                pdfFilename = material.pdfFilename,
-                                fileFingerprint = material.fileFingerprint,
-                                sheetPage = page,
-                                committedBadCount = snapshot.committedBadCount,
-                                hasDraftBadParts = snapshot.hasDraftBadParts
-                            )
-                        }
-                        else -> Unit
-                    }
-                }
 
                 val touch = lastTouchesByPdf[material.pdfFilename]
                 if (touch != null) {
@@ -310,13 +279,12 @@ class AppStateStore(
             completedSheets = completedSheets,
             badPartsSheets = badPartsSheets,
             skippedSheets = skippedSheets,
-            badItems = badItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
-            skippedItems = skippedItems.sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" },
             recentInProgressMaterials = recentInProgressMaterials
                 .sortedByDescending { it.lastTouchedAtMs }
                 .take(DASHBOARD_RECENT_LIMIT),
             incompleteRemakeMaterials = incompleteRemakeMaterials
                 .sortedWith(compareBy({ it.jobFolderName }, { it.materialName }))
+                .take(DASHBOARD_RECENT_LIMIT)
         )
 
         return DerivationOutput(

@@ -2,6 +2,9 @@ package com.kkc.sheettracker.ui.viewer
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -24,13 +27,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
+import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
+import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +54,7 @@ fun ReferencePdfViewerScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
+    val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
     val sheetIndex = remember(jobFolderName, refreshGeneration) { jobRepository.getCabinetSheetIndex(jobFolderName) }
     val documentIndex = remember(sheetIndex, docType) {
         when (docType) {
@@ -135,8 +144,19 @@ fun ReferencePdfViewerScreen(
     ImmersiveSystemBars()
     // Tap-to-show/hide overlay UI.
     var showUi by rememberSaveable { mutableStateOf(true) }
+    var markupEnabled by rememberSaveable { mutableStateOf(false) }
+    val markupToolState = rememberPdfMarkupToolState()
     // Restore bottom nav visibility when navigating back.
     DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
+    val pdfMarkupStore = remember {
+        val basePath = trackerPrefs.getString("base_path", null)
+        val tabletId = trackerPrefs.getString("tablet_id", null)
+        if (basePath.isNullOrBlank() || tabletId.isNullOrBlank()) {
+            null
+        } else {
+            PdfMarkupStore(File(basePath), tabletId)
+        }
+    }
 
     val defaultPdfFilename = remember(documentIndex, docType, jobFolderName, refreshGeneration) {
         documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }
@@ -150,7 +170,9 @@ fun ReferencePdfViewerScreen(
         topBar = {
             // graphicsLayer alpha — no layout shift, no PDF re-render during animation.
             TopAppBar(
-                modifier = Modifier.graphicsLayer { alpha = topBarAlpha },
+                modifier = Modifier
+                    .graphicsLayer { alpha = topBarAlpha }
+                    .background(headerGradientBrush()),
                 title = {
                     Text(
                         when (docType) {
@@ -159,7 +181,6 @@ fun ReferencePdfViewerScreen(
                             ReferenceDocType.DELIVERY_SHEETS -> "Cover Sheet"
                         },
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -170,9 +191,10 @@ fun ReferencePdfViewerScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
+                ),
+                windowInsets = androidx.compose.foundation.layout.WindowInsets.statusBars
             )
         }
     ) { padding ->
@@ -202,6 +224,11 @@ fun ReferencePdfViewerScreen(
             },
             missingText = "Reference PDF not found.",
             unreadableText = "Unable to read PDF pages.",
+            pdfMarkupStore = pdfMarkupStore,
+            pdfMarkupJobFolderName = jobFolderName,
+            markupEnabled = markupEnabled,
+            onToggleMarkupEnabled = { markupEnabled = !markupEnabled },
+            markupToolState = markupToolState,
             onSingleTap = {
                 showUi = !showUi
                 onUiVisibilityChanged(showUi)

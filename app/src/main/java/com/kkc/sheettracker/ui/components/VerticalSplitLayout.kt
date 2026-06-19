@@ -95,7 +95,7 @@ fun VerticalSplitLayout(
                 if (isAutoFitting) {
                     topHeightPx = getTargetHeightForSize(it)
                 } else {
-                    topHeightPx = clampedTopPx(topHeightPx)
+                    topHeightPx = clampedTopPxForSize(topHeightPx, it)
                 }
             }
         }
@@ -123,7 +123,12 @@ fun VerticalSplitLayout(
                         .height(HANDLE_HEIGHT)
                         .pointerInput(Unit) {
                             detectDragGestures(
-                                onDragStart = { isAutoFitting = false }
+                                onDragStart = {
+                                    isAutoFitting = false
+                                    coroutineScope.launch {
+                                        anim.stop()
+                                    }
+                                }
                             ) { change, dragAmount ->
                                 change.consume()
                                 topHeightPx = clampedTopPx(topHeightPx + dragAmount.y)
@@ -133,7 +138,7 @@ fun VerticalSplitLayout(
                             detectTapGestures(
                                 onDoubleTap = {
                                     isAutoFitting = true
-                                    val target = targetHeightPx ?: clampedTopPx(totalHeight.height * DEFAULT_TOP_WEIGHT)
+                                    val target = targetHeightPx ?: clampedTopPx(totalHeight.height * initialTopWeight)
                                     coroutineScope.launch {
                                         anim.snapTo(topHeightPx)
                                         anim.animateTo(target, tween(350)) {

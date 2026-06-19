@@ -1,14 +1,19 @@
 package com.kkc.sheettracker.ui.specialty
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -37,6 +42,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -51,10 +57,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Delete
@@ -68,18 +74,23 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSpecialtyDecoration
+import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER
+import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS
 import com.kkc.sheettracker.data.SpecialtyStateStore
+import com.kkc.sheettracker.data.SpecialtyViewerDefaults
+import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.completionKeysForItem
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import androidx.compose.material.icons.filled.Print
 import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
+import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.StatusCounts
-import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.StatusChip
 import kotlinx.coroutines.launch
 import java.io.File
@@ -89,6 +100,7 @@ import java.io.File
 fun SpecialtyJobDetailScreen(
     jobFolderName: String,
     specialtyStateStore: SpecialtyStateStore,
+    specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
     jobRepository: JobRepository,
     hasAssemblySheet: Boolean,
     hasPlansElevations: Boolean,
@@ -104,6 +116,7 @@ fun SpecialtyJobDetailScreen(
 ) {
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
+    val viewerDefaults by specialtyViewerDefaultsStore.defaults.collectAsState(initial = SpecialtyViewerDefaults())
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -114,6 +127,7 @@ fun SpecialtyJobDetailScreen(
     var showPrintDialog by remember { mutableStateOf(false) }
     var editingItem by remember(jobFolderName) { mutableStateOf<com.kkc.sheettracker.data.models.TabletSpecialtyItem?>(null) }
     var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
+    var expandedSectionIds by remember(jobFolderName) { mutableStateOf<Set<String>?>(null) }
     val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
         // Specialty mode excludes DELIVERY-tagged items
         specialtyStateStore.getResolvedItems(jobFolderName)
@@ -129,10 +143,9 @@ fun SpecialtyJobDetailScreen(
         specialtyStateStore.loadSheetRipDone(jobFolderName)
     }
 
-    // Refresh immediately on entry and every 30 seconds while this screen is open,
-    // so items added on the admin (server) appear without requiring a manual refresh.
+    // Show current content immediately, then verify this job in the background.
     LaunchedEffect(jobFolderName) {
-        specialtyStateStore.refresh(RefreshReason.APP_FOREGROUND, force = true)
+        specialtyStateStore.refreshJobOnOpen(jobFolderName)
     }
     LaunchedEffect(jobFolderName) {
         while (true) {
@@ -140,23 +153,19 @@ fun SpecialtyJobDetailScreen(
             specialtyStateStore.refresh(RefreshReason.APP_FOREGROUND, force = true)
         }
     }
-
-    // Group items into sections by station, in enum ordinal order; untagged items last.
-    val sections: List<Pair<SpecialtyStation?, List<SpecialtyResolvedItem>>> = remember(resolvedItems) {
-        val buckets = linkedMapOf<SpecialtyStation?, MutableList<SpecialtyResolvedItem>>()
-        SpecialtyStation.entries.forEach { buckets[it] = mutableListOf() }
-        buckets[null] = mutableListOf()
-        resolvedItems.forEach { resolved ->
-            if (resolved.item.stations.isEmpty()) {
-                buckets[null]!! += resolved
-            } else {
-                resolved.item.stations.forEach { station -> buckets[station]!! += resolved }
-            }
+    LaunchedEffect(jobFolderName, viewerDefaults.expandedSectionIds) {
+        if (expandedSectionIds == null) {
+            expandedSectionIds = viewerDefaults.expandedSectionIds
         }
-        buckets.entries
-            .filter { (_, v) -> v.isNotEmpty() }
-            .map { (k, v) -> k to v.toList() }
     }
+
+    val stationOrder = remember(viewerDefaults.stationOrder) {
+        specialtyDetailStationOrder(viewerDefaults.stationOrder)
+    }
+    val sections = remember(resolvedItems, stationOrder) {
+        buildSpecialtyDetailSections(resolvedItems = resolvedItems, stationOrder = stationOrder)
+    }
+    val activeExpandedSectionIds = expandedSectionIds ?: viewerDefaults.expandedSectionIds
 
     val completedItems = resolvedItems.count { isChecklistItemComplete(it, completionOverrides) }
     val totalItems = resolvedItems.size
@@ -175,12 +184,23 @@ fun SpecialtyJobDetailScreen(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(jobFolderName) },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        jobFolderName,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                windowInsets = WindowInsets.statusBars
             )
         },
     ) { padding ->
@@ -276,79 +296,88 @@ fun SpecialtyJobDetailScreen(
                     SpecialtySectionHeader(
                         label = "Sheet Rips",
                         completed = sheetDoneCount,
-                        total = sheetRipItems.size
+                        total = sheetRipItems.size,
+                        expanded = SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS in activeExpandedSectionIds,
+                        onToggleExpanded = {
+                            expandedSectionIds = toggleSpecialtySection(
+                                current = activeExpandedSectionIds,
+                                sectionId = SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS
+                            )
+                        }
                     )
                 }
 
-                items(
-                    items = sheetRipItems,
-                    key = { "sheet-rip:${it.id}" }
-                ) { item ->
-                    val isDone = sheetRipDone[item.id] == true
-                    val alpha = if (isDone) 0.5f else 1f
+                if (SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS in activeExpandedSectionIds) {
+                    items(
+                        items = sheetRipItems,
+                        key = { "sheet-rip:${it.id}" }
+                    ) { item ->
+                        val isDone = sheetRipDone[item.id] == true
+                        val alpha = if (isDone) 0.5f else 1f
 
-                    Surface(
-                        tonalElevation = 3.dp,
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .alpha(alpha)
-                            .clickable {
-                                coroutineScope.launch {
-                                    specialtyStateStore.setSheetRipDone(
-                                        jobFolderName = jobFolderName,
-                                        itemId = item.id,
-                                        done = !isDone
-                                    )
-                                }
-                            }
-                    ) {
-                        Row(
+                        Surface(
+                            tonalElevation = 3.dp,
+                            shape = MaterialTheme.shapes.medium,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Checkbox(
-                                checked = isDone,
-                                onCheckedChange = { next ->
+                                .alpha(alpha)
+                                .clickable {
                                     coroutineScope.launch {
                                         specialtyStateStore.setSheetRipDone(
                                             jobFolderName = jobFolderName,
                                             itemId = item.id,
-                                            done = next
+                                            done = !isDone
                                         )
                                     }
                                 }
-                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Checkbox(
+                                    checked = isDone,
+                                    onCheckedChange = { next ->
+                                        coroutineScope.launch {
+                                            specialtyStateStore.setSheetRipDone(
+                                                jobFolderName = jobFolderName,
+                                                itemId = item.id,
+                                                done = next
+                                            )
+                                        }
+                                    }
+                                )
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.material,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = item.name,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.material,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = item.name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
 
-                            Column(horizontalAlignment = Alignment.End) {
-                                val feet = item.feet ?: 0.0
-                                val rips = Math.ceil(feet / item.ripLength).toInt()
-                                Text(
-                                    text = "${feet.toInt()} ft",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "$rips rips",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Column(horizontalAlignment = Alignment.End) {
+                                    val feet = item.feet ?: 0.0
+                                    val rips = Math.ceil(feet / item.ripLength).toInt()
+                                    Text(
+                                        text = "${feet.toInt()} ft",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "$rips rips",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -364,72 +393,82 @@ fun SpecialtyJobDetailScreen(
                     )
                 }
             } else {
-                sections.forEach { (station, sectionItems) ->
-                    val sectionKey = station?.name ?: "other"
+                sections.forEach { section ->
+                    val sectionKey = section.id
                     stickyHeader(key = "section-$sectionKey") {
-                        val sectionDone = sectionItems.count { isChecklistItemComplete(it, completionOverrides) }
+                        val sectionDone = section.items.count { isChecklistItemComplete(it, completionOverrides) }
                         SpecialtySectionHeader(
-                            label = station?.let { stationFilterLabel(it) } ?: "Other",
+                            label = section.label,
                             completed = sectionDone,
-                            total = sectionItems.size
-                        )
-                    }
-                    items(
-                        items = sectionItems,
-                        key = { resolved -> "$sectionKey::${resolved.item.id}" }
-                    ) { resolved ->
-                        val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
-                        SpecialtyChecklistRow(
-                            resolved = resolved,
-                            toggles = itemToggles,
-                            inFlightUpdates = inFlightUpdates,
-                            onJumpToCabinet = onJumpToCabinet,
-                            basePath = scanState.snapshot.basePath,
-                            jobFolderName = jobFolderName,
-                            onEditItem = { tabletItem ->
-                                editingItem = tabletItem
-                                showAddSheet = true
-                            },
-                            onDeleteItem = { itemId ->
-                                deleteTargetItemId = itemId
-                            },
-                            myTabletId = specialtyStateStore.tabletId,
-                            onPatchDims = { dims, qty, mat ->
-                                coroutineScope.launch {
-                                    try {
-                                        specialtyStateStore.patchSpecialtyItemFields(jobFolderName, resolved.item.id, dims, qty, mat)
-                                    } catch (_: Exception) {
-                                        snackbarHostState.showSnackbar("Failed to save dimensions.")
-                                    }
-                                }
-                            },
-                            onCheckedChange = { toggle, next ->
-                                val itemId = resolved.item.id
-                                val controlId = toggle.controlId
-                                val previous = completionOverrides[controlId] ?: toggle.checked
-                                completionOverrides[controlId] = next
-                                startInFlightUpdate(inFlightUpdates, controlId)
-                                coroutineScope.launch {
-                                    try {
-                                        specialtyStateStore.setItemCompletionKey(
-                                            jobFolderName = jobFolderName,
-                                            itemId = itemId,
-                                            completionKey = toggle.completionKey,
-                                            completed = next
-                                        )
-                                        completionOverrides.remove(controlId)
-                                        toggleErrorMessage = null
-                                    } catch (_: Exception) {
-                                        completionOverrides[controlId] = previous
-                                        val message = "Failed to update checklist item. Please retry."
-                                        toggleErrorMessage = message
-                                        snackbarHostState.showSnackbar(message)
-                                    } finally {
-                                        finishInFlightUpdate(inFlightUpdates, controlId)
-                                    }
-                                }
+                            total = section.items.size,
+                            expanded = section.id in activeExpandedSectionIds,
+                            onToggleExpanded = {
+                                expandedSectionIds = toggleSpecialtySection(
+                                    current = activeExpandedSectionIds,
+                                    sectionId = section.id
+                                )
                             }
                         )
+                    }
+                    if (section.id in activeExpandedSectionIds) {
+                        items(
+                            items = section.items,
+                            key = { resolved -> "$sectionKey::${resolved.item.id}" }
+                        ) { resolved ->
+                            val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
+                            SpecialtyChecklistRow(
+                                resolved = resolved,
+                                toggles = itemToggles,
+                                inFlightUpdates = inFlightUpdates,
+                                stationOrder = stationOrder,
+                                onJumpToCabinet = onJumpToCabinet,
+                                basePath = scanState.snapshot.basePath,
+                                jobFolderName = jobFolderName,
+                                onEditItem = { tabletItem ->
+                                    editingItem = tabletItem
+                                    showAddSheet = true
+                                },
+                                onDeleteItem = { itemId ->
+                                    deleteTargetItemId = itemId
+                                },
+                                myTabletId = specialtyStateStore.tabletId,
+                                onPatchDims = { dims, qty, mat ->
+                                    coroutineScope.launch {
+                                        try {
+                                            specialtyStateStore.patchSpecialtyItemFields(jobFolderName, resolved.item.id, dims, qty, mat)
+                                        } catch (_: Exception) {
+                                            snackbarHostState.showSnackbar("Failed to save dimensions.")
+                                        }
+                                    }
+                                },
+                                onCheckedChange = { toggle, next ->
+                                    val itemId = resolved.item.id
+                                    val controlId = toggle.controlId
+                                    val previous = completionOverrides[controlId] ?: toggle.checked
+                                    completionOverrides[controlId] = next
+                                    startInFlightUpdate(inFlightUpdates, controlId)
+                                    coroutineScope.launch {
+                                        try {
+                                            specialtyStateStore.setItemCompletionKey(
+                                                jobFolderName = jobFolderName,
+                                                itemId = itemId,
+                                                completionKey = toggle.completionKey,
+                                                completed = next
+                                            )
+                                            completionOverrides.remove(controlId)
+                                            toggleErrorMessage = null
+                                        } catch (_: Exception) {
+                                            completionOverrides[controlId] = previous
+                                            val message = "Failed to update checklist item. Please retry."
+                                            toggleErrorMessage = message
+                                            snackbarHostState.showSnackbar(message)
+                                        } finally {
+                                            finishInFlightUpdate(inFlightUpdates, controlId)
+                                        }
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -499,11 +538,15 @@ fun SpecialtyJobDetailScreen(
 private fun SpecialtySectionHeader(
     label: String,
     completed: Int,
-    total: Int
+    total: Int,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggleExpanded)
     ) {
         Row(
             modifier = Modifier
@@ -526,6 +569,11 @@ private fun SpecialtySectionHeader(
                     MaterialTheme.colorScheme.primary
                 else
                     MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                contentDescription = if (expanded) "Collapse $label" else "Expand $label",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -566,10 +614,85 @@ private fun SpecialtyActionWidget(
 }
 
 @Composable
+private fun CompactSpecialtyProgressCard(
+    title: String,
+    subtitle: String,
+    fraction: Float,
+    segmentedStatusCounts: StatusCounts,
+    headerLeading: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+    headerActions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+    inlineContent: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    StatusBorderedCard(
+        status = specialtyCardStatus(segmentedStatusCounts, fraction),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 9.dp)
+                .animateContentSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    headerLeading()
+                }
+                Spacer(Modifier.width(8.dp))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    headerActions()
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 6.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                        shape = MaterialTheme.shapes.extraLarge
+                    )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.extraLarge)
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                inlineContent()
+            }
+        }
+    }
+}
+
+@Composable
 internal fun SpecialtyChecklistRow(
     resolved: SpecialtyResolvedItem,
     toggles: List<SpecialtyChecklistToggle>,
     inFlightUpdates: Map<String, Boolean>,
+    stationOrder: List<SpecialtyStation> = SpecialtyStation.entries.toList(),
     onCheckedChange: (SpecialtyChecklistToggle, Boolean) -> Unit,
     onJumpToCabinet: ((String) -> Unit)? = null,
     onPatchDims: ((String?, Int?, String?) -> Unit)? = null,
@@ -581,7 +704,7 @@ internal fun SpecialtyChecklistRow(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val item = resolved.item
-    val title = specialtyItemTitle(item.cabinetNumbers, item.name)
+    val title = specialtyItemTitle(item.cabinetLabel, item.cabinetNumbers, item.name)
     val completionKeys = completionKeysForItem(item)
     val totalSteps = completionKeys.size.coerceAtLeast(1)
     val completedSteps = toggles.count { it.checked }.coerceAtMost(totalSteps)
@@ -593,7 +716,6 @@ internal fun SpecialtyChecklistRow(
         skipped = 0,
         notStarted = (totalSteps - completedSteps).coerceAtLeast(0)
     )
-    val cabinets = item.cabinetNumbers.joinToString(", ").ifBlank { "None" }
     val notes = item.notes?.trim().orEmpty()
     val attachmentCount = item.attachments.size
     val supplier = item.supplier?.trim().orEmpty()
@@ -602,17 +724,15 @@ internal fun SpecialtyChecklistRow(
     val orderDate = item.orderDate?.trim().orEmpty()
     val orderUrl = item.orderUrl?.trim().orEmpty()
     var attachmentsExpanded by remember(item.id) { mutableStateOf(false) }
+    val orderedStations = remember(item.stations, stationOrder) {
+        orderSpecialtyStations(item.stations, stationOrder)
+    }
 
-    ProgressCard(
+    CompactSpecialtyProgressCard(
         title = title,
         subtitle = "$completedSteps/$totalSteps steps complete",
         fraction = fraction,
-        expanded = false,
-        onToggleExpanded = {},
-        onClick = {},
-        showBottomProgressBar = true,
         segmentedStatusCounts = statusCounts,
-        showExpandToggle = false,
         headerLeading = {
             toggles.forEach { toggle ->
                 val enabled = isToggleEnabled(toggle.controlId, inFlightUpdates)
@@ -698,7 +818,7 @@ internal fun SpecialtyChecklistRow(
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                 )
             }
-            item.stations.forEach { station ->
+            orderedStations.forEach { station ->
                 val chip = stationChipSpec(station)
                 StatusChip(
                     text = chip.label,
@@ -808,7 +928,9 @@ internal fun SpecialtyChecklistRow(
     )
 }
 
-private fun specialtyItemTitle(cabinetNumbers: List<String>, name: String): String {
+private fun specialtyItemTitle(cabinetLabel: String?, cabinetNumbers: List<String>, name: String): String {
+    val explicitLabel = cabinetLabel?.trim().orEmpty()
+    if (explicitLabel.isNotBlank()) return "$explicitLabel - $name"
     val cleaned = cabinetNumbers
         .map { it.trim() }
         .filter { it.isNotBlank() }
@@ -817,6 +939,86 @@ private fun specialtyItemTitle(cabinetNumbers: List<String>, name: String): Stri
         if (cab.startsWith("#")) cab else "#$cab"
     }
     return "$cabinetLabel - $name"
+}
+
+internal data class SpecialtyDetailSection(
+    val id: String,
+    val label: String,
+    val items: List<SpecialtyResolvedItem>
+)
+
+internal fun specialtyDetailStationOrder(savedOrder: List<SpecialtyStation>): List<SpecialtyStation> {
+    val ordered = LinkedHashSet<SpecialtyStation>()
+    savedOrder.forEach { ordered += it }
+    SpecialtyStation.entries.forEach { ordered += it }
+    return ordered.toList()
+}
+
+internal fun buildSpecialtyDetailSections(
+    resolvedItems: List<SpecialtyResolvedItem>,
+    stationOrder: List<SpecialtyStation>
+): List<SpecialtyDetailSection> {
+    if (resolvedItems.isEmpty()) return emptyList()
+    val effectiveOrder = specialtyDetailStationOrder(stationOrder)
+    val buckets = linkedMapOf<String, MutableList<SpecialtyResolvedItem>>()
+    effectiveOrder.forEach { buckets[it.name] = mutableListOf() }
+    buckets[SPECIALTY_VIEWER_SECTION_ID_OTHER] = mutableListOf()
+
+    resolvedItems.forEach { resolved ->
+        val stations = orderSpecialtyStations(resolved.item.stations, effectiveOrder)
+        if (stations.isEmpty()) {
+            buckets.getValue(SPECIALTY_VIEWER_SECTION_ID_OTHER) += resolved
+        } else {
+            stations.forEach { station ->
+                buckets.getValue(station.name) += resolved
+            }
+        }
+    }
+
+    return buildList {
+        effectiveOrder.forEach { station ->
+            val items = buckets[station.name].orEmpty()
+            if (items.isNotEmpty()) {
+                add(
+                    SpecialtyDetailSection(
+                        id = station.name,
+                        label = stationFilterLabel(station),
+                        items = items.toList()
+                    )
+                )
+            }
+        }
+        val otherItems = buckets[SPECIALTY_VIEWER_SECTION_ID_OTHER].orEmpty()
+        if (otherItems.isNotEmpty()) {
+            add(
+                SpecialtyDetailSection(
+                    id = SPECIALTY_VIEWER_SECTION_ID_OTHER,
+                    label = "Other",
+                    items = otherItems.toList()
+                )
+            )
+        }
+    }
+}
+
+internal fun toggleSpecialtySection(current: Set<String>, sectionId: String): Set<String> {
+    val next = LinkedHashSet(current)
+    if (!next.add(sectionId)) {
+        next.remove(sectionId)
+    }
+    return next
+}
+
+internal fun orderSpecialtyStations(
+    stations: List<SpecialtyStation>,
+    stationOrder: List<SpecialtyStation>
+): List<SpecialtyStation> {
+    if (stations.isEmpty()) return emptyList()
+    val effectiveOrder = specialtyDetailStationOrder(stationOrder)
+    val orderIndex = effectiveOrder.withIndex().associate { (index, station) -> station to index }
+    return stations
+        .distinct()
+        .sortedBy { orderIndex[it] ?: Int.MAX_VALUE }
 }
 
 private fun shortDivisionLabel(label: String): String {
@@ -847,6 +1049,21 @@ private fun stationChipSpec(station: SpecialtyStation): StationChipSpec {
         SpecialtyStation.ASSEMBLY -> StationChipSpec("ASM", scheme.secondaryContainer, scheme.onSecondaryContainer)
         SpecialtyStation.SPECIALTY -> StationChipSpec("SPEC", scheme.surfaceVariant, scheme.onSurfaceVariant)
         SpecialtyStation.DELIVERY -> StationChipSpec("DELIVERY", Color(0xFFDCFCE7), Color(0xFF15803D))
+    }
+}
+
+private fun specialtyCardStatus(
+    segmentedStatusCounts: StatusCounts,
+    fraction: Float
+): SheetStatus {
+    val total = segmentedStatusCounts.total.coerceAtLeast(0)
+    return when {
+        total <= 0 && fraction <= 0f -> SheetStatus.NOT_STARTED
+        segmentedStatusCounts.bad > 0 -> SheetStatus.HAS_BAD_PARTS
+        segmentedStatusCounts.skipped >= total && total > 0 -> SheetStatus.SKIPPED
+        segmentedStatusCounts.complete >= total && total > 0 -> SheetStatus.COMPLETE
+        segmentedStatusCounts.complete <= 0 && segmentedStatusCounts.skipped <= 0 && fraction <= 0f -> SheetStatus.NOT_STARTED
+        else -> SheetStatus.IN_PROGRESS
     }
 }
 

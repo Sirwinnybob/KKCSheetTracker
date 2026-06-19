@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +28,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -48,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import com.kkc.sheettracker.ui.components.PinButton
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
@@ -76,6 +81,8 @@ fun SpecialtyJobsScreen(
     specialtyStateStore: SpecialtyStateStore,
     jobRepository: JobRepository,
     deliveryScheduleRepository: DeliveryScheduleRepository,
+    pinnedFolderNames: List<String> = emptyList(),
+    onTogglePin: (folderName: String, isCurrentlyPinned: Boolean) -> Unit = { _, _ -> },
     onJobClick: (com.kkc.sheettracker.data.models.SpecialtyJobCard) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit
@@ -113,6 +120,13 @@ fun SpecialtyJobsScreen(
         }
     }
 
+    val positionMap = remember(filteredCards) {
+        filteredCards.mapIndexed { i, card -> card.folderName to (i + 1) }.toMap()
+    }
+    val pinnedCards = remember(pinnedFolderNames, filteredCards) {
+        pinnedFolderNames.mapNotNull { folder -> filteredCards.find { it.folderName == folder } }
+    }
+
     LaunchedEffect(Unit) {
         specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = false)
     }
@@ -120,11 +134,18 @@ fun SpecialtyJobsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("KKC Dashboard - Specialty") },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        "KKC Dashboard - Specialty",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
+                windowInsets = WindowInsets.statusBars,
                 actions = {
                     IconButton(onClick = { specialtyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
@@ -226,6 +247,84 @@ fun SpecialtyJobsScreen(
                         contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 112.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        if (pinnedCards.isNotEmpty()) {
+                            item(key = "pinned_header") {
+                                Text(
+                                    "Pinned",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                                )
+                            }
+                            items(pinnedCards, key = { "pinned_${it.folderName}" }) { card ->
+                                val statusCounts = remember(card.totalItems, card.completedItems) {
+                                    StatusCounts(
+                                        total = card.totalItems.coerceAtLeast(0),
+                                        complete = card.completedItems.coerceIn(0, card.totalItems.coerceAtLeast(0)),
+                                        bad = 0,
+                                        skipped = 0,
+                                        notStarted = (card.totalItems - card.completedItems).coerceAtLeast(0)
+                                    )
+                                }
+                                val pos = positionMap[card.folderName]
+                                val posLabel = if (pos != null) "$pos of ${filteredCards.size}" else null
+                                ProgressCard(
+                                    title = card.folderName,
+                                    subtitle = "${card.completedItems}/${card.totalItems} complete",
+                                    fraction = card.completionFraction,
+                                    expanded = false,
+                                    onToggleExpanded = {},
+                                    onClick = { onJobClick(card) },
+                                    showBottomProgressBar = false,
+                                    hidePrimaryProgressBar = true,
+                                    segmentedStatusCounts = statusCounts,
+                                    showExpandToggle = false,
+                                    headerActions = {
+                                        if (posLabel != null) {
+                                            StatusChip(
+                                                text = posLabel,
+                                                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                        card.labels.forEach { label ->
+                                            StatusChip(
+                                                text = label.name,
+                                                backgroundColor = parseJobLabelColor(label.colorHex),
+                                                contentColor = Color.White
+                                            )
+                                        }
+                                        PinButton(isPinned = true, onClick = { onTogglePin(card.folderName, true) })
+                                    },
+                                    inlineContent = {
+                                        when {
+                                            card.totalItems <= 0 -> {
+                                                Text(
+                                                    text = "No specialty checklist items yet",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            card.stationProgress.isNotEmpty() -> {
+                                                StationProgressBars(card.stationProgress)
+                                            }
+                                            else -> {
+                                                val fraction = card.completionFraction.coerceIn(0f, 1f)
+                                                LinearProgressIndicator(
+                                                    progress = { fraction },
+                                                    modifier = Modifier.fillMaxWidth().height(8.dp),
+                                                    color = Color(0xFF7C3AED),
+                                                    trackColor = Color(0xFF7C3AED).copy(alpha = 0.20f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            item(key = "pinned_divider") {
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            }
+                        }
                         items(activeCards, key = { "active_${it.folderName}" }) { card ->
                             val statusCounts = remember(card.totalItems, card.completedItems) {
                                 StatusCounts(
@@ -272,6 +371,8 @@ fun SpecialtyJobsScreen(
                                             contentColor = MaterialTheme.colorScheme.onErrorContainer
                                         )
                                     }
+                                    val isPinned = card.folderName in pinnedFolderNames
+                                    PinButton(isPinned = isPinned, onClick = { onTogglePin(card.folderName, isPinned) })
                                 },
                                 inlineContent = {
                                     when {
@@ -341,6 +442,8 @@ fun SpecialtyJobsScreen(
                                                 contentColor = Color.White
                                             )
                                         }
+                                        val isPinned = card.folderName in pinnedFolderNames
+                                        PinButton(isPinned = isPinned, onClick = { onTogglePin(card.folderName, isPinned) })
                                     }
                                 )
                             }

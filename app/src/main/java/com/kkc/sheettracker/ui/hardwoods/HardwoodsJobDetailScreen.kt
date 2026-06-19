@@ -32,12 +32,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.ui.components.ClockInButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,7 +83,8 @@ fun HardwoodsJobDetailScreen(
     onBack: () -> Unit,
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
-    onLeaveWhileClockedIn: () -> Unit = {}
+    onLeaveWhileClockedIn: () -> Unit = {},
+    clockInState: ClockInState? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -133,9 +138,15 @@ fun HardwoodsJobDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(job.folderName.ifBlank { "Hardwoods Job" }) },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        job.folderName.ifBlank { "Hardwoods Job" },
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 windowInsets = WindowInsets.statusBars,
@@ -145,18 +156,26 @@ fun HardwoodsJobDetailScreen(
                     }
                 },
                 actions = {
-                    Button(
-                        onClick = { onClockIn(job.jobNumber, job.jobName) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF38A169),
-                            contentColor = Color.White
+                    if (clockInState != null) {
+                        ClockInButton(
+                            clockInState = clockInState,
+                            isClockedInHere = isClockedInHere,
+                            onClockInClick = { onClockIn(job.jobNumber, job.jobName) }
                         )
-                    ) {
-                        Text(
-                            if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
+                    } else {
+                        Button(
+                            onClick = { onClockIn(job.jobNumber, job.jobName) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF38A169),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text(
+                                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
             )
@@ -237,26 +256,32 @@ fun HardwoodsJobDetailScreen(
                 )
             }
 
-            val boardStockCounts = remember(job.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
-                val rows = applySkippedPartRowsToBoardStockRows(
-                    rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index),
-                    index = job.index,
-                    rowProgressMap = rowProgressMap
-                )
-                val total = rows.sumOf { row ->
-                    val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
-                    val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
-                    val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
-                    if (skipped) 0 else row.neededRips.coerceAtLeast(0)
+            var boardStockCounts by remember(job.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
+                mutableStateOf(HardwoodStatusCounts(0, 0))
+            }
+            LaunchedEffect(job.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
+                val calculated = withContext(Dispatchers.IO) {
+                    val rows = applySkippedPartRowsToBoardStockRows(
+                        rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index),
+                        index = job.index,
+                        rowProgressMap = rowProgressMap
+                    )
+                    val total = rows.sumOf { row ->
+                        val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
+                        val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
+                        val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
+                        if (skipped) 0 else row.neededRips.coerceAtLeast(0)
+                    }
+                    val done = rows.sumOf { row ->
+                        val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
+                        val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
+                        val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
+                        val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
+                        if (skipped) 0 else (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
+                    }
+                    HardwoodStatusCounts(totalPieces = total, donePieces = done)
                 }
-                val done = rows.sumOf { row ->
-                    val key = progressStore.makeBoardStockTallyKey(row.material, row.normalizedWidth, row.source.name)
-                    val materialSkippedKey = progressStore.makeBoardStockMaterialSkipKey(row.material)
-                    val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(row.material, row.normalizedWidth, row.source.name)
-                    val skipped = (totalsDoneMap[materialSkippedKey] ?: 0) > 0 || (totalsDoneMap[lineSkippedKey] ?: 0) > 0
-                    if (skipped) 0 else (totalsDoneMap[key] ?: 0).coerceIn(0, row.neededRips.coerceAtLeast(0))
-                }
-                HardwoodStatusCounts(totalPieces = total, donePieces = done)
+                boardStockCounts = calculated
             }
             ProgressCard(
                 title = "Rip Cut List",

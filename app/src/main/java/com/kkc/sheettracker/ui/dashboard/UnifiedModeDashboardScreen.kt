@@ -64,9 +64,13 @@ import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodJobSummary
 import com.kkc.sheettracker.data.models.HardwoodScanState
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
+import com.kkc.sheettracker.data.models.JobMaterialKey
+import com.kkc.sheettracker.data.models.MaterialUiModel
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.data.models.SheetStatusKey
+import com.kkc.sheettracker.data.models.SheetStatusSnapshot
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.models.SpecialtyJob
 import com.kkc.sheettracker.data.models.SpecialtyScanState
@@ -167,6 +171,17 @@ private fun CncDashboardContent(
     var showBadList by rememberSaveable { mutableStateOf(false) }
     var showSkippedList by rememberSaveable { mutableStateOf(false) }
 
+    // Built on demand only while a dialog is open — the full per-sheet snapshot map is already
+    // maintained for Job Browser/Detail, so this is a cheap filter rather than a fresh derivation.
+    val sheetStatusSnapshots by appStateStore.sheetStatusSnapshots.collectAsState()
+    val materialUiModels by appStateStore.materialUiModels.collectAsState()
+    val badItems = remember(showBadList, sheetStatusSnapshots, materialUiModels) {
+        if (!showBadList) emptyList() else flaggedSheetItems(sheetStatusSnapshots, materialUiModels, SheetStatus.HAS_BAD_PARTS)
+    }
+    val skippedItems = remember(showSkippedList, sheetStatusSnapshots, materialUiModels) {
+        if (!showSkippedList) emptyList() else flaggedSheetItems(sheetStatusSnapshots, materialUiModels, SheetStatus.SKIPPED)
+    }
+
     LaunchedEffect(appFlags.dashboardEnabled, scanState.snapshot.generation, appUiState.scanGeneration, appUiState.progressVersion) {
         if (appFlags.dashboardEnabled) {
             appStateStore.requestRecompute()
@@ -216,7 +231,7 @@ private fun CncDashboardContent(
     if (showBadList) {
         DashboardFlagSheetDialog(
             title = "Bad Parts Sheets",
-            items = dashboard.badItems,
+            items = badItems,
             onDismiss = { showBadList = false },
             onOpen = { item -> onOpenSheet(item.jobFolderName, item.pdfFilename, item.sheetPage) },
             onResolve = { item ->
@@ -234,7 +249,7 @@ private fun CncDashboardContent(
     if (showSkippedList) {
         DashboardFlagSheetDialog(
             title = "Skipped Sheets",
-            items = dashboard.skippedItems,
+            items = skippedItems,
             onDismiss = { showSkippedList = false },
             onOpen = { item -> onOpenSheet(item.jobFolderName, item.pdfFilename, item.sheetPage) },
             onResolve = {},
@@ -384,6 +399,29 @@ private fun CncRemakeMaterialCard(
             trackColor = remakeColor.copy(alpha = 0.2f)
         )
     }
+}
+
+private fun flaggedSheetItems(
+    snapshots: Map<SheetStatusKey, SheetStatusSnapshot>,
+    materials: Map<JobMaterialKey, MaterialUiModel>,
+    status: SheetStatus
+): List<DashboardFlaggedSheetItem> {
+    return snapshots.entries
+        .filter { it.value.status == status }
+        .map { (key, snapshot) ->
+            val materialName = materials[JobMaterialKey(key.jobFolderName, key.pdfFilename)]?.materialName
+                ?: key.pdfFilename
+            DashboardFlaggedSheetItem(
+                jobFolderName = key.jobFolderName,
+                materialName = materialName,
+                pdfFilename = key.pdfFilename,
+                fileFingerprint = key.fileFingerprint,
+                sheetPage = key.page,
+                committedBadCount = snapshot.committedBadCount,
+                hasDraftBadParts = snapshot.hasDraftBadParts
+            )
+        }
+        .sortedBy { "${it.jobFolderName}|${it.materialName}|${it.sheetPage}" }
 }
 
 private fun loadRecentMaterialThumbnail(
@@ -614,7 +652,15 @@ private fun AssemblyDashboardContent(
     val cncProgressVersion by cncProgressStore.progressVersion.collectAsState()
     val hardwoodsProgressVersion by hardwoodsProgressStore.progressVersion.collectAsState()
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
-    val cards = assemblyStateStore.deriveJobCards()
+    var cardItems by remember { mutableStateOf<List<AssemblyJobCard>>(emptyList()) }
+
+    LaunchedEffect(scanState.snapshot.generation, cncProgressVersion, hardwoodsProgressVersion) {
+        val jobs = withContext(Dispatchers.IO) {
+            assemblyStateStore.deriveJobCards()
+        }
+        cardItems = jobs
+    }
+
     val specialtyJobs = specialtyStateStore.getJobs()
     val specialtySummary = remember(specialtyJobs) {
         SpecialtySummary(
@@ -623,8 +669,6 @@ private fun AssemblyDashboardContent(
             totalItems = specialtyJobs.sumOf { it.totalItems }
         )
     }
-    val derivedSignal = cncProgressVersion + hardwoodsProgressVersion + specialtyProgressVersion
-    val cardItems = remember(derivedSignal, cards, specialtySummary) { cards }
 
     DashboardShell(
         title = "Assembly Dashboard",

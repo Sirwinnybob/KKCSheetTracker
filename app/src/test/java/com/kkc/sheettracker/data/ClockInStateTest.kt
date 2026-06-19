@@ -179,4 +179,22 @@ class ClockInStateTest {
         verify(editor, atLeastOnce()).putLong("paused_at_ms", 0L)
         verify(editor, atLeastOnce()).putLong(org.mockito.kotlin.eq("accumulated_paused_ms"), any())
     }
+
+    @Test
+    fun `setMinimized updates snapshot and persists`() {
+        state.clockIn("1234", "Job", "folder", "cnc")
+        state.setMinimized(true)
+        assertTrue(state.snapshot.isMinimized)
+        verify(editor, atLeastOnce()).putBoolean("is_minimized", true)
+
+        state.setMinimized(false)
+        assertFalse(state.snapshot.isMinimized)
+        verify(editor, atLeastOnce()).putBoolean("is_minimized", false)
+    }
+
+    @Test
+    fun `setMinimized does nothing when inactive`() {
+        state.setMinimized(true)
+        assertFalse(state.snapshot.isMinimized)
+    }
 }

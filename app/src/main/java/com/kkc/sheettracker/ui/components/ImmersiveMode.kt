@@ -9,6 +9,17 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
+internal data class PersistentImmersiveConfig(
+    val insetTypes: Int,
+    val systemBarsBehavior: Int
+)
+
+internal fun persistentImmersiveConfig(): PersistentImmersiveConfig =
+    PersistentImmersiveConfig(
+        insetTypes = WindowInsetsCompat.Type.systemBars(),
+        systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    )
+
 /**
  * Hides the system status bar and navigation bar (immersive mode) for the lifetime
  * of the composable that calls this. On dispose (navigation back), the system bars
@@ -31,10 +42,10 @@ fun ImmersiveSystemBars() {
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            onDispose {
-                controller.show(WindowInsetsCompat.Type.systemBars())
-                WindowCompat.setDecorFitsSystemWindows(window, true)
-            }
+            // App is always edge-to-edge immersive (see MainActivity.onWindowFocusChanged
+            // and PersistentNavigationBarHider). Do NOT restore the bars on dispose —
+            // leaving a viewer must not un-hide them on the screens behind it.
+            onDispose { }
         }
     }
 }
@@ -58,13 +69,13 @@ fun PersistentNavigationBarHider() {
             val activity = view.context as? Activity
                 ?: return@DisposableEffect onDispose {}
             val window = activity.window
+            val config = persistentImmersiveConfig()
             WindowCompat.setDecorFitsSystemWindows(window, false)
             val controller = WindowInsetsControllerCompat(window, view)
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(config.insetTypes)
+            controller.systemBarsBehavior = config.systemBarsBehavior
             onDispose {
-                controller.show(WindowInsetsCompat.Type.systemBars())
+                controller.show(config.insetTypes)
             }
         }
     }

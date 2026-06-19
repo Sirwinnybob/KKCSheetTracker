@@ -48,6 +48,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.ui.components.ClockInButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -94,6 +96,7 @@ import com.kkc.sheettracker.data.AssemblyPaneView
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.AssemblyViewLayout
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.AssemblyBomEntry
 import com.kkc.sheettracker.data.models.AssemblyCabinetParts
@@ -106,6 +109,8 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
+import com.kkc.sheettracker.ui.components.SplitFullscreen
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import com.kkc.sheettracker.ui.components.StatusChip
@@ -114,6 +119,8 @@ import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
+import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
+import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
 import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageMapping
 import com.kkc.sheettracker.ui.viewer.UnifiedVirtualPageSource
@@ -151,6 +158,13 @@ private enum class PaneSlot {
     SECOND
 }
 
+private fun PaneSource.isPdfSource(): Boolean {
+    return this == PaneSource.PLANS ||
+        this == PaneSource.ASSEMBLY ||
+        this == PaneSource.DELIVERY ||
+        this == PaneSource.OTHER
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssemblyViewerScreen(
@@ -174,7 +188,8 @@ fun AssemblyViewerScreen(
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onLeaveWhileClockedIn: () -> Unit = {},
-    onUiVisibilityChanged: (Boolean) -> Unit = {}
+    onUiVisibilityChanged: (Boolean) -> Unit = {},
+    clockInState: ClockInState? = null
 ) {
     val sheetIndex by produceState<CabinetSheetIndex?>(
         initialValue = null,
@@ -290,6 +305,7 @@ fun AssemblyViewerScreen(
 
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
+    val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
     val resumePrefix = remember(jobFolderName) { "assembly_resume_v1_${jobFolderName}" }
     var assemblyPage by rememberSaveable(startPageAssembly) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_assembly_page", startPageAssembly).coerceAtLeast(1))
@@ -347,12 +363,23 @@ fun AssemblyViewerScreen(
     var secondPaneOtherPage by rememberSaveable(secondPaneOtherFilename) { mutableIntStateOf(1) }
     var firstPaneTotalPages by remember { mutableIntStateOf(0) }
     var secondPaneTotalPages by remember { mutableIntStateOf(0) }
+    var sharedPdfMarkupEnabled by rememberSaveable { mutableStateOf(false) }
+    val sharedPdfMarkupToolState = rememberPdfMarkupToolState()
     var firstPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var secondPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var otherPickerTarget by remember { mutableStateOf<PaneSlot?>(null) }
     var serverPort by remember { mutableIntStateOf(0) }
     var viewerServerError by remember { mutableStateOf<String?>(null) }
     var detectedRoom by rememberSaveable(initialRoom) { mutableStateOf(initialRoom) }
+    val pdfMarkupStore = remember {
+        val storedBasePath = trackerPrefs.getString("base_path", null)
+        val tabletId = trackerPrefs.getString("tablet_id", null)
+        if (storedBasePath.isNullOrBlank() || tabletId.isNullOrBlank()) {
+            null
+        } else {
+            PdfMarkupStore(File(storedBasePath), tabletId)
+        }
+    }
 
     LaunchedEffect(assemblyPage, plansPage, firstPaneSource, secondPaneSource, fullscreenPane) {
         prefs.edit()
@@ -606,13 +633,15 @@ fun AssemblyViewerScreen(
         topBar = {
             // graphicsLayer alpha — no layout shift, no PDF re-render during animation.
                 TopAppBar(
-                    modifier = Modifier.graphicsLayer { alpha = topBarAlpha },
+                    modifier = Modifier
+                        .graphicsLayer { alpha = topBarAlpha }
+                        .background(headerGradientBrush()),
                     title = {
                         Text(
                             "Assembly Viewer - $jobFolderName",
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleSmall
+                            style = MaterialTheme.typography.titleMedium
                         )
                     },
                     navigationIcon = {
@@ -621,22 +650,30 @@ fun AssemblyViewerScreen(
                         }
                     },
                     actions = {
-                        Button(
-                            onClick = { onClockIn(clockInJobNumber, clockInJobName) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF38A169),
-                                contentColor = Color.White
+                        if (clockInState != null) {
+                            ClockInButton(
+                                clockInState = clockInState,
+                                isClockedInHere = isClockedInHere,
+                                onClockInClick = { onClockIn(clockInJobNumber, clockInJobName) }
                             )
-                        ) {
-                            Text(
-                                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
+                        } else {
+                            Button(
+                                onClick = { onClockIn(clockInJobNumber, clockInJobName) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF38A169),
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Text(
+                                    if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
+                        containerColor = Color.Transparent,
                         titleContentColor = MaterialTheme.colorScheme.onSurface
                     ),
                     windowInsets = WindowInsets.statusBars
@@ -656,382 +693,222 @@ fun AssemblyViewerScreen(
                 .padding(horizontal = 2.dp, vertical = 2.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                when (fullscreenPane) {
-                    FullscreenPane.FIRST -> {
-                        PdfPaneWithFloatingControls(
-                            jobRepository = jobRepository,
-                            jobFolderName = jobFolderName,
-                            isDarkTheme = isDarkTheme,
-                            title = firstSourceName,
-                            pdfFilename = firstSourceFilename,
-                            currentPage = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                assemblyPage
+            AdaptiveSplitLayout(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                initialFirstWeight = if (isLandscape) 0.5f else 0.47f,
+                fullscreen = when (fullscreenPane) {
+                    FullscreenPane.FIRST -> SplitFullscreen.FIRST
+                    FullscreenPane.SECOND -> SplitFullscreen.SECOND
+                    FullscreenPane.NONE -> SplitFullscreen.NONE
+                },
+                firstContent = { paneModifier ->
+                    PdfPaneWithFloatingControls(
+                        modifier = paneModifier,
+                        jobRepository = jobRepository,
+                        jobFolderName = jobFolderName,
+                        isDarkTheme = isDarkTheme,
+                        title = firstSourceName,
+                        compactArrows = (fullscreenPane == FullscreenPane.NONE),
+                        pdfFilename = firstSourceFilename,
+                        currentPage = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                            assemblyPage
+                        } else {
+                            sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage)
+                        },
+                        totalPages = firstPaneTotalPages,
+                        onCurrentPageChange = { nextPage ->
+                            setSourcePage(
+                                source = firstPaneSource,
+                                nextPage = nextPage,
+                                setOther = { firstPaneOtherPage = it },
+                                setDelivery = { firstPaneDeliveryPage = it }
+                            )
+                        },
+                        onTotalPagesChanged = {
+                            firstPaneTotalPages = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                assemblyVirtualTotalPages
                             } else {
-                                sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage)
-                            },
-                            totalPages = firstPaneTotalPages,
-                            onCurrentPageChange = { nextPage ->
-                                setSourcePage(
-                                    source = firstPaneSource,
-                                    nextPage = nextPage,
-                                    setOther = { firstPaneOtherPage = it },
-                                    setDelivery = { firstPaneDeliveryPage = it }
-                                )
-                            },
-                            onTotalPagesChanged = {
-                                firstPaneTotalPages = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                    assemblyVirtualTotalPages
-                                } else {
-                                    it
-                                }
-                            },
-                            tocRequestToken = firstPaneTocRequestToken,
-                            onOpenToc = {
-                                firstPaneTocRequestToken++
-                            },
-                            virtualMapping = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                assemblyVirtualMapping
-                            } else {
-                                null
-                            },
-                            navigatorCabinetToPages = if (firstPaneSource == PaneSource.ASSEMBLY) {
-                                assemblyNavigatorCabinetToPages
-                            } else if (firstPaneSource == PaneSource.PLANS) {
-                                sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
-                            } else {
-                                emptyMap()
-                            },
-                            navigatorPlanViewLabels = if (firstPaneSource == PaneSource.PLANS) {
-                                plansNavigatorPlanViewLabels
-                            } else {
-                                emptyMap()
-                            },
-                            navigatorWarningMessage = if (firstPaneSource == PaneSource.ASSEMBLY) {
-                                assemblyVirtualSanitized.warningMessage
-                            } else {
-                                null
-                            },
-                            missingText = firstMissingText,
-                            unreadableText = firstUnreadableText,
-                            sourceControlsInline = {
-                                PaneSourceControlsInline(
-                                    selectedSource = firstPaneSource,
-                                    selectedOtherFilename = firstPaneOtherFilename,
-                                    hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
-                                    onSelectSource = { firstPaneSource = it },
-                                    onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
-                                )
-                            },
-                            isFullscreen = true,
-                            onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE },
-                            showControls = showUi,
-                            onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
-                            customContent = if (firstPaneSource == PaneSource.CHECKLIST) {{
+                                it
+                            }
+                        },
+                        tocRequestToken = firstPaneTocRequestToken,
+                        onOpenToc = {
+                            firstPaneTocRequestToken++
+                        },
+                        virtualMapping = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                            assemblyVirtualMapping
+                        } else {
+                            null
+                        },
+                        navigatorCabinetToPages = if (firstPaneSource == PaneSource.ASSEMBLY) {
+                            assemblyNavigatorCabinetToPages
+                        } else if (firstPaneSource == PaneSource.PLANS) {
+                            sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
+                        } else {
+                            emptyMap()
+                        },
+                        navigatorPlanViewLabels = if (firstPaneSource == PaneSource.PLANS) {
+                            plansNavigatorPlanViewLabels
+                        } else {
+                            emptyMap()
+                        },
+                        navigatorWarningMessage = if (firstPaneSource == PaneSource.ASSEMBLY) {
+                            assemblyVirtualSanitized.warningMessage
+                        } else {
+                            null
+                        },
+                        missingText = firstMissingText,
+                        unreadableText = firstUnreadableText,
+                        sourceControlsInline = {
+                            PaneSourceControlsInline(
+                                selectedSource = firstPaneSource,
+                                selectedOtherFilename = firstPaneOtherFilename,
+                                hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                onSelectSource = { firstPaneSource = it },
+                                onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
+                            )
+                        },
+                        onToggleFullscreen = {
+                            fullscreenPane = if (fullscreenPane == FullscreenPane.FIRST) FullscreenPane.NONE else FullscreenPane.FIRST
+                        },
+                        isFullscreen = (fullscreenPane == FullscreenPane.FIRST),
+                        showControls = showUi,
+                        onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
+                        pdfMarkupStore = if (firstPaneSource.isPdfSource()) pdfMarkupStore else null,
+                        markupEnabled = firstPaneSource.isPdfSource() && sharedPdfMarkupEnabled,
+                        onToggleMarkupEnabled = { sharedPdfMarkupEnabled = !sharedPdfMarkupEnabled },
+                        markupToolState = sharedPdfMarkupToolState,
+                        hasNavBarBelow = (fullscreenPane == FullscreenPane.FIRST || isLandscape),
+                        customContent = if (firstPaneSource == PaneSource.CHECKLIST) {
+                            @Composable {
                                 ChecklistPane(
                                     modifier = Modifier.fillMaxSize(),
                                     jobFolderName = jobFolderName,
                                     specialtyStateStore = specialtyStateStore,
                                     onJumpToCabinet = { cab -> jumpToCabinet(cab) }
-                                )
-                            }} else if (firstPaneSource == PaneSource.THREE_D) {{
-                                Model3DPane(
-                                    modifier = Modifier.fillMaxSize(),
-                                    folderName = jobFolderName,
-                                    roomName = detectedRoom,
-                                    serverPort = serverPort,
-                                    serverError = viewerServerError,
-                                    isDarkTheme = isDarkTheme,
-                                    onOpenIn3DApp = { openIn3DApp(detectedRoom) },
-                                    headerSlot = {}
-                                )
-                            }} else null
-                        )
-                    }
-                    FullscreenPane.SECOND -> {
-                        PdfPaneWithFloatingControls(
-                            jobRepository = jobRepository,
-                            jobFolderName = jobFolderName,
-                            isDarkTheme = isDarkTheme,
-                            title = secondSourceName,
-                            pdfFilename = secondSourceFilename,
-                            currentPage = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                assemblyPage
-                            } else {
-                                sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage)
-                            },
-                            totalPages = secondPaneTotalPages,
-                            onCurrentPageChange = { nextPage ->
-                                setSourcePage(
-                                    source = secondPaneSource,
-                                    nextPage = nextPage,
-                                    setOther = { secondPaneOtherPage = it },
-                                    setDelivery = { secondPaneDeliveryPage = it }
-                                )
-                            },
-                            onTotalPagesChanged = {
-                                secondPaneTotalPages = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                    assemblyVirtualTotalPages
-                                } else {
-                                    it
-                                }
-                            },
-                            tocRequestToken = secondPaneTocRequestToken,
-                            onOpenToc = {
-                                secondPaneTocRequestToken++
-                            },
-                            virtualMapping = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                assemblyVirtualMapping
-                            } else {
-                                null
-                            },
-                            navigatorCabinetToPages = if (secondPaneSource == PaneSource.ASSEMBLY) {
-                                assemblyNavigatorCabinetToPages
-                            } else if (secondPaneSource == PaneSource.PLANS) {
-                                sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
-                            } else {
-                                emptyMap()
-                            },
-                            navigatorPlanViewLabels = if (secondPaneSource == PaneSource.PLANS) {
-                                plansNavigatorPlanViewLabels
-                            } else {
-                                emptyMap()
-                            },
-                            navigatorWarningMessage = if (secondPaneSource == PaneSource.ASSEMBLY) {
-                                assemblyVirtualSanitized.warningMessage
-                            } else {
-                                null
-                            },
-                            missingText = secondMissingText,
-                            unreadableText = secondUnreadableText,
-                            sourceControlsInline = {
-                                PaneSourceControlsInline(
-                                    selectedSource = secondPaneSource,
-                                    selectedOtherFilename = secondPaneOtherFilename,
-                                    hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
-                                    onSelectSource = { secondPaneSource = it },
-                                    onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
-                                )
-                            },
-                            isFullscreen = true,
-                            onToggleFullscreen = { fullscreenPane = FullscreenPane.NONE },
-                            showControls = showUi,
-                            onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
-                            customContent = if (secondPaneSource == PaneSource.CHECKLIST) {{
-                                ChecklistPane(
-                                    modifier = Modifier.fillMaxSize(),
-                                    jobFolderName = jobFolderName,
-                                    specialtyStateStore = specialtyStateStore,
-                                    onJumpToCabinet = { cab -> jumpToCabinet(cab) }
-                                )
-                            }} else if (secondPaneSource == PaneSource.THREE_D) {{
-                                Model3DPane(
-                                    modifier = Modifier.fillMaxSize(),
-                                    folderName = jobFolderName,
-                                    roomName = detectedRoom,
-                                    serverPort = serverPort,
-                                    serverError = viewerServerError,
-                                    isDarkTheme = isDarkTheme,
-                                    onOpenIn3DApp = { openIn3DApp(detectedRoom) },
-                                    headerSlot = {}
-                                )
-                            }} else null
-                        )
-                    }
-                    FullscreenPane.NONE -> {
-                        AdaptiveSplitLayout(
-                            modifier = Modifier.fillMaxSize(),
-                            initialFirstWeight = if (isLandscape) 0.5f else 0.47f,
-                            firstContent = { paneModifier ->
-                                PdfPaneWithFloatingControls(
-                                    modifier = paneModifier,
-                                    jobRepository = jobRepository,
-                                    jobFolderName = jobFolderName,
-                                    isDarkTheme = isDarkTheme,
-                                    title = firstSourceName,
-                                    compactArrows = true,
-                                    pdfFilename = firstSourceFilename,
-                                    currentPage = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                        assemblyPage
-                                    } else {
-                                        sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage)
-                                    },
-                                    totalPages = firstPaneTotalPages,
-                                    onCurrentPageChange = { nextPage ->
-                                        setSourcePage(
-                                            source = firstPaneSource,
-                                            nextPage = nextPage,
-                                            setOther = { firstPaneOtherPage = it },
-                                            setDelivery = { firstPaneDeliveryPage = it }
-                                        )
-                                    },
-                                    onTotalPagesChanged = {
-                                        firstPaneTotalPages = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                            assemblyVirtualTotalPages
-                                        } else {
-                                            it
-                                        }
-                                    },
-                                    tocRequestToken = firstPaneTocRequestToken,
-                                    onOpenToc = {
-                                        firstPaneTocRequestToken++
-                                    },
-                                    virtualMapping = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                        assemblyVirtualMapping
-                                    } else {
-                                        null
-                                    },
-                                    navigatorCabinetToPages = if (firstPaneSource == PaneSource.ASSEMBLY) {
-                                        assemblyNavigatorCabinetToPages
-                                    } else if (firstPaneSource == PaneSource.PLANS) {
-                                        sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
-                                    } else {
-                                        emptyMap()
-                                    },
-                                    navigatorPlanViewLabels = if (firstPaneSource == PaneSource.PLANS) {
-                                        plansNavigatorPlanViewLabels
-                                    } else {
-                                        emptyMap()
-                                    },
-                                    navigatorWarningMessage = if (firstPaneSource == PaneSource.ASSEMBLY) {
-                                        assemblyVirtualSanitized.warningMessage
-                                    } else {
-                                        null
-                                    },
-                                    missingText = firstMissingText,
-                                    unreadableText = firstUnreadableText,
-                                    sourceControlsInline = {
-                                        PaneSourceControlsInline(
-                                            selectedSource = firstPaneSource,
-                                            selectedOtherFilename = firstPaneOtherFilename,
-                                            hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
-                                            onSelectSource = { firstPaneSource = it },
-                                            onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
-                                        )
-                                    },
-                                    onToggleFullscreen = { fullscreenPane = FullscreenPane.FIRST },
-                                    showControls = showUi,
-                                    onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
-                                    // In portrait the first pane's bottom edge is the divider, not the nav bar
-                                    hasNavBarBelow = isLandscape,
-                                    customContent = if (firstPaneSource == PaneSource.CHECKLIST) {{
-                                        ChecklistPane(
-                                            modifier = Modifier.fillMaxSize(),
-                                            jobFolderName = jobFolderName,
-                                            specialtyStateStore = specialtyStateStore,
-                                            onJumpToCabinet = { cab -> jumpToCabinet(cab) }
-                                        )
-                                    }} else if (firstPaneSource == PaneSource.THREE_D) {{
-                                        Model3DPane(
-                                            modifier = Modifier.fillMaxSize(),
-                                            folderName = jobFolderName,
-                                            roomName = detectedRoom,
-                                            serverPort = serverPort,
-                                    serverError = viewerServerError,
-                                    isDarkTheme = isDarkTheme,
-                                            onFullScreen = { fullscreenPane = FullscreenPane.FIRST },
-                                            onOpenIn3DApp = { openIn3DApp(detectedRoom) },
-                                            headerSlot = {}
-                                        )
-                                    }} else null
-                                )
-                            },
-                            secondContent = { paneModifier ->
-                                PdfPaneWithFloatingControls(
-                                    modifier = paneModifier,
-                                    jobRepository = jobRepository,
-                                    jobFolderName = jobFolderName,
-                                    isDarkTheme = isDarkTheme,
-                                    title = secondSourceName,
-                                    compactArrows = true,
-                                    pdfFilename = secondSourceFilename,
-                                    currentPage = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                        assemblyPage
-                                    } else {
-                                        sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage)
-                                    },
-                                    totalPages = secondPaneTotalPages,
-                                    onCurrentPageChange = { nextPage ->
-                                        setSourcePage(
-                                            source = secondPaneSource,
-                                            nextPage = nextPage,
-                                            setOther = { secondPaneOtherPage = it },
-                                            setDelivery = { secondPaneDeliveryPage = it }
-                                        )
-                                    },
-                                    onTotalPagesChanged = {
-                                        secondPaneTotalPages = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                            assemblyVirtualTotalPages
-                                        } else {
-                                            it
-                                        }
-                                    },
-                                    tocRequestToken = secondPaneTocRequestToken,
-                                    onOpenToc = {
-                                        secondPaneTocRequestToken++
-                                    },
-                                    virtualMapping = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                                        assemblyVirtualMapping
-                                    } else {
-                                        null
-                                    },
-                                    navigatorCabinetToPages = if (secondPaneSource == PaneSource.ASSEMBLY) {
-                                        assemblyNavigatorCabinetToPages
-                                    } else if (secondPaneSource == PaneSource.PLANS) {
-                                        sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
-                                    } else {
-                                        emptyMap()
-                                    },
-                                    navigatorPlanViewLabels = if (secondPaneSource == PaneSource.PLANS) {
-                                        plansNavigatorPlanViewLabels
-                                    } else {
-                                        emptyMap()
-                                    },
-                                    navigatorWarningMessage = if (secondPaneSource == PaneSource.ASSEMBLY) {
-                                        assemblyVirtualSanitized.warningMessage
-                                    } else {
-                                        null
-                                    },
-                                    missingText = secondMissingText,
-                                    unreadableText = secondUnreadableText,
-                                    sourceControlsInline = {
-                                        PaneSourceControlsInline(
-                                            selectedSource = secondPaneSource,
-                                            selectedOtherFilename = secondPaneOtherFilename,
-                                            hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
-                                            onSelectSource = { secondPaneSource = it },
-                                            onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
-                                        )
-                                    },
-                                    onToggleFullscreen = { fullscreenPane = FullscreenPane.SECOND },
-                                    showControls = showUi,
-                                    onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
-                                    customContent = if (secondPaneSource == PaneSource.CHECKLIST) {{
-                                        ChecklistPane(
-                                            modifier = Modifier.fillMaxSize(),
-                                            jobFolderName = jobFolderName,
-                                            specialtyStateStore = specialtyStateStore,
-                                            onJumpToCabinet = { cab -> jumpToCabinet(cab) }
-                                        )
-                                    }} else if (secondPaneSource == PaneSource.THREE_D) {{
-                                        Model3DPane(
-                                            modifier = Modifier.fillMaxSize(),
-                                            folderName = jobFolderName,
-                                            roomName = detectedRoom,
-                                            serverPort = serverPort,
-                                    serverError = viewerServerError,
-                                    isDarkTheme = isDarkTheme,
-                                            onFullScreen = { fullscreenPane = FullscreenPane.SECOND },
-                                            onOpenIn3DApp = { openIn3DApp(detectedRoom) },
-                                            headerSlot = {}
-                                        )
-                                    }} else null
                                 )
                             }
-                        )
-                    }
+                        } else if (firstPaneSource == PaneSource.THREE_D) {
+                            @Composable {
+                                Model3DPane(
+                                    modifier = Modifier.fillMaxSize(),
+                                    folderName = jobFolderName,
+                                    roomName = detectedRoom,
+                                    serverPort = serverPort,
+                                    serverError = viewerServerError,
+                                    isDarkTheme = isDarkTheme,
+                                    onFullScreen = if (fullscreenPane == FullscreenPane.NONE) { { fullscreenPane = FullscreenPane.FIRST } } else null,
+                                    onOpenIn3DApp = { openIn3DApp(detectedRoom) },
+                                    headerSlot = {}
+                                )
+                            }
+                        } else null
+                    )
+                },
+                secondContent = { paneModifier ->
+                    PdfPaneWithFloatingControls(
+                        modifier = paneModifier,
+                        jobRepository = jobRepository,
+                        jobFolderName = jobFolderName,
+                        isDarkTheme = isDarkTheme,
+                        title = secondSourceName,
+                        compactArrows = (fullscreenPane == FullscreenPane.NONE),
+                        pdfFilename = secondSourceFilename,
+                        currentPage = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                            assemblyPage
+                        } else {
+                            sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage)
+                        },
+                        totalPages = secondPaneTotalPages,
+                        onCurrentPageChange = { nextPage ->
+                            setSourcePage(
+                                source = secondPaneSource,
+                                nextPage = nextPage,
+                                setOther = { secondPaneOtherPage = it },
+                                setDelivery = { secondPaneDeliveryPage = it }
+                            )
+                        },
+                        onTotalPagesChanged = {
+                            secondPaneTotalPages = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                                assemblyVirtualTotalPages
+                            } else {
+                                it
+                            }
+                        },
+                        tocRequestToken = secondPaneTocRequestToken,
+                        onOpenToc = {
+                            secondPaneTocRequestToken++
+                        },
+                        virtualMapping = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
+                            assemblyVirtualMapping
+                        } else {
+                            null
+                        },
+                        navigatorCabinetToPages = if (secondPaneSource == PaneSource.ASSEMBLY) {
+                            assemblyNavigatorCabinetToPages
+                        } else if (secondPaneSource == PaneSource.PLANS) {
+                            sheetIndex?.documents?.plansElevations?.cabinetToPages.orEmpty()
+                        } else {
+                            emptyMap()
+                        },
+                        navigatorPlanViewLabels = if (secondPaneSource == PaneSource.PLANS) {
+                            plansNavigatorPlanViewLabels
+                        } else {
+                            emptyMap()
+                        },
+                        navigatorWarningMessage = if (secondPaneSource == PaneSource.ASSEMBLY) {
+                            assemblyVirtualSanitized.warningMessage
+                        } else {
+                            null
+                        },
+                        missingText = secondMissingText,
+                        unreadableText = secondUnreadableText,
+                        sourceControlsInline = {
+                            PaneSourceControlsInline(
+                                selectedSource = secondPaneSource,
+                                selectedOtherFilename = secondPaneOtherFilename,
+                                hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                onSelectSource = { secondPaneSource = it },
+                                onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
+                            )
+                        },
+                        onToggleFullscreen = {
+                            fullscreenPane = if (fullscreenPane == FullscreenPane.SECOND) FullscreenPane.NONE else FullscreenPane.SECOND
+                        },
+                        isFullscreen = (fullscreenPane == FullscreenPane.SECOND),
+                        showControls = showUi,
+                        onSingleTap = { showUi = !showUi; onUiVisibilityChanged(showUi) },
+                        pdfMarkupStore = if (secondPaneSource.isPdfSource()) pdfMarkupStore else null,
+                        markupEnabled = secondPaneSource.isPdfSource() && sharedPdfMarkupEnabled,
+                        onToggleMarkupEnabled = { sharedPdfMarkupEnabled = !sharedPdfMarkupEnabled },
+                        markupToolState = sharedPdfMarkupToolState,
+                        customContent = if (secondPaneSource == PaneSource.CHECKLIST) {
+                            @Composable {
+                                ChecklistPane(
+                                    modifier = Modifier.fillMaxSize(),
+                                    jobFolderName = jobFolderName,
+                                    specialtyStateStore = specialtyStateStore,
+                                    onJumpToCabinet = { cab -> jumpToCabinet(cab) }
+                                )
+                            }
+                        } else if (secondPaneSource == PaneSource.THREE_D) {
+                            @Composable {
+                                Model3DPane(
+                                    modifier = Modifier.fillMaxSize(),
+                                    folderName = jobFolderName,
+                                    roomName = detectedRoom,
+                                    serverPort = serverPort,
+                                    serverError = viewerServerError,
+                                    isDarkTheme = isDarkTheme,
+                                    onFullScreen = if (fullscreenPane == FullscreenPane.NONE) { { fullscreenPane = FullscreenPane.SECOND } } else null,
+                                    onOpenIn3DApp = { openIn3DApp(detectedRoom) },
+                                    headerSlot = {}
+                                )
+                            }
+                        } else null
+                    )
                 }
-            }
+            )
 
             // Search bar lives inside the floating nav bar pill (see NavBarDecoration.kt).
             // State stays here; we push it up on every frame via SideEffect.
@@ -1140,6 +1017,10 @@ private fun PdfPaneWithFloatingControls(
     showControls: Boolean = true,
     onSingleTap: (() -> Unit)? = null,
     compactArrows: Boolean = false,
+    pdfMarkupStore: PdfMarkupStore? = null,
+    markupEnabled: Boolean = false,
+    onToggleMarkupEnabled: (() -> Unit)? = null,
+    markupToolState: PdfMarkupToolState? = null,
     customContent: (@Composable () -> Unit)? = null,
     // true for fullscreen panes and the bottom/right pane in split view (nav bar below them);
     // false for the top pane in portrait split (bottom edge is the divider, not the nav bar)
@@ -1217,7 +1098,13 @@ private fun PdfPaneWithFloatingControls(
                     bottom = botBarPad,
                     start = 0.dp,
                     end = 0.dp
-                )
+                ),
+                pdfMarkupStore = pdfMarkupStore,
+                pdfMarkupJobFolderName = jobFolderName,
+                markupEnabled = markupEnabled,
+                onToggleMarkupEnabled = onToggleMarkupEnabled,
+                markupToolState = markupToolState,
+                markupControlsAsSlidingTab = true
             )
         }
 

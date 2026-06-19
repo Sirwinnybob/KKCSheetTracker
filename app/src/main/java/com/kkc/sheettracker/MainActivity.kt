@@ -30,6 +30,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.kkc.sheettracker.clock.ClockInNotificationContract
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
@@ -50,6 +53,7 @@ import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingSupervisor
 import androidx.lifecycle.lifecycleScope
 import com.kkc.sheettracker.ui.migration.MigrationRequiredScreen
+import com.kkc.sheettracker.ui.components.PersistentNavigationBarHider
 import com.kkc.sheettracker.ui.theme.KKCTheme
 import com.kkc.sheettracker.update.DeviceOwnerUpdateFallback
 import com.kkc.sheettracker.update.UpdateManager
@@ -87,6 +91,9 @@ class MainActivity : ComponentActivity() {
 
         val basePath = prefs.getString("base_path", null)
             ?: findDefaultBasePath()
+                .also { discoveredPath ->
+                    prefs.edit().putString("base_path", discoveredPath).apply()
+                }
 
         // Write the tablet ID to a shared file so that updater-agent can read it
         runCatching {
@@ -121,6 +128,7 @@ class MainActivity : ComponentActivity() {
                 val darkThemeOverride = prefs.getBoolean("dark_theme", false)
                 val isDarkTheme = if (followSystemTheme) systemDark else darkThemeOverride
                 KKCTheme(darkTheme = isDarkTheme) {
+                    PersistentNavigationBarHider()
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
@@ -203,6 +211,7 @@ class MainActivity : ComponentActivity() {
             var showViewOnlyNotice by rememberSaveable { mutableStateOf(isViewOnlyMode) }
 
             KKCTheme(darkTheme = isDarkTheme) {
+                PersistentNavigationBarHider()
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -436,6 +445,20 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Re-assert immersive mode every time the window regains focus. The system
+        // re-shows the status/nav bars after resume, dialogs, the soft keyboard, and
+        // app switches; without this they stay visible. Keeps the app truly fullscreen.
+        if (hasFocus) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 

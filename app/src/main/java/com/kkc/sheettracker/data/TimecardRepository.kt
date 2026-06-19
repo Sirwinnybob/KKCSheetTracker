@@ -56,7 +56,9 @@ class TimecardRepository(private val serverUrl: String) {
                 EmployeeInfo(
                     pin = obj.getString("pin"),
                     name = obj.getString("name"),
-                    displayName = obj.optString("display_name", "")
+                    // display_name from the hub is the RTC-1000's numeric Display ID (e.g. "501"),
+                    // NOT a human name. Custom display names are resolved by TimecardStore.
+                    displayName = ""
                 )
             }
         }
@@ -85,7 +87,8 @@ class TimecardRepository(private val serverUrl: String) {
             PunchStatus(
                 found = obj.optBoolean("found", false),
                 name = obj.optString("name").takeIf { it.isNotEmpty() },
-                displayName = obj.optString("display_name").takeIf { it.isNotEmpty() },
+                // display_name from hub is the RTC-1000's numeric Display ID — not a human name.
+                displayName = null,
                 isClockedIn = obj.optBoolean("is_clocked_in", false),
                 clockedInSince = obj.optString("clocked_in_since").takeIf { it.isNotEmpty() },
                 hoursToday = obj.optDouble("hours_today", 0.0)

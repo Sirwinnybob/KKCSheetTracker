@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,6 +74,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.data.models.PdfInkStroke
+import com.kkc.sheettracker.ui.markup.PdfMarkupOverlay
+import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
@@ -102,6 +107,8 @@ internal enum class SideGutterTapRegion {
     NONE
 }
 
+
+
 sealed interface PdfRenderUiState {
     data object Loading : PdfRenderUiState
     data class Ready(val bitmap: Bitmap) : PdfRenderUiState
@@ -123,6 +130,7 @@ class PdfRenderEngine(private val pdfFile: File) {
     }
 
     suspend fun pageCount(): Int = mutex.withLock {
+        if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock 0
         return if (!pdfFile.exists()) 0 else {
             try {
                 ensureRendererLocked().pageCount
@@ -137,13 +145,15 @@ class PdfRenderEngine(private val pdfFile: File) {
         viewport: PdfViewportState,
         matteColorArgb: Int = android.graphics.Color.WHITE
     ): Bitmap? = mutex.withLock {
+        if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
         if (!pdfFile.exists() || viewport.viewSize == IntSize.Zero) return null
         val localRenderer = ensureRendererLocked()
         if (pageIndex !in 0 until localRenderer.pageCount) return null
         var page: PdfRenderer.Page? = null
         try {
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
             page = localRenderer.openPage(pageIndex)
-            val activePage = page ?: return null
+            val activePage = page
             val viewWidth = viewport.viewSize.width.coerceAtLeast(1)
             val viewHeight = viewport.viewSize.height.coerceAtLeast(1)
             val outputScale = when {
@@ -199,6 +209,10 @@ class PdfRenderEngine(private val pdfFile: File) {
                 postScale(uniformScale, uniformScale)
                 postTranslate(bitmapOffsetX, bitmapOffsetY)
             }
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
+                bmp.recycle()
+                return@withLock null
+            }
             activePage.render(bmp, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             return bmp
         } finally {
@@ -207,13 +221,15 @@ class PdfRenderEngine(private val pdfFile: File) {
     }
 
     suspend fun pageAspectRatio(pageIndex: Int): Float? = mutex.withLock {
+        if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
         if (!pdfFile.exists()) return null
         val localRenderer = ensureRendererLocked()
         if (pageIndex !in 0 until localRenderer.pageCount) return null
         var page: PdfRenderer.Page? = null
         return try {
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
             page = localRenderer.openPage(pageIndex)
-            val activePage = page ?: return null
+            val activePage = page
             val width = activePage.width.toFloat().coerceAtLeast(1f)
             val height = activePage.height.toFloat().coerceAtLeast(1f)
             width / height
@@ -228,13 +244,15 @@ class PdfRenderEngine(private val pdfFile: File) {
         qualityScale: Float = 1.1f,
         matteColorArgb: Int = android.graphics.Color.WHITE
     ): Bitmap? = mutex.withLock {
+        if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
         if (!pdfFile.exists() || viewSize == IntSize.Zero) return null
         val localRenderer = ensureRendererLocked()
         if (pageIndex !in 0 until localRenderer.pageCount) return null
         var page: PdfRenderer.Page? = null
         try {
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
             page = localRenderer.openPage(pageIndex)
-            val activePage = page ?: return null
+            val activePage = page
             val pageWidth = activePage.width.toFloat().coerceAtLeast(1f)
             val pageHeight = activePage.height.toFloat().coerceAtLeast(1f)
             val viewWidth = viewSize.width.coerceAtLeast(1)
@@ -251,6 +269,10 @@ class PdfRenderEngine(private val pdfFile: File) {
             }
             val bmp = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
             bmp.eraseColor(matteColorArgb)
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
+                bmp.recycle()
+                return@withLock null
+            }
             activePage.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             bmp
         } finally {
@@ -259,18 +281,24 @@ class PdfRenderEngine(private val pdfFile: File) {
     }
 
     suspend fun renderThumbnail(pageIndex: Int, maxWidth: Int = 340): Bitmap? = mutex.withLock {
+        if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
         if (!pdfFile.exists()) return null
         val localRenderer = ensureRendererLocked()
         if (pageIndex !in 0 until localRenderer.pageCount) return null
         var page: PdfRenderer.Page? = null
         try {
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
             page = localRenderer.openPage(pageIndex)
-            val activePage = page ?: return null
+            val activePage = page
             val scale = maxWidth.toFloat() / activePage.width.toFloat().coerceAtLeast(1f)
             val width = (activePage.width * scale).toInt().coerceAtLeast(1)
             val height = (activePage.height * scale).toInt().coerceAtLeast(1)
             val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             bmp.eraseColor(android.graphics.Color.WHITE)
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
+                bmp.recycle()
+                return@withLock null
+            }
             activePage.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             return bmp
         } finally {
@@ -309,7 +337,13 @@ fun ReferencePdfPane(
     onSingleTap: (() -> Unit)? = null,
     compactArrows: Boolean = false,
     preferDarkMode: Boolean = false,
-    contentPadding: PaddingValues = PaddingValues(0.dp)
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    markupEnabled: Boolean = false,
+    onToggleMarkupEnabled: (() -> Unit)? = null,
+    markupToolState: PdfMarkupToolState? = null,
+    markupStrokes: List<PdfInkStroke> = emptyList(),
+    onMarkupStrokeAdded: ((PdfInkStroke) -> Unit)? = null,
+    onMarkupStrokeErased: ((String) -> Unit)? = null
 ) {
     val pdfIdentityKey = when {
         pdfFile == null -> "missing"
@@ -565,6 +599,8 @@ fun ReferencePdfPane(
                             pageAspectRatio = pageAspectRatio,
                             onGutterTapStep = null, // replaced by overlay arrow buttons
                             onSingleTap = onSingleTap,
+                            allowStylusGestures = !markupEnabled,
+                            allowFingerGestures = !markupEnabled || !(markupToolState?.allowFingerDrawing ?: false),
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
@@ -572,6 +608,48 @@ fun ReferencePdfPane(
                                     translationX = (1f - slideProgress.value) * vw * pageSlideDir
                                 }
                         )
+
+                        if (markupToolState != null &&
+                            onMarkupStrokeAdded != null &&
+                            onMarkupStrokeErased != null &&
+                            (markupEnabled || markupStrokes.isNotEmpty())
+                        ) {
+                            PdfMarkupOverlay(
+                                modifier = Modifier.fillMaxSize(),
+                                viewportState = viewportState,
+                                pageAspectRatio = pageAspectRatio,
+                                activeStrokes = markupStrokes,
+                                inputEnabled = markupEnabled,
+                                activeTool = markupToolState.activeTool,
+                                activeColor = markupToolState.activeColor,
+                                activeThickness = markupToolState.activeThickness,
+                                allowFingerDrawing = markupToolState.allowFingerDrawing,
+                                onStylusButtonEraserChanged = {
+                                    markupToolState.isStylusButtonEraserActive = it
+                                },
+                                onStrokeAdded = onMarkupStrokeAdded,
+                                onStrokeErased = onMarkupStrokeErased
+                            )
+                        }
+
+                        if (onToggleMarkupEnabled != null) {
+                            IconButton(
+                                onClick = onToggleMarkupEnabled,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(8.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                                        shape = CircleShape
+                                    )
+                            ) {
+                                Icon(
+                                    Icons.Default.Create,
+                                    contentDescription = if (markupEnabled) "Disable drawing" else "Enable drawing",
+                                    tint = if (markupEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
 
                         // ── Page-navigation arrow buttons ────────────────────────
                         // Always visible, centred on the left and right edges.
@@ -717,6 +795,8 @@ private fun ZoomablePdfImage(
     pageAspectRatio: Float?,
     onGutterTapStep: ((Int) -> Unit)?,
     onSingleTap: (() -> Unit)? = null,
+    allowStylusGestures: Boolean = true,
+    allowFingerGestures: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
@@ -764,70 +844,92 @@ private fun ZoomablePdfImage(
                     emitViewport()
                 }
             }
-            .pointerInput(pageKey) {
-                awaitEachGesture {
-                    val firstDown = awaitFirstDown(requireUnconsumed = false)
-                    onInteractionChanged(true)
-                    var pointerCountMax = 1
-                    var maxMoveDistance = 0f
-                    var hadTransformInput = false
-                    do {
-                        val event = awaitPointerEvent()
-                        pointerCountMax = max(pointerCountMax, event.changes.count { it.pressed })
-                        val tracked = event.changes.firstOrNull { it.id == firstDown.id }
-                            ?: event.changes.firstOrNull { it.pressed }
-                            ?: event.changes.firstOrNull()
-                        if (tracked != null) {
-                            val dx = tracked.position.x - firstDown.position.x
-                            val dy = tracked.position.y - firstDown.position.y
-                            maxMoveDistance = max(maxMoveDistance, sqrt(dx * dx + dy * dy))
-                        }
-                        val zoomChange = event.calculateZoom()
-                        val panChange = event.calculatePan()
-                        if (abs(zoomChange - 1f) > 0.001f || abs(panChange.x) > 0.5f || abs(panChange.y) > 0.5f) {
-                            hadTransformInput = true
-                        }
-                        val nextZoom = (zoom * zoomChange).coerceIn(minZoom, maxZoom)
-                        val nextPanX = panX + panChange.x
-                        val nextPanY = panY + panChange.y
-                        val (clampedX, clampedY) = clampPan(nextZoom, nextPanX, nextPanY)
-                        zoom = nextZoom
-                        panX = clampedX
-                        panY = clampedY
-                        emitViewport()
-                    } while (event.changes.any { it.pressed })
-                    onInteractionChanged(false)
-                    emitViewport()
+            .then(
+                if (allowStylusGestures || allowFingerGestures) {
+                    Modifier.pointerInput(pageKey, allowStylusGestures, allowFingerGestures) {
+                        awaitEachGesture {
+                            val firstDown = awaitFirstDown(requireUnconsumed = false)
+                            val isStylusGesture =
+                                firstDown.type == androidx.compose.ui.input.pointer.PointerType.Stylus ||
+                                    firstDown.type == androidx.compose.ui.input.pointer.PointerType.Eraser
+                            val shouldHandleGesture = if (isStylusGesture) allowStylusGestures else allowFingerGestures
+                            if (!shouldHandleGesture) {
+                                do {
+                                    val blockedEvent = awaitPointerEvent()
+                                } while (blockedEvent.changes.any { it.pressed })
+                                return@awaitEachGesture
+                            }
+                            onInteractionChanged(true)
+                            var pointerCountMax = 1
+                            var maxMoveDistance = 0f
+                            var hadTransformInput = false
+                            do {
+                                val event = awaitPointerEvent()
+                                pointerCountMax = max(pointerCountMax, event.changes.count { it.pressed })
+                                val tracked = event.changes.firstOrNull { it.id == firstDown.id }
+                                    ?: event.changes.firstOrNull { it.pressed }
+                                    ?: event.changes.firstOrNull()
+                                if (tracked != null) {
+                                    val dx = tracked.position.x - firstDown.position.x
+                                    val dy = tracked.position.y - firstDown.position.y
+                                    maxMoveDistance = max(maxMoveDistance, sqrt(dx * dx + dy * dy))
+                                }
+                                val zoomChange = event.calculateZoom()
+                                val panChange = event.calculatePan()
+                                if (abs(zoomChange - 1f) > 0.001f || abs(panChange.x) > 0.5f || abs(panChange.y) > 0.5f) {
+                                    hadTransformInput = true
+                                }
+                                val centroid = event.calculateCentroid(useCurrent = true)
+                                val nextZoom = (zoom * zoomChange).coerceIn(minZoom, maxZoom)
+                                // Compensate for graphicsLayer's center-anchored scaling so the
+                                // pinch centroid stays under the fingers instead of the zoom
+                                // always appearing to originate from the view's center.
+                                val appliedZoomChange = nextZoom / zoom
+                                val anchorX = centroid.x - viewSize.width / 2f
+                                val anchorY = centroid.y - viewSize.height / 2f
+                                val nextPanX = panX * appliedZoomChange + panChange.x + anchorX * (1f - appliedZoomChange)
+                                val nextPanY = panY * appliedZoomChange + panChange.y + anchorY * (1f - appliedZoomChange)
+                                val (clampedX, clampedY) = clampPan(nextZoom, nextPanX, nextPanY)
+                                zoom = nextZoom
+                                panX = clampedX
+                                panY = clampedY
+                                emitViewport()
+                            } while (event.changes.any { it.pressed })
+                            onInteractionChanged(false)
+                            emitViewport()
 
-                    val isSingleTap = pointerCountMax == 1 &&
-                        !hadTransformInput &&
-                        maxMoveDistance <= tapSlopPx
-                    var gutterHandled = false
-                    if (isSingleTap && onGutterTapStep != null && isFitStateForSideGutterNavigation(
-                            zoom = zoom,
-                            panX = panX,
-                            panY = panY,
-                            panTolerancePx = gutterPanTolerancePx
-                        )
-                    ) {
-                        when (
-                            classifySideGutterTap(
-                                tapX = firstDown.position.x,
-                                viewSize = viewSize,
-                                pageAspectRatio = pageAspectRatio
-                            )
-                        ) {
-                            SideGutterTapRegion.LEFT -> { onGutterTapStep(-1); gutterHandled = true }
-                            SideGutterTapRegion.RIGHT -> { onGutterTapStep(1); gutterHandled = true }
-                            SideGutterTapRegion.NONE -> Unit
+                            val isSingleTap = pointerCountMax == 1 &&
+                                !hadTransformInput &&
+                                maxMoveDistance <= tapSlopPx
+                            var gutterHandled = false
+                            if (isSingleTap && onGutterTapStep != null && isFitStateForSideGutterNavigation(
+                                    zoom = zoom,
+                                    panX = panX,
+                                    panY = panY,
+                                    panTolerancePx = gutterPanTolerancePx
+                                )
+                            ) {
+                                when (
+                                    classifySideGutterTap(
+                                        tapX = firstDown.position.x,
+                                        viewSize = viewSize,
+                                        pageAspectRatio = pageAspectRatio
+                                    )
+                                ) {
+                                    SideGutterTapRegion.LEFT -> { onGutterTapStep(-1); gutterHandled = true }
+                                    SideGutterTapRegion.RIGHT -> { onGutterTapStep(1); gutterHandled = true }
+                                    SideGutterTapRegion.NONE -> Unit
+                                }
+                            }
+                            if (isSingleTap && !gutterHandled) {
+                                onSingleTap?.invoke()
+                            }
                         }
                     }
-                    // Non-gutter single taps toggle the UI overlay (tap-to-show/hide).
-                    if (isSingleTap && !gutterHandled) {
-                        onSingleTap?.invoke()
-                    }
+                } else {
+                    Modifier
                 }
-            }
+            )
     ) {
         if (baseBitmap != null) {
             Image(

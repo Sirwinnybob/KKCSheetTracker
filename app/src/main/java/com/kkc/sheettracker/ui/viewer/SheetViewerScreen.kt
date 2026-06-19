@@ -19,6 +19,11 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -32,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
@@ -39,6 +45,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
+import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.ui.components.ClockInButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -53,7 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment as UiAlignment
 import androidx.compose.ui.layout.onSizeChanged
@@ -83,6 +91,7 @@ import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.PreparedPageKey
 import com.kkc.sheettracker.data.PreparedStateInvalidationReason
 import com.kkc.sheettracker.data.ProgressStore
@@ -91,18 +100,26 @@ import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.PageMetadata
 import com.kkc.sheettracker.data.models.Part
+import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SheetStatusKey
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarCncDecoration
+import com.kkc.sheettracker.ui.components.PdfViewportState
 import com.kkc.sheettracker.ui.components.ResizeHandle
 import com.kkc.sheettracker.ui.components.SheetStatusBadge
 import com.kkc.sheettracker.ui.components.SortColumn
 import com.kkc.sheettracker.ui.components.SortDirection
 import com.kkc.sheettracker.ui.components.SortHeader
 import com.kkc.sheettracker.ui.components.VerticalSplitLayout
+import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.markup.DrawingTool
+import com.kkc.sheettracker.ui.markup.PdfMarkupOverlay
+import com.kkc.sheettracker.ui.markup.PdfMarkupToolbar
+import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
+import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.CancellationException
@@ -116,11 +133,12 @@ import kotlinx.coroutines.yield
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+import java.io.File
 import kotlin.math.min
 import kotlin.math.sqrt
 import java.util.ArrayDeque
 
-private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 private val ROOM_PAREN_REGEX = Regex("""\(([^)]+)\)""")
 private val ROOM_ILLEGAL_CHARS_REGEX = Regex("""[/\\:*?"<>|]""")
 private val ROOM_WHITESPACE_REGEX = Regex("""\s+""")
@@ -188,6 +206,29 @@ private data class TableLayoutPrefs(
     val sortDirection: SortDirection = SortDirection.ASC
 )
 
+internal data class SheetViewerMarkupStoreConfig(
+    val basePath: String,
+    val tabletId: String
+)
+
+internal fun shouldShowPenMarkupOverlay(
+    showFullPdfPage: Boolean,
+    penModeEnabled: Boolean
+): Boolean = penModeEnabled
+
+internal fun resolveSheetViewerMarkupStoreConfig(
+    basePath: String?,
+    tabletId: String?
+): SheetViewerMarkupStoreConfig? {
+    val safeBasePath = basePath?.trim().orEmpty()
+    val safeTabletId = tabletId?.trim().orEmpty()
+    if (safeBasePath.isBlank() || safeTabletId.isBlank()) return null
+    return SheetViewerMarkupStoreConfig(
+        basePath = safeBasePath,
+        tabletId = safeTabletId
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SheetViewerScreen(
@@ -206,7 +247,8 @@ fun SheetViewerScreen(
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
     onBack: () -> Unit,
     onMaterialUnavailable: () -> Unit = onBack,
-    onUiVisibilityChanged: (Boolean) -> Unit = {}
+    onUiVisibilityChanged: (Boolean) -> Unit = {},
+    clockInState: ClockInState? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -219,7 +261,17 @@ fun SheetViewerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
     val sharedPrefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
+    val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
+    val markupStoreConfig = remember {
+        resolveSheetViewerMarkupStoreConfig(
+            basePath = trackerPrefs.getString("base_path", null),
+            tabletId = trackerPrefs.getString("tablet_id", null)
+        )
+    }
+    val pdfMarkupStore = remember {
+        markupStoreConfig?.let { PdfMarkupStore(File(it.basePath), it.tabletId) }
+    }
 
     fun loadTablePrefs(): TableLayoutPrefs {
         val prefix = "table_prefs_v1_"
@@ -256,6 +308,12 @@ fun SheetViewerScreen(
     var selectedCabinetNumber by remember { mutableStateOf<Int?>(null) }
     var showReferenceDocDialog by remember { mutableStateOf(false) }
     var showFullPdfPage by remember { mutableStateOf(false) }
+    var markupEnabled by remember(jobFolderName, pdfFilename) { mutableStateOf(false) }
+    var markupStrokesVisible by remember(jobFolderName, pdfFilename) { mutableStateOf(true) }
+    val markupToolState = rememberPdfMarkupToolState()
+    val localMarkupStrokes = remember(jobFolderName, pdfFilename) { mutableStateListOf<PdfInkStroke>() }
+    val localMarkupDeletedIds = remember(jobFolderName, pdfFilename) { mutableStateListOf<String>() }
+    var markupContentVersion by remember(jobFolderName, pdfFilename) { mutableStateOf(0L) }
     var resetZoomTrigger by remember { mutableIntStateOf(0) }
     var showSheetToc by remember { mutableStateOf(false) }
     var showCncSearch by remember { mutableStateOf(false) }
@@ -285,6 +343,55 @@ fun SheetViewerScreen(
     }
     val hasThreeDAssets by produceState(false, jobFolderName) {
         value = withContext(Dispatchers.IO) { jobRepository.hasThreeDAssets(jobFolderName) }
+    }
+
+    LaunchedEffect(pdfMarkupStore, jobFolderName) {
+        if (pdfMarkupStore == null) {
+            markupContentVersion = 0L
+            return@LaunchedEffect
+        }
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            markupContentVersion = pdfMarkupStore.trackerContentVersion(jobFolderName)
+            delay(1000)
+        }
+    }
+
+    LaunchedEffect(pdfMarkupStore, jobFolderName, pdfFilename, currentPage, markupContentVersion) {
+        if (pdfMarkupStore == null || currentPage <= 0) {
+            localMarkupStrokes.clear()
+            localMarkupDeletedIds.clear()
+            return@LaunchedEffect
+        }
+        localMarkupStrokes.clear()
+        localMarkupStrokes.addAll(pdfMarkupStore.getMergedActiveStrokes(jobFolderName, pdfFilename, currentPage))
+        localMarkupDeletedIds.clear()
+        localMarkupDeletedIds.addAll(
+            pdfMarkupStore.loadTabletPageMarkup(jobFolderName, pdfFilename, currentPage)
+                ?.deletedStrokeIds
+                .orEmpty()
+        )
+        Log.d(
+            "PdfMarkupDebug",
+            "SheetViewer reload job=$jobFolderName pdf=$pdfFilename page=$currentPage strokes=${localMarkupStrokes.size} deleted=${localMarkupDeletedIds.size}"
+        )
+    }
+    val penMarkupOverlayActive = markupEnabled
+    val hasMarkupHistory = remember(localMarkupStrokes.size, localMarkupDeletedIds.size) {
+        localMarkupStrokes.any { it.id !in localMarkupDeletedIds }
+    }
+
+    fun persistCurrentPageMarkup() {
+        Log.d(
+            "PdfMarkupDebug",
+            "SheetViewer persist job=$jobFolderName pdf=$pdfFilename page=$currentPage strokes=${localMarkupStrokes.count { it.id !in localMarkupDeletedIds }} deleted=${localMarkupDeletedIds.size}"
+        )
+        pdfMarkupStore?.takeIf { currentPage > 0 }?.savePageMarkup(
+            jobFolderName = jobFolderName,
+            pdfFilename = pdfFilename,
+            page = currentPage,
+            strokes = localMarkupStrokes.filter { it.id !in localMarkupDeletedIds },
+            deletedStrokeIds = localMarkupDeletedIds.toList()
+        )
     }
 
     fun normalizeRoomFolder(roomText: String?): String? {
@@ -375,6 +482,7 @@ fun SheetViewerScreen(
         pageNumber: Int,
         source: String
     ): RenderedSheetPage? {
+        if (!kotlinx.coroutines.currentCoroutineContext().isActive) return null
         return try {
             var outPage: Bitmap? = null
             var outDiagram: Bitmap? = null
@@ -383,6 +491,11 @@ fun SheetViewerScreen(
             val pageIndex = pageNumber - 1
             Log.d(OCR_TAG, "render_fn: pageIndex=$pageIndex pageCount=${renderer.pageCount} file=${targetPdfFile.path} exists=${targetPdfFile.exists()}")
             if (pageIndex in 0 until renderer.pageCount) {
+                if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
+                    renderer.close()
+                    fd.close()
+                    return null
+                }
                 val page = renderer.openPage(pageIndex)
                 val scale = 2
                 val bmp = Bitmap.createBitmap(
@@ -391,6 +504,13 @@ fun SheetViewerScreen(
                     Bitmap.Config.ARGB_8888
                 )
                 bmp.eraseColor(android.graphics.Color.WHITE)
+                if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
+                    page.close()
+                    bmp.recycle()
+                    renderer.close()
+                    fd.close()
+                    return null
+                }
                 page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
                 outPage = bmp
@@ -406,6 +526,7 @@ fun SheetViewerScreen(
             fd.close()
             RenderedSheetPage(pageBitmap = outPage, diagramBitmap = outDiagram)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(OCR_TAG, "Page $pageNumber render error source=$source", e)
             null
         }
@@ -658,6 +779,7 @@ fun SheetViewerScreen(
             val start = (currentIndex - RENDER_PREWARM_RADIUS).coerceAtLeast(0)
             val end = (currentIndex + RENDER_PREWARM_RADIUS).coerceAtMost(pages.lastIndex)
             for (idx in start..end) {
+                if (!kotlinx.coroutines.currentCoroutineContext().isActive) break
                 val p = pages[idx]
                 if (p == currentPage) continue
                 val shouldRender = withContext(Dispatchers.Main) { !renderCache.containsKey(p) }
@@ -668,6 +790,11 @@ fun SheetViewerScreen(
                     pageNumber = p,
                     source = "render_prewarm"
                 ) ?: continue
+                if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
+                    rendered.pageBitmap?.recycle()
+                    rendered.diagramBitmap?.recycle()
+                    break
+                }
                 withContext(Dispatchers.Main) {
                     cacheRenderedPage(p, rendered)
                 }
@@ -860,7 +987,10 @@ fun SheetViewerScreen(
     val topBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "topBarAlpha")
     val navBarDeco = LocalNavBarDecoration.current
     DisposableEffect(navBarDeco) {
-        onDispose { navBarDeco.cncDecoration = null }
+        onDispose {
+            navBarDeco.cncDecoration = null
+            navBarDeco.extendedControls = null
+        }
     }
     SideEffect {
         navBarDeco.cncDecoration = if (showUi) {
@@ -941,6 +1071,29 @@ fun SheetViewerScreen(
         } else {
             null
         }
+        navBarDeco.extendedControls = if (showUi && penMarkupOverlayActive) {
+            {
+                PdfMarkupToolbar(
+                    state = markupToolState,
+                    hasUndo = hasMarkupHistory,
+                    onUndo = {
+                        val latestVisible = pdfMarkupStore
+                            ?.loadTabletPageMarkup(jobFolderName, pdfFilename, currentPage)
+                            ?.strokes
+                            ?.lastOrNull { it.id !in localMarkupDeletedIds }
+                        if (latestVisible != null) {
+                            localMarkupDeletedIds.add(latestVisible.id)
+                            persistCurrentPageMarkup()
+                        }
+                    },
+                    strokesVisible = markupStrokesVisible,
+                    onToggleVisibility = { markupStrokesVisible = !markupStrokesVisible },
+                    onHide = { markupEnabled = false }
+                )
+            }
+        } else {
+            null
+        }
     }
 
     Scaffold(
@@ -973,6 +1126,7 @@ fun SheetViewerScreen(
                     actionIconContentColor = topBarTextColor,
                     navigationIconContentColor = topBarTextColor
                 ),
+                windowInsets = androidx.compose.foundation.layout.WindowInsets.statusBars,
                 actions = {
                     if (pendingBadPartCount > 0) {
                         TextButton(
@@ -992,19 +1146,36 @@ fun SheetViewerScreen(
                     }
                     val clockInJob = scanState.snapshot.jobs.find { it.folderName == jobFolderName }
                     if (clockInJob != null) {
-                        Button(
-                            onClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF38A169),
-                                contentColor = Color.White
+                        if (clockInState != null) {
+                            ClockInButton(
+                                clockInState = clockInState,
+                                isClockedInHere = isClockedInHere,
+                                onClockInClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) }
                             )
-                        ) {
-                            Text(
-                                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
+                        } else {
+                            Button(
+                                onClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF38A169),
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Text(
+                                    if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
+                    }
+                    IconButton(
+                        onClick = { markupEnabled = !markupEnabled }
+                    ) {
+                        Icon(
+                            Icons.Default.Create,
+                            contentDescription = if (markupEnabled) "Disable pen mode" else "Enable pen mode",
+                            tint = if (markupEnabled) MaterialTheme.colorScheme.primary else topBarTextColor
+                        )
                     }
                     Box {
                         IconButton(onClick = { showViewerMenu = true }) {
@@ -1191,6 +1362,11 @@ fun SheetViewerScreen(
             }
 
             val bitmap = if (showFullPdfPage) pageBitmap else (diagramBitmap ?: pageBitmap)
+            val visiblePdfMarkupStrokes = if (markupStrokesVisible) {
+                localMarkupStrokes.filter { it.id !in localMarkupDeletedIds }
+            } else {
+                emptyList()
+            }
 
             VerticalSplitLayout(
                 modifier = Modifier
@@ -1199,46 +1375,74 @@ fun SheetViewerScreen(
                 topContent = { topModifier ->
                     Crossfade(targetState = bitmap, animationSpec = tween(150), label = "viewerBitmap") { activeBitmap ->
                         if (activeBitmap != null) {
-                            DiagramView(
-                                bitmap = activeBitmap,
-                                parts = parts,
-                            selectedPartNumber = selectedPartNumber,
-                            diagramBboxes = diagramBboxes,
-                            resetZoomTrigger = resetZoomTrigger,
-                            modifier = topModifier
-                                .fillMaxWidth()
-                                    .padding(4.dp),
-                                onTapPart = { partNumber ->
-                                    val isDeselecting = selectedPartNumber == partNumber
-                                    selectedPartNumber = if (isDeselecting) null else partNumber
-                                    selectedCabinetNumber = if (isDeselecting) {
-                                        null
-                                    } else {
-                                        parts.firstOrNull { it.number == partNumber }?.cabNumber?.takeIf { it > 0 }
+                            if (showFullPdfPage || markupEnabled) {
+                                MarkupPdfPageView(
+                                    bitmap = activeBitmap,
+                                    resetZoomTrigger = resetZoomTrigger,
+                                    inputEnabled = markupEnabled,
+                                    modifier = topModifier
+                                        .fillMaxWidth()
+                                        .padding(4.dp),
+                                    markupStrokes = visiblePdfMarkupStrokes,
+                                    markupToolState = markupToolState,
+                                    onMarkupStrokeAdded = { stroke ->
+                                        localMarkupStrokes.add(stroke)
+                                        persistCurrentPageMarkup()
+                                    },
+                                    onMarkupStrokeErased = { strokeId ->
+                                        if (strokeId !in localMarkupDeletedIds) {
+                                            localMarkupDeletedIds.add(strokeId)
+                                        }
+                                        persistCurrentPageMarkup()
+                                    },
+                                    onTapEmpty = {
+                                        showUi = !showUi
+                                        onUiVisibilityChanged(showUi)
                                     }
-                                    val tappedCabinet = parts.firstOrNull { it.number == partNumber }?.cabNumber
-                                    Log.d(
-                                        VIEWER_REF_TAG,
-                                        "tap_part source=diagram part=$partNumber tappedCabinet=$tappedCabinet " +
-                                            "selectedPartNow=$selectedPartNumber selectedCabinetNow=$selectedCabinetNumber"
-                                    )
-                                },
-                                onLongPressPart = { partNumber ->
-                                    val cabNumber = parts.firstOrNull { it.number == partNumber }?.cabNumber
-                                    selectedPartNumber = partNumber
-                                    selectedCabinetNumber = cabNumber?.takeIf { it > 0 }
-                                    Log.d(
-                                        VIEWER_REF_TAG,
-                                        "tap_part source=diagram_long_press part=$partNumber tappedCabinet=$cabNumber " +
-                                            "selectedPartNow=$selectedPartNumber selectedCabinetNow=$selectedCabinetNumber"
-                                    )
-                                    showReferenceDocDialog = true
-                                },
-                                onTapEmpty = {
-                                    showUi = !showUi
-                                    onUiVisibilityChanged(showUi)
-                                }
-                            )
+                                )
+                            } else {
+                                DiagramView(
+                                    bitmap = activeBitmap,
+                                    parts = parts,
+                                    selectedPartNumber = selectedPartNumber,
+                                    diagramBboxes = diagramBboxes,
+                                    resetZoomTrigger = resetZoomTrigger,
+                                    markupStrokes = visiblePdfMarkupStrokes,
+                                    modifier = topModifier
+                                        .fillMaxWidth()
+                                        .padding(4.dp),
+                                    onTapPart = { partNumber ->
+                                        val isDeselecting = selectedPartNumber == partNumber
+                                        selectedPartNumber = if (isDeselecting) null else partNumber
+                                        selectedCabinetNumber = if (isDeselecting) {
+                                            null
+                                        } else {
+                                            parts.firstOrNull { it.number == partNumber }?.cabNumber?.takeIf { it > 0 }
+                                        }
+                                        val tappedCabinet = parts.firstOrNull { it.number == partNumber }?.cabNumber
+                                        Log.d(
+                                            VIEWER_REF_TAG,
+                                            "tap_part source=diagram part=$partNumber tappedCabinet=$tappedCabinet " +
+                                                "selectedPartNow=$selectedPartNumber selectedCabinetNow=$selectedCabinetNumber"
+                                        )
+                                    },
+                                    onLongPressPart = { partNumber ->
+                                        val cabNumber = parts.firstOrNull { it.number == partNumber }?.cabNumber
+                                        selectedPartNumber = partNumber
+                                        selectedCabinetNumber = cabNumber?.takeIf { it > 0 }
+                                        Log.d(
+                                            VIEWER_REF_TAG,
+                                            "tap_part source=diagram_long_press part=$partNumber tappedCabinet=$cabNumber " +
+                                                "selectedPartNow=$selectedPartNumber selectedCabinetNow=$selectedCabinetNumber"
+                                        )
+                                        showReferenceDocDialog = true
+                                    },
+                                    onTapEmpty = {
+                                        showUi = !showUi
+                                        onUiVisibilityChanged(showUi)
+                                    }
+                                )
+                            }
                         } else {
                             SheetLoadingPlaceholder(modifier = topModifier.fillMaxWidth())
                         }
@@ -1379,7 +1583,7 @@ fun SheetViewerScreen(
                     Text("Cabinet #${cabinetNumber ?: "?"}")
                     if (!selectedPart?.room.isNullOrBlank()) {
                         Text(
-                            "Room: ${selectedPart?.room}",
+                            "Room: ${selectedPart.room}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2402,8 +2606,9 @@ private fun measureImageSignal(bitmap: Bitmap): Pair<Double, Double> {
 }
 
 private fun com.kkc.sheettracker.data.models.PageMetadata?.toSidecarOcrMap(): Map<Int, List<Rect>> {
-    if (this?.ocrBoxes.isNullOrEmpty()) return emptyMap()
-    return this!!.ocrBoxes!!.mapNotNull { (numText, boxes) ->
+    val ocrBoxes = this?.ocrBoxes.orEmpty()
+    if (ocrBoxes.isEmpty()) return emptyMap()
+    return ocrBoxes.mapNotNull { (numText, boxes) ->
         val num = numText.toIntOrNull() ?: return@mapNotNull null
         val rects = boxes.map { Rect(it.left, it.top, it.right, it.bottom) }
         num to rects.take(2)
@@ -2516,16 +2721,45 @@ private fun preprocessForOcr(src: Bitmap, thresholdBias: Int, erode: Boolean): B
     return out
 }
 
+internal data class AnchoredZoomPan(val zoom: Float, val panX: Float, val panY: Float)
+
+/**
+ * Computes the next zoom/pan so the content point under [centroid] stays under the
+ * fingers as the user pinches, instead of the zoom always appearing to originate from
+ * the view's center (the default graphicsLayer transformOrigin).
+ */
+internal fun computeAnchoredZoomPan(
+    zoom: Float,
+    panX: Float,
+    panY: Float,
+    zoomChange: Float,
+    panChange: Offset,
+    centroid: Offset,
+    viewSize: IntSize,
+    minZoom: Float,
+    maxZoom: Float
+): AnchoredZoomPan {
+    val nextZoom = (zoom * zoomChange).coerceIn(minZoom, maxZoom)
+    // Use the post-clamp ratio so the anchor stays correct even when the gesture
+    // is clamped at min/max zoom (raw zoomChange would overshoot the correction).
+    val appliedZoomChange = nextZoom / zoom
+    val anchorX = centroid.x - viewSize.width / 2f
+    val anchorY = centroid.y - viewSize.height / 2f
+    val nextPanX = panX * appliedZoomChange + panChange.x + anchorX * (1f - appliedZoomChange)
+    val nextPanY = panY * appliedZoomChange + panChange.y + anchorY * (1f - appliedZoomChange)
+    return AnchoredZoomPan(nextZoom, nextPanX, nextPanY)
+}
+
 @Composable
-private fun DiagramView(
+private fun MarkupPdfPageView(
     bitmap: Bitmap,
-    parts: List<Part>,
-    selectedPartNumber: Int?,
-    diagramBboxes: Map<Int, List<Rect>>,
     resetZoomTrigger: Int,
+    markupStrokes: List<PdfInkStroke>,
+    inputEnabled: Boolean,
+    markupToolState: PdfMarkupToolState,
     modifier: Modifier = Modifier,
-    onTapPart: (Int) -> Unit,
-    onLongPressPart: (Int) -> Unit,
+    onMarkupStrokeAdded: (PdfInkStroke) -> Unit,
+    onMarkupStrokeErased: (String) -> Unit,
     onTapEmpty: (() -> Unit)? = null
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
@@ -2562,21 +2796,165 @@ private fun DiagramView(
         panY = clampedY
     }
 
-    // Fit-scale helpers: bitmap is drawn with ContentScale.Fit inside viewSize
-    // Mapping must match Image(contentScale = FillWidth, alignment = TopCenter).
+    val viewportState = remember(zoom, panX, panY, viewSize) {
+        PdfViewportState(
+            zoom = zoom,
+            panX = panX,
+            panY = panY,
+            viewSize = viewSize
+        )
+    }
+
+    Box(
+        modifier = modifier
+            .clipToBounds()
+            .onSizeChanged { viewSize = it }
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onTapEmpty?.invoke() })
+            }
+            .pointerInput(inputEnabled, markupToolState.allowFingerDrawing, viewSize) {
+                awaitEachGesture {
+                    val firstDown = awaitFirstDown(requireUnconsumed = false)
+                    val isStylusGesture =
+                        firstDown.type == PointerType.Stylus || firstDown.type == PointerType.Eraser
+                    val shouldHandleGesture = if (!inputEnabled) {
+                        true
+                    } else {
+                        !isStylusGesture && !markupToolState.allowFingerDrawing
+                    }
+                    if (!shouldHandleGesture) {
+                        do {
+                            val blockedEvent = awaitPointerEvent()
+                        } while (blockedEvent.changes.any { it.pressed })
+                        return@awaitEachGesture
+                    }
+                    do {
+                        val event = awaitPointerEvent()
+                        val zoomChange = event.calculateZoom()
+                        val panChange = event.calculatePan()
+                        val centroid = event.calculateCentroid(useCurrent = true)
+                        val anchored = computeAnchoredZoomPan(
+                            zoom, panX, panY, zoomChange, panChange, centroid, viewSize, 1f, 5f
+                        )
+                        val (clampedX, clampedY) = clampPan(anchored.zoom, anchored.panX, anchored.panY)
+                        zoom = anchored.zoom
+                        panX = clampedX
+                        panY = clampedY
+                        event.changes.forEach { change ->
+                            if (change.pressed) change.consume()
+                        }
+                    } while (event.changes.any { it.pressed })
+                }
+            }
+    ) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "Sheet PDF page",
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = zoom
+                    scaleY = zoom
+                    translationX = panX
+                    translationY = panY
+                },
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.Center,
+            filterQuality = FilterQuality.None
+        )
+
+        PdfMarkupOverlay(
+            modifier = Modifier.fillMaxSize(),
+            viewportState = viewportState,
+            pageAspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
+            activeStrokes = markupStrokes,
+            inputEnabled = inputEnabled,
+            activeTool = markupToolState.activeTool,
+            activeColor = markupToolState.activeColor,
+            activeThickness = markupToolState.activeThickness,
+            allowFingerDrawing = markupToolState.allowFingerDrawing,
+            onStylusButtonEraserChanged = {
+                markupToolState.isStylusButtonEraserActive = it
+            },
+            onStrokeAdded = onMarkupStrokeAdded,
+            onStrokeErased = onMarkupStrokeErased
+        )
+    }
+}
+
+@Composable
+private fun DiagramView(
+    bitmap: Bitmap,
+    parts: List<Part>,
+    selectedPartNumber: Int?,
+    diagramBboxes: Map<Int, List<Rect>>,
+    resetZoomTrigger: Int,
+    markupStrokes: List<PdfInkStroke> = emptyList(),
+    modifier: Modifier = Modifier,
+    onTapPart: (Int) -> Unit,
+    onLongPressPart: (Int) -> Unit,
+    onTapEmpty: (() -> Unit)? = null
+) {
+    var viewSize by remember { mutableStateOf(IntSize.Zero) }
+    var zoom by remember { mutableFloatStateOf(1f) }
+    var panX by remember { mutableFloatStateOf(0f) }
+    var panY by remember { mutableFloatStateOf(0f) }
+    // Tracked passively (PointerEventPass.Initial) on every pointer event so the
+    // transformable() gesture below knows where the pinch is actually centered;
+    // TransformableState's onTransformation callback only receives zoom/pan deltas,
+    // never the centroid, so it can't tell where the fingers are on its own.
+    val pinchCentroid = remember { mutableStateOf(Offset.Zero) }
+
+    val viewportState = remember(zoom, panX, panY, viewSize) {
+        PdfViewportState(zoom = zoom, panX = panX, panY = panY, viewSize = viewSize)
+    }
+
+    fun clampPan(targetZoom: Float, x: Float, y: Float): Pair<Float, Float> {
+        if (viewSize == IntSize.Zero || targetZoom <= 1f) return 0f to 0f
+        val maxPanX = (viewSize.width * (targetZoom - 1f)) / 2f
+        val maxPanY = (viewSize.height * (targetZoom - 1f)) / 2f
+        return x.coerceIn(-maxPanX, maxPanX) to y.coerceIn(-maxPanY, maxPanY)
+    }
+
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        val anchored = computeAnchoredZoomPan(
+            zoom, panX, panY, zoomChange, panChange, pinchCentroid.value, viewSize, 1f, 5f
+        )
+        val (clampedX, clampedY) = clampPan(anchored.zoom, anchored.panX, anchored.panY)
+        zoom = anchored.zoom
+        panX = clampedX
+        panY = clampedY
+    }
+
+    LaunchedEffect(resetZoomTrigger) {
+        zoom = 1f
+        panX = 0f
+        panY = 0f
+    }
+
+    LaunchedEffect(viewSize, zoom) {
+        val (clampedX, clampedY) = clampPan(zoom, panX, panY)
+        panX = clampedX
+        panY = clampedY
+    }
+
+    // Fit + Center helpers: scale = min(viewW/bitmapW, viewH/bitmapH), centered both axes.
+    // Must match Image(contentScale = Fit, alignment = Center) below.
     fun bitmapToView(bx: Float, by: Float): Pair<Float, Float> {
-        val scale = viewSize.width.toFloat() / bitmap.width.toFloat()
-        val drawnWidth = bitmap.width * scale
-        val offsetX = (viewSize.width - drawnWidth) / 2f
-        val offsetY = 0f
+        val vw = viewSize.width.toFloat()
+        val vh = viewSize.height.toFloat()
+        val scale = minOf(vw / bitmap.width, vh / bitmap.height)
+        val offsetX = (vw - bitmap.width * scale) / 2f
+        val offsetY = (vh - bitmap.height * scale) / 2f
         return (bx * scale + offsetX) to (by * scale + offsetY)
     }
 
     fun viewToBitmap(vx: Float, vy: Float): Pair<Float, Float> {
-        val scale = viewSize.width.toFloat() / bitmap.width.toFloat()
-        val drawnWidth = bitmap.width * scale
-        val offsetX = (viewSize.width - drawnWidth) / 2f
-        val offsetY = 0f
+        val vw = viewSize.width.toFloat()
+        val vh = viewSize.height.toFloat()
+        val scale = minOf(vw / bitmap.width, vh / bitmap.height)
+        val offsetX = (vw - bitmap.width * scale) / 2f
+        val offsetY = (vh - bitmap.height * scale) / 2f
         return ((vx - offsetX) / scale) to ((vy - offsetY) / scale)
     }
 
@@ -2611,7 +2989,6 @@ private fun DiagramView(
                         if (hit != null) {
                             onTapPart(hit)
                         } else {
-                            // Tap on empty area toggles the overlay UI.
                             onTapEmpty?.invoke()
                         }
                     },
@@ -2620,6 +2997,16 @@ private fun DiagramView(
                         if (hit != null) onLongPressPart(hit)
                     }
                 )
+            }
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.any { it.pressed }) {
+                            pinchCentroid.value = event.calculateCentroid(useCurrent = true)
+                        }
+                    }
+                }
             }
             .transformable(state = transformState)
     ) {
@@ -2637,8 +3024,8 @@ private fun DiagramView(
                 bitmap = bitmap.asImageBitmap(),
                 contentDescription = "Sheet diagram",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.FillWidth,
-                alignment = UiAlignment.TopCenter,
+                contentScale = ContentScale.Fit,
+                alignment = UiAlignment.Center,
                 filterQuality = FilterQuality.None
             )
 
@@ -2670,6 +3057,22 @@ private fun DiagramView(
                     }
                 }
             }
+        }
+        if (markupStrokes.isNotEmpty()) {
+            PdfMarkupOverlay(
+                modifier = Modifier.fillMaxSize(),
+                viewportState = viewportState,
+                pageAspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
+                activeStrokes = markupStrokes,
+                inputEnabled = false,
+                activeTool = DrawingTool.PEN,
+                activeColor = Color.Red,
+                activeThickness = 4f,
+                allowFingerDrawing = false,
+                onStylusButtonEraserChanged = {},
+                onStrokeAdded = {},
+                onStrokeErased = {}
+            )
         }
     }
 }

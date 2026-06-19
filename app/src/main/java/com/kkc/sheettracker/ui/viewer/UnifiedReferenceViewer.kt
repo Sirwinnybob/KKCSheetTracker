@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,11 +28,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,11 +45,18 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.data.PdfMarkupStore
+import com.kkc.sheettracker.data.models.PdfInkStroke
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
+import com.kkc.sheettracker.ui.components.NavBarPenDecoration
 import com.kkc.sheettracker.ui.components.PdfViewportState
 import com.kkc.sheettracker.ui.components.ReferencePdfPane
+import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
+import com.kkc.sheettracker.ui.markup.PdfMarkupToolbar
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
@@ -433,7 +444,16 @@ fun UnifiedReferenceViewer(
     tocRequestToken: Int = 0,
     onSingleTap: (() -> Unit)? = null,
     compactArrows: Boolean = false,
-    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(0.dp)
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(0.dp),
+    pdfMarkupStore: PdfMarkupStore? = null,
+    pdfMarkupJobFolderName: String = "",
+    markupEnabled: Boolean = false,
+    onToggleMarkupEnabled: (() -> Unit)? = null,
+    markupToolState: PdfMarkupToolState? = null,
+    ownsNavBarMarkupControls: Boolean = true,
+    // When true, pen controls slide in as a decoration tab (against the search tab) in the
+    // minimized nav bar instead of swapping the whole bar to the full extendedControls layout.
+    markupControlsAsSlidingTab: Boolean = false
 ) {
     var sourceTotalPages by remember(defaultPdfFilename, virtualMapping) { mutableIntStateOf(0) }
     val effectiveTotalPages = if (virtualMapping != null) {
@@ -454,6 +474,47 @@ fun UnifiedReferenceViewer(
     val pdfFile = remember(resolvedPdfFilename, fileIdentitySeed, preferDarkMode) {
         resolvedPdfFilename.takeIf { it.isNotBlank() }?.let(pdfFileForFilename)
     }
+    val localMarkupStrokes = remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateListOf<PdfInkStroke>() }
+    val localDeletedIds = remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateListOf<String>() }
+    var markupStrokesVisible by remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateOf(true) }
+    var markupContentVersion by remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateOf(0L) }
+
+    LaunchedEffect(pdfMarkupStore, pdfMarkupJobFolderName) {
+        if (pdfMarkupStore == null || pdfMarkupJobFolderName.isBlank()) {
+            markupContentVersion = 0L
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            markupContentVersion = pdfMarkupStore.trackerContentVersion(pdfMarkupJobFolderName)
+            delay(1000)
+        }
+    }
+
+    LaunchedEffect(pdfMarkupStore, pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage, markupContentVersion) {
+        if (pdfMarkupStore == null || pdfMarkupJobFolderName.isBlank() || resolvedPdfFilename.isBlank() || sourcePage <= 0) {
+            localMarkupStrokes.clear()
+            localDeletedIds.clear()
+            return@LaunchedEffect
+        }
+        localMarkupStrokes.clear()
+        localMarkupStrokes.addAll(
+            pdfMarkupStore.getMergedActiveStrokes(
+                jobFolderName = pdfMarkupJobFolderName,
+                pdfFilename = resolvedPdfFilename,
+                page = sourcePage
+            )
+        )
+        localDeletedIds.clear()
+        localDeletedIds.addAll(
+            pdfMarkupStore.loadTabletPageMarkup(pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage)
+                ?.deletedStrokeIds
+                .orEmpty()
+        )
+        Log.d(
+            "PdfMarkupDebug",
+            "UnifiedReferenceViewer reload job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage strokes=${localMarkupStrokes.size} deleted=${localDeletedIds.size}"
+        )
+    }
 
     var showSheetNavigator by remember(virtualMapping, defaultPdfFilename) { mutableStateOf(false) }
     var searchQuery by remember(virtualMapping, defaultPdfFilename) { mutableStateOf("") }
@@ -471,6 +532,64 @@ fun UnifiedReferenceViewer(
     LaunchedEffect(navigatorWarningMessage) {
         if (!navigatorWarningMessage.isNullOrBlank()) {
             Log.w("UnifiedReferenceViewer", navigatorWarningMessage)
+        }
+    }
+    val visibleMarkupStrokes = remember(localMarkupStrokes.size, localDeletedIds.size) {
+        localMarkupStrokes.filter { it.id !in localDeletedIds }
+    }
+    val hasMarkupHistory = remember(localMarkupStrokes.size, localDeletedIds.size) {
+        visibleMarkupStrokes.isNotEmpty()
+    }
+    fun persistMarkupState() {
+        pdfMarkupStore?.takeIf { pdfMarkupJobFolderName.isNotBlank() && resolvedPdfFilename.isNotBlank() && sourcePage > 0 }?.savePageMarkup(
+            jobFolderName = pdfMarkupJobFolderName,
+            pdfFilename = resolvedPdfFilename,
+            page = sourcePage,
+            strokes = localMarkupStrokes.filter { it.id !in localDeletedIds },
+            deletedStrokeIds = localDeletedIds.toList()
+        )
+    }
+    val navBarDeco = LocalNavBarDecoration.current
+    SideEffect {
+        if (ownsNavBarMarkupControls) {
+            val toolbar: (@Composable RowScope.() -> Unit)? =
+                if (markupEnabled && markupToolState != null) {
+                    {
+                        PdfMarkupToolbar(
+                            state = markupToolState,
+                            hasUndo = hasMarkupHistory,
+                            onUndo = {
+                                val latestVisible = pdfMarkupStore
+                                    ?.loadTabletPageMarkup(pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage)
+                                    ?.strokes
+                                    ?.lastOrNull { it.id !in localDeletedIds }
+                                if (latestVisible != null) {
+                                    localDeletedIds.add(latestVisible.id)
+                                    persistMarkupState()
+                                }
+                            },
+                            strokesVisible = markupStrokesVisible,
+                            onToggleVisibility = { markupStrokesVisible = !markupStrokesVisible },
+                            onHide = onToggleMarkupEnabled
+                        )
+                    }
+                } else {
+                    null
+                }
+            if (markupControlsAsSlidingTab) {
+                // Pen slides in as a tab against the search decoration — no full-bar swap.
+                navBarDeco.penDecoration = toolbar?.let { NavBarPenDecoration(content = it) }
+            } else {
+                navBarDeco.extendedControls = toolbar
+            }
+        }
+    }
+    DisposableEffect(navBarDeco) {
+        onDispose {
+            if (ownsNavBarMarkupControls) {
+                navBarDeco.extendedControls = null
+                navBarDeco.penDecoration = null
+            }
         }
     }
 
@@ -519,7 +638,37 @@ fun UnifiedReferenceViewer(
         onSingleTap = onSingleTap,
         compactArrows = compactArrows,
         preferDarkMode = preferDarkMode,
-        contentPadding = contentPadding
+        contentPadding = contentPadding,
+        markupEnabled = markupEnabled,
+        onToggleMarkupEnabled = onToggleMarkupEnabled,
+        markupToolState = markupToolState,
+        markupStrokes = if (markupStrokesVisible) visibleMarkupStrokes else emptyList(),
+        onMarkupStrokeAdded = { stroke ->
+            localMarkupStrokes.add(stroke)
+            Log.d(
+                "PdfMarkupDebug",
+                "UnifiedReferenceViewer addStroke job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage local=${localMarkupStrokes.size}"
+            )
+            pdfMarkupStore?.takeIf { pdfMarkupJobFolderName.isNotBlank() && resolvedPdfFilename.isNotBlank() && sourcePage > 0 }?.savePageMarkup(
+                jobFolderName = pdfMarkupJobFolderName,
+                pdfFilename = resolvedPdfFilename,
+                page = sourcePage,
+                strokes = localMarkupStrokes.filter { it.id !in localDeletedIds },
+                deletedStrokeIds = localDeletedIds.toList()
+            )
+        },
+        onMarkupStrokeErased = { strokeId ->
+            if (strokeId !in localDeletedIds) {
+                localDeletedIds.add(strokeId)
+            }
+            pdfMarkupStore?.takeIf { pdfMarkupJobFolderName.isNotBlank() && resolvedPdfFilename.isNotBlank() && sourcePage > 0 }?.savePageMarkup(
+                jobFolderName = pdfMarkupJobFolderName,
+                pdfFilename = resolvedPdfFilename,
+                page = sourcePage,
+                strokes = localMarkupStrokes.filter { it.id !in localDeletedIds },
+                deletedStrokeIds = localDeletedIds.toList()
+            )
+        }
     )
 
     LaunchedEffect(tocRequestToken) {

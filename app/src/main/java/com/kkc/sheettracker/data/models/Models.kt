@@ -439,6 +439,31 @@ data class HardwoodInkStroke(
     val points: List<Float> = emptyList()
 )
 
+data class PdfMarkupPageKey(
+    val pdfFilename: String = "",
+    val page: Int = 1
+)
+
+data class PdfInkStroke(
+    val id: String = "",
+    val color: Int = 0,
+    val lineWidth: Float = 4.0f,
+    val isHighlighter: Boolean = false,
+    val points: List<Float> = emptyList()
+)
+
+data class PdfPageMarkup(
+    val pdfFilename: String = "",
+    val page: Int = 1,
+    val strokes: List<PdfInkStroke> = emptyList(),
+    val deletedStrokeIds: List<String> = emptyList()
+)
+
+data class PdfTabletMarkup(
+    val tabletId: String = "",
+    val pages: List<PdfPageMarkup> = emptyList()
+)
+
 data class HardwoodTabletMarkup(
     val tabletId: String = "",
     val strokes: List<HardwoodInkStroke> = emptyList(),
@@ -717,8 +742,6 @@ data class DashboardUiModel(
     val completedSheets: Int = 0,
     val badPartsSheets: Int = 0,
     val skippedSheets: Int = 0,
-    val badItems: List<DashboardFlaggedSheetItem> = emptyList(),
-    val skippedItems: List<DashboardFlaggedSheetItem> = emptyList(),
     val recentInProgressMaterials: List<DashboardRecentMaterialItem> = emptyList(),
     val incompleteRemakeMaterials: List<DashboardRecentMaterialItem> = emptyList()
 )
@@ -749,6 +772,7 @@ data class SpecialtyItem(
     val id: String = "",
     val name: String = "",
     val cabinetNumbers: List<String> = emptyList(),
+    val cabinetLabel: String? = null,
     val category: SpecialtyItemCategory = SpecialtyItemCategory.CUSTOM,
     val stations: List<SpecialtyStation> = emptyList(),
     val supplier: String? = null,

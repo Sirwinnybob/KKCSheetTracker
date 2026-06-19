@@ -2,17 +2,22 @@ package com.kkc.sheettracker.ui.supply
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.SupplyRepository
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import com.kkc.sheettracker.data.models.ALL_SUPPLY_STATUSES
 import com.kkc.sheettracker.data.models.SUPPLY_STATUS_PRIORITY
 import com.kkc.sheettracker.data.models.SupplyCategory
@@ -117,7 +122,13 @@ fun SupplyItemEditScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (itemId == null) "New Item" else "Edit Item") },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        if (itemId == null) "New Item" else "Edit Item",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -136,9 +147,10 @@ fun SupplyItemEditScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
+                ),
+                windowInsets = WindowInsets.statusBars
             )
         }
     ) { padding ->

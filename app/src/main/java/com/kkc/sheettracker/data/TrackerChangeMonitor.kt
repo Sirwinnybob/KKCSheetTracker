@@ -69,6 +69,9 @@ class TrackerChangeMonitor(
         pollJob = scope.launch {
             while (isActive) {
                 delay(pollingIntervalMs)
+                if (viewerInteraction.value) {
+                    continue // Skip polling during active 3D viewer interaction
+                }
                 val invalidations = synchronized(lock) {
                     if (!started) emptyList() else {
                         val refreshInvalidations = refreshTrackedDirsLocked()
@@ -316,6 +319,10 @@ class TrackerChangeMonitor(
     private fun flushPendingNow() {
         val pending = synchronized(lock) {
             if (!started || pendingByKey.isEmpty()) return
+            if (viewerInteraction.value) {
+                scheduleFlushLocked()
+                return
+            }
             val now = System.currentTimeMillis()
             if (now < startupWarmupUntilMs && viewerInteraction.value) {
                 scheduleFlushLocked()

@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.specialty
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -23,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
@@ -32,8 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.KKCSpacing
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import com.kkc.sheettracker.data.DoorCutUnitTypeMetadata
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.filterDoorCutRowsToSheets as sharedFilterDoorCutRowsToSheets
@@ -93,12 +99,23 @@ fun SpecialtyDoorPanelsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Door Panels") },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        "Door Panels",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                windowInsets = WindowInsets.statusBars
             )
         }
     ) { padding ->

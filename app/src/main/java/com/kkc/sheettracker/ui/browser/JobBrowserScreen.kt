@@ -2,6 +2,8 @@ package com.kkc.sheettracker.ui.browser
 
 import android.util.Log
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -76,7 +79,9 @@ import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.CountStatusChip
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
+import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
@@ -98,6 +103,8 @@ fun JobBrowserScreen(
     progressStore: ProgressStore,
     deliveryScheduleRepository: DeliveryScheduleRepository,
     appStateFlags: AppStateFeatureFlags,
+    pinnedFolderNames: List<String> = emptyList(),
+    onTogglePin: (folderName: String, isCurrentlyPinned: Boolean) -> Unit = { _, _ -> },
     onJobClick: (Job) -> Unit,
     onOpenHardwoodsChange: (jobFolderName: String, docType: HardwoodDocType, rowId: String) -> Unit,
     onViewCoverSheet: (Job) -> Unit,
@@ -156,6 +163,9 @@ fun JobBrowserScreen(
     }
     val activeJobs  = remember(filteredJobs) { filteredJobs.filter { it.boardSection == 0 } }
     val pendingJobs = remember(filteredJobs) { filteredJobs.filter { it.boardSection == 1 } }
+    val positionMap = remember(filteredJobs) {
+        filteredJobs.mapIndexed { i, job -> job.folderName to (i + 1) }.toMap()
+    }
 
     val jobUiStates = remember(filteredJobs, scanState.snapshot.generation, progressVersion, useAppState, appJobModelsByFolder) {
         filteredJobs.map { job ->
@@ -199,6 +209,10 @@ fun JobBrowserScreen(
         }
     }
 
+    val pinnedUiStates = remember(pinnedFolderNames, jobUiStates) {
+        pinnedFolderNames.mapNotNull { folder -> jobUiStates.find { it.job.folderName == folder } }
+    }
+
     if (com.kkc.sheettracker.BuildConfig.DEBUG) {
         LaunchedEffect(useAppState, scanState.snapshot.generation, progressVersion, appUiState.scanGeneration, appUiState.progressVersion) {
             if (!appFlags.shadowEnabled) return@LaunchedEffect
@@ -221,11 +235,18 @@ fun JobBrowserScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("KKC Dashboard - CNC") },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        "KKC Dashboard - CNC",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
+                windowInsets = WindowInsets.statusBars,
                 actions = {
                     IconButton(onClick = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) { Icon(Icons.Default.Refresh, "Refresh") }
                     IconButton(
@@ -321,6 +342,38 @@ fun JobBrowserScreen(
                     contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    if (pinnedUiStates.isNotEmpty()) {
+                        item(key = "pinned_header") {
+                            Text(
+                                "Pinned",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                            )
+                        }
+                        items(pinnedUiStates, key = { "pinned_${it.job.folderName}" }) { uiState ->
+                            val pos = positionMap[uiState.job.folderName]
+                            val label = if (pos != null) "$pos of ${filteredJobs.size}" else null
+                            JobBrowserRow(
+                                uiState = uiState,
+                                scanGeneration = scanState.snapshot.generation,
+                                badgeCache = badgeCache,
+                                jobRepository = jobRepository,
+                                hardwoodsRepository = hardwoodsRepository,
+                                onJobClick = onJobClick,
+                                onViewCoverSheet = onViewCoverSheet,
+                                onView3D = onView3D,
+                                onHistoryClick = { selectedHistoryJob = it },
+                                sortByName = sortByName,
+                                pinnedFolderNames = pinnedFolderNames,
+                                onTogglePin = onTogglePin,
+                                positionLabel = label,
+                            )
+                        }
+                        item(key = "pinned_divider") {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        }
+                    }
                     items(activeUiStates, key = { it.job.folderName }) { uiState ->
                         JobBrowserRow(
                             uiState = uiState,
@@ -333,6 +386,8 @@ fun JobBrowserScreen(
                             onView3D = onView3D,
                             onHistoryClick = { selectedHistoryJob = it },
                             sortByName = sortByName,
+                            pinnedFolderNames = pinnedFolderNames,
+                            onTogglePin = onTogglePin,
                         )
                     }
                     if (pendingUiStates.isNotEmpty()) {
@@ -361,6 +416,8 @@ fun JobBrowserScreen(
                                 onView3D = onView3D,
                                 onHistoryClick = { selectedHistoryJob = it },
                                 sortByName = sortByName,
+                                pinnedFolderNames = pinnedFolderNames,
+                                onTogglePin = onTogglePin,
                             )
                         }
                     }
@@ -429,6 +486,9 @@ private fun JobBrowserRow(
     onView3D: (Job) -> Unit,
     onHistoryClick: (String) -> Unit,
     sortByName: Boolean,
+    pinnedFolderNames: List<String> = emptyList(),
+    onTogglePin: (String, Boolean) -> Unit = { _, _ -> },
+    positionLabel: String? = null,
 ) {
     val job = uiState.job
 
@@ -462,6 +522,13 @@ private fun JobBrowserRow(
         materialSegments = uiState.materialSegments,
         showExpandToggle = false,
         headerActions = {
+            if (positionLabel != null) {
+                StatusChip(
+                    text = positionLabel,
+                    backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
             job.labels.forEach { label ->
                 StatusChip(
                     text = label.name,
@@ -504,6 +571,8 @@ private fun JobBrowserRow(
             ) {
                 Text("History")
             }
+            val isPinned = job.folderName in pinnedFolderNames
+            PinButton(isPinned = isPinned, onClick = { onTogglePin(job.folderName, isPinned) })
         },
         inlineContent = {
             // Fixed height so all cards are the same size regardless of badge load state

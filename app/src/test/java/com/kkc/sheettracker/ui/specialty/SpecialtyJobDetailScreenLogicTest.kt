@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.specialty
 
+import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER
 import com.kkc.sheettracker.data.SpecialtyProgressStore
 import com.kkc.sheettracker.data.models.SpecialtyCompletionState
 import com.kkc.sheettracker.data.models.SpecialtyItem
@@ -97,5 +98,77 @@ class SpecialtyJobDetailScreenLogicTest {
         finishInFlightUpdate(inFlight, sawControl)
         assertTrue(isToggleEnabled(cncControl, inFlight))
         assertTrue(isToggleEnabled(sawControl, inFlight))
+    }
+
+    @Test
+    fun buildSpecialtyDetailSections_usesSavedStationOrder_andKeepsOtherLast() {
+        val sections = buildSpecialtyDetailSections(
+            resolvedItems = listOf(
+                resolvedItem("other", emptyList()),
+                resolvedItem("saw", listOf(SpecialtyStation.SAW)),
+                resolvedItem("cnc", listOf(SpecialtyStation.CNC)),
+                resolvedItem("multi", listOf(SpecialtyStation.CNC, SpecialtyStation.SAW)),
+            ),
+            stationOrder = listOf(SpecialtyStation.SAW, SpecialtyStation.CNC)
+        )
+
+        assertEquals(
+            listOf(SpecialtyStation.SAW.name, SpecialtyStation.CNC.name, SPECIALTY_VIEWER_SECTION_ID_OTHER),
+            sections.map { it.id }
+        )
+        assertEquals(listOf("saw", "multi"), sections[0].items.map { it.item.id })
+        assertEquals(listOf("cnc", "multi"), sections[1].items.map { it.item.id })
+        assertEquals(listOf("other"), sections[2].items.map { it.item.id })
+    }
+
+    @Test
+    fun toggleSpecialtySection_onlyAffectsCurrentExpandedSet() {
+        val initial = linkedSetOf(SpecialtyStation.CNC.name, SpecialtyStation.SAW.name)
+
+        val collapsed = toggleSpecialtySection(initial, SpecialtyStation.SAW.name)
+        assertEquals(setOf(SpecialtyStation.CNC.name), collapsed)
+
+        val expanded = toggleSpecialtySection(collapsed, SpecialtyStation.ASSEMBLY.name)
+        assertEquals(
+            linkedSetOf(SpecialtyStation.CNC.name, SpecialtyStation.ASSEMBLY.name),
+            expanded
+        )
+    }
+
+    @Test
+    fun orderSpecialtyStations_appliesSavedChipOrder_andDeduplicates() {
+        val ordered = orderSpecialtyStations(
+            stations = listOf(
+                SpecialtyStation.CNC,
+                SpecialtyStation.SAW,
+                SpecialtyStation.CNC,
+                SpecialtyStation.ASSEMBLY
+            ),
+            stationOrder = listOf(SpecialtyStation.SAW, SpecialtyStation.ASSEMBLY)
+        )
+
+        assertEquals(
+            listOf(SpecialtyStation.SAW, SpecialtyStation.ASSEMBLY, SpecialtyStation.CNC),
+            ordered
+        )
+    }
+
+    private fun resolvedItem(
+        id: String,
+        stations: List<SpecialtyStation>,
+        category: SpecialtyItemCategory = SpecialtyItemCategory.CUSTOM
+    ): SpecialtyResolvedItem {
+        return SpecialtyResolvedItem(
+            item = SpecialtyItem(
+                id = id,
+                name = "Item $id",
+                category = category,
+                stations = stations
+            ),
+            completionByKey = mapOf(
+                SpecialtyProgressStore.ITEM_COMPLETION_KEY to SpecialtyCompletionState(completed = false)
+            ),
+            isComplete = false
+        )
     }
 }

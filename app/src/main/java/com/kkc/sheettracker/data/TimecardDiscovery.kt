@@ -90,7 +90,7 @@ class TimecardDiscovery(private val context: Context) {
                 cont.invokeOnCancellation {
                     if (discoveryStarted.get()) {
                         try {
-                            discoveryListener?.let { nsdManager.stopServiceDiscovery(it) }
+                            nsdManager.stopServiceDiscovery(discoveryListener)
                         } catch (e: Exception) {
                             Log.w(TAG, "Error stopping discovery: ${e.message}")
                         }

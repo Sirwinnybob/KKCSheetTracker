@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.detail
 
 import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,6 +38,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.ui.components.ClockInButton
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +65,7 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.CountStatusChip
+import com.kkc.sheettracker.ui.components.headerGradientBrush
 import com.kkc.sheettracker.ui.components.PageStatusBar
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
@@ -89,7 +93,8 @@ fun JobDetailScreen(
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onLeaveWhileClockedIn: () -> Unit = {},
-    onSubmitPendingBadParts: ((Material) -> Unit)? = null
+    onSubmitPendingBadParts: ((Material) -> Unit)? = null,
+    clockInState: ClockInState? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -116,6 +121,30 @@ fun JobDetailScreen(
     val listState = rememberLazyListState()
     var suppressLeavePrompt by remember { mutableStateOf(false) }
     var showPrintDialog by remember { mutableStateOf(false) }
+
+    var legacyPageStatuses by remember(jobFolderName) { mutableStateOf<Map<String, Map<Int, SheetStatus>>>(emptyMap()) }
+
+    LaunchedEffect(job, progressVersion, useAppState) {
+        if (useAppState || job == null) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            val statuses = mutableMapOf<String, Map<Int, SheetStatus>>()
+            for (material in job.materials) {
+                val pages = progressStore.getMaterialTrackablePages(material)
+                val materialStatuses = mutableMapOf<Int, SheetStatus>()
+                for (physicalPage in pages) {
+                    val status = progressStore.getSheetStatus(
+                        jobFolderName,
+                        material.pdfFilename,
+                        physicalPage,
+                        material.fileFingerprint
+                    )
+                    materialStatuses[physicalPage] = status
+                }
+                statuses[material.pdfFilename] = materialStatuses
+            }
+            legacyPageStatuses = statuses
+        }
+    }
 
     LaunchedEffect(scanState.snapshot.generation, jobFolderName) {
         withContext(Dispatchers.IO) {
@@ -151,9 +180,15 @@ fun JobDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(job?.folderName ?: "Loading...") },
+                modifier = Modifier.background(headerGradientBrush()),
+                title = {
+                    Text(
+                        job?.folderName ?: "Loading...",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 windowInsets = WindowInsets.statusBars,
@@ -165,18 +200,26 @@ fun JobDetailScreen(
                 actions = {
                     val currentJob = job
                     if (currentJob != null) {
-                        Button(
-                            onClick = { onClockIn(currentJob.jobNumber, currentJob.jobName) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF38A169),
-                                contentColor = Color.White
+                        if (clockInState != null) {
+                            ClockInButton(
+                                clockInState = clockInState,
+                                isClockedInHere = isClockedInHere,
+                                onClockInClick = { onClockIn(currentJob.jobNumber, currentJob.jobName) }
                             )
-                        ) {
-                            Text(
-                                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
+                        } else {
+                            Button(
+                                onClick = { onClockIn(currentJob.jobNumber, currentJob.jobName) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF38A169),
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Text(
+                                    if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -307,7 +350,7 @@ fun JobDetailScreen(
                         progressStore.getPendingBadPartsForMaterial(
                             jobFolderName,
                             material.pdfFilename,
-                            material.fileFingerprint ?: ""
+                            material.fileFingerprint
                         )
                     }
                     ProgressCard(
@@ -359,12 +402,7 @@ fun JobDetailScreen(
                                         ?.status ?: SheetStatus.NOT_STARTED
                                 } else {
                                     val physicalPage = trackablePages.getOrNull((page - 1).coerceAtLeast(0)) ?: page
-                                    progressStore.getSheetStatus(
-                                        jobFolderName,
-                                        material.pdfFilename,
-                                        physicalPage,
-                                        material.fileFingerprint
-                                    )
+                                    legacyPageStatuses[material.pdfFilename]?.get(physicalPage) ?: SheetStatus.NOT_STARTED
                                 }
                             }
                         )

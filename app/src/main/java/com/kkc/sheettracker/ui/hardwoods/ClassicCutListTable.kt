@@ -1,10 +1,12 @@
 package com.kkc.sheettracker.ui.hardwoods
 
 import android.view.MotionEvent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,6 +14,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,16 +24,21 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -43,31 +53,28 @@ import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodInkStroke
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
+import com.kkc.sheettracker.ui.markup.distanceToScaledStroke
+import com.kkc.sheettracker.ui.markup.DrawingTool
+import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
+import com.kkc.sheettracker.ui.markup.resolveEffectiveDrawingTool
+import com.kkc.sheettracker.ui.markup.shouldAppendStrokePoint
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.max
 import kotlin.math.sqrt
 
-enum class DrawingTool {
-    PAN_ZOOM,
-    PEN,
-    HIGHLIGHTER,
-    ERASER
-}
+private val NORMALIZE_WIDTH_MIXED_FRACTION = Regex("""^(-?\d+)\s+(\d+)\s*/\s*(\d+)$""")
 
-internal fun resolveEffectiveDrawingTool(
-    selectedTool: DrawingTool,
-    isTemporaryEraserActive: Boolean
-): DrawingTool {
-    return if (isTemporaryEraserActive && selectedTool != DrawingTool.ERASER) {
-        DrawingTool.ERASER
-    } else {
-        selectedTool
-    }
-}
+private data class TallyHitTarget(
+    val boundsInRoot: Rect,
+    val enabled: Boolean,
+    val onTap: () -> Unit
+)
 
 internal fun calculateClassicViewFitWidthScale(
     viewportWidthPx: Int,
@@ -79,50 +86,36 @@ internal fun calculateClassicViewFitWidthScale(
     return (viewportWidthPx.toFloat() / contentWidthPx.toFloat()).coerceIn(minScale, maxScale)
 }
 
-internal fun shouldAppendStrokePoint(
-    lastX: Float,
-    lastY: Float,
-    nextX: Float,
-    nextY: Float,
-    minDistance: Float = 0.0012f
-): Boolean {
-    val dx = nextX - lastX
-    val dy = nextY - lastY
-    return sqrt(dx * dx + dy * dy) > minDistance
+internal fun classicRowLongPressEnabled(allowFingerDrawing: Boolean): Boolean = !allowFingerDrawing
+
+internal fun classicTallyActionsEnabled(
+    activeTool: DrawingTool,
+    allowFingerDrawing: Boolean
+): Boolean = !(allowFingerDrawing && activeTool != DrawingTool.PAN_ZOOM)
+
+internal fun classicPointerCanDraw(
+    pointerType: PointerType,
+    allowFingerDrawing: Boolean
+): Boolean = pointerType == PointerType.Stylus || pointerType == PointerType.Eraser || allowFingerDrawing
+
+/**
+ * The table's graphicsLayer scales from its top-left corner (transformOrigin = 0,0), so a
+ * pinch centroid is already expressed in the same scaled, scroll-content-local coordinate
+ * space as [androidx.compose.foundation.ScrollState]'s offset. Returns the (x, y) delta to
+ * apply via `scrollBy` so the content under the pinch centroid stays under the fingers
+ * instead of the table growing away from them.
+ */
+internal fun computeClassicZoomScrollDelta(
+    oldScale: Float,
+    newScale: Float,
+    centroidX: Float,
+    centroidY: Float
+): Pair<Float, Float> {
+    val appliedZoomChange = newScale / oldScale - 1f
+    return (centroidX * appliedZoomChange) to (centroidY * appliedZoomChange)
 }
 
-private fun distToSegment(px: Float, py: Float, ax: Float, ay: Float, bx: Float, by: Float): Float {
-    val dx = bx - ax
-    val dy = by - ay
-    val lenSq = dx * dx + dy * dy
-    val t = if (lenSq > 0f) {
-        ((px - ax) * dx + (py - ay) * dy) / lenSq
-    } else {
-        0f
-    }.coerceIn(0f, 1f)
-    val projX = ax + t * dx
-    val projY = ay + t * dy
-    val diffX = px - projX
-    val diffY = py - projY
-    return sqrt(diffX * diffX + diffY * diffY)
-}
-
-private fun distToStrokeScaled(px: Float, py: Float, pts: List<Float>, canvasWidth: Float, canvasHeight: Float): Float {
-    var minDist = Float.MAX_VALUE
-    for (i in 0 until pts.size - 3 step 2) {
-        val ax = pts[i] * canvasWidth
-        val ay = pts[i + 1] * canvasHeight
-        val bx = pts[i + 2] * canvasWidth
-        val by = pts[i + 3] * canvasHeight
-        val dist = distToSegment(px, py, ax, ay, bx, by)
-        if (dist < minDist) {
-            minDist = dist
-        }
-    }
-    return minDist
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ClassicCutListTable(
     docType: HardwoodDocType,
@@ -133,8 +126,12 @@ fun ClassicCutListTable(
     onToggleSkip: (rowId: String, currentSkipped: Boolean) -> Unit,
     activeStrokes: List<HardwoodInkStroke>,
     onSaveStrokes: (strokes: List<HardwoodInkStroke>, deletedIds: List<String>) -> Unit,
+    onRowLongPress: (HardwoodCutlistRow) -> Unit,
     isDarkTheme: Boolean,
     widthColorBands: Map<String, Color>,
+    toolState: PdfMarkupToolState,
+    showMarkupToolbar: Boolean = true,
+    hostMarkupToolbarInNavBar: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -157,24 +154,179 @@ fun ClassicCutListTable(
         pageRows.groupBy { it.material?.trim().orEmpty().ifBlank { "Unassigned" } }
     }
 
-    var selectedTool by remember { mutableStateOf(DrawingTool.PEN) }
-    var isStylusButtonEraserActive by remember { mutableStateOf(false) }
     val activeTool = resolveEffectiveDrawingTool(
-        selectedTool = selectedTool,
-        isTemporaryEraserActive = isStylusButtonEraserActive
+        selectedTool = toolState.selectedTool,
+        isTemporaryEraserActive = toolState.isStylusButtonEraserActive
     )
-    var activeColor by remember { mutableStateOf(Color.Red) }
+    val activeColor = toolState.activeColor
     val activeThickness = if (activeTool == DrawingTool.HIGHLIGHTER) 24f else 4f
-    var allowFingerDrawing by remember { mutableStateOf(false) }
-    val isViewLocked = allowFingerDrawing
+    val allowFingerDrawing = toolState.allowFingerDrawing
+    val isViewLocked = allowFingerDrawing && activeTool != DrawingTool.PAN_ZOOM
 
     val localStrokes = remember { mutableStateListOf<HardwoodInkStroke>() }
     val localDeletedIds = remember { mutableStateListOf<String>() }
+    val tallyHitTargets = remember { mutableStateMapOf<String, TallyHitTarget>() }
+    var showNavMarkupControls by rememberSaveable(docType.name) { mutableStateOf(true) }
+    val tallyActionsEnabled = classicTallyActionsEnabled(activeTool, allowFingerDrawing)
 
     // Sync in-memory drawing list with repository updates
     LaunchedEffect(activeStrokes) {
         localStrokes.clear()
         localStrokes.addAll(activeStrokes)
+    }
+
+    LaunchedEffect(docType, classicPage) {
+        tallyHitTargets.clear()
+    }
+
+    val navBarDeco = LocalNavBarDecoration.current
+    DisposableEffect(
+        navBarDeco,
+        hostMarkupToolbarInNavBar,
+        showNavMarkupControls,
+        activeTool,
+        activeColor,
+        allowFingerDrawing,
+        docType,
+        classicPage,
+        localStrokes.size,
+        localDeletedIds.size
+    ) {
+        if (hostMarkupToolbarInNavBar) {
+            navBarDeco.extendedControls = {
+                if (showNavMarkupControls) {
+                    IconButton(onClick = { showNavMarkupControls = false }) {
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Hide pen controls")
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { toolState.selectedTool = DrawingTool.PEN },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = if (activeTool == DrawingTool.PEN) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            )
+                        ) {
+                            Icon(Icons.Default.Create, contentDescription = "Pen Tool")
+                        }
+                        IconButton(
+                            onClick = { toolState.selectedTool = DrawingTool.HIGHLIGHTER },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = if (activeTool == DrawingTool.HIGHLIGHTER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            )
+                        ) {
+                            Icon(Icons.Default.BorderColor, contentDescription = "Highlighter Tool")
+                        }
+                        IconButton(
+                            onClick = { toolState.selectedTool = DrawingTool.ERASER },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = if (activeTool == DrawingTool.ERASER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            )
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eraser Tool")
+                        }
+                    }
+
+                    if (activeTool == DrawingTool.PEN || activeTool == DrawingTool.HIGHLIGHTER) {
+                        val colors = listOf(Color.Red, Color.Blue, Color.Green, Color.Black, Color(0xFFE5A823))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            colors.forEach { color ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .background(
+                                            if (isDarkTheme && color == Color.Black) Color.White else color,
+                                            shape = CircleShape
+                                        )
+                                        .border(
+                                            width = if (activeColor == color) 2.dp else 1.dp,
+                                            color = if (activeColor == color) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f),
+                                            shape = CircleShape
+                                        )
+                                        .clickable { toolState.activeColor = color }
+                                )
+                            }
+                        }
+                    }
+
+                    FilterChip(
+                        selected = activeTool != DrawingTool.PAN_ZOOM,
+                        onClick = {
+                            toolState.selectedTool = if (activeTool == DrawingTool.PAN_ZOOM) DrawingTool.PEN else DrawingTool.PAN_ZOOM
+                        },
+                        label = { Text("Draw") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    )
+
+                    FilterChip(
+                        selected = allowFingerDrawing,
+                        onClick = { toolState.allowFingerDrawing = !toolState.allowFingerDrawing },
+                        label = { Text("Finger Draw") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Gesture,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    )
+
+                    IconButton(
+                        onClick = {
+                            val mine = localStrokes.lastOrNull {
+                                it.docType == docType.name && it.page == classicPage && it.id !in localDeletedIds
+                            }
+                            if (mine != null) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                localDeletedIds.add(mine.id)
+                                onSaveStrokes(
+                                    localStrokes.filter { it.id !in localDeletedIds },
+                                    localDeletedIds.toList()
+                                )
+                            }
+                        },
+                        enabled = localStrokes.any {
+                            it.docType == docType.name && it.page == classicPage && it.id !in localDeletedIds
+                        }
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                    }
+
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            val pageStrokes = localStrokes.filter { it.docType == docType.name && it.page == classicPage }
+                            pageStrokes.forEach { localDeletedIds.add(it.id) }
+                            onSaveStrokes(
+                                localStrokes.filter { it.id !in localDeletedIds },
+                                localDeletedIds.toList()
+                            )
+                        }
+                    ) {
+                        Icon(Icons.Default.LayersClear, contentDescription = "Clear All")
+                    }
+                } else {
+                    IconButton(onClick = { showNavMarkupControls = true }) {
+                        Icon(Icons.Default.Create, contentDescription = "Show pen controls")
+                    }
+                }
+            }
+        }
+        onDispose {
+            if (hostMarkupToolbarInNavBar) {
+                navBarDeco.extendedControls = null
+            }
+        }
     }
 
     // Controls Layout
@@ -202,7 +354,7 @@ fun ClassicCutListTable(
                         onClick = { if (classicPage > pages.first()) classicPage-- },
                         enabled = classicPage > pages.first()
                     ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Prev page")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Prev page")
                     }
                     Text(
                         "Page $classicPage of ${pages.last()}",
@@ -214,126 +366,138 @@ fun ClassicCutListTable(
                         onClick = { if (classicPage < pages.last()) classicPage++ },
                         enabled = classicPage < pages.last()
                     ) {
-                        Icon(Icons.Default.ArrowForward, contentDescription = "Next page")
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next page")
                     }
                 }
                 
-                Spacer(Modifier.width(8.dp))
-                VerticalDivider(Modifier.height(32.dp))
-                Spacer(Modifier.width(8.dp))
+                if (showMarkupToolbar) {
+                    Spacer(Modifier.width(8.dp))
+                    VerticalDivider(Modifier.height(32.dp))
+                    Spacer(Modifier.width(8.dp))
 
-                // Toolbar Actions
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Tool selectors
-                    IconButton(
-                        onClick = { selectedTool = DrawingTool.PEN },
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = if (activeTool == DrawingTool.PEN) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-                        )
-                    ) {
-                        Icon(Icons.Default.Create, contentDescription = "Pen Tool")
-                    }
-                    IconButton(
-                        onClick = { selectedTool = DrawingTool.HIGHLIGHTER },
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = if (activeTool == DrawingTool.HIGHLIGHTER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-                        )
-                    ) {
-                        Icon(Icons.Default.BorderColor, contentDescription = "Highlighter Tool")
-                    }
-                    IconButton(
-                        onClick = { selectedTool = DrawingTool.ERASER },
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = if (activeTool == DrawingTool.ERASER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-                        )
-                    ) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = "Eraser Tool")
-                    }
-                }
-
-                Spacer(Modifier.width(4.dp))
-
-                // Color selectors
-                if (activeTool == DrawingTool.PEN || activeTool == DrawingTool.HIGHLIGHTER) {
-                    val colors = listOf(Color.Red, Color.Blue, Color.Green, Color.Black, Color(0xFFE5A823))
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        colors.forEach { color ->
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .background(
-                                        if (isDarkTheme && color == Color.Black) Color.White else color,
-                                        shape = CircleShape
-                                    )
-                                    .border(
-                                        width = if (activeColor == color) 2.dp else 1.dp,
-                                        color = if (activeColor == color) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f),
-                                        shape = CircleShape
-                                    )
-                                    .clickable { activeColor = color }
+                        IconButton(
+                            onClick = { toolState.selectedTool = DrawingTool.PEN },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = if (activeTool == DrawingTool.PEN) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
                             )
+                        ) {
+                            Icon(Icons.Default.Create, contentDescription = "Pen Tool")
+                        }
+                        IconButton(
+                            onClick = { toolState.selectedTool = DrawingTool.HIGHLIGHTER },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = if (activeTool == DrawingTool.HIGHLIGHTER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            )
+                        ) {
+                            Icon(Icons.Default.BorderColor, contentDescription = "Highlighter Tool")
+                        }
+                        IconButton(
+                            onClick = { toolState.selectedTool = DrawingTool.ERASER },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = if (activeTool == DrawingTool.ERASER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            )
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eraser Tool")
                         }
                     }
-                }
 
-                Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.width(4.dp))
 
-                // Finger Draw toggle
-                FilterChip(
-                    selected = allowFingerDrawing,
-                    onClick = { allowFingerDrawing = !allowFingerDrawing },
-                    label = { Text("Finger Draw") },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Gesture,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
+                    if (activeTool == DrawingTool.PEN || activeTool == DrawingTool.HIGHLIGHTER) {
+                        val colors = listOf(Color.Red, Color.Blue, Color.Green, Color.Black, Color(0xFFE5A823))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            colors.forEach { color ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .background(
+                                            if (isDarkTheme && color == Color.Black) Color.White else color,
+                                            shape = CircleShape
+                                        )
+                                        .border(
+                                            width = if (activeColor == color) 2.dp else 1.dp,
+                                            color = if (activeColor == color) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f),
+                                            shape = CircleShape
+                                        )
+                                        .clickable { toolState.activeColor = color }
+                                )
+                            }
+                        }
                     }
-                )
 
-                VerticalDivider(Modifier.height(32.dp))
+                    Spacer(Modifier.weight(1f))
 
-                // Undo / Clear
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(
+                    FilterChip(
+                        selected = activeTool != DrawingTool.PAN_ZOOM,
                         onClick = {
-                            // Find last stroke owned by this tablet
-                            val mine = localStrokes.lastOrNull { it.id !in localDeletedIds }
-                            if (mine != null) {
+                            toolState.selectedTool = if (activeTool == DrawingTool.PAN_ZOOM) DrawingTool.PEN else DrawingTool.PAN_ZOOM
+                        },
+                        label = { Text("Draw") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    )
+
+                    FilterChip(
+                        selected = allowFingerDrawing,
+                        onClick = { toolState.allowFingerDrawing = !toolState.allowFingerDrawing },
+                        label = { Text("Finger Draw") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Gesture,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    )
+
+                    VerticalDivider(Modifier.height(32.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(
+                            onClick = {
+                                val mine = localStrokes.lastOrNull { it.id !in localDeletedIds }
+                                if (mine != null) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    localDeletedIds.add(mine.id)
+                                    onSaveStrokes(
+                                        localStrokes.filter { it.id !in localDeletedIds },
+                                        localDeletedIds.toList()
+                                    )
+                                }
+                            },
+                            enabled = localStrokes.any { it.id !in localDeletedIds }
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                        }
+
+                        IconButton(
+                            onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                localDeletedIds.add(mine.id)
+                                val pageStrokes = localStrokes.filter { it.docType == docType.name && it.page == classicPage }
+                                pageStrokes.forEach { localDeletedIds.add(it.id) }
                                 onSaveStrokes(
                                     localStrokes.filter { it.id !in localDeletedIds },
                                     localDeletedIds.toList()
                                 )
                             }
-                        },
-                        enabled = localStrokes.any { it.id !in localDeletedIds }
-                    ) {
-                        Icon(Icons.Default.Undo, contentDescription = "Undo")
-                    }
-                    
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            // Delete all strokes on this page
-                            val pageStrokes = localStrokes.filter { it.docType == docType.name && it.page == classicPage }
-                            pageStrokes.forEach { localDeletedIds.add(it.id) }
-                            onSaveStrokes(
-                                localStrokes.filter { it.id !in localDeletedIds },
-                                localDeletedIds.toList()
-                            )
+                        ) {
+                            Icon(Icons.Default.LayersClear, contentDescription = "Clear All")
                         }
-                    ) {
-                        Icon(Icons.Default.LayersClear, contentDescription = "Clear All")
                     }
+                } else {
+                    Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -353,6 +517,7 @@ fun ClassicCutListTable(
             val viewportWidthPx = remember(maxWidth, density) {
                 with(density) { maxWidth.roundToPx() }
             }
+            val zoomScrollScope = rememberCoroutineScope()
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -381,9 +546,28 @@ fun ClassicCutListTable(
                                 do {
                                     val event = awaitPointerEvent()
                                     if (event.changes.size >= 2) {
+                                        val oldScale = scale
                                         val zoomChange = event.calculateZoom()
-                                        scale = (scale * zoomChange).coerceIn(0.7f, 2.5f)
+                                        val newScale = (oldScale * zoomChange).coerceIn(0.7f, 2.5f)
+                                        val centroid = event.calculateCentroid(useCurrent = true)
+                                        val (scrollDeltaX, scrollDeltaY) = computeClassicZoomScrollDelta(
+                                            oldScale = oldScale,
+                                            newScale = newScale,
+                                            centroidX = centroid.x,
+                                            centroidY = centroid.y
+                                        )
+                                        scale = newScale
                                         hasAutoFitScale = true
+                                        zoomScrollScope.launch {
+                                            horizontalScrollState.scroll(MutatePriority.PreventUserInput) {
+                                                scrollBy(scrollDeltaX)
+                                            }
+                                        }
+                                        zoomScrollScope.launch {
+                                            verticalScrollState.scroll(MutatePriority.PreventUserInput) {
+                                                scrollBy(scrollDeltaY)
+                                            }
+                                        }
                                         event.changes.forEach { it.consume() }
                                     }
                                 } while (event.changes.any { it.pressed })
@@ -450,10 +634,20 @@ fun ClassicCutListTable(
                                     washColor = washColor,
                                     borderWashColor = borderWashColor,
                                     widthColor = widthColor,
-                                    activeTool = activeTool,
+                                    tallyActionsEnabled = tallyActionsEnabled,
                                     onIncrement = { onIncrementProgress(row.rowId, done, qty) },
                                     onDecrement = { onDecrementProgress(row.rowId, done, qty) },
-                                    onToggleSkip = { onToggleSkip(row.rowId, skipped) }
+                                    onToggleSkip = { onToggleSkip(row.rowId, skipped) },
+                                    longPressEnabled = classicRowLongPressEnabled(allowFingerDrawing),
+                                    onLongPress = { onRowLongPress(row) },
+                                    tallyTargetKeyPrefix = "${docType.name}-${classicPage}-${row.rowId}",
+                                    onTallyTargetChanged = { key, target ->
+                                        if (target == null) {
+                                            tallyHitTargets.remove(key)
+                                        } else {
+                                            tallyHitTargets[key] = target
+                                        }
+                                    }
                                 )
                                 globalRowIndex++
                             }
@@ -476,8 +670,9 @@ fun ClassicCutListTable(
                             activeColor = activeColor,
                             activeThickness = activeThickness,
                             allowFingerDrawing = allowFingerDrawing,
+                            tallyHitTargets = tallyHitTargets.values.toList(),
                             onStylusButtonEraserChanged = { isActive ->
-                                isStylusButtonEraserActive = isActive
+                                toolState.isStylusButtonEraserActive = isActive
                             },
                             onStrokeAdded = { stroke ->
                                 localStrokes.add(stroke)
@@ -572,6 +767,7 @@ private fun TableSectionHeaderRow(material: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TableRow(
     row: HardwoodCutlistRow,
@@ -581,10 +777,14 @@ private fun TableRow(
     washColor: Color,
     borderWashColor: Color,
     widthColor: Color,
-    activeTool: DrawingTool,
+    tallyActionsEnabled: Boolean,
     onIncrement: () -> Unit,
     onDecrement: () -> Unit,
-    onToggleSkip: () -> Unit
+    onToggleSkip: () -> Unit,
+    longPressEnabled: Boolean,
+    onLongPress: () -> Unit,
+    tallyTargetKeyPrefix: String,
+    onTallyTargetChanged: (String, TallyHitTarget?) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val statusColors = KKCThemeColors.statusColors
@@ -593,6 +793,14 @@ private fun TableRow(
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp) // Touch target safety minimum is 48dp, 56dp is extra comfortable
+            .combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    if (!longPressEnabled) return@combinedClickable
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongPress()
+                }
+            )
             .background(washColor)
             .drawBehind {
                 // Bottom row gridline
@@ -675,20 +883,29 @@ private fun TableRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            // Clicks are always enabled since the drawing overlay filters out and consumes stylus gestures
-            val actionsEnabled = true
+            val actionsEnabled = tallyActionsEnabled
+            val decrementEnabled = actionsEnabled && !skipped && done > 0
+            val incrementEnabled = actionsEnabled && !skipped && done < qty
+            val skipEnabled = actionsEnabled
 
             IconButton(
                 onClick = {
                     onDecrement()
                 },
-                enabled = actionsEnabled && !skipped && done > 0,
-                modifier = Modifier.size(36.dp)
+                enabled = decrementEnabled,
+                modifier = Modifier
+                    .size(36.dp)
+                    .trackTallyTarget(
+                        key = "$tallyTargetKeyPrefix-decrement",
+                        enabled = decrementEnabled,
+                        onTap = onDecrement,
+                        onTargetChanged = onTallyTargetChanged
+                    )
             ) {
                 Icon(
                     Icons.Default.RemoveCircleOutline,
                     contentDescription = "Minus",
-                    tint = if (actionsEnabled && !skipped && done > 0) statusColors.bad else Color.Gray.copy(alpha = 0.3f)
+                    tint = if (decrementEnabled) statusColors.bad else Color.Gray.copy(alpha = 0.3f)
                 )
             }
 
@@ -697,6 +914,16 @@ private fun TableRow(
                 text = if (skipped) "SKIPPED" else "$done / $qty",
                 modifier = Modifier
                     .weight(1f)
+                    .trackTallyTarget(
+                        key = "$tallyTargetKeyPrefix-count",
+                        enabled = actionsEnabled,
+                        onTap = {
+                            if (!skipped && done < qty) {
+                                onIncrement()
+                            }
+                        },
+                        onTargetChanged = onTallyTargetChanged
+                    )
                     .clickable(enabled = actionsEnabled) {
                         if (!skipped && done < qty) {
                             onIncrement()
@@ -717,13 +944,20 @@ private fun TableRow(
                 onClick = {
                     onIncrement()
                 },
-                enabled = actionsEnabled && !skipped && done < qty,
-                modifier = Modifier.size(36.dp)
+                enabled = incrementEnabled,
+                modifier = Modifier
+                    .size(36.dp)
+                    .trackTallyTarget(
+                        key = "$tallyTargetKeyPrefix-increment",
+                        enabled = incrementEnabled,
+                        onTap = onIncrement,
+                        onTargetChanged = onTallyTargetChanged
+                    )
             ) {
                 Icon(
                     Icons.Default.AddCircleOutline,
                     contentDescription = "Plus",
-                    tint = if (actionsEnabled && !skipped && done < qty) statusColors.completeBorder else Color.Gray.copy(alpha = 0.3f)
+                    tint = if (incrementEnabled) statusColors.completeBorder else Color.Gray.copy(alpha = 0.3f)
                 )
             }
             
@@ -734,13 +968,20 @@ private fun TableRow(
                 onClick = {
                     onToggleSkip()
                 },
-                enabled = actionsEnabled,
-                modifier = Modifier.size(32.dp)
+                enabled = skipEnabled,
+                modifier = Modifier
+                    .size(32.dp)
+                    .trackTallyTarget(
+                        key = "$tallyTargetKeyPrefix-skip",
+                        enabled = skipEnabled,
+                        onTap = onToggleSkip,
+                        onTargetChanged = onTallyTargetChanged
+                    )
             ) {
                 Icon(
                     if (skipped) Icons.Default.Restore else Icons.Default.Block,
                     contentDescription = "Toggle Skip",
-                    tint = if (actionsEnabled) statusColors.skipBorder else Color.Gray.copy(alpha = 0.3f),
+                    tint = if (skipEnabled) statusColors.skipBorder else Color.Gray.copy(alpha = 0.3f),
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -749,6 +990,24 @@ private fun TableRow(
         Box(modifier = Modifier.width(262.dp).fillMaxHeight())
     }
 }
+
+private fun Modifier.trackTallyTarget(
+    key: String,
+    enabled: Boolean,
+    onTap: () -> Unit,
+    onTargetChanged: (String, TallyHitTarget?) -> Unit
+): Modifier = this.then(
+    Modifier.onGloballyPositioned { coordinates ->
+        onTargetChanged(
+            key,
+            TallyHitTarget(
+                boundsInRoot = coordinates.boundsInRoot(),
+                enabled = enabled,
+                onTap = onTap
+            )
+        )
+    }
+)
 
 @Composable
 private fun VerticalBorder() {
@@ -762,7 +1021,7 @@ private fun VerticalBorder() {
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun StylusDrawingCanvas(
+private fun StylusDrawingCanvas(
     canvasSize: IntSize,
     docType: String,
     page: Int,
@@ -772,6 +1031,7 @@ fun StylusDrawingCanvas(
     activeColor: Color,
     activeThickness: Float,
     allowFingerDrawing: Boolean,
+    tallyHitTargets: List<TallyHitTarget>,
     onStylusButtonEraserChanged: (Boolean) -> Unit,
     onStrokeAdded: (HardwoodInkStroke) -> Unit,
     onStrokeErased: (String) -> Unit,
@@ -779,6 +1039,7 @@ fun StylusDrawingCanvas(
 ) {
     val currentPoints = remember { mutableStateListOf<Float>() }
     val isDrawing = remember { mutableStateOf(false) }
+    var canvasBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
 
     val pageStrokes = remember(activeStrokes, docType, page, deletedStrokeIds) {
         activeStrokes.filter {
@@ -790,6 +1051,9 @@ fun StylusDrawingCanvas(
     Canvas(
         modifier = modifier
             .fillMaxSize()
+            .onGloballyPositioned { coordinates ->
+                canvasBoundsInRoot = coordinates.boundsInRoot()
+            }
             .pointerInteropFilter { motionEvent ->
                 val isStylusButtonPressed =
                     (motionEvent.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0 ||
@@ -804,7 +1068,7 @@ fun StylusDrawingCanvas(
                 onStylusButtonEraserChanged(shouldUseTemporaryEraser)
                 false
             }
-            .pointerInput(docType, page, activeTool, allowFingerDrawing) {
+            .pointerInput(docType, page, activeTool, allowFingerDrawing, tallyHitTargets, canvasBoundsInRoot) {
                 if (activeTool == DrawingTool.PAN_ZOOM) return@pointerInput
 
                 awaitEachGesture {
@@ -813,8 +1077,42 @@ fun StylusDrawingCanvas(
                     // Palm Rejection & Input Filtering
                     val isStylus = firstDown.type == PointerType.Stylus
                     val isEraser = firstDown.type == PointerType.Eraser
-                    val canDraw = isStylus || isEraser || allowFingerDrawing
-                    
+                    val canDraw = classicPointerCanDraw(
+                        pointerType = firstDown.type,
+                        allowFingerDrawing = allowFingerDrawing
+                    )
+
+                    if (!canDraw && firstDown.type == PointerType.Touch && classicTallyActionsEnabled(activeTool, allowFingerDrawing)) {
+                        val overlayBounds = canvasBoundsInRoot
+                        if (overlayBounds != null) {
+                            val downInRoot = firstDown.position + overlayBounds.topLeft
+                            val hitTarget = tallyHitTargets.firstOrNull { it.enabled && it.boundsInRoot.contains(downInRoot) }
+                            if (hitTarget != null) {
+                                val touchSlop = viewConfiguration.touchSlop
+                                var exceededSlop = false
+
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val tracked = event.changes.firstOrNull { it.id == firstDown.id } ?: break
+                                    if (tracked.positionChange().getDistance() > 0f) {
+                                        val totalDx = tracked.position.x - firstDown.position.x
+                                        val totalDy = tracked.position.y - firstDown.position.y
+                                        if ((totalDx * totalDx) + (totalDy * totalDy) > touchSlop * touchSlop) {
+                                            exceededSlop = true
+                                        }
+                                    }
+
+                                    if (!tracked.pressed) {
+                                        if (!exceededSlop) {
+                                            hitTarget.onTap()
+                                        }
+                                        break
+                                    }
+                                } while (true)
+                            }
+                        }
+                    }
+
                     if (!canDraw) return@awaitEachGesture
 
                     val motionEvent = try {
@@ -840,12 +1138,16 @@ fun StylusDrawingCanvas(
                         // Erase Mode
                         val touchX = firstDown.position.x
                         val touchY = firstDown.position.y
-                        
+
                         // Find closest stroke to delete
                         val thresholdPx = 30f // ~24dp
-                        val toDelete = pageStrokes.firstOrNull { stroke ->
-                            distToStrokeScaled(touchX, touchY, stroke.points, canvasW, canvasH) < thresholdPx
-                        }
+                        val toDelete = pageStrokes
+                            .mapNotNull { stroke ->
+                                val d = distanceToScaledStroke(touchX, touchY, stroke.points, canvasW, canvasH)
+                                if (d < thresholdPx) stroke to d else null
+                            }
+                            .minByOrNull { it.second }
+                            ?.first
                         if (toDelete != null) {
                             onStrokeErased(toDelete.id)
                         }
@@ -854,13 +1156,18 @@ fun StylusDrawingCanvas(
                             val event = awaitPointerEvent()
                             event.changes.forEach { change ->
                                 if (change.pressed) {
-                                    val moveX = change.position.x
-                                    val moveY = change.position.y
-                                    val innerDelete = pageStrokes.firstOrNull { stroke ->
-                                        distToStrokeScaled(moveX, moveY, stroke.points, canvasW, canvasH) < thresholdPx
-                                    }
-                                    if (innerDelete != null) {
-                                        onStrokeErased(innerDelete.id)
+                                    val samples = change.historical.map { it.position } + change.position
+                                    samples.forEach { pos ->
+                                        val innerDelete = pageStrokes
+                                            .mapNotNull { stroke ->
+                                                val d = distanceToScaledStroke(pos.x, pos.y, stroke.points, canvasW, canvasH)
+                                                if (d < thresholdPx) stroke to d else null
+                                            }
+                                            .minByOrNull { it.second }
+                                            ?.first
+                                        if (innerDelete != null) {
+                                            onStrokeErased(innerDelete.id)
+                                        }
                                     }
                                     change.consume()
                                 }
@@ -960,7 +1267,7 @@ fun StylusDrawingCanvas(
 private fun normalizeWidth(width: String): String {
     val text = width.trim().replace("\"", "")
     val parsed = text.toDoubleOrNull() ?: run {
-        val mixedMatch = Regex("""^(-?\d+)\s+(\d+)\s*/\s*(\d+)$""").matchEntire(text)
+        val mixedMatch = NORMALIZE_WIDTH_MIXED_FRACTION.matchEntire(text)
         if (mixedMatch != null) {
             val whole = mixedMatch.groupValues[1].toDoubleOrNull() ?: return@run null
             val num = mixedMatch.groupValues[2].toDoubleOrNull() ?: return@run null

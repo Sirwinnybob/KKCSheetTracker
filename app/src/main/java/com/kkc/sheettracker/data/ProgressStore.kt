@@ -115,6 +115,7 @@ class ProgressStore(
     private val preparedPageLock = Any()
     private val indexLock = Any()
     private val jobIndexes = mutableMapOf<String, JobProgressIndex>()
+    private val draftStateCache = mutableMapOf<String, Pair<Long, DraftBadPartState>>()
     private val _progressVersion = MutableStateFlow(0L)
     val progressVersion: StateFlow<Long> = _progressVersion.asStateFlow()
 
@@ -223,18 +224,30 @@ class ProgressStore(
 
     private fun loadDraftState(jobFolderName: String): DraftBadPartState {
         val file = draftFile(jobFolderName)
-        if (!file.exists()) return DraftBadPartState(tabletId)
-        return try {
+        if (!file.exists()) {
+            synchronized(indexLock) { draftStateCache.remove(jobFolderName) }
+            return DraftBadPartState(tabletId)
+        }
+        val mtime = file.lastModified()
+        synchronized(indexLock) {
+            val cached = draftStateCache[jobFolderName]
+            if (cached != null && cached.first == mtime) return cached.second
+        }
+        val state = try {
             gson.fromJson(file.readText(), DraftBadPartState::class.java)
         } catch (_: Exception) {
             DraftBadPartState(tabletId)
         }
+        synchronized(indexLock) { draftStateCache[jobFolderName] = mtime to state }
+        return state
     }
 
     private fun saveDraftState(jobFolderName: String, state: DraftBadPartState) {
         val dir = draftDir(jobFolderName)
         dir.mkdirs()
-        draftFile(jobFolderName).writeText(gson.toJson(state))
+        val file = draftFile(jobFolderName)
+        file.writeText(gson.toJson(state))
+        synchronized(indexLock) { draftStateCache[jobFolderName] = file.lastModified() to state }
     }
 
     private fun appendAction(
@@ -303,7 +316,7 @@ class ProgressStore(
             part = action.part,
             action = safeAction,
             timestamp = safeTimestamp,
-            fileFingerprint = (action.fileFingerprint as String?)?.trim()
+            fileFingerprint = action.fileFingerprint?.trim()
         )
     }
 

@@ -70,10 +70,12 @@ import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.PinnedJobsStore
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyProgressStore
 import com.kkc.sheettracker.data.SheetRipProgressStore
+import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.SpecialtyRepository
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
@@ -99,6 +101,7 @@ import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
 import com.kkc.sheettracker.ui.browser.JobBrowserScreen
 import com.kkc.sheettracker.ui.settings.AssemblyViewerDefaultsScreen
+import com.kkc.sheettracker.ui.settings.SpecialtyViewerDefaultsScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarDecorationState
@@ -368,6 +371,8 @@ private fun MultiBackStackNavigation(
     val context = LocalContext.current
     val timecardConfig = remember { TimecardServerConfig.create(context) }
     val assemblyViewerDefaultsStore = remember { AssemblyViewerDefaultsStore.create(context) }
+    val specialtyViewerDefaultsStore = remember { SpecialtyViewerDefaultsStore.create(context) }
+    val pinnedJobsStore = remember { PinnedJobsStore.create(context) }
     val timecardDiscovery = remember { TimecardDiscovery(context) }
     val timeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
     val timecardStore = remember { TimecardStore(timecardConfig, timecardDiscovery, timeclockMessagesRepo, File(basePath)) }
@@ -661,6 +666,8 @@ private fun MultiBackStackNavigation(
                         clockInState = clockInState,
                         deliveryScheduleRepository = deliveryScheduleRepository,
                         assemblyViewerDefaultsStore = assemblyViewerDefaultsStore,
+                        specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
+                        pinnedJobsStore = pinnedJobsStore,
                         onClockIn = onClockIn,
                         onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
                         onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) },
@@ -756,7 +763,8 @@ private fun MultiBackStackNavigation(
                             coordinator.navigateTopLevel(homeTab)
                         },
                         timecardConfig = timecardConfig,
-                        assemblyViewerDefaultsStore = assemblyViewerDefaultsStore
+                        assemblyViewerDefaultsStore = assemblyViewerDefaultsStore,
+                        specialtyViewerDefaultsStore = specialtyViewerDefaultsStore
                     )
                 }
 
@@ -829,6 +837,8 @@ private fun MultiBackStackNavigation(
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,
+                penDecoration = navBarDeco.penDecoration,
+                extendedControls = navBarDeco.extendedControls,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
                         if (employeeName.isNotBlank()) {
@@ -848,10 +858,21 @@ private fun MultiBackStackNavigation(
             compactWidth = compactWidth,
             modifier = Modifier.fillMaxSize()
         )
+        val isCurrentPageActiveClockIn = remember(selectedTab, jobsCurrentRoute, jobsBackStack?.arguments, clockInState.snapshot) {
+            val snap = clockInState.snapshot
+            if (!snap.isActive) false
+            else if (selectedTab != TopLevelTab.JOBS) false
+            else {
+                val folder = jobsBackStack?.arguments?.getString("folderName")
+                folder != null && folder == snap.folderName
+            }
+        }
         ClockInOverlay(
             clockInState = clockInState,
             onClockOut = onClockOut,
             onReturnToJob = onReturnToJob,
+            isCurrentPageActiveClockIn = isCurrentPageActiveClockIn,
+            edgePrefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) },
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -977,6 +998,8 @@ private fun JobsTabHost(
     clockInState: ClockInState,
     deliveryScheduleRepository: DeliveryScheduleRepository,
     assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore,
+    specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
+    pinnedJobsStore: PinnedJobsStore,
     onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
@@ -984,6 +1007,10 @@ private fun JobsTabHost(
 ) {
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+    val pinnedFolderNames by pinnedJobsStore.pinnedFolderNames.collectAsState(initial = emptyList())
+    val onTogglePin: (String, Boolean) -> Unit = { folder, pinned ->
+        coroutineScope.launch { pinnedJobsStore.toggle(folder, pinned) }
+    }
     NavHost(
         navController = navController,
         startDestination = "jobs",
@@ -1000,6 +1027,8 @@ private fun JobsTabHost(
                         progressStore = progressStore,
                         deliveryScheduleRepository = deliveryScheduleRepository,
                         appStateFlags = appStateFlags,
+                        pinnedFolderNames = pinnedFolderNames,
+                        onTogglePin = onTogglePin,
                         onJobClick = { job ->
                             navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
                                 launchSingleTop = true
@@ -1042,6 +1071,8 @@ private fun JobsTabHost(
                         progressStore = hardwoodsProgressStore,
                         jobRepository = jobRepository,
                         deliveryScheduleRepository = deliveryScheduleRepository,
+                        pinnedFolderNames = pinnedFolderNames,
+                        onTogglePin = onTogglePin,
                         onJobClick = { job ->
                             navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
                                 launchSingleTop = true
@@ -1088,6 +1119,8 @@ private fun JobsTabHost(
                         specialtyStateStore = specialtyStateStore,
                         deliveryScheduleRepository = deliveryScheduleRepository,
                         specialtyProgressVersionHint = specialtyProgressVersion,
+                        pinnedFolderNames = pinnedFolderNames,
+                        onTogglePin = onTogglePin,
                         onJobClick = { card ->
                             coroutineScope.launch {
                                 val d = assemblyViewerDefaultsStore.current()
@@ -1126,6 +1159,8 @@ private fun JobsTabHost(
                         specialtyStateStore = specialtyStateStore,
                         jobRepository = jobRepository,
                         deliveryScheduleRepository = deliveryScheduleRepository,
+                        pinnedFolderNames = pinnedFolderNames,
+                        onTogglePin = onTogglePin,
                         onJobClick = { card ->
                             navController.navigate(specialtyJobRoute(card.folderName)) {
                                 launchSingleTop = true
@@ -1181,6 +1216,7 @@ private fun JobsTabHost(
                 jobFolderName = folderName,
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
+                clockInState = clockInState,
                 onLeaveWhileClockedIn = {
                     if (isClockedInHere) {
                         val dest = navController.currentDestination?.route ?: ""
@@ -1218,7 +1254,7 @@ private fun JobsTabHost(
                     progressStore.submitPendingBadParts(
                         jobFolderName = folderName,
                         pdfFilename = material.pdfFilename,
-                        fileFingerprint = material.fileFingerprint ?: ""
+                        fileFingerprint = material.fileFingerprint
                     )
                 },
                 onBack = { navController.popBackStack() }
@@ -1230,8 +1266,6 @@ private fun JobsTabHost(
             arguments = listOf(navArgument("folderName") { type = NavType.StringType })
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-            // Phase 2: verify cache freshness for this job in the background
-            LaunchedEffect(folderName) { specialtyScanCoordinator.refreshJobOnOpen(folderName) }
             val hasDeliverySheet = remember(folderName) {
                 jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
             }
@@ -1247,6 +1281,7 @@ private fun JobsTabHost(
             SpecialtyJobDetailScreen(
                 jobFolderName = folderName,
                 specialtyStateStore = specialtyStateStore,
+                specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                 jobRepository = jobRepository,
                 hasAssemblySheet = hasAssemblySheet,
                 hasPlansElevations = hasPlansElevations,
@@ -1355,6 +1390,7 @@ private fun JobsTabHost(
                 isDarkTheme = isDarkTheme,
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
+                clockInState = clockInState,
                 onOpenReferenceDocument = { docType, startAt ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
                         launchSingleTop = true
@@ -1426,6 +1462,7 @@ private fun JobsTabHost(
                 jobFolderName = folderName,
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
+                clockInState = clockInState,
                 onLeaveWhileClockedIn = {
                     if (isClockedInHere) {
                         val dest = navController.currentDestination?.route ?: ""
@@ -1498,6 +1535,7 @@ private fun JobsTabHost(
                 isDarkTheme = isDarkTheme,
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
+                clockInState = clockInState,
                 onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
                     navController.navigate(
                         assemblyViewerRoute(
@@ -1570,6 +1608,7 @@ private fun JobsTabHost(
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
                 onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                 onBack = { navController.popBackStack() },
+                clockInState = clockInState,
                 onUiVisibilityChanged = onUiVisibilityChanged
             )
         }
@@ -1668,7 +1707,8 @@ private fun SettingsTabHost(
     onSyncthingStartNow: () -> Unit,
     onBack: () -> Unit,
     timecardConfig: TimecardServerConfig,
-    assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore
+    assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore,
+    specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore
 ) {
     NavHost(
         navController = navController,
@@ -1705,12 +1745,23 @@ private fun SettingsTabHost(
                     navController.navigate("settings/assemblyViewerDefaults") {
                         launchSingleTop = true
                     }
-                }
+                },
+                onOpenSpecialtyViewerDefaults = {
+                    navController.navigate("settings/specialtyViewerDefaults") {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
         composable("settings/assemblyViewerDefaults") {
             AssemblyViewerDefaultsScreen(
                 store = assemblyViewerDefaultsStore,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable("settings/specialtyViewerDefaults") {
+            SpecialtyViewerDefaultsScreen(
+                store = specialtyViewerDefaultsStore,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -1886,7 +1937,13 @@ private fun LegacySingleStackNavigation(
     val legacyContext = LocalContext.current
     val legacyTimecardConfig = remember { TimecardServerConfig.create(legacyContext) }
     val legacyAssemblyViewerDefaultsStore = remember { AssemblyViewerDefaultsStore.create(legacyContext) }
+    val legacySpecialtyViewerDefaultsStore = remember { SpecialtyViewerDefaultsStore.create(legacyContext) }
     val legacyCoroutineScope = rememberCoroutineScope()
+    val legacyPinnedJobsStore = remember { PinnedJobsStore.create(legacyContext) }
+    val pinnedFolderNames by legacyPinnedJobsStore.pinnedFolderNames.collectAsState(initial = emptyList())
+    val onTogglePin: (String, Boolean) -> Unit = { folder, pinned ->
+        legacyCoroutineScope.launch { legacyPinnedJobsStore.toggle(folder, pinned) }
+    }
     val legacyTimecardDiscovery = remember { TimecardDiscovery(legacyContext) }
     val legacyTimeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
     val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery, legacyTimeclockMessagesRepo, File(basePath)) }
@@ -2139,7 +2196,9 @@ private fun LegacySingleStackNavigation(
                                     navController.navigate("settings") {
                                         launchSingleTop = true
                                     }
-                                }
+                                },
+                                pinnedFolderNames = pinnedFolderNames,
+                                onTogglePin = onTogglePin,
                             )
                         }
                         WorkMode.HARDWOODS -> {
@@ -2185,7 +2244,9 @@ private fun LegacySingleStackNavigation(
                                     navController.navigate("settings") {
                                         launchSingleTop = true
                                     }
-                                }
+                                },
+                                pinnedFolderNames = pinnedFolderNames,
+                                onTogglePin = onTogglePin,
                             )
                         }
                         WorkMode.ASSEMBLY -> {
@@ -2236,7 +2297,9 @@ private fun LegacySingleStackNavigation(
                                     navController.navigate("settings") {
                                         launchSingleTop = true
                                     }
-                                }
+                                },
+                                pinnedFolderNames = pinnedFolderNames,
+                                onTogglePin = onTogglePin,
                             )
                         }
                         WorkMode.SPECIALTY -> {
@@ -2259,7 +2322,9 @@ private fun LegacySingleStackNavigation(
                                     navController.navigate("settings") {
                                         launchSingleTop = true
                                     }
-                                }
+                                },
+                                pinnedFolderNames = pinnedFolderNames,
+                                onTogglePin = onTogglePin,
                             )
                         }
                     }
@@ -2284,6 +2349,7 @@ private fun LegacySingleStackNavigation(
                         jobFolderName = folderName,
                         isClockedInHere = isClockedInHere,
                         onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
+                        clockInState = clockInState,
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                         onMaterialClick = { material, startPage ->
                             openSheetLegacy(folderName, material.pdfFilename, startPage)
@@ -2311,7 +2377,7 @@ private fun LegacySingleStackNavigation(
                             progressStore.submitPendingBadParts(
                                 jobFolderName = folderName,
                                 pdfFilename = material.pdfFilename,
-                                fileFingerprint = material.fileFingerprint ?: ""
+                                fileFingerprint = material.fileFingerprint
                             )
                         },
                         onBack = { navController.popBackStack() }
@@ -2323,8 +2389,6 @@ private fun LegacySingleStackNavigation(
                     arguments = listOf(navArgument("folderName") { type = NavType.StringType })
                 ) { backStack ->
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                    // Phase 2: verify cache freshness for this job in the background
-                    LaunchedEffect(folderName) { specialtyScanCoordinator.refreshJobOnOpen(folderName) }
                     val hasDeliverySheet = remember(folderName) {
                         jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
                     }
@@ -2340,6 +2404,7 @@ private fun LegacySingleStackNavigation(
                     SpecialtyJobDetailScreen(
                         jobFolderName = folderName,
                         specialtyStateStore = specialtyStateStore,
+                        specialtyViewerDefaultsStore = legacySpecialtyViewerDefaultsStore,
                         jobRepository = jobRepository,
                         hasAssemblySheet = hasAssemblySheet,
                         hasPlansElevations = hasPlansElevations,
@@ -2459,6 +2524,9 @@ private fun LegacySingleStackNavigation(
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
                     val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
                     val startPage = backStack.arguments?.getInt("startPage") ?: 1
+                    val isClockedInHere = clockInState.snapshot.isActive &&
+                        clockInState.snapshot.folderName == folderName &&
+                        clockInState.snapshot.tabType == "cnc"
                     SheetViewerScreen(
                         scanCoordinator = scanCoordinator,
                         appStateStore = appStateStore,
@@ -2469,6 +2537,9 @@ private fun LegacySingleStackNavigation(
                         pdfFilename = pdfFilename,
                         startPage = startPage,
                         isDarkTheme = preferDarkMode,
+                        isClockedInHere = isClockedInHere,
+                        onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
+                        clockInState = clockInState,
                         onOpenReferenceDocument = { docType, startAt ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
                                 launchSingleTop = true
@@ -2540,6 +2611,7 @@ private fun LegacySingleStackNavigation(
                         jobFolderName = folderName,
                         isClockedInHere = isClockedInHere,
                         onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
+                        clockInState = clockInState,
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                         onOpenWorkspace = { docType ->
                             navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
@@ -2593,6 +2665,9 @@ private fun LegacySingleStackNavigation(
                     val docType = runCatching { HardwoodDocType.valueOf(rawDocType) }.getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
                     val rowIdArg = URLDecoder.decode(backStack.arguments?.getString("startPage") ?: "", "UTF-8")
                     val rowId = rowIdArg.takeIf { it.isNotBlank() && it != "_" }
+                    val isClockedInHere = clockInState.snapshot.isActive &&
+                        clockInState.snapshot.folderName == folderName &&
+                        clockInState.snapshot.tabType == "hardwoods"
                     HardwoodsWorkspaceScreen(
                         scanCoordinator = hardwoodsScanCoordinator,
                         hardwoodsRepository = hardwoodsRepository,
@@ -2602,6 +2677,9 @@ private fun LegacySingleStackNavigation(
                         initialDocType = docType,
                         initialRowId = rowId,
                         isDarkTheme = preferDarkMode,
+                        isClockedInHere = isClockedInHere,
+                        onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
+                        clockInState = clockInState,
                         onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
                             navController.navigate(
                                 assemblyViewerRoute(
@@ -2674,6 +2752,7 @@ private fun LegacySingleStackNavigation(
                         onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                         onBack = { navController.popBackStack() },
+                        clockInState = clockInState,
                         onUiVisibilityChanged = { viewerUiVisible = it }
                     )
                 }
@@ -2815,13 +2894,24 @@ private fun LegacySingleStackNavigation(
                             navController.navigate("settings/assemblyViewerDefaults") {
                                 launchSingleTop = true
                             }
-                        }
+                        },
+                        onOpenSpecialtyViewerDefaults = {
+                            navController.navigate("settings/specialtyViewerDefaults") {
+                                launchSingleTop = true
+                            }
+                        },
                     )
                 }
 
                 composable("settings/assemblyViewerDefaults") {
                     AssemblyViewerDefaultsScreen(
                         store = legacyAssemblyViewerDefaultsStore,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable("settings/specialtyViewerDefaults") {
+                    SpecialtyViewerDefaultsScreen(
+                        store = legacySpecialtyViewerDefaultsStore,
                         onBack = { navController.popBackStack() },
                     )
                 }
@@ -2872,6 +2962,8 @@ private fun LegacySingleStackNavigation(
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,
+                penDecoration = navBarDeco.penDecoration,
+                extendedControls = navBarDeco.extendedControls,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
                         if (employeeName.isNotBlank()) {
@@ -2901,10 +2993,22 @@ private fun LegacySingleStackNavigation(
             compactWidth = compactWidth,
             modifier = Modifier.fillMaxSize()
         )
+        val legacyBackStack by navController.currentBackStackEntryAsState()
+        val legacyCurrentRoute = legacyBackStack?.destination?.route
+        val isLegacyCurrentPageActiveClockIn = remember(legacyCurrentRoute, legacyBackStack?.arguments, clockInState.snapshot) {
+            val snap = clockInState.snapshot
+            if (!snap.isActive) false
+            else {
+                val folder = legacyBackStack?.arguments?.getString("folderName")
+                folder != null && folder == snap.folderName
+            }
+        }
         ClockInOverlay(
             clockInState = clockInState,
             onClockOut = onClockOut,
             onReturnToJob = onReturnToJob,
+            isCurrentPageActiveClockIn = isLegacyCurrentPageActiveClockIn,
+            edgePrefs = remember { legacyContext.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) },
             modifier = Modifier.fillMaxSize()
         )
     }

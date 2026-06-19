@@ -16,7 +16,8 @@ data class ClockInSnapshot(
     val pendingPrompt: Boolean = false,
     val isPaused: Boolean = false,
     val pausedAtMs: Long = 0L,
-    val accumulatedPausedMs: Long = 0L
+    val accumulatedPausedMs: Long = 0L,
+    val isMinimized: Boolean = false
 )
 
 class ClockInState(private val prefs: SharedPreferences) {
@@ -34,7 +35,8 @@ class ClockInState(private val prefs: SharedPreferences) {
             pendingPrompt = false,
             isPaused = false,
             pausedAtMs = 0L,
-            accumulatedPausedMs = 0L
+            accumulatedPausedMs = 0L,
+            isMinimized = false
         )
         persist()
     }
@@ -70,6 +72,12 @@ class ClockInState(private val prefs: SharedPreferences) {
         persist()
     }
 
+    fun setMinimized(minimized: Boolean) {
+        if (!snapshot.isActive) return
+        snapshot = snapshot.copy(isMinimized = minimized)
+        persist()
+    }
+
     fun elapsedActiveMs(nowMs: Long = System.currentTimeMillis()): Long {
         return computeActiveElapsedMs(snapshot, nowMs)
     }
@@ -101,6 +109,7 @@ class ClockInState(private val prefs: SharedPreferences) {
             .putBoolean(KEY_IS_PAUSED, snapshot.isPaused)
             .putLong(KEY_PAUSED_AT_MS, snapshot.pausedAtMs)
             .putLong(KEY_ACCUMULATED_PAUSED_MS, snapshot.accumulatedPausedMs)
+            .putBoolean(KEY_MINIMIZED, snapshot.isMinimized)
             .apply()
     }
 
@@ -116,6 +125,7 @@ class ClockInState(private val prefs: SharedPreferences) {
         private const val KEY_IS_PAUSED = "is_paused"
         private const val KEY_PAUSED_AT_MS = "paused_at_ms"
         private const val KEY_ACCUMULATED_PAUSED_MS = "accumulated_paused_ms"
+        private const val KEY_MINIMIZED = "is_minimized"
 
         @Volatile
         private var sharedInstance: ClockInState? = null
@@ -147,7 +157,8 @@ class ClockInState(private val prefs: SharedPreferences) {
                 pendingPrompt = prefs.getBoolean(KEY_PENDING_PROMPT, false),
                 isPaused = prefs.getBoolean(KEY_IS_PAUSED, false),
                 pausedAtMs = prefs.getLong(KEY_PAUSED_AT_MS, 0L),
-                accumulatedPausedMs = prefs.getLong(KEY_ACCUMULATED_PAUSED_MS, 0L)
+                accumulatedPausedMs = prefs.getLong(KEY_ACCUMULATED_PAUSED_MS, 0L),
+                isMinimized = prefs.getBoolean(KEY_MINIMIZED, false)
             )
         }
 

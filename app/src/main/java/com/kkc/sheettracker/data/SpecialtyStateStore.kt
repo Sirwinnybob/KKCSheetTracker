@@ -39,6 +39,16 @@ class SpecialtyStateStore(
         specialtyScanCoordinator.refresh(reason, force)
     }
 
+    /**
+     * Non-blocking detail-screen open refresh.
+     * Keeps current UI content visible, invalidates per-job resolved-item cache,
+     * then lets the coordinator verify this one job in the background.
+     */
+    fun refreshJobOnOpen(jobFolderName: String) {
+        specialtyProgressStore.invalidateJobCache(jobFolderName)
+        specialtyScanCoordinator.refreshJobOnOpen(jobFolderName)
+    }
+
     /** Creates or updates a tablet-created specialty item, then invalidates the cache. */
     suspend fun saveTabletItem(jobFolderName: String, item: TabletSpecialtyItem) =
         withContext(ioDispatcher) {
