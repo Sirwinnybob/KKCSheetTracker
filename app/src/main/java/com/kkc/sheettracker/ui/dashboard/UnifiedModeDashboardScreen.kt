@@ -201,10 +201,12 @@ private fun CncDashboardContent(
         }
     }
 
+    val hasLoadedOnce = appUiState.lastUpdatedAt > 0L
+
     DashboardShell(
         title = "Dashboard",
         subtitle = "CNC",
-        loading = scanState.status == ScanStatus.LOADING || appUiState.isRefreshing,
+        loading = false,
         errorMessage = scanState.errorMessage ?: appUiState.errorMessage,
         emptyMessage = "No CNC dashboard widgets are available yet.",
         hasContent = widgets.isNotEmpty(),
@@ -222,12 +224,18 @@ private fun CncDashboardContent(
         )
         CncRecentMaterialsSection(
             items = dashboard.recentInProgressMaterials,
+            hasLoadedOnce = hasLoadedOnce,
             jobRepository = jobRepository,
             onOpenSheet = onOpenSheet
         )
-        if (dashboard.incompleteRemakeMaterials.isNotEmpty()) {
+        AnimatedVisibility(
+            visible = !hasLoadedOnce || dashboard.incompleteRemakeMaterials.isNotEmpty(),
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
             CncRemakesSection(
                 items = dashboard.incompleteRemakeMaterials,
+                hasLoadedOnce = hasLoadedOnce,
                 jobRepository = jobRepository,
                 onOpenSheet = onOpenSheet
             )
@@ -268,6 +276,7 @@ private fun CncDashboardContent(
 @Composable
 private fun CncRecentMaterialsSection(
     items: List<DashboardRecentMaterialItem>,
+    hasLoadedOnce: Boolean,
     jobRepository: JobRepository,
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
 ) {
@@ -276,35 +285,48 @@ private fun CncRecentMaterialsSection(
             title = "Recent In-Progress Materials",
             subtitle = if (items.isEmpty()) null else "${items.size} recent material${if (items.size == 1) "" else "s"}"
         )
-        if (items.isEmpty()) {
-            Text(
-                "Nothing is in progress right now.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items.forEach { item ->
-                    val thumbnail by produceState<Bitmap?>(
-                        initialValue = null,
-                        item.jobFolderName,
-                        item.pdfFilename,
-                        item.thumbnailPath,
-                        item.nextIncompletePage
+        Box(modifier = Modifier.animateContentSize()) {
+            when {
+                !hasLoadedOnce -> {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        value = withContext(Dispatchers.IO) {
-                            loadRecentMaterialThumbnail(jobRepository, item)
+                        CncRecentMaterialCard(item = null, thumbnail = null, onClick = {})
+                    }
+                }
+                items.isEmpty() -> {
+                    Text(
+                        "Nothing is in progress right now.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                else -> {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items.forEach { item ->
+                            val thumbnail by produceState<Bitmap?>(
+                                initialValue = null,
+                                item.jobFolderName,
+                                item.pdfFilename,
+                                item.thumbnailPath,
+                                item.nextIncompletePage
+                            ) {
+                                value = withContext(Dispatchers.IO) {
+                                    loadRecentMaterialThumbnail(jobRepository, item)
+                                }
+                            }
+                            CncRecentMaterialCard(
+                                item = item,
+                                thumbnail = thumbnail,
+                                onClick = {
+                                    onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage)
+                                }
+                            )
                         }
                     }
-                    CncRecentMaterialCard(
-                        item = item,
-                        thumbnail = thumbnail,
-                        onClick = {
-                            onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage)
-                        }
-                    )
                 }
             }
         }
@@ -314,6 +336,7 @@ private fun CncRecentMaterialsSection(
 @Composable
 private fun CncRemakesSection(
     items: List<DashboardRecentMaterialItem>,
+    hasLoadedOnce: Boolean,
     jobRepository: JobRepository,
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
 ) {
@@ -337,24 +360,28 @@ private fun CncRemakesSection(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items.forEach { item ->
-                val thumbnail by produceState<Bitmap?>(
-                    initialValue = null,
-                    item.jobFolderName,
-                    item.pdfFilename,
-                    item.thumbnailPath,
-                    item.nextIncompletePage
-                ) {
-                    value = withContext(Dispatchers.IO) {
-                        loadRecentMaterialThumbnail(jobRepository, item)
+            if (!hasLoadedOnce) {
+                CncRemakeMaterialCard(item = null, remakeColor = remakeColor, thumbnail = null, onClick = {})
+            } else {
+                items.forEach { item ->
+                    val thumbnail by produceState<Bitmap?>(
+                        initialValue = null,
+                        item.jobFolderName,
+                        item.pdfFilename,
+                        item.thumbnailPath,
+                        item.nextIncompletePage
+                    ) {
+                        value = withContext(Dispatchers.IO) {
+                            loadRecentMaterialThumbnail(jobRepository, item)
+                        }
                     }
+                    CncRemakeMaterialCard(
+                        item = item,
+                        remakeColor = remakeColor,
+                        thumbnail = thumbnail,
+                        onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
+                    )
                 }
-                CncRemakeMaterialCard(
-                    item = item,
-                    remakeColor = remakeColor,
-                    thumbnail = thumbnail,
-                    onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
-                )
             }
         }
     }
