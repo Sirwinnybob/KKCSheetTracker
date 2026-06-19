@@ -25,6 +25,8 @@ private val HANDLE_HEIGHT = 24.dp
 fun VerticalSplitLayout(
     modifier: Modifier = Modifier,
     initialTopWeight: Float = DEFAULT_TOP_WEIGHT,
+    aspectRatio: Float? = null,
+    fullscreen: SplitFullscreen = SplitFullscreen.NONE,
     topContent: @Composable (Modifier) -> Unit,
     bottomContent: @Composable (Modifier) -> Unit
 ) {
@@ -50,47 +52,63 @@ fun VerticalSplitLayout(
             topHeightPx = clampedTopPx(topHeightPx)
         }
     ) {
-        val topHeightDp = with(density) { topHeightPx.coerceAtLeast(minTopPx).toDp() }
-        topContent(Modifier.fillMaxWidth().height(topHeightDp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(HANDLE_HEIGHT)
-                .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        topHeightPx = clampedTopPx(topHeightPx + dragAmount.y)
-                    }
+        when (fullscreen) {
+            SplitFullscreen.FIRST -> {
+                topContent(Modifier.fillMaxWidth().weight(1f))
+                Box(Modifier.height(0.dp).fillMaxWidth()) {
+                    bottomContent(Modifier.fillMaxSize())
                 }
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onDoubleTap = {
-                            if (totalHeight.height > 0) {
-                                topHeightPx = clampedTopPx(totalHeight.height * DEFAULT_TOP_WEIGHT)
+            }
+            SplitFullscreen.SECOND -> {
+                Box(Modifier.height(0.dp).fillMaxWidth()) {
+                    topContent(Modifier.fillMaxSize())
+                }
+                bottomContent(Modifier.fillMaxWidth().weight(1f))
+            }
+            SplitFullscreen.NONE -> {
+                val topHeightDp = with(density) { topHeightPx.coerceAtLeast(minTopPx).toDp() }
+                topContent(Modifier.fillMaxWidth().height(topHeightDp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(HANDLE_HEIGHT)
+                        .pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                topHeightPx = clampedTopPx(topHeightPx + dragAmount.y)
                             }
                         }
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    if (totalHeight.height > 0) {
+                                        topHeightPx = clampedTopPx(totalHeight.height * DEFAULT_TOP_WEIGHT)
+                                    }
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(KKCShapeTokens.splitDividerThickness)
+                            .background(MaterialTheme.colorScheme.outlineVariant)
                     )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(KKCShapeTokens.splitDividerThickness)
-                    .background(MaterialTheme.colorScheme.outlineVariant)
-            )
-            Box(
-                modifier = Modifier
-                    .width(48.dp)
-                    .height(KKCShapeTokens.splitHandleBarThickness)
-                    .background(
-                        MaterialTheme.colorScheme.outline.copy(alpha = KKCAlpha.handleBar),
-                        shape = KKCShapeTokens.pill
+                    Box(
+                        modifier = Modifier
+                            .width(48.dp)
+                            .height(KKCShapeTokens.splitHandleBarThickness)
+                            .background(
+                                MaterialTheme.colorScheme.outline.copy(alpha = KKCAlpha.handleBar),
+                                shape = KKCShapeTokens.pill
+                            )
                     )
-            )
-        }
+                }
 
-        bottomContent(Modifier.weight(1f))
+                bottomContent(Modifier.weight(1f))
+            }
+        }
     }
 }
