@@ -45,8 +45,13 @@ fun VerticalSplitLayout(
         return target.coerceIn(minTopPx, maxTop)
     }
 
+    // Synchronous height state - avoids race conditions during dragging
+    var topHeightPx by remember { mutableFloatStateOf(-1f) }
+    var isAutoFitting by remember { mutableStateOf(true) }
+    var lastTotalHeight by remember { mutableStateOf(IntSize.Zero) }
+
     val coroutineScope = rememberCoroutineScope()
-    val topHeightAnim = remember { Animatable(-1f) }
+    val anim = remember { Animatable(0f) }
 
     val targetHeightPx = remember(aspectRatio, totalHeight) {
         if (aspectRatio != null && aspectRatio > 0f && totalHeight.height > 0) {
@@ -57,32 +62,35 @@ fun VerticalSplitLayout(
         }
     }
 
-    var lastTargetHeightPx by remember { mutableFloatStateOf(-1f) }
-
-    LaunchedEffect(targetHeightPx) {
-        if (targetHeightPx != null && targetHeightPx != lastTargetHeightPx) {
-            lastTargetHeightPx = targetHeightPx
-            if (topHeightAnim.value < 0f) {
-                topHeightAnim.snapTo(targetHeightPx)
-            } else {
-                topHeightAnim.animateTo(
-                    targetValue = targetHeightPx,
-                    animationSpec = tween(durationMillis = 350)
-                )
+    // Animate transition when aspect ratio changes
+    LaunchedEffect(aspectRatio) {
+        if (aspectRatio != null && aspectRatio > 0f && topHeightPx > 0f && isAutoFitting) {
+            val startHeight = topHeightPx
+            val targetHeight = targetHeightPx ?: clampedTopPx(totalHeight.width.toFloat() / aspectRatio)
+            anim.snapTo(startHeight)
+            anim.animateTo(targetHeight, tween(350)) {
+                topHeightPx = value
             }
+        }
+    }
+
+    // Snap layout instantly on size changes (rotation) if auto-fitting
+    SideEffect {
+        if (totalHeight != lastTotalHeight) {
+            if (isAutoFitting && targetHeightPx != null) {
+                topHeightPx = targetHeightPx
+            }
+            lastTotalHeight = totalHeight
         }
     }
 
     Column(
         modifier = modifier.onSizeChanged {
             totalHeight = it
-            coroutineScope.launch {
-                if (topHeightAnim.value < 0f) {
-                    val initialTarget = targetHeightPx ?: clampedTopPx(it.height * initialTopWeight)
-                    topHeightAnim.snapTo(initialTarget)
-                } else {
-                    topHeightAnim.snapTo(clampedTopPx(topHeightAnim.value))
-                }
+            if (topHeightPx < 0f) {
+                topHeightPx = targetHeightPx ?: clampedTopPx(it.height * initialTopWeight)
+            } else {
+                topHeightPx = clampedTopPx(topHeightPx)
             }
         }
     ) {
@@ -100,7 +108,7 @@ fun VerticalSplitLayout(
                 bottomContent(Modifier.fillMaxWidth().weight(1f))
             }
             SplitFullscreen.NONE -> {
-                val topHeightDp = with(density) { topHeightAnim.value.coerceAtLeast(minTopPx).toDp() }
+                val topHeightDp = with(density) { topHeightPx.coerceAtLeast(minTopPx).toDp() }
                 topContent(Modifier.fillMaxWidth().height(topHeightDp))
 
                 Box(
@@ -108,22 +116,23 @@ fun VerticalSplitLayout(
                         .fillMaxWidth()
                         .height(HANDLE_HEIGHT)
                         .pointerInput(Unit) {
-                            detectDragGestures { change, dragAmount ->
+                            detectDragGestures(
+                                onDragStart = { isAutoFitting = false }
+                            ) { change, dragAmount ->
                                 change.consume()
-                                coroutineScope.launch {
-                                    topHeightAnim.snapTo(clampedTopPx(topHeightAnim.value + dragAmount.y))
-                                }
+                                topHeightPx = clampedTopPx(topHeightPx + dragAmount.y)
                             }
                         }
                         .pointerInput(Unit) {
                             detectTapGestures(
                                 onDoubleTap = {
+                                    isAutoFitting = true
+                                    val target = targetHeightPx ?: clampedTopPx(totalHeight.height * DEFAULT_TOP_WEIGHT)
                                     coroutineScope.launch {
-                                        val target = targetHeightPx ?: clampedTopPx(totalHeight.height * DEFAULT_TOP_WEIGHT)
-                                        topHeightAnim.animateTo(
-                                            targetValue = target,
-                                            animationSpec = tween(durationMillis = 350)
-                                        )
+                                        anim.snapTo(topHeightPx)
+                                        anim.animateTo(target, tween(350)) {
+                                            topHeightPx = value
+                                        }
                                     }
                                 }
                             )
