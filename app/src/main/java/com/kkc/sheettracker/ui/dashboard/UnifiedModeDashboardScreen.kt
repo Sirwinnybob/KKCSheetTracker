@@ -353,7 +353,7 @@ private fun CncRemakesSection(
             )
             DashboardSectionHeader(
                 title = "Incomplete Remakes",
-                subtitle = "${items.size} remake${if (items.size == 1) "" else "s"} pending"
+                subtitle = if (!hasLoadedOnce) null else "${items.size} remake${if (items.size == 1) "" else "s"} pending"
             )
         }
         Row(
