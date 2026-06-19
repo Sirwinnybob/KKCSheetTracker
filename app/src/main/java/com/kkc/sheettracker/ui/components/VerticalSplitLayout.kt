@@ -39,16 +39,17 @@ fun VerticalSplitLayout(
     val minBottomPx = with(density) { MIN_BOTTOM_HEIGHT.toPx() }
     val handlePx = with(density) { HANDLE_HEIGHT.toPx() }
 
-    fun clampedTopPx(target: Float): Float {
-        if (totalHeight.height <= 0) return target
-        val maxTop = (totalHeight.height.toFloat() - minBottomPx - handlePx).coerceAtLeast(minTopPx)
+    fun clampedTopPxForSize(target: Float, size: IntSize): Float {
+        if (size.height <= 0) return target
+        val maxTop = (size.height.toFloat() - minBottomPx - handlePx).coerceAtLeast(minTopPx)
         return target.coerceIn(minTopPx, maxTop)
     }
+
+    fun clampedTopPx(target: Float): Float = clampedTopPxForSize(target, totalHeight)
 
     // Synchronous height state - avoids race conditions during dragging
     var topHeightPx by remember { mutableFloatStateOf(-1f) }
     var isAutoFitting by remember { mutableStateOf(true) }
-    var lastTotalHeight by remember { mutableStateOf(IntSize.Zero) }
 
     val coroutineScope = rememberCoroutineScope()
     val anim = remember { Animatable(0f) }
@@ -74,23 +75,28 @@ fun VerticalSplitLayout(
         }
     }
 
-    // Snap layout instantly on size changes (rotation) if auto-fitting
-    SideEffect {
-        if (totalHeight != lastTotalHeight) {
-            if (isAutoFitting && targetHeightPx != null) {
-                topHeightPx = targetHeightPx
-            }
-            lastTotalHeight = totalHeight
-        }
-    }
-
     Column(
         modifier = modifier.onSizeChanged {
+            val sizeChanged = (totalHeight != it)
             totalHeight = it
+
+            fun getTargetHeightForSize(size: IntSize): Float {
+                val rawTarget = if (aspectRatio != null && aspectRatio > 0f) {
+                    size.width.toFloat() / aspectRatio
+                } else {
+                    size.height * initialTopWeight
+                }
+                return clampedTopPxForSize(rawTarget, size)
+            }
+
             if (topHeightPx < 0f) {
-                topHeightPx = targetHeightPx ?: clampedTopPx(it.height * initialTopWeight)
-            } else {
-                topHeightPx = clampedTopPx(topHeightPx)
+                topHeightPx = getTargetHeightForSize(it)
+            } else if (sizeChanged) {
+                if (isAutoFitting) {
+                    topHeightPx = getTargetHeightForSize(it)
+                } else {
+                    topHeightPx = clampedTopPx(topHeightPx)
+                }
             }
         }
     ) {
