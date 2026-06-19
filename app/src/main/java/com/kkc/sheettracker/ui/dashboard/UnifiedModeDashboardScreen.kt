@@ -222,6 +222,7 @@ private fun CncDashboardContent(
         if (dashboard.incompleteRemakeMaterials.isNotEmpty()) {
             CncRemakesSection(
                 items = dashboard.incompleteRemakeMaterials,
+                jobRepository = jobRepository,
                 onOpenSheet = onOpenSheet
             )
         }
@@ -307,6 +308,7 @@ private fun CncRecentMaterialsSection(
 @Composable
 private fun CncRemakesSection(
     items: List<DashboardRecentMaterialItem>,
+    jobRepository: JobRepository,
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
 ) {
     val remakeColor = KKCThemeColors.statusColors.remakeBg
@@ -330,9 +332,21 @@ private fun CncRemakesSection(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items.forEach { item ->
+                val thumbnail by produceState<Bitmap?>(
+                    initialValue = null,
+                    item.jobFolderName,
+                    item.pdfFilename,
+                    item.thumbnailPath,
+                    item.nextIncompletePage
+                ) {
+                    value = withContext(Dispatchers.IO) {
+                        loadRecentMaterialThumbnail(jobRepository, item)
+                    }
+                }
                 CncRemakeMaterialCard(
                     item = item,
                     remakeColor = remakeColor,
+                    thumbnail = thumbnail,
                     onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
                 )
             }
@@ -344,60 +358,90 @@ private fun CncRemakesSection(
 private fun CncRemakeMaterialCard(
     item: DashboardRecentMaterialItem,
     remakeColor: androidx.compose.ui.graphics.Color,
+    thumbnail: Bitmap?,
     onClick: () -> Unit
 ) {
     val tileShape = DashboardSurfaceDefaults.sectionShape
     DashboardSurfaceCard(
         modifier = Modifier
-            .width(220.dp)
+            .width(268.dp)
             .clickable(onClick = onClick)
             .border(width = 2.dp, color = remakeColor, shape = tileShape),
         shape = tileShape,
         contentPadding = PaddingValues(12.dp)
     ) {
-        Text(
-            item.jobFolderName,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            item.materialName,
-            style = MaterialTheme.typography.bodySmall,
-            color = remakeColor,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            "Next sheet ${item.nextIncompletePage}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium),
+                contentAlignment = Alignment.Center
+            ) {
+                if (thumbnail != null) {
+                    Image(
+                        bitmap = thumbnail.asImageBitmap(),
+                        contentDescription = "Remake material preview",
+                        modifier = Modifier.fillMaxWidth(),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.Description,
+                        contentDescription = "Description icon",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
             Text(
-                "${item.counts.complete}/${item.counts.total}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                item.materialName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = remakeColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            ProgressPill(
-                done = item.counts.complete,
-                total = item.counts.total,
-                state = ProgressState.from(item.counts.complete, item.counts.total)
+            Text(
+                "${item.jobFolderName} • Next sheet ${item.nextIncompletePage}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "${item.counts.complete}/${item.counts.total} complete",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                ProgressPill(
+                    done = item.counts.complete,
+                    total = item.counts.total,
+                    state = ProgressState.from(item.counts.complete, item.counts.total)
+                )
+            }
+            LinearProgressIndicator(
+                progress = { item.completionFraction.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+                color = remakeColor,
+                trackColor = remakeColor.copy(alpha = 0.2f)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                DashboardAccentPill("C ${item.counts.complete}", DashboardAccent.SUCCESS)
+                DashboardAccentPill("B ${item.counts.bad}", DashboardAccent.DANGER)
+                DashboardAccentPill("S ${item.counts.skipped}", DashboardAccent.WARNING)
+                DashboardAccentPill("R ${item.counts.notStarted}", DashboardAccent.INFO)
+            }
         }
-        LinearProgressIndicator(
-            progress = { item.completionFraction.coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth(),
-            color = remakeColor,
-            trackColor = remakeColor.copy(alpha = 0.2f)
-        )
     }
 }
 

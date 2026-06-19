@@ -792,7 +792,6 @@ fun SheetViewerScreen(
                 ) ?: continue
                 if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
                     rendered.pageBitmap?.recycle()
-                    rendered.diagramBitmap?.recycle()
                     break
                 }
                 withContext(Dispatchers.Main) {
@@ -1334,9 +1333,16 @@ fun SheetViewerScreen(
                 emptyList()
             }
 
-            val bitmapAspectRatio = remember(bitmap) {
-                bitmap?.let { if (it.height > 0) it.width.toFloat() / it.height.toFloat() else null }
+            var lastValidAspectRatio by remember { mutableFloatStateOf(2f) }
+            var hasSetInitialAspectRatio by remember { mutableStateOf(false) }
+            LaunchedEffect(bitmap) {
+                val bmp = bitmap
+                if (bmp != null && bmp.height > 0) {
+                    lastValidAspectRatio = bmp.width.toFloat() / bmp.height.toFloat()
+                    hasSetInitialAspectRatio = true
+                }
             }
+            val bitmapAspectRatio = if (hasSetInitialAspectRatio) lastValidAspectRatio else null
 
             VerticalSplitLayout(
                 modifier = Modifier

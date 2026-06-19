@@ -236,6 +236,8 @@ class AppStateStore(
                         pageStatusByNumber = materialDerivation.pageStatusByNumber,
                         fallbackPage = visiblePages.firstOrNull() ?: 1
                     )
+                    val pageMeta = material.metadata.pages.firstOrNull { it.pageNumber == nextIncompletePage }
+                        ?: material.metadata.pages.getOrNull((nextIncompletePage - 1).coerceAtLeast(0))
                     incompleteRemakeMaterials += DashboardRecentMaterialItem(
                         jobFolderName = job.folderName,
                         jobNumber = job.jobNumber,
@@ -247,7 +249,7 @@ class AppStateStore(
                         lastTouchedAtMs = 0L,
                         counts = materialUiModel.counts,
                         completionFraction = materialUiModel.completionFraction,
-                        thumbnailPath = null
+                        thumbnailPath = pageMeta?.thumbnailPath
                     )
                 }
             }
