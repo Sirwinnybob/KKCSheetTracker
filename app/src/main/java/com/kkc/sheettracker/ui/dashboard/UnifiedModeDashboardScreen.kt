@@ -4,6 +4,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -356,7 +362,7 @@ private fun CncRemakesSection(
 
 @Composable
 private fun CncRemakeMaterialCard(
-    item: DashboardRecentMaterialItem,
+    item: DashboardRecentMaterialItem?,
     remakeColor: androidx.compose.ui.graphics.Color,
     thumbnail: Bitmap?,
     onClick: () -> Unit
@@ -397,7 +403,7 @@ private fun CncRemakeMaterialCard(
             }
 
             Text(
-                item.materialName,
+                item?.materialName ?: " ",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = remakeColor,
@@ -405,7 +411,7 @@ private fun CncRemakeMaterialCard(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                "${item.jobFolderName} • Next sheet ${item.nextIncompletePage}",
+                item?.let { "${it.jobFolderName} • Next sheet ${it.nextIncompletePage}" } ?: " ",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
@@ -416,18 +422,18 @@ private fun CncRemakeMaterialCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "${item.counts.complete}/${item.counts.total} complete",
+                    item?.let { "${it.counts.complete}/${it.counts.total} complete" } ?: " ",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 ProgressPill(
-                    done = item.counts.complete,
-                    total = item.counts.total,
-                    state = ProgressState.from(item.counts.complete, item.counts.total)
+                    done = item?.counts?.complete ?: 0,
+                    total = item?.counts?.total ?: 0,
+                    state = ProgressState.from(item?.counts?.complete ?: 0, item?.counts?.total ?: 0)
                 )
             }
             LinearProgressIndicator(
-                progress = { item.completionFraction.coerceIn(0f, 1f) },
+                progress = { item?.completionFraction?.coerceIn(0f, 1f) ?: 0f },
                 modifier = Modifier.fillMaxWidth(),
                 color = remakeColor,
                 trackColor = remakeColor.copy(alpha = 0.2f)
@@ -436,10 +442,22 @@ private fun CncRemakeMaterialCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                DashboardAccentPill("C ${item.counts.complete}", DashboardAccent.SUCCESS)
-                DashboardAccentPill("B ${item.counts.bad}", DashboardAccent.DANGER)
-                DashboardAccentPill("S ${item.counts.skipped}", DashboardAccent.WARNING)
-                DashboardAccentPill("R ${item.counts.notStarted}", DashboardAccent.INFO)
+                DashboardAccentPill(
+                    item?.let { "C ${it.counts.complete}" } ?: "C",
+                    if (item != null) DashboardAccent.SUCCESS else DashboardAccent.NEUTRAL
+                )
+                DashboardAccentPill(
+                    item?.let { "B ${it.counts.bad}" } ?: "B",
+                    if (item != null) DashboardAccent.DANGER else DashboardAccent.NEUTRAL
+                )
+                DashboardAccentPill(
+                    item?.let { "S ${it.counts.skipped}" } ?: "S",
+                    if (item != null) DashboardAccent.WARNING else DashboardAccent.NEUTRAL
+                )
+                DashboardAccentPill(
+                    item?.let { "R ${it.counts.notStarted}" } ?: "R",
+                    if (item != null) DashboardAccent.INFO else DashboardAccent.NEUTRAL
+                )
             }
         }
     }
@@ -526,11 +544,11 @@ private fun renderPdfThumbnail(
 
 @Composable
 private fun CncRecentMaterialCard(
-    item: DashboardRecentMaterialItem,
+    item: DashboardRecentMaterialItem?,
     thumbnail: Bitmap?,
     onClick: () -> Unit
 ) {
-    val tileAccent = recentMaterialAccent(item.counts)
+    val tileAccent = item?.let { recentMaterialAccent(it.counts) } ?: DashboardAccent.NEUTRAL
     val tileShape = DashboardSurfaceDefaults.sectionShape
     DashboardSurfaceCard(
         modifier = Modifier
@@ -572,13 +590,13 @@ private fun CncRecentMaterialCard(
             }
 
             Text(
-                item.materialName,
+                item?.materialName ?: " ",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
             Text(
-                "${item.jobFolderName} • Next sheet ${item.nextIncompletePage}",
+                item?.let { "${it.jobFolderName} • Next sheet ${it.nextIncompletePage}" } ?: " ",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
@@ -589,22 +607,22 @@ private fun CncRecentMaterialCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "${item.counts.complete}/${item.counts.total} complete",
+                    item?.let { "${it.counts.complete}/${it.counts.total} complete" } ?: " ",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 ProgressPill(
-                    done = item.counts.complete,
-                    total = item.counts.total,
-                    state = if (item.counts.skipped >= item.counts.total && item.counts.total > 0) {
+                    done = item?.counts?.complete ?: 0,
+                    total = item?.counts?.total ?: 0,
+                    state = if (item != null && item.counts.skipped >= item.counts.total && item.counts.total > 0) {
                         ProgressState.SKIPPED
                     } else {
-                        ProgressState.from(item.counts.complete, item.counts.total)
+                        ProgressState.from(item?.counts?.complete ?: 0, item?.counts?.total ?: 0)
                     }
                 )
             }
             LinearProgressIndicator(
-                progress = { item.completionFraction.coerceIn(0f, 1f) },
+                progress = { item?.completionFraction?.coerceIn(0f, 1f) ?: 0f },
                 modifier = Modifier.fillMaxWidth(),
                 color = KKCThemeColors.statusColors.completeBorder,
                 trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
@@ -613,10 +631,22 @@ private fun CncRecentMaterialCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                DashboardAccentPill("C ${item.counts.complete}", DashboardAccent.SUCCESS)
-                DashboardAccentPill("B ${item.counts.bad}", DashboardAccent.DANGER)
-                DashboardAccentPill("S ${item.counts.skipped}", DashboardAccent.WARNING)
-                DashboardAccentPill("R ${item.counts.notStarted}", DashboardAccent.INFO)
+                DashboardAccentPill(
+                    item?.let { "C ${it.counts.complete}" } ?: "C",
+                    if (item != null) DashboardAccent.SUCCESS else DashboardAccent.NEUTRAL
+                )
+                DashboardAccentPill(
+                    item?.let { "B ${it.counts.bad}" } ?: "B",
+                    if (item != null) DashboardAccent.DANGER else DashboardAccent.NEUTRAL
+                )
+                DashboardAccentPill(
+                    item?.let { "S ${it.counts.skipped}" } ?: "S",
+                    if (item != null) DashboardAccent.WARNING else DashboardAccent.NEUTRAL
+                )
+                DashboardAccentPill(
+                    item?.let { "R ${it.counts.notStarted}" } ?: "R",
+                    if (item != null) DashboardAccent.INFO else DashboardAccent.NEUTRAL
+                )
             }
         }
     }
