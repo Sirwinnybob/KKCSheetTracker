@@ -69,7 +69,7 @@ fun VerticalSplitLayout(
             val startHeight = topHeightPx
             val targetHeight = targetHeightPx ?: clampedTopPx(totalHeight.width.toFloat() / aspectRatio)
             anim.snapTo(startHeight)
-            anim.animateTo(targetHeight, tween(350)) {
+            anim.animateTo(targetHeight, tween(700)) {
                 topHeightPx = value
             }
         }
@@ -141,7 +141,7 @@ fun VerticalSplitLayout(
                                     val target = targetHeightPx ?: clampedTopPx(totalHeight.height * initialTopWeight)
                                     coroutineScope.launch {
                                         anim.snapTo(topHeightPx)
-                                        anim.animateTo(target, tween(350)) {
+                                        anim.animateTo(target, tween(700)) {
                                             topHeightPx = value
                                         }
                                     }
