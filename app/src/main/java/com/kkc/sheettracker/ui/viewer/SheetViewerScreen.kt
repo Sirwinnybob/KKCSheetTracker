@@ -297,10 +297,17 @@ fun SheetViewerScreen(
     var visiblePages by remember { mutableStateOf<List<Int>>(emptyList()) }
     var pageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var diagramBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var parts by remember { mutableStateOf<List<Part>>(emptyList()) }
     var jobMaterials by remember { mutableStateOf<List<Material>>(emptyList()) }
     var currentMaterial by remember { mutableStateOf<Material?>(null) }
-    var sheetFilesLabel by remember { mutableStateOf("") }
+    val currentPageMetadata = remember(currentMaterial, currentPage) {
+        resolvePageMetadata(currentMaterial, currentPage)
+    }
+    val parts = remember(currentPageMetadata) {
+        currentPageMetadata?.parts ?: emptyList()
+    }
+    val sheetFilesLabel = remember(currentPageMetadata) {
+        inferSheetFiles(currentPageMetadata).joinToString("  |  ")
+    }
     var sheetStatus by remember { mutableStateOf(SheetStatus.NOT_STARTED) }
     var badParts by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var draftBadParts by remember { mutableStateOf<Set<Int>>(emptySet()) }
@@ -743,13 +750,11 @@ fun SheetViewerScreen(
         }
 
         val meta = resolvePageMetadata(material, currentPage)
-        parts = meta?.parts ?: emptyList()
-        if (meta != null && parts.isEmpty()) {
+        if (meta != null && meta.parts.isEmpty()) {
             Log.w(OCR_TAG, "Page $currentPage metadata resolved but parts list is empty (sheetId=${meta.sheetId})")
         }
         val resolvedFiles = inferSheetFiles(meta)
         sheetFilesCache[currentPage] = resolvedFiles
-        sheetFilesLabel = resolvedFiles.joinToString("  |  ")
         selectedPartType = null
 
         if (diagramBitmap != null) {
@@ -1215,7 +1220,9 @@ fun SheetViewerScreen(
                 .padding(padding)
         ) {
             if (sheetFilesLabel.isNotBlank() || currentPageRemake != null) {
-                val chips = sheetFilesCache[currentPage].orEmpty()
+                val chips = remember(currentPageMetadata) {
+                    inferSheetFiles(currentPageMetadata)
+                }
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                     if (chips.isNotEmpty()) {
                         Row(
