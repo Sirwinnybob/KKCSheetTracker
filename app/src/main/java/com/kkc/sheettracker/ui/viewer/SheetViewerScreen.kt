@@ -1369,7 +1369,7 @@ fun SheetViewerScreen(
             }
 
             val bitmapAspectRatio = remember(bitmap) {
-                bitmap?.let { it.width.toFloat() / it.height.toFloat() }
+                bitmap?.let { if (it.height > 0) it.width.toFloat() / it.height.toFloat() else null }
             }
 
             VerticalSplitLayout(
