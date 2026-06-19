@@ -1325,41 +1325,7 @@ fun SheetViewerScreen(
                 )
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (hasAssemblyReference && activeAssemblyPage != null) {
-                    FilterChip(
-                        selected = false,
-                        onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, activeAssemblyPage) },
-                        label = { Text("Assembly") }
-                    )
-                }
-                if (hasPlansReference && activePlansPage != null) {
-                    FilterChip(
-                        selected = false,
-                        onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, activePlansPage) },
-                        label = { Text("Plans & Elevations") }
-                    )
-                }
-                if (hasThreeDAssets && activeRoom != null) {
-                    FilterChip(
-                        selected = false,
-                        onClick = {
-                            onOpenThreeDTarget(
-                                activeCabinet?.toString(),
-                                activeAssemblyPage,
-                                activePlansPage,
-                                activeRoom
-                            )
-                        },
-                        label = { Text("3D") }
-                    )
-                }
-            }
+
 
             val bitmap = if (showFullPdfPage) pageBitmap else (diagramBitmap ?: pageBitmap)
             val visiblePdfMarkupStrokes = if (markupStrokesVisible) {
