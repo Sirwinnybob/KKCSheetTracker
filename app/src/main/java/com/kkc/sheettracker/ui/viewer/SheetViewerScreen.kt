@@ -1368,10 +1368,15 @@ fun SheetViewerScreen(
                 emptyList()
             }
 
+            val bitmapAspectRatio = remember(bitmap) {
+                bitmap?.let { it.width.toFloat() / it.height.toFloat() }
+            }
+
             VerticalSplitLayout(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
+                aspectRatio = bitmapAspectRatio,
                 topContent = { topModifier ->
                     Crossfade(targetState = bitmap, animationSpec = tween(150), label = "viewerBitmap") { activeBitmap ->
                         if (activeBitmap != null) {
