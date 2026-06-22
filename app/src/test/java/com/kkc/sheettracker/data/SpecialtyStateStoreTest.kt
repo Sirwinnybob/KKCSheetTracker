@@ -39,8 +39,10 @@ class SpecialtyStateStoreTest {
         val stateStore = SpecialtyStateStore(
             specialtyScanCoordinator = scanCoordinator,
             specialtyProgressStore = progressStore,
+            hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local"),
             sheetRipProgressStore = sheetRipStore,
-            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet")
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
         )
 
         stateStore.setItemCompletionKey(
@@ -108,8 +110,10 @@ class SpecialtyStateStoreTest {
         val stateStore = SpecialtyStateStore(
             specialtyScanCoordinator = scanCoordinator,
             specialtyProgressStore = progressStore,
+            hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local"),
             sheetRipProgressStore = sheetRipStore,
-            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet")
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
         )
 
         stateStore.setItemCompletion(
@@ -150,8 +154,10 @@ class SpecialtyStateStoreTest {
         val stateStore = SpecialtyStateStore(
             specialtyScanCoordinator = scanCoordinator,
             specialtyProgressStore = progressStore,
+            hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local"),
             sheetRipProgressStore = SheetRipProgressStore(baseDir = baseDir),
-            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet")
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
         )
 
         assertEquals(1, stateStore.getResolvedItems(jobFolderName).size)

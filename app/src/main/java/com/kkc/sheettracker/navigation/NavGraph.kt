@@ -402,12 +402,14 @@ private fun MultiBackStackNavigation(
     val tabletSpecialtyItemsStore = remember(basePath, tabletId) {
         TabletSpecialtyItemsStore(File(basePath), tabletId)
     }
-    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, sheetRipProgressStore, tabletSpecialtyItemsStore) {
+    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, hardwoodsProgressStore, sheetRipProgressStore, tabletSpecialtyItemsStore, basePath) {
         SpecialtyStateStore(
             specialtyScanCoordinator = specialtyScanCoordinator,
             specialtyProgressStore = specialtyProgressStore,
+            hardwoodsProgressStore = hardwoodsProgressStore,
             sheetRipProgressStore = sheetRipProgressStore,
-            tabletItemsStore = tabletSpecialtyItemsStore
+            tabletItemsStore = tabletSpecialtyItemsStore,
+            baseDir = File(basePath)
         )
     }
 
@@ -1906,12 +1908,14 @@ private fun LegacySingleStackNavigation(
     val tabletSpecialtyItemsStore = remember(basePath, tabletId) {
         TabletSpecialtyItemsStore(File(basePath), tabletId)
     }
-    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, sheetRipProgressStore, tabletSpecialtyItemsStore) {
+    val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, hardwoodsProgressStore, sheetRipProgressStore, tabletSpecialtyItemsStore, basePath) {
         SpecialtyStateStore(
             specialtyScanCoordinator = specialtyScanCoordinator,
             specialtyProgressStore = specialtyProgressStore,
+            hardwoodsProgressStore = hardwoodsProgressStore,
             sheetRipProgressStore = sheetRipProgressStore,
-            tabletItemsStore = tabletSpecialtyItemsStore
+            tabletItemsStore = tabletSpecialtyItemsStore,
+            baseDir = File(basePath)
         )
     }
     val navController = rememberNavController()

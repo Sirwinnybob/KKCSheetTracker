@@ -1,13 +1,18 @@
 package com.kkc.sheettracker.data
 
+import com.google.gson.Gson
+import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
+import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.SpecialtyJob
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
+import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyScanState
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.StationProgress
 import com.kkc.sheettracker.data.models.TabletSpecialtyItem
+import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,10 +23,14 @@ import kotlinx.coroutines.withContext
 class SpecialtyStateStore(
     private val specialtyScanCoordinator: SpecialtyScanCoordinator,
     private val specialtyProgressStore: SpecialtyProgressStore,
+    private val hardwoodsProgressStore: HardwoodsProgressStore,
     private val sheetRipProgressStore: SheetRipProgressStore,
     private val tabletItemsStore: TabletSpecialtyItemsStore,
+    private val baseDir: File,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
+    private val hardwoodIndexGson = Gson()
+
     val scanState: StateFlow<SpecialtyScanState>
         get() = specialtyScanCoordinator.state
 
@@ -115,6 +124,39 @@ class SpecialtyStateStore(
             completionKeys = completionKeys,
             completed = completed
         )
+        resolvedItem?.item?.let { autoCompleteDoorPanelRows(jobFolderName, it, completed) }
+    }
+
+    private fun autoCompleteDoorPanelRows(
+        jobFolderName: String,
+        item: SpecialtyItem,
+        completed: Boolean
+    ) {
+        if (!item.automationKey.orEmpty().trim().startsWith("door_panels_auto|", ignoreCase = true)) return
+
+        runCatching {
+            val rawJson = loadHardwoodsCutlistIndexRawJson(baseDir.absolutePath, jobFolderName) ?: return
+            val hardwoodIndex = hardwoodIndexGson.fromJson(rawJson, HardwoodCutlistIndex::class.java) ?: return
+            val doorCutRows = hardwoodIndex.documents
+                .firstOrNull { it.docType == HardwoodDocType.DOOR_CUT_LIST }
+                ?.rows
+                ?: return
+            val sheetRows = filterDoorCutRowsToSheets(
+                rows = doorCutRows,
+                unitTypeMetadata = parseDoorCutUnitTypeMetadata(rawJson)
+            )
+            val mappings = MaterialMappings.load(baseDir)
+
+            matchingDoorPanelRows(item, sheetRows, mappings).forEach { target ->
+                hardwoodsProgressStore.setDoneCount(
+                    jobFolderName = jobFolderName,
+                    docType = HardwoodDocType.DOOR_CUT_LIST.name,
+                    rowId = target.rowId,
+                    qty = target.qty,
+                    doneCount = if (completed) target.qty else 0
+                )
+            }
+        }
     }
 
     suspend fun patchSpecialtyItemFields(
