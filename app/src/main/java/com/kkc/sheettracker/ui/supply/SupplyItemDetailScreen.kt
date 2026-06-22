@@ -24,7 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -189,7 +190,7 @@ fun SupplyItemDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         currentItem?.name ?: "Supply Item",
@@ -504,6 +505,7 @@ fun SupplyItemDetailScreen(
             onDismissRequest = { showStatusSheet = false },
             sheetState = statusSheetState
         ) {
+            ImmersiveDialogDecor()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

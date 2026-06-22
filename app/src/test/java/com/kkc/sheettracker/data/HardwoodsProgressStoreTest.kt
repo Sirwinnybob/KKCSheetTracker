@@ -215,6 +215,111 @@ class HardwoodsProgressStoreTest {
     }
 
     @Test
+    fun setBoardStockRipDoneWritesFinalSetAction() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(baseDir, jobFolderName, HardwoodCutlistIndex())
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val totalsKey = store.makeBoardStockTallyKey("Maple Select", 2.5, "FRAME")
+
+        store.setBoardStockRipDone(jobFolderName, "Maple Select", 2.5, "FRAME", 4)
+        store.awaitPendingWrites()
+
+        val action = readTabletProgress(baseDir, jobFolderName, tabletId).actions.single()
+        assertEquals("BOARD_STOCK", action.docType)
+        assertEquals("", action.rowId)
+        assertEquals(totalsKey, action.totalsKey)
+        assertEquals(HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT, action.action)
+        assertEquals(4, action.value)
+    }
+
+    @Test
+    fun setTotalsRip10DoneWritesFinalSetAction() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(baseDir, jobFolderName, HardwoodCutlistIndex())
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val totalsKey = store.makeTotalsRip10LineKey("FACE_FRAME_CUT_LIST", 1, 2)
+
+        store.setTotalsRip10Done(jobFolderName, "FACE_FRAME_CUT_LIST", 1, 2, 3)
+        store.awaitPendingWrites()
+
+        val action = readTabletProgress(baseDir, jobFolderName, tabletId).actions.single()
+        assertEquals("FACE_FRAME_CUT_LIST", action.docType)
+        assertEquals("", action.rowId)
+        assertEquals(totalsKey, action.totalsKey)
+        assertEquals(HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT, action.action)
+        assertEquals(3, action.value)
+    }
+
+    @Test
+    fun setAdminBoardStockDoneWritesFinalSetAction() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(baseDir, jobFolderName, HardwoodCutlistIndex())
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val totalsKey = store.makeAdminBoardStockTallyKey("Maple Select", "item-7")
+
+        store.setAdminBoardStockDone(jobFolderName, "Maple Select", "item-7", 5)
+        store.awaitPendingWrites()
+
+        val action = readTabletProgress(baseDir, jobFolderName, tabletId).actions.single()
+        assertEquals("BOARD_STOCK", action.docType)
+        assertEquals("", action.rowId)
+        assertEquals(totalsKey, action.totalsKey)
+        assertEquals(HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT, action.action)
+        assertEquals(5, action.value)
+    }
+
+    @Test
+    fun mergedFinalBoardStockSetActionsDoNotDoubleCount() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(baseDir, jobFolderName, HardwoodCutlistIndex())
+        val totalsKey = HardwoodsProgressStore(baseDir, tabletId)
+            .makeBoardStockTallyKey("Maple Select", 2.5, "FRAME")
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-a",
+            progress = HardwoodTabletProgress(
+                tabletId = "tablet-a",
+                actions = listOf(
+                    trackerAction(
+                        docType = "BOARD_STOCK",
+                        rowId = "",
+                        action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+                        value = 1,
+                        totalsKey = totalsKey,
+                        timestamp = "2026-05-01T00:00:01Z"
+                    )
+                )
+            )
+        )
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-b",
+            progress = HardwoodTabletProgress(
+                tabletId = "tablet-b",
+                actions = listOf(
+                    trackerAction(
+                        docType = "BOARD_STOCK",
+                        rowId = "",
+                        action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+                        value = 1,
+                        totalsKey = totalsKey,
+                        timestamp = "2026-05-01T00:00:02Z"
+                    )
+                )
+            )
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+
+        assertEquals(1, store.getBoardStockRipDone(jobFolderName, "Maple Select", 2.5, "FRAME"))
+    }
+
+    @Test
     fun sourceScopedMaterialSkipFallsBackToLegacyKeyWhenSourceKeyMissing() {
         val baseDir = createTempBaseDir()
         writeCutlistIndex(

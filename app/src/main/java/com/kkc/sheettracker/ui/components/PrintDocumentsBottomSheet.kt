@@ -126,6 +126,7 @@ fun PrintDocumentsBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState
     ) {
+        ImmersiveDialogDecor()
         Column(
             modifier = Modifier
                 .fillMaxWidth()

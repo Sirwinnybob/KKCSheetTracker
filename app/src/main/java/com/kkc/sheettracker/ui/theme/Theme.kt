@@ -53,6 +53,26 @@ private val DarkColorScheme = darkColorScheme(
     onError = Color(0xFF330000)
 )
 
+fun KKCThemeTokens.toColorScheme(darkTheme: Boolean): ColorScheme {
+    val palette = palette(darkTheme)
+    val base = if (darkTheme) DarkColorScheme else LightColorScheme
+    return base.copy(
+        primary = palette.primary,
+        background = palette.background,
+        surface = palette.surface
+    )
+}
+
+fun KKCThemeTokens.toShapes(): Shapes {
+    return Shapes(
+        extraSmall = RoundedCornerShape(6.dp),
+        small = RoundedCornerShape(shape.smallDp.dp),
+        medium = RoundedCornerShape(shape.mediumDp.dp),
+        large = RoundedCornerShape(shape.largeDp.dp),
+        extraLarge = RoundedCornerShape(28.dp)
+    )
+}
+
 val KKCShapes = Shapes(
     extraSmall = RoundedCornerShape(6.dp),
     small = RoundedCornerShape(10.dp),
@@ -72,16 +92,21 @@ object KKCShapeTokens {
 @Composable
 fun KKCTheme(
     darkTheme: Boolean = false,
+    themeTokens: KKCThemeTokens = BuiltInKKCThemeTokens,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-    val statusColors = if (darkTheme) DarkStatusColors else LightStatusColors
+    val colorScheme = themeTokens.toColorScheme(darkTheme)
+    val statusColors = themeTokens.status(darkTheme)
+    val shapes = themeTokens.toShapes()
 
-    CompositionLocalProvider(LocalKKCStatusColors provides statusColors) {
+    CompositionLocalProvider(
+        LocalKKCStatusColors provides statusColors,
+        LocalKKCThemeTokens provides themeTokens
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = KKCTypography,
-            shapes = KKCShapes,
+            shapes = shapes,
             content = content
         )
     }

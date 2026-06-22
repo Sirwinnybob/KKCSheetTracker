@@ -127,6 +127,7 @@ import com.kkc.sheettracker.ui.supply.SupplyItemEditScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobsScreen
+import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.viewer.ReferencePdfViewerScreen
 import com.kkc.sheettracker.ui.viewer.SheetViewerScreen
 import java.io.File
@@ -175,6 +176,10 @@ fun AppNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     supplySubscriptionManager: SupplySubscriptionManager,
+    themeCatalog: KKCThemeCatalog,
+    onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
+    onThemeOverrideChanged: (String?) -> Unit,
+    onThemeCatalogReload: () -> Unit,
     hardwoodsProgressStore: HardwoodsProgressStore? = null,
     specialtyProgressStore: SpecialtyProgressStore? = null
 ) {
@@ -286,7 +291,11 @@ fun AppNavigation(
                 onSyncthingStartNow = onSyncthingStartNow,
                 watcherRefreshEpoch = watcherRefreshEpoch,
                 activeJobFolderName = activeJobFolderName,
-                supplySubscriptionManager = supplySubscriptionManager
+                supplySubscriptionManager = supplySubscriptionManager,
+                themeCatalog = themeCatalog,
+                onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
+                onThemeOverrideChanged = onThemeOverrideChanged,
+                onThemeCatalogReload = onThemeCatalogReload
             )
         } else {
             LegacySingleStackNavigation(
@@ -321,7 +330,11 @@ fun AppNavigation(
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
                 watcherRefreshEpoch = watcherRefreshEpoch,
-                supplySubscriptionManager = supplySubscriptionManager
+                supplySubscriptionManager = supplySubscriptionManager,
+                themeCatalog = themeCatalog,
+                onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
+                onThemeOverrideChanged = onThemeOverrideChanged,
+                onThemeCatalogReload = onThemeCatalogReload
             )
         }
     }
@@ -361,7 +374,11 @@ private fun MultiBackStackNavigation(
     onSyncthingStartNow: () -> Unit,
     watcherRefreshEpoch: Long,
     activeJobFolderName: MutableStateFlow<String?>,
-    supplySubscriptionManager: SupplySubscriptionManager
+    supplySubscriptionManager: SupplySubscriptionManager,
+    themeCatalog: KKCThemeCatalog,
+    onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
+    onThemeOverrideChanged: (String?) -> Unit,
+    onThemeCatalogReload: () -> Unit
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
@@ -766,7 +783,11 @@ private fun MultiBackStackNavigation(
                         },
                         timecardConfig = timecardConfig,
                         assemblyViewerDefaultsStore = assemblyViewerDefaultsStore,
-                        specialtyViewerDefaultsStore = specialtyViewerDefaultsStore
+                        specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
+                        themeCatalog = themeCatalog,
+                        onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
+                        onThemeOverrideChanged = onThemeOverrideChanged,
+                        onThemeCatalogReload = onThemeCatalogReload
                     )
                 }
 
@@ -858,6 +879,7 @@ private fun MultiBackStackNavigation(
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
+            hazeState = hazeState,
             modifier = Modifier.fillMaxSize()
         )
         val isCurrentPageActiveClockIn = remember(selectedTab, jobsCurrentRoute, jobsBackStack?.arguments, clockInState.snapshot) {
@@ -875,6 +897,7 @@ private fun MultiBackStackNavigation(
             onReturnToJob = onReturnToJob,
             isCurrentPageActiveClockIn = isCurrentPageActiveClockIn,
             edgePrefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) },
+            hazeState = hazeState,
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -1710,7 +1733,11 @@ private fun SettingsTabHost(
     onBack: () -> Unit,
     timecardConfig: TimecardServerConfig,
     assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore,
-    specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore
+    specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
+    themeCatalog: KKCThemeCatalog,
+    onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
+    onThemeOverrideChanged: (String?) -> Unit,
+    onThemeCatalogReload: () -> Unit
 ) {
     NavHost(
         navController = navController,
@@ -1743,6 +1770,10 @@ private fun SettingsTabHost(
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
                 timecardConfig = timecardConfig,
+                themeCatalog = themeCatalog,
+                onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
+                onThemeOverrideChanged = onThemeOverrideChanged,
+                onThemeCatalogReload = onThemeCatalogReload,
                 onOpenAssemblyViewerDefaults = {
                     navController.navigate("settings/assemblyViewerDefaults") {
                         launchSingleTop = true
@@ -1877,7 +1908,11 @@ private fun LegacySingleStackNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     watcherRefreshEpoch: Long,
-    supplySubscriptionManager: SupplySubscriptionManager
+    supplySubscriptionManager: SupplySubscriptionManager,
+    themeCatalog: KKCThemeCatalog,
+    onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
+    onThemeOverrideChanged: (String?) -> Unit,
+    onThemeCatalogReload: () -> Unit
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
@@ -2894,6 +2929,10 @@ private fun LegacySingleStackNavigation(
                         employeeName = employeeName,
                         onEmployeeNameChanged = onEmployeeNameChanged,
                         timecardConfig = legacyTimecardConfig,
+                        themeCatalog = themeCatalog,
+                        onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
+                        onThemeOverrideChanged = onThemeOverrideChanged,
+                        onThemeCatalogReload = onThemeCatalogReload,
                         onOpenAssemblyViewerDefaults = {
                             navController.navigate("settings/assemblyViewerDefaults") {
                                 launchSingleTop = true
@@ -2995,6 +3034,7 @@ private fun LegacySingleStackNavigation(
         CalculatorOverlayHost(
             state = calculatorState,
             compactWidth = compactWidth,
+            hazeState = hazeState,
             modifier = Modifier.fillMaxSize()
         )
         val legacyBackStack by navController.currentBackStackEntryAsState()
@@ -3013,6 +3053,7 @@ private fun LegacySingleStackNavigation(
             onReturnToJob = onReturnToJob,
             isCurrentPageActiveClockIn = isLegacyCurrentPageActiveClockIn,
             edgePrefs = remember { legacyContext.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) },
+            hazeState = hazeState,
             modifier = Modifier.fillMaxSize()
         )
     }

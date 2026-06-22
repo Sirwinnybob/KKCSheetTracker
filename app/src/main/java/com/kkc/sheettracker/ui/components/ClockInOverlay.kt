@@ -39,7 +39,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -67,6 +66,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import dev.chrisbanes.haze.HazeDefaults
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -90,6 +93,7 @@ fun ClockInOverlay(
     onReturnToJob: () -> Unit,
     isCurrentPageActiveClockIn: Boolean = false,
     edgePrefs: SharedPreferences? = null,
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
     val snapshot = clockInState.snapshot
@@ -132,6 +136,9 @@ fun ClockInOverlay(
     if (snapshot.pendingPrompt) {
         AlertDialog(
             onDismissRequest = { clockInState.dismissPromptKeepActive() },
+            shape = RoundedCornerShape(22.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
             title = { Text("Clock Out?") },
             text = {
                 Text(
@@ -272,7 +279,22 @@ fun ClockInOverlay(
         // ── Expanded floating modal ───────────────────────────────────────
         // Kept in composition during animation (animProgress < 1)
         if (animProgress < 0.99f) {
-            Surface(
+            val modalShape = RoundedCornerShape(16.dp)
+            val frostedTokens = LocalKKCThemeTokens.current.frosted
+            val modalSurfaceModifier = if (hazeState != null) {
+                Modifier.hazeEffect(
+                    state = hazeState,
+                    style = HazeDefaults.style(
+                        backgroundColor = MaterialTheme.colorScheme.surface.copy(
+                            alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)
+                        ),
+                        blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
+                    )
+                )
+            } else {
+                Modifier.background(MaterialTheme.colorScheme.surface)
+            }
+            Box(
                 modifier = Modifier
                     .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
                     .widthIn(min = 220.dp, max = 280.dp)
@@ -294,10 +316,10 @@ fun ClockInOverlay(
                             offsetX += dragAmount.x
                             offsetY += dragAmount.y
                         }
-                    },
-                shape = RoundedCornerShape(12.dp),
-                shadowElevation = 8.dp,
-                tonalElevation  = 4.dp
+                    }
+                    .shadow(10.dp, modalShape, clip = false)
+                    .clip(modalShape)
+                    .then(modalSurfaceModifier)
             ) {
                 Column(
                     modifier = Modifier.padding(12.dp),

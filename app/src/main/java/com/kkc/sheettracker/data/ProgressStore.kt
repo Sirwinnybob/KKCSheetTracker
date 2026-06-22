@@ -67,10 +67,10 @@ private data class MaterialTouchEntry(
 )
 
 private data class JobProgressIndex(
-    var trackerSignature: Long,
     var actionCount: Int,
     val sheets: MutableMap<SheetKey, SheetIndexEntry>,
-    val materialTouches: MutableMap<String, MaterialTouchEntry>
+    val materialTouches: MutableMap<String, MaterialTouchEntry>,
+    val allActions: MutableList<TrackerAction>
 )
 
 data class PreparedPageKey(
@@ -320,42 +320,19 @@ class ProgressStore(
         )
     }
 
-    private fun trackerDirSignature(jobFolderName: String): Long {
-        val dir = trackerDir(jobFolderName)
-        if (!dir.exists() || !dir.isDirectory) return Long.MIN_VALUE
-
-        var hash = 1469598103934665603L
-        fun mix(value: Long) {
-            hash = (hash xor value) * 1099511628211L
-        }
-
-        val files = dir.listFiles()
-            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) && !it.name.startsWith(".") }
-            ?.sortedBy { it.name }
-            ?: emptyList()
-
-        mix(files.size.toLong())
-        for (file in files) {
-            mix(file.name.hashCode().toLong())
-            mix(file.length())
-            mix(file.lastModified())
-        }
-        return hash
-    }
-
+    // Cache freshness relies on explicit invalidation (TrackerChangeMonitor's FileObserver/poll
+    // for other tablets' writes, applyActionToIndex for this tablet's own writes) rather than
+    // re-validating against disk on every read — re-listing the tracker dir on every page lookup
+    // was the dominant cost in dashboard/job-browser derivation on networked job boards.
     private fun ensureJobIndex(jobFolderName: String): JobProgressIndex {
-        val signature = trackerDirSignature(jobFolderName)
         synchronized(indexLock) {
-            val existing = jobIndexes[jobFolderName]
-            if (existing != null && existing.trackerSignature == signature) {
-                return existing
-            }
+            jobIndexes[jobFolderName]?.let { return it }
         }
 
-        val built = buildJobIndex(jobFolderName, signature)
+        val built = buildJobIndex(jobFolderName)
         synchronized(indexLock) {
             val current = jobIndexes[jobFolderName]
-            if (current == null || current.trackerSignature != signature) {
+            if (current == null) {
                 jobIndexes[jobFolderName] = built
                 bumpProgressVersion()
                 return built
@@ -364,7 +341,7 @@ class ProgressStore(
         }
     }
 
-    private fun buildJobIndex(jobFolderName: String, signature: Long): JobProgressIndex {
+    private fun buildJobIndex(jobFolderName: String): JobProgressIndex {
         val startedAt = System.currentTimeMillis()
         val allActions = loadAllProgress(jobFolderName)
             .flatMap { it.actions }
@@ -380,10 +357,10 @@ class ProgressStore(
         )
 
         return JobProgressIndex(
-            trackerSignature = signature,
             actionCount = allActions.size,
             sheets = sheets,
-            materialTouches = materialTouches
+            materialTouches = materialTouches,
+            allActions = allActions.toMutableList()
         )
     }
 
@@ -392,7 +369,7 @@ class ProgressStore(
             val index = jobIndexes[jobFolderName] ?: return
             applyActionToSheets(index.sheets, index.materialTouches, action)
             index.actionCount += 1
-            index.trackerSignature = trackerDirSignature(jobFolderName)
+            index.allActions += action
         }
     }
 
@@ -661,9 +638,10 @@ class ProgressStore(
         pdfFilename: String,
         fileFingerprint: String
     ): Int {
-        // Committed pending: bad_part actions with no corresponding bad_part_submitted
-        val allActions = loadAllProgress(jobFolderName)
-            .flatMap { it.actions }
+        // Committed pending: bad_part actions with no corresponding bad_part_submitted.
+        // Reuses the cached job index's action list instead of re-reading/re-parsing the
+        // tracker directory from scratch for every material.
+        val allActions = synchronized(indexLock) { ensureJobIndex(jobFolderName).allActions.toList() }
             .filter { it.file == pdfFilename && (it.fileFingerprint ?: "") == fileFingerprint }
             .sortedBy { it.timestamp }
         val pending = mutableSetOf<Pair<Int, Int>>() // (page, partNumber)
@@ -693,8 +671,7 @@ class ProgressStore(
         fileFingerprint: String
     ) {
         if (readOnly) return
-        val allActions = loadAllProgress(jobFolderName)
-            .flatMap { it.actions }
+        val allActions = synchronized(indexLock) { ensureJobIndex(jobFolderName).allActions.toList() }
             .filter { it.file == pdfFilename && (it.fileFingerprint ?: "") == fileFingerprint }
             .sortedBy { it.timestamp }
         val pending = mutableSetOf<Pair<Int, Int>>() // (page, partNumber)

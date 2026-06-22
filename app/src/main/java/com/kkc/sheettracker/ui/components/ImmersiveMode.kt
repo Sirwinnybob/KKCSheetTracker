@@ -9,6 +9,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.window.DialogWindowProvider
+
 internal data class PersistentImmersiveConfig(
     val insetTypes: Int,
     val systemBarsBehavior: Int
@@ -80,3 +83,26 @@ fun PersistentNavigationBarHider() {
         }
     }
 }
+
+/**
+ * Hides system bars and maintains immersive fullscreen mode inside Dialogs and ModalBottomSheets
+ * which create their own separate Window.
+ */
+@Composable
+fun ImmersiveDialogDecor() {
+    val view = LocalView.current
+    val isInspection = LocalInspectionMode.current
+    if (!isInspection) {
+        SideEffect {
+            val window = (view.parent as? DialogWindowProvider)?.window
+                ?: (view.context as? Activity)?.window
+            window?.let {
+                val controller = WindowInsetsControllerCompat(it, view)
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        }
+    }
+}
+

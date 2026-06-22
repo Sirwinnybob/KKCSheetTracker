@@ -36,7 +36,7 @@ import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import java.io.File
 
@@ -172,7 +172,7 @@ fun ReferencePdfViewerScreen(
             TopAppBar(
                 modifier = Modifier
                     .graphicsLayer { alpha = topBarAlpha }
-                    .background(headerGradientBrush()),
+                    .headerBackground(),
                 title = {
                     Text(
                         when (docType) {

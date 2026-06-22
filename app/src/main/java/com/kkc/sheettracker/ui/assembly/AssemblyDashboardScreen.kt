@@ -49,7 +49,7 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 
@@ -89,7 +89,7 @@ fun AssemblyDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "Assembly",

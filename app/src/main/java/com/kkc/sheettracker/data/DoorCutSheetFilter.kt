@@ -1,11 +1,15 @@
 package com.kkc.sheettracker.data
 
+import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.Job
+import com.kkc.sheettracker.data.models.Material
+import com.kkc.sheettracker.data.models.MaterialMetadata
 import com.kkc.sheettracker.data.models.Part
 import java.io.File
 import java.util.Locale
@@ -16,6 +20,8 @@ data class DoorCutUnitTypeMetadata(
     val sheetRowIds: Set<String> = emptySet(),
     val sheetMaterials: Set<String> = emptySet()
 )
+
+private val doorCutGson = Gson()
 
 fun loadHardwoodsCutlistIndexRawJson(basePath: String, jobFolderName: String): String? {
     val file = File(basePath, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
@@ -33,6 +39,73 @@ fun filterDoorCutRowsToSheets(
         normalizedDoorPanelRowIdKey(row.rowId) in unitTypeMetadata.sheetRowIds ||
             normalizedDoorPanelMaterialKey(row.material).takeIf { it.isNotBlank() } in unitTypeMetadata.sheetMaterials
     }
+}
+
+internal fun loadMaterialMappings(baseDir: File): Map<String, String> {
+    val file = File(baseDir, ".metadata/material_mappings.json")
+    if (!file.exists() || !file.isFile) return emptyMap()
+    val root = runCatching { JsonParser.parseString(file.readText()) }.getOrNull()
+        ?.takeIf { it.isJsonObject }
+        ?.asJsonObject
+        ?: return emptyMap()
+    return buildMap {
+        root.entrySet().forEach { (rawKey, rawValue) ->
+            val normalizedKey = normalizedDoorPanelMaterialKey(rawKey)
+            val normalizedValue = normalizedDoorPanelMaterialKey(rawValue.asStringOrNull())
+            if (normalizedKey.isNotBlank() && normalizedValue.isNotBlank()) {
+                put(normalizedKey, normalizedValue)
+            }
+        }
+    }
+}
+
+internal fun mapDoorPanelMaterialToCncKey(
+    material: String?,
+    materialMappings: Map<String, String>
+): String {
+    val normalized = normalizedDoorPanelMaterialKey(material)
+    if (normalized.isBlank()) return ""
+    return materialMappings[normalized] ?: normalized
+}
+
+internal fun deriveCncOwnedDoorPanelMaterials(
+    baseDir: File,
+    jobFolderName: String,
+    cncJob: Job = loadDoorPanelCncJob(baseDir, jobFolderName)
+): Set<String> {
+    if (cncJob.materials.isEmpty()) return emptySet()
+    val rawCutlistIndexJson = loadHardwoodsCutlistIndexRawJson(baseDir.absolutePath, jobFolderName)
+    val unitTypeMetadata = parseDoorCutUnitTypeMetadata(rawCutlistIndexJson)
+    if (!unitTypeMetadata.hasUnitTypeMetadata) return emptySet()
+
+    val hardwoodIndex = loadHardwoodsCutlistIndex(baseDir, jobFolderName) ?: return emptySet()
+    val doorCutRows = hardwoodIndex.documents
+        .filter { it.docType == HardwoodDocType.DOOR_CUT_LIST }
+        .flatMap { doc -> filterDoorCutRowsToSheets(doc.rows, unitTypeMetadata) }
+    if (doorCutRows.isEmpty()) return emptySet()
+
+    val materialMappings = loadMaterialMappings(baseDir)
+    val cncPartsByMaterial = cncJob.materials
+        .groupBy { material -> mapDoorPanelMaterialToCncKey(material.materialName, materialMappings) }
+        .mapValues { (_, materials) ->
+            materials.flatMap { material ->
+                material.metadata?.pages.orEmpty().flatMap { page -> page.parts }
+            }
+        }
+
+    return doorCutRows
+        .groupBy { row -> mapDoorPanelMaterialToCncKey(row.material, materialMappings) }
+        .mapNotNull { (materialKey, rows) ->
+            if (materialKey.isBlank()) return@mapNotNull null
+            val cncParts = cncPartsByMaterial[materialKey].orEmpty()
+            if (cncParts.isEmpty()) return@mapNotNull null
+            if (rows.all { row -> cncParts.count { part -> preciseMatches(row, part) } >= row.qty }) {
+                materialKey
+            } else {
+                null
+            }
+        }
+        .toSet()
 }
 
 fun parseDoorCutUnitTypeMetadata(rawCutlistIndexJson: String?): DoorCutUnitTypeMetadata {
@@ -164,6 +237,19 @@ private fun JsonObject.getStringIgnoreCase(key: String): String? {
     return value.asString
 }
 
+private fun JsonElement.asStringOrNull(): String? {
+    return runCatching {
+        if (isJsonNull || !isJsonPrimitive) return@runCatching null
+        val primitive = asJsonPrimitive
+        when {
+            primitive.isString -> primitive.asString
+            primitive.isNumber -> primitive.asNumber.toString()
+            primitive.isBoolean -> primitive.asBoolean.toString()
+            else -> null
+        }
+    }.getOrNull()
+}
+
 private fun extractMaterialName(obj: JsonObject): String? {
     val keyCandidates = listOf("material", "materialName", "name")
     keyCandidates.forEach { key ->
@@ -288,6 +374,52 @@ fun preciseMatches(row: HardwoodCutlistRow, part: Part): Boolean {
     if (abs(expW2 - part.length) <= 0.02 && abs(expL2 - part.width) <= 0.02) return true
 
     return false
+}
+
+private fun loadHardwoodsCutlistIndex(baseDir: File, jobFolderName: String): HardwoodCutlistIndex? {
+    val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
+    if (!file.exists() || !file.isFile) return null
+    return runCatching { doorCutGson.fromJson(file.readText(), HardwoodCutlistIndex::class.java) }.getOrNull()
+}
+
+private fun loadDoorPanelCncJob(baseDir: File, jobFolderName: String): Job {
+    val jobDir = File(baseDir, jobFolderName)
+    val cncDir = File(jobDir, "CNC")
+    val jobNumber = jobFolderName.substringBefore(" - ").trim()
+    if (!cncDir.exists() || !cncDir.isDirectory || jobNumber.isBlank()) {
+        return Job(folderName = jobFolderName, jobNumber = jobNumber, jobName = "")
+    }
+
+    val materials = cncDir.listFiles()
+        ?.filter { file ->
+            file.isFile &&
+                file.extension.equals("pdf", ignoreCase = true) &&
+                "ALL SHEETS" !in file.name &&
+                file.name.startsWith("$jobNumber - ")
+        }
+        ?.map { pdfFile ->
+            val materialName = pdfFile.nameWithoutExtension.removePrefix("$jobNumber - ")
+            Material(
+                pdfFilename = pdfFile.name,
+                materialName = materialName,
+                pageCount = 0,
+                metadata = loadDoorPanelMaterialMetadata(cncDir, pdfFile.name)
+            )
+        }
+        .orEmpty()
+
+    return Job(
+        folderName = jobFolderName,
+        jobNumber = jobNumber,
+        jobName = jobFolderName.substringAfter(" - ", ""),
+        materials = materials
+    )
+}
+
+private fun loadDoorPanelMaterialMetadata(cncDir: File, pdfFilename: String): MaterialMetadata? {
+    val metadataFile = File(cncDir, ".metadata/${pdfFilename.removeSuffix(".pdf")}.json")
+    if (!metadataFile.exists() || !metadataFile.isFile) return null
+    return runCatching { doorCutGson.fromJson(metadataFile.readText(), MaterialMetadata::class.java) }.getOrNull()
 }
 
 fun syncCncToHardwoods(

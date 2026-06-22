@@ -110,7 +110,8 @@ import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.SplitFullscreen
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import com.kkc.sheettracker.ui.components.StatusChip
@@ -635,7 +636,7 @@ fun AssemblyViewerScreen(
                 TopAppBar(
                     modifier = Modifier
                         .graphicsLayer { alpha = topBarAlpha }
-                        .background(headerGradientBrush()),
+                        .headerBackground(),
                     title = {
                         Text(
                             "Assembly Viewer - $jobFolderName",
@@ -936,6 +937,7 @@ fun AssemblyViewerScreen(
 
     if (otherPickerTarget != null && unmanagedOtherPdfNames.isNotEmpty()) {
         ModalBottomSheet(onDismissRequest = { otherPickerTarget = null }) {
+            ImmersiveDialogDecor()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -985,6 +987,7 @@ fun AssemblyViewerScreen(
             ModalBottomSheet(
                 onDismissRequest = { showPartsSheet = false }
             ) {
+                ImmersiveDialogDecor()
                 PartsChecklistSheet(parts = parts)
             }
         }

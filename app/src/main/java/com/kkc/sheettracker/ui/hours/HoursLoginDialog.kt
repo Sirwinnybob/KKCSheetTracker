@@ -1,7 +1,7 @@
 package com.kkc.sheettracker.ui.hours
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -11,6 +11,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 
 @Composable
 fun HoursLoginDialog(
@@ -24,9 +25,13 @@ fun HoursLoginDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(22.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
         title = { Text("Who are you?") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ImmersiveDialogDecor()
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "Enter your name or employee PIN to continue.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -44,10 +49,16 @@ fun HoursLoginDialog(
                     keyboardActions = KeyboardActions(
                         onDone = { if (input.trim().isNotBlank()) onLogin(input.trim()) }
                     ),
-                    shape = MaterialTheme.shapes.medium
+                    shape = RoundedCornerShape(14.dp)
                 )
                 suggestions.take(5).forEach { option ->
-                    TextButton(onClick = { input = option }) { Text(option) }
+                    OutlinedButton(
+                        onClick = { input = option },
+                        shape = MaterialTheme.shapes.extraLarge,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(option)
+                    }
                 }
             }
         },
@@ -55,7 +66,7 @@ fun HoursLoginDialog(
             Button(
                 onClick = { onLogin(input.trim()) },
                 enabled = input.trim().isNotBlank(),
-                shape = MaterialTheme.shapes.medium
+                shape = MaterialTheme.shapes.extraLarge
             ) {
                 Text("Continue")
             }

@@ -60,7 +60,7 @@ import android.content.res.Configuration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.PinButton
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.HardwoodsProgressStore
@@ -191,7 +191,7 @@ fun AssemblyJobsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "KKC Dashboard - Assembly",

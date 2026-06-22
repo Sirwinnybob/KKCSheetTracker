@@ -47,6 +47,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -55,6 +58,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.zIndex
+import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import dev.chrisbanes.haze.HazeDefaults
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -319,6 +326,7 @@ fun rememberCalculatorOverlayState(): CalculatorOverlayState {
 fun CalculatorOverlayHost(
     state: CalculatorOverlayState,
     compactWidth: Boolean,
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
     val snapshot = state.snapshot
@@ -344,7 +352,8 @@ fun CalculatorOverlayHost(
                 snapshot = snapshot,
                 onKeyPress = state::pressKey,
                 onShowHistory = { showHistory = true },
-                onClose = { state.setOpen(false) }
+                onClose = { state.setOpen(false) },
+                hazeState = hazeState
             )
         } else {
             ResizableModalCalculator(
@@ -371,7 +380,8 @@ fun CalculatorOverlayHost(
                 },
                 onClamp = { viewportWidth, viewportHeight, margin, minWidth, minHeight ->
                     state.clampToViewport(viewportWidth, viewportHeight, margin, minWidth, minHeight)
-                }
+                },
+                hazeState = hazeState
             )
         }
 
@@ -398,19 +408,35 @@ private fun FullscreenCalculator(
     snapshot: CalculatorSnapshot,
     onKeyPress: (String) -> Unit,
     onShowHistory: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    hazeState: HazeState?
 ) {
+    val frostedTokens = LocalKKCThemeTokens.current.frosted
+    val panelModifier = if (hazeState != null) {
+        Modifier.hazeEffect(
+            state = hazeState,
+            style = HazeDefaults.style(
+                backgroundColor = MaterialTheme.colorScheme.surface.copy(
+                    alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)
+                ),
+                blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
+            )
+        )
+    } else {
+        Modifier.background(MaterialTheme.colorScheme.surface)
+    }
     Surface(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing),
-        tonalElevation = 3.dp
+        color = Color.Transparent,
+        tonalElevation = 0.dp
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().then(panelModifier)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.74f))
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -446,7 +472,8 @@ private fun ResizableModalCalculator(
     onSnapshotUpdate: (CalculatorSnapshot, Boolean) -> Unit,
     onDragEnd: () -> Unit,
     onResizeEnd: () -> Unit,
-    onClamp: (Float, Float, Float, Float, Float) -> Unit
+    onClamp: (Float, Float, Float, Float, Float) -> Unit,
+    hazeState: HazeState?
 ) {
     val margin = 12f
     val minWidth = 280f
@@ -473,20 +500,36 @@ private fun ResizableModalCalculator(
         val widthDp = stateSnapshot.modalWidth.coerceIn(minWidth, maxWidthDp)
         val heightDp = stateSnapshot.modalHeight.coerceIn(minHeight, maxHeightDp)
 
-        Surface(
+        val modalShape = RoundedCornerShape(20.dp)
+        val frostedTokens = LocalKKCThemeTokens.current.frosted
+        val panelModifier = if (hazeState != null) {
+            Modifier.hazeEffect(
+                state = hazeState,
+                style = HazeDefaults.style(
+                    backgroundColor = MaterialTheme.colorScheme.surface.copy(
+                        alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)
+                    ),
+                    blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
+                )
+            )
+        } else {
+            Modifier.background(MaterialTheme.colorScheme.surface)
+        }
+
+        Box(
             modifier = Modifier
                 .offset(stateSnapshot.modalX.dp, stateSnapshot.modalY.dp)
                 .width(widthDp.dp)
-                .height(heightDp.dp),
-            shape = RoundedCornerShape(16.dp),
-            tonalElevation = 5.dp,
-            shadowElevation = 8.dp
+                .height(heightDp.dp)
+                .shadow(10.dp, modalShape, clip = false)
+                .clip(modalShape)
+                .then(panelModifier)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f))
                         .pointerInput(viewportWidth, viewportHeight) {
                             var liveX = 0f
                             var liveY = 0f
@@ -724,11 +767,12 @@ private fun CalculatorPanel(
             .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Surface(
-            tonalElevation = 3.dp,
-            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(14.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
         ) {
             Column(
                 modifier = Modifier
@@ -778,16 +822,16 @@ private fun CalculatorPanel(
                                     contentColor = MaterialTheme.colorScheme.onPrimary
                                 )
                                 accent -> ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
                                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                                 memory -> ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.78f),
                                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                                 else -> ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                                    contentColor = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         ) {

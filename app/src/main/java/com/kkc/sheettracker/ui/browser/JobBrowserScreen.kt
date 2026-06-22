@@ -79,7 +79,7 @@ import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.CountStatusChip
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.ProgressCard
@@ -235,7 +235,7 @@ fun JobBrowserScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "KKC Dashboard - CNC",

@@ -47,7 +47,7 @@ import com.kkc.sheettracker.data.AssemblyPaneView
 import com.kkc.sheettracker.data.AssemblyViewLayout
 import com.kkc.sheettracker.data.AssemblyViewerDefaults
 import com.kkc.sheettracker.data.AssemblyViewerDefaultsStore
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,7 +62,7 @@ fun AssemblyViewerDefaultsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "Assembly Viewer Defaults",

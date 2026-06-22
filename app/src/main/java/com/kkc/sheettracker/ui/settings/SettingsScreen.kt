@@ -25,7 +25,9 @@ import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
+import com.kkc.sheettracker.ui.theme.KKCThemeRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -58,6 +60,10 @@ fun SettingsScreen(
     useStandardSheets: Boolean = false,
     onUseStandardSheetsChanged: (Boolean) -> Unit = {},
     timecardConfig: TimecardServerConfig,
+    themeCatalog: KKCThemeCatalog = KKCThemeRepository.builtInCatalog(),
+    onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit = {},
+    onThemeOverrideChanged: (String?) -> Unit = {},
+    onThemeCatalogReload: () -> Unit = {},
     onOpenAssemblyViewerDefaults: () -> Unit = {},
     onOpenSpecialtyViewerDefaults: () -> Unit = {},
 ) {
@@ -86,6 +92,7 @@ fun SettingsScreen(
     var editServerIp by remember(currentServerIp) { mutableStateOf(currentServerIp ?: "") }
     var serverIpDirty by remember(currentServerIp) { mutableStateOf(false) }
     var serverIpSaved by remember { mutableStateOf(false) }
+    var themeDropdownExpanded by remember { mutableStateOf(false) }
     val timecardScope = rememberCoroutineScope()
 
     LaunchedEffect(tabletSaved) {
@@ -122,7 +129,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "Settings",
@@ -196,6 +203,105 @@ fun SettingsScreen(
                             onCheckedChange = onUseStandardSheetsChanged
                         )
                     }
+                }
+
+                HorizontalDivider()
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Tablet Theme", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Tablet path: $basePath\\.metadata\\themes",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Author on server: Y:\\Ready Jobs\\.metadata\\themes",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Fleet default: ${themeCatalog.syncedDefaultThemeId ?: "Built-in default"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Active: ${themeCatalog.activeTheme.name}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                ExposedDropdownMenuBox(
+                    expanded = themeDropdownExpanded,
+                    onExpandedChange = { themeDropdownExpanded = it }
+                ) {
+                    val selectedId = themeCatalog.overrideThemeId
+                    val selectedThemeName = selectedId
+                        ?.let { id -> themeCatalog.themes.firstOrNull { it.id == id }?.name }
+                        ?: themeCatalog.activeTheme.name
+                    OutlinedTextField(
+                        value = selectedThemeName,
+                        onValueChange = {},
+                        label = { Text("This tablet") },
+                        supportingText = {
+                            Text(if (selectedId == null) "Using fleet default" else "Applies only to this tablet")
+                        },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        readOnly = true,
+                        shape = MaterialTheme.shapes.medium
+                    )
+                    ExposedDropdownMenu(
+                        expanded = themeDropdownExpanded,
+                        onDismissRequest = { themeDropdownExpanded = false }
+                    ) {
+                        themeCatalog.themes.forEach { theme ->
+                            DropdownMenuItem(
+                                text = { Text(theme.name) },
+                                onClick = {
+                                    onThemeFollowSyncedDefaultChanged(false)
+                                    onThemeOverrideChanged(theme.id)
+                                    themeDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onThemeOverrideChanged(null)
+                            onThemeFollowSyncedDefaultChanged(true)
+                        },
+                        enabled = themeCatalog.overrideThemeId != null,
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text("Use Fleet Default")
+                    }
+                    OutlinedButton(
+                        onClick = onThemeCatalogReload,
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text("Reload Themes")
+                    }
+                }
+
+                themeCatalog.loadMessages.forEach { message ->
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                themeCatalog.invalidThemes.forEach { invalid ->
+                    Text(
+                        "${invalid.filename}: ${invalid.message}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
 
                 Text("Work Mode", style = MaterialTheme.typography.bodyLarge)

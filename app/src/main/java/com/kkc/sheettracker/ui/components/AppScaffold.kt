@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import com.kkc.sheettracker.ui.timecard.BgPickerSheet
 import com.kkc.sheettracker.ui.timecard.TimecardIcon
 import dev.chrisbanes.haze.HazeDefaults
@@ -381,13 +382,14 @@ private fun MorphingNavBar(
             tonalElevation = 0.dp
         ) {
             val minHazeSurface = MaterialTheme.colorScheme.surface
-            val minHazeModifier = remember(hazeState, minHazeSurface) {
+            val frostedTokens = LocalKKCThemeTokens.current.frosted
+            val minHazeModifier = remember(hazeState, minHazeSurface, frostedTokens) {
                 if (hazeState != null)
                     Modifier.hazeEffect(
                         hazeState,
                         style = HazeDefaults.style(
-                            backgroundColor = minHazeSurface.copy(alpha = 0.88f),
-                            blurRadius = 25.dp
+                            backgroundColor = minHazeSurface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
+                            blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
                         )
                     )
                 else Modifier

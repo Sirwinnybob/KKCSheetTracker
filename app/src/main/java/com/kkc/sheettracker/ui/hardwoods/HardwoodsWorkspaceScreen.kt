@@ -108,7 +108,7 @@ import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.ChangedBadge
 import com.kkc.sheettracker.ui.components.ProgressPill
 import com.kkc.sheettracker.ui.components.ProgressState
@@ -749,7 +749,7 @@ fun HardwoodsWorkspaceScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "${job?.folderName ?: jobFolderName} - Hardwoods",

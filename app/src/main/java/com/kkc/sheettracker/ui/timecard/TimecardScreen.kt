@@ -42,6 +42,7 @@ import java.time.format.DateTimeFormatter
 import com.kkc.sheettracker.data.TimecardBgConfig
 import com.kkc.sheettracker.data.TimecardBgStore
 import com.kkc.sheettracker.ui.theme.FixedDensityWrapper
+import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 
 private val ClockInGreen = Color(0xFF2E7D32)
 private val ClockOutRed = Color(0xFFC62828)
@@ -117,6 +118,7 @@ private fun TimecardNotFoundState() {
 
 @Composable
 private fun TimecardReadyState(store: TimecardStore, ready: TimecardUiState.Ready, hazeState: HazeState) {
+    val frostedTokens = LocalKKCThemeTokens.current.frosted
     val isClockedIn = ready.punchStatus?.isClockedIn == true
     val isActionEnabled = ready.pin.length == 3 &&
         ready.punchStatus?.found == true &&
@@ -170,7 +172,7 @@ private fun TimecardReadyState(store: TimecardStore, ready: TimecardUiState.Read
                                     style = HazeDefaults.style(
                                         backgroundColor = if (isActionEnabled) bgColor
                                                           else bgColor.copy(alpha = 0.35f),
-                                        blurRadius = 14.dp
+                                        blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
                                     )
                                 )
                                 .clickable(
@@ -249,6 +251,7 @@ private fun DisplayCard(
     hazeState: HazeState,
     ready: TimecardUiState.Ready
 ) {
+    val frostedTokens = LocalKKCThemeTokens.current.frosted
     val nameAlpha by animateFloatAsState(
         targetValue = if (ready.pin.length == 3) 1f else 0f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
@@ -292,8 +295,8 @@ private fun DisplayCard(
             .hazeEffect(
                 state = hazeState,
                 style = HazeDefaults.style(
-                    backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                    blurRadius = 24.dp
+                    backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)),
+                    blurRadius = (frostedTokens.blurDp * 1.7f).coerceAtLeast(1f).dp
                 )
             ),
         shape = RoundedCornerShape(20.dp),
@@ -432,6 +435,7 @@ private fun NumpadKey(
     hazeState: HazeState,
     onClick: () -> Unit
 ) {
+    val frostedTokens = LocalKKCThemeTokens.current.frosted
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -451,8 +455,8 @@ private fun NumpadKey(
             .hazeEffect(
                 state = hazeState,
                 style = HazeDefaults.style(
-                    backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-                    blurRadius = 14.dp
+                    backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
+                    blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
                 )
             )
             .clickable(

@@ -23,20 +23,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 
 object DashboardSurfaceDefaults {
     val heroShape: Shape
-        @Composable get() = RoundedCornerShape(24.dp)
+        @Composable get() = RoundedCornerShape(LocalKKCThemeTokens.current.shape.largeDp.dp)
 
     val sectionShape: Shape
-        @Composable get() = RoundedCornerShape(22.dp)
+        @Composable get() = RoundedCornerShape(LocalKKCThemeTokens.current.shape.mediumDp.dp)
 
     val chipShape: Shape
         @Composable get() = RoundedCornerShape(14.dp)
 
     @Composable
     fun containerColor(accent: DashboardAccent): Color {
-        return MaterialTheme.colorScheme.surface
+        return MaterialTheme.colorScheme.surface.copy(alpha = LocalKKCThemeTokens.current.surface.cardAlpha)
     }
 
     @Composable

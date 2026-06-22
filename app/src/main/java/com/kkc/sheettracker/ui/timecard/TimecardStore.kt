@@ -238,6 +238,15 @@ class TimecardStore(
         scope.cancel()
     }
 
+    private fun parseName(fullName: String): String {
+        val parts = fullName.split(",").map { it.trim() }
+        return if (parts.size == 2) {
+            "${parts[1]} ${parts[0]}"
+        } else {
+            fullName
+        }
+    }
+
     /**
      * Resolves the custom display name locally on the tablet.
      * Checks if 'feature_display_name' exists in the employee's inventory.
@@ -262,7 +271,8 @@ class TimecardStore(
             }
             if (employeeName == null) return null
 
-            val profileFile = File(File(timeCardsDir, employeeName), "profile.json")
+            val folderName = parseName(employeeName)
+            val profileFile = File(File(timeCardsDir, folderName), "profile.json")
             if (!profileFile.exists() || !profileFile.isFile) return null
 
             val profileJson = profileFile.readText()

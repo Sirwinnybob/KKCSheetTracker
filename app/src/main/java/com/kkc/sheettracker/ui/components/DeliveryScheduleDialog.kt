@@ -59,6 +59,7 @@ fun DeliveryScheduleDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        ImmersiveDialogDecor()
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {

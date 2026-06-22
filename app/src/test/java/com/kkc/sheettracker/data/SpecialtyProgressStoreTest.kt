@@ -719,6 +719,219 @@ class SpecialtyProgressStoreTest {
         assertEquals("door_panels_auto|1/4 2S HICKORY RUSTIC|flat", item.automationKey)
         assertEquals("1/4 2s Hickory Rustic", item.material)
     }
+
+    @Test
+    fun suppressesAutoDetectedSawDoorPanelItemWhenCncOwnsMappedMaterial() {
+        val baseDir = createTempBaseDir()
+        writeMaterialMappings(baseDir, """{"1/4 MDF":"1_4 MDF"}""")
+        writeDoorCutIndex(
+            baseDir = baseDir,
+            body = """
+                {
+                  "documents": [
+                    {
+                      "docType": "DOOR_CUT_LIST",
+                      "pdfFilename": "1234 - Door Cut List.pdf",
+                      "rows": [
+                        {
+                          "rowId": "DOOR_CUT_LIST:1:0:a",
+                          "qty": 1,
+                          "material": "1/4 MDF",
+                          "description": "Center Panel",
+                          "width": "10",
+                          "length": "20",
+                          "cabinets": ["22"],
+                          "unitType": "SHEETS"
+                        }
+                      ]
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+        writeCncMaterialMetadata(
+            baseDir = baseDir,
+            materialName = "1_4 MDF",
+            partsBody = """
+                [
+                  {
+                    "number": 1,
+                    "width": 10.0,
+                    "length": 20.0,
+                    "name": "Center Panel",
+                    "cabNumber": 22,
+                    "room": "Kitchen"
+                  }
+                ]
+            """.trimIndent()
+        )
+        writeSpecialtyItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id":"door-panels",
+                      "name":"Door panels - 1/4 MDF",
+                      "category":"CUSTOM",
+                      "stations":["SAW"],
+                      "material":"1/4 MDF",
+                      "autoDetected":true,
+                      "automationKey":"door_panels_auto|1/4 MDF|flat"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        val resolved = SpecialtyProgressStore(baseDir = baseDir, tabletId = tabletId)
+            .loadResolvedItems(jobFolderName)
+
+        assertTrue(resolved.isEmpty())
+    }
+
+    @Test
+    fun doesNotSuppressManualSawItemWithSameMaterial() {
+        val baseDir = createTempBaseDir()
+        writeMaterialMappings(baseDir, """{"1/4 MDF":"1_4 MDF"}""")
+        writeDoorCutIndex(
+            baseDir = baseDir,
+            body = """
+                {
+                  "documents": [
+                    {
+                      "docType": "DOOR_CUT_LIST",
+                      "pdfFilename": "1234 - Door Cut List.pdf",
+                      "rows": [
+                        {
+                          "rowId": "DOOR_CUT_LIST:1:0:a",
+                          "qty": 1,
+                          "material": "1/4 MDF",
+                          "description": "Center Panel",
+                          "width": "10",
+                          "length": "20",
+                          "cabinets": ["22"],
+                          "unitType": "SHEETS"
+                        }
+                      ]
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+        writeCncMaterialMetadata(
+            baseDir = baseDir,
+            materialName = "1_4 MDF",
+            partsBody = """
+                [
+                  {
+                    "number": 1,
+                    "width": 10.0,
+                    "length": 20.0,
+                    "name": "Center Panel",
+                    "cabNumber": 22,
+                    "room": "Kitchen"
+                  }
+                ]
+            """.trimIndent()
+        )
+        writeSpecialtyItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id":"manual-saw",
+                      "name":"Door panels - 1/4 MDF",
+                      "category":"CUSTOM",
+                      "stations":["SAW"],
+                      "material":"1/4 MDF",
+                      "autoDetected":false
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        val resolved = SpecialtyProgressStore(baseDir = baseDir, tabletId = tabletId)
+            .loadResolvedItems(jobFolderName)
+
+        assertEquals(listOf("manual-saw"), resolved.map { it.item.id })
+    }
+
+    @Test
+    fun doesNotSuppressNonDoorPanelAutoDetectedItem() {
+        val baseDir = createTempBaseDir()
+        writeMaterialMappings(baseDir, """{"1/4 MDF":"1_4 MDF"}""")
+        writeDoorCutIndex(
+            baseDir = baseDir,
+            body = """
+                {
+                  "documents": [
+                    {
+                      "docType": "DOOR_CUT_LIST",
+                      "pdfFilename": "1234 - Door Cut List.pdf",
+                      "rows": [
+                        {
+                          "rowId": "DOOR_CUT_LIST:1:0:a",
+                          "qty": 1,
+                          "material": "1/4 MDF",
+                          "description": "Center Panel",
+                          "width": "10",
+                          "length": "20",
+                          "cabinets": ["22"],
+                          "unitType": "SHEETS"
+                        }
+                      ]
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+        writeCncMaterialMetadata(
+            baseDir = baseDir,
+            materialName = "1_4 MDF",
+            partsBody = """
+                [
+                  {
+                    "number": 1,
+                    "width": 10.0,
+                    "length": 20.0,
+                    "name": "Center Panel",
+                    "cabNumber": 22,
+                    "room": "Kitchen"
+                  }
+                ]
+            """.trimIndent()
+        )
+        writeSpecialtyItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id":"auto-other",
+                      "name":"Other auto item",
+                      "category":"CUSTOM",
+                      "stations":["SAW"],
+                      "material":"1/4 MDF",
+                      "autoDetected":true,
+                      "automationKey":"different_rule|1/4 MDF"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        val resolved = SpecialtyProgressStore(baseDir = baseDir, tabletId = tabletId)
+            .loadResolvedItems(jobFolderName)
+
+        assertEquals(listOf("auto-other"), resolved.map { it.item.id })
+    }
+
     @Test
     fun checklistCompletionSeedMergesWithTrackerAndNewestWins() {
         val baseDir = createTempBaseDir()
@@ -828,5 +1041,41 @@ class SpecialtyProgressStoreTest {
 
     private fun checklistItemsFile(baseDir: File, jobFolderName: String): File {
         return File(baseDir, "$jobFolderName/.metadata/admin/checklist.json")
+    }
+
+    private fun writeMaterialMappings(baseDir: File, body: String) {
+        val file = File(baseDir, ".metadata/material_mappings.json")
+        file.parentFile?.mkdirs()
+        file.writeText(body)
+    }
+
+    private fun writeDoorCutIndex(baseDir: File, body: String) {
+        val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
+        file.parentFile?.mkdirs()
+        file.writeText(body)
+    }
+
+    private fun writeCncMaterialMetadata(baseDir: File, materialName: String, partsBody: String) {
+        val cncDir = File(baseDir, "$jobFolderName/CNC")
+        cncDir.mkdirs()
+        File(cncDir, "1234 - $materialName.pdf").writeText("pdf")
+        val metadataFile = File(cncDir, ".metadata/1234 - $materialName.json")
+        metadataFile.parentFile?.mkdirs()
+        metadataFile.writeText(
+            """
+                {
+                  "jobNumber": "1234",
+                  "jobName": "Test Job",
+                  "material": "$materialName",
+                  "pdfFilename": "1234 - $materialName.pdf",
+                  "pages": [
+                    {
+                      "pageNumber": 1,
+                      "parts": $partsBody
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
     }
 }

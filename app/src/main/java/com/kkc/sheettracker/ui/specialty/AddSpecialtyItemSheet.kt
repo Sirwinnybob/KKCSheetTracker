@@ -20,6 +20,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -102,6 +103,7 @@ fun AddSpecialtyItemSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
+        ImmersiveDialogDecor()
         Column(
             modifier = Modifier
                 .fillMaxWidth()

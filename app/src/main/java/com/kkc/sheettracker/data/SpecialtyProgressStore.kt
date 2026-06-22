@@ -679,9 +679,32 @@ class SpecialtyProgressStore(
         val allItems = specialtyItems + checklistItems + tabletItems
         if (allItems.isEmpty()) return emptyList()
 
-        return allItems
+        val materialMappings = loadMaterialMappings(baseDir)
+        val cncOwnedDoorPanelMaterials = deriveCncOwnedDoorPanelMaterials(baseDir, jobFolderName)
+        val filteredItems = allItems.filterNot { item ->
+            shouldSuppressDoorPanelSawItem(
+                item = item,
+                materialMappings = materialMappings,
+                cncOwnedDoorPanelMaterials = cncOwnedDoorPanelMaterials
+            )
+        }
+
+        return filteredItems
             .distinctBy { it.id }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+    }
+
+    private fun shouldSuppressDoorPanelSawItem(
+        item: SpecialtyItem,
+        materialMappings: Map<String, String>,
+        cncOwnedDoorPanelMaterials: Set<String>
+    ): Boolean {
+        if (!item.autoDetected) return false
+        if (!item.automationKey.orEmpty().startsWith("door_panels_auto|", ignoreCase = true)) return false
+        if (item.stations.distinct() != listOf(SpecialtyStation.SAW)) return false
+        val materialKey = mapDoorPanelMaterialToCncKey(item.material, materialMappings)
+        if (materialKey.isBlank()) return false
+        return materialKey in cncOwnedDoorPanelMaterials
     }
 
     private fun loadTabletItems(jobFolderName: String): List<SpecialtyItem> {

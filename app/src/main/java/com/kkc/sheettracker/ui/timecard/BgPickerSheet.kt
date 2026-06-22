@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.data.TimecardBgConfig
 import com.kkc.sheettracker.data.TimecardBgStore
 import com.kkc.sheettracker.data.TimecardBgType
@@ -63,6 +64,7 @@ fun BgPickerSheet(onDismiss: () -> Unit) {
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        ImmersiveDialogDecor()
         when (phase) {
             BgPhase.OPTIONS -> BgOptionsContent(
                 currentType = currentConfig.type,

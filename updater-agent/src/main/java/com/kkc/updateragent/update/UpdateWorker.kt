@@ -1,10 +1,11 @@
 package com.kkc.updateragent.update
 
 import android.content.Context
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import java.io.File
 import java.time.Instant
 
 class UpdateWorker(
@@ -29,7 +30,7 @@ class UpdateWorker(
         val policy = repository.readPolicy(paths) ?: return Result.success()
         val manifest = repository.readManifest(paths) ?: return Result.success()
 
-        val tabletId = resolveTabletId(paths)
+        val tabletId = resolveTabletId()
         val logFile = paths.tabletLogFile(tabletId)
         val fallbackSignalFile = paths.fallbackRequiredFile(tabletId)
 
@@ -159,17 +160,18 @@ class UpdateWorker(
         return Result.success()
     }
 
-    private fun resolveTabletId(paths: UpdatePaths): String {
-        val sharedFile = File(paths.appUpdatesRoot, "tablet_id.txt")
-        if (sharedFile.isFile) {
-            val id = runCatching { sharedFile.readText().trim() }.getOrNull()
-            if (!id.isNullOrBlank()) {
-                return id
-            }
-        }
+    private fun resolveTabletId(): String {
         val prefs = applicationContext.getSharedPreferences("kkc_tracker", Context.MODE_PRIVATE)
-        val existing = prefs.getString("tablet_id", null)
-        return if (existing.isNullOrBlank()) "unknown-tablet" else existing
+        val existing = prefs.getString("updater_tablet_id", null)
+        if (!existing.isNullOrBlank()) return existing
+
+        val androidId = runCatching {
+            Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID)
+        }.getOrNull().orEmpty()
+        val suffix = androidId.takeLast(6).ifBlank { (System.currentTimeMillis() % 10_000).toString() }
+        val generated = "${Build.MODEL}-${suffix}".replace(Regex("[^A-Za-z0-9._-]"), "_")
+        prefs.edit().putString("updater_tablet_id", generated).apply()
+        return generated
     }
 
     companion object {

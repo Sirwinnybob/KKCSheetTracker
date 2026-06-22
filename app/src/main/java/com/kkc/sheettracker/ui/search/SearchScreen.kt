@@ -21,7 +21,7 @@ import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.models.ScanStatus
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -114,7 +114,7 @@ fun SearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "Search",

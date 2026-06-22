@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.models.PdfInkStroke
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarPenDecoration
 import com.kkc.sheettracker.ui.components.PdfViewportState
@@ -779,6 +780,7 @@ fun UnifiedReferenceViewer(
         }
 
         ModalBottomSheet(onDismissRequest = { showSheetNavigator = false }) {
+            ImmersiveDialogDecor()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

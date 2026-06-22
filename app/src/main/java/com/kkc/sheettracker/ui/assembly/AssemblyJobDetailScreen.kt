@@ -49,7 +49,7 @@ import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.ReferenceDocType
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.specialty.SpecialtyChecklistRow
 import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import com.kkc.sheettracker.ui.specialty.checklistTogglesForItem
@@ -93,7 +93,7 @@ fun AssemblyJobDetailScreen(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         jobFolderName,

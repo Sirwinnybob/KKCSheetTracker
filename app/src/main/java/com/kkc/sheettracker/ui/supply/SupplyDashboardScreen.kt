@@ -38,6 +38,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -377,6 +378,7 @@ fun SupplyDashboardScreen(
 
     statusSheetItem?.let { item ->
         ModalBottomSheet(onDismissRequest = { statusSheetItem = null }, sheetState = statusSheetState) {
+            ImmersiveDialogDecor()
             Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
                 Text("Change Status: ${item.name}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                 HorizontalDivider()

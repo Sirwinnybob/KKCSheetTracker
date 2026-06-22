@@ -52,7 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.ui.components.PinButton
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
@@ -134,7 +134,7 @@ fun SpecialtyJobsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "KKC Dashboard - Specialty",

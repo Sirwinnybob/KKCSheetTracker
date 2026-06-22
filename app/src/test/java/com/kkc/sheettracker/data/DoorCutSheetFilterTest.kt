@@ -5,6 +5,10 @@ import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
+import com.kkc.sheettracker.data.models.Job
+import com.kkc.sheettracker.data.models.Material
+import com.kkc.sheettracker.data.models.MaterialMetadata
+import com.kkc.sheettracker.data.models.PageMetadata
 import com.kkc.sheettracker.data.models.Part
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -245,5 +249,267 @@ class DoorCutSheetFilterTest {
 
         val nailerProgress = hardwoodsProgressStore.getRowProgress(jobFolder, HardwoodDocType.NAILER_CUT_LIST.name, "nailer-row-1")
         assertEquals(1, nailerProgress.doneCount)
+    }
+
+    @Test
+    fun deriveCncOwnedDoorPanelMaterials_usesMappedMaterialWhenAllRowsAreCovered() {
+        val baseDir = createTempDirectory()
+        writeMaterialMappings(
+            baseDir,
+            """
+                {
+                  "1/4 MDF": "1_4 MDF"
+                }
+            """.trimIndent()
+        )
+        writeDoorCutIndex(
+            baseDir = baseDir,
+            rows = listOf(
+                sheetDoorRow(
+                    rowId = "DOOR_CUT_LIST:1:0:a",
+                    material = "1/4 MDF",
+                    description = "Center Panel",
+                    cabinets = listOf("22"),
+                    qty = 1
+                ),
+                sheetDoorRow(
+                    rowId = "DOOR_CUT_LIST:1:1:b",
+                    material = "1/4 MDF",
+                    description = "Center Panel",
+                    cabinets = listOf("23"),
+                    qty = 1
+                )
+            )
+        )
+
+        val cncJob = Job(
+            folderName = jobFolder,
+            jobNumber = "1234",
+            jobName = "Test Job",
+            materials = listOf(
+                materialWithParts(
+                    materialName = "1_4 MDF",
+                    parts = listOf(
+                        Part(name = "Center Panel", cabNumber = 22, width = 10.0, length = 20.0),
+                        Part(name = "Center Panel", cabNumber = 23, width = 10.0, length = 20.0)
+                    )
+                )
+            )
+        )
+
+        val owned = deriveCncOwnedDoorPanelMaterials(
+            baseDir = baseDir,
+            jobFolderName = jobFolder,
+            cncJob = cncJob
+        )
+
+        assertEquals(setOf("1_4 MDF"), owned)
+    }
+
+    @Test
+    fun deriveCncOwnedDoorPanelMaterials_requiresFullCoveragePerSheetRow() {
+        val baseDir = createTempDirectory()
+        writeMaterialMappings(baseDir, """{"1/4 MDF":"1_4 MDF"}""")
+        writeDoorCutIndex(
+            baseDir = baseDir,
+            rows = listOf(
+                sheetDoorRow(
+                    rowId = "DOOR_CUT_LIST:1:0:a",
+                    material = "1/4 MDF",
+                    description = "Center Panel",
+                    cabinets = listOf("22"),
+                    qty = 1
+                ),
+                sheetDoorRow(
+                    rowId = "DOOR_CUT_LIST:1:1:b",
+                    material = "1/4 MDF",
+                    description = "Center Panel",
+                    cabinets = listOf("23"),
+                    qty = 1
+                )
+            )
+        )
+
+        val cncJob = Job(
+            folderName = jobFolder,
+            jobNumber = "1234",
+            jobName = "Test Job",
+            materials = listOf(
+                materialWithParts(
+                    materialName = "1_4 MDF",
+                    parts = listOf(
+                        Part(name = "Center Panel", cabNumber = 22, width = 10.0, length = 20.0)
+                    )
+                )
+            )
+        )
+
+        val owned = deriveCncOwnedDoorPanelMaterials(
+            baseDir = baseDir,
+            jobFolderName = jobFolder,
+            cncJob = cncJob
+        )
+
+        assertTrue(owned.isEmpty())
+    }
+
+    @Test
+    fun deriveCncOwnedDoorPanelMaterials_fallsBackToNormalizedRawMaterialWhenNoMappingExists() {
+        val baseDir = createTempDirectory()
+        writeDoorCutIndex(
+            baseDir = baseDir,
+            rows = listOf(
+                sheetDoorRow(
+                    rowId = "DOOR_CUT_LIST:1:0:a",
+                    material = "1/4 Mystery Core",
+                    description = "Panel Slab",
+                    cabinets = listOf("9"),
+                    qty = 1
+                )
+            )
+        )
+
+        val cncJob = Job(
+            folderName = jobFolder,
+            jobNumber = "1234",
+            jobName = "Test Job",
+            materials = listOf(
+                materialWithParts(
+                    materialName = "1/4 MYSTERY CORE",
+                    parts = listOf(
+                        Part(name = "Panel Slab", cabNumber = 9, width = 10.0, length = 20.0)
+                    )
+                )
+            )
+        )
+
+        val owned = deriveCncOwnedDoorPanelMaterials(
+            baseDir = baseDir,
+            jobFolderName = jobFolder,
+            cncJob = cncJob
+        )
+
+        assertEquals(setOf("1/4 MYSTERY CORE"), owned)
+    }
+
+    @Test
+    fun deriveCncOwnedDoorPanelMaterials_skipsMaterialWithoutMatchingCncMaterial() {
+        val baseDir = createTempDirectory()
+        writeMaterialMappings(baseDir, """{"1/4 MDF":"1_4 MDF"}""")
+        writeDoorCutIndex(
+            baseDir = baseDir,
+            rows = listOf(
+                sheetDoorRow(
+                    rowId = "DOOR_CUT_LIST:1:0:a",
+                    material = "1/4 MDF",
+                    description = "Center Panel",
+                    cabinets = listOf("22"),
+                    qty = 1
+                )
+            )
+        )
+
+        val cncJob = Job(
+            folderName = jobFolder,
+            jobNumber = "1234",
+            jobName = "Test Job",
+            materials = listOf(
+                materialWithParts(
+                    materialName = "1_4 WHITE OAK",
+                    parts = listOf(
+                        Part(name = "Center Panel", cabNumber = 22, width = 10.0, length = 20.0)
+                    )
+                )
+            )
+        )
+
+        val owned = deriveCncOwnedDoorPanelMaterials(
+            baseDir = baseDir,
+            jobFolderName = jobFolder,
+            cncJob = cncJob
+        )
+
+        assertTrue(owned.isEmpty())
+    }
+
+    private fun createTempDirectory(): File = Files.createTempDirectory("door-cut-sheet-filter-test").toFile()
+
+    private fun writeMaterialMappings(baseDir: File, body: String) {
+        val file = File(baseDir, ".metadata/material_mappings.json")
+        file.parentFile?.mkdirs()
+        file.writeText(body)
+    }
+
+    private fun writeDoorCutIndex(baseDir: File, rows: List<HardwoodCutlistRow>) {
+        val file = File(baseDir, "$jobFolder/.metadata/hardwoods/cutlist_index.json")
+        file.parentFile?.mkdirs()
+        val rowsJson = rows.joinToString(",\n") { row ->
+            """
+                {
+                  "rowId": "${row.rowId}",
+                  "qty": ${row.qty},
+                  "material": ${gson.toJson(row.material)},
+                  "description": ${gson.toJson(row.description)},
+                  "width": ${gson.toJson(row.width)},
+                  "length": ${gson.toJson(row.length)},
+                  "cabinets": ${gson.toJson(row.cabinets)},
+                  "unitType": "SHEETS"
+                }
+            """.trimIndent()
+        }
+        file.writeText(
+            """
+                {
+                  "documents": [
+                    {
+                      "docType": "${HardwoodDocType.DOOR_CUT_LIST.name}",
+                      "pdfFilename": "1234 - Door Cut List.pdf",
+                      "rows": [
+                        $rowsJson
+                      ]
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+    }
+
+    private fun sheetDoorRow(
+        rowId: String,
+        material: String,
+        description: String,
+        cabinets: List<String>,
+        qty: Int
+    ): HardwoodCutlistRow {
+        return HardwoodCutlistRow(
+            rowId = rowId,
+            qty = qty,
+            material = material,
+            description = description,
+            width = "10",
+            length = "20",
+            cabinets = cabinets
+        )
+    }
+
+    private fun materialWithParts(
+        materialName: String,
+        parts: List<Part>
+    ): Material {
+        return Material(
+            pdfFilename = "1234 - $materialName.pdf",
+            materialName = materialName,
+            pageCount = 1,
+            metadata = MaterialMetadata(
+                material = materialName,
+                pdfFilename = "1234 - $materialName.pdf",
+                pages = listOf(
+                    PageMetadata(
+                        pageNumber = 1,
+                        parts = parts
+                    )
+                )
+            )
+        )
     }
 }

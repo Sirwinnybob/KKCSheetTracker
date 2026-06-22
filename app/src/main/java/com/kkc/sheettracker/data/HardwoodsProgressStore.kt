@@ -76,7 +76,12 @@ class HardwoodsProgressStore(
     }
 
     private fun loadCutlistIndexFromSnapshot(jobFolderName: String): HardwoodCutlistIndex? {
-        return engine().getHardwoodsSnapshot(jobFolderName)?.job?.index
+        engine().getHardwoodsSnapshot(jobFolderName)?.job?.index?.let { return it }
+        val indexFile = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
+        if (!indexFile.exists()) return null
+        return runCatching {
+            gson.fromJson(indexFile.readText(), HardwoodCutlistIndex::class.java)
+        }.getOrNull()
     }
 
     private fun bumpProgressVersion() {
@@ -484,15 +489,14 @@ class HardwoodsProgressStore(
         val key = makeBoardStockTallyKey(material, normalizedWidth, source)
         val normalizedTarget = doneCount.coerceAtLeast(0)
         val current = getTotalsRip10DoneMap(jobFolderName)[key] ?: 0
-        val delta = normalizedTarget - current
-        if (delta == 0) return
+        if (current == normalizedTarget) return
         appendAction(
             jobFolderName = jobFolderName,
             docType = "BOARD_STOCK",
             rowId = "",
             totalsKey = key,
-            action = HardwoodTrackerActions.ADD_TOTALS_RIP10_DONE_COUNT,
-            value = delta
+            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = normalizedTarget
         )
     }
 
@@ -516,15 +520,14 @@ class HardwoodsProgressStore(
         val normalizedTarget = doneCount.coerceAtLeast(0)
         val key = makeTotalsRip10LineKey(docType, blockIndex, lineIndex)
         val current = getTotalsRip10DoneMap(jobFolderName)[key] ?: 0
-        val delta = normalizedTarget - current
-        if (delta == 0) return
+        if (current == normalizedTarget) return
         appendAction(
             jobFolderName = jobFolderName,
             docType = docType,
             rowId = "",
             totalsKey = key,
-            action = HardwoodTrackerActions.ADD_TOTALS_RIP10_DONE_COUNT,
-            value = delta
+            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = normalizedTarget
         )
     }
 
@@ -845,15 +848,14 @@ class HardwoodsProgressStore(
         val key = makeAdminBoardStockTallyKey(material, itemId)
         val normalizedTarget = doneCount.coerceAtLeast(0)
         val current = getTotalsRip10DoneMap(jobFolderName)[key] ?: 0
-        val delta = normalizedTarget - current
-        if (delta == 0) return
+        if (current == normalizedTarget) return
         appendAction(
             jobFolderName = jobFolderName,
             docType = "BOARD_STOCK",
             rowId = "",
             totalsKey = key,
-            action = HardwoodTrackerActions.ADD_TOTALS_RIP10_DONE_COUNT,
-            value = delta
+            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = normalizedTarget
         )
     }
 

@@ -104,6 +104,7 @@ import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SheetStatusKey
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarCncDecoration
@@ -114,7 +115,7 @@ import com.kkc.sheettracker.ui.components.SortColumn
 import com.kkc.sheettracker.ui.components.SortDirection
 import com.kkc.sheettracker.ui.components.SortHeader
 import com.kkc.sheettracker.ui.components.VerticalSplitLayout
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.markup.DrawingTool
 import com.kkc.sheettracker.ui.markup.PdfMarkupOverlay
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolbar
@@ -609,9 +610,10 @@ fun SheetViewerScreen(
                 currentPage = resolved
             } else {
                 val requested = nextMaterial.resolveHeadPage(localTouchPage ?: startPage)
+                val identityChanged = oldIdentity != nextIdentity
                 currentPage = when {
+                    !identityChanged && currentPage in visiblePages -> currentPage
                     requested in visiblePages -> requested
-                    currentPage in visiblePages -> currentPage
                     else -> visiblePages.first()
                 }
             }
@@ -727,6 +729,7 @@ fun SheetViewerScreen(
                 VIEWER_PREPARED_TAG,
                 "render_recompute_reason=cache_miss page=$currentPage job=$jobFolderName pdf=$pdfFilename"
             )
+            delay(150L)
             val rendered = withContext(Dispatchers.IO) {
                 renderPageFromPdf(
                     targetMaterial = material,
@@ -760,6 +763,9 @@ fun SheetViewerScreen(
         if (diagramBitmap != null) {
             val expectedFromParts = parts.map { it.number }.toSet()
             try {
+                if (!progressStore.hasOcrCache(jobFolderName, pdfFilename, currentPage, fileFingerprint)) {
+                    delay(300L)
+                }
                 diagramBboxes = runOcrForPage(currentPage, expectedFromParts)
                 Log.i(
                     OCR_TAG,
@@ -780,6 +786,7 @@ fun SheetViewerScreen(
         if (pages.isEmpty()) return@LaunchedEffect
         val currentIndex = pages.indexOf(currentPage)
         if (currentIndex < 0) return@LaunchedEffect
+        delay(250L)
         withContext(Dispatchers.IO) {
             val start = (currentIndex - RENDER_PREWARM_RADIUS).coerceAtLeast(0)
             val end = (currentIndex + RENDER_PREWARM_RADIUS).coerceAtMost(pages.lastIndex)
@@ -838,6 +845,7 @@ fun SheetViewerScreen(
         if (currentMaterial == null || fileFingerprint.isBlank()) return@LaunchedEffect
         prewarmJob?.cancel()
         prewarmJob = scope.launch(Dispatchers.Default) {
+            delay(400L)
             val current = currentMaterial ?: return@launch
             val queue = mutableListOf<Pair<Material, Int>>()
             for (p in current.visibleSheetPages()) {
@@ -1708,6 +1716,7 @@ private fun SheetNavigatorSheet(
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        ImmersiveDialogDecor()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1876,6 +1885,7 @@ private fun CncSearchModal(
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        ImmersiveDialogDecor()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2025,13 +2035,30 @@ private suspend fun runMlKitOcrOnDiagramImage(
     expectedNums: Set<Int>
 ): Map<Int, List<Rect>> {
     Log.i(OCR_TAG, "OCR preprocess: input=${diagramBitmap.width}x${diagramBitmap.height}")
-    val variants = preprocessForOcrVariants(diagramBitmap)
     val merged = mutableMapOf<Int, MutableList<OcrHit>>()
-    variants.forEachIndexed { idx, bmp ->
-        val r = runMlKitRawMultiPass(bmp, expectedNums)
-        Log.i(OCR_TAG, "OCR variant[$idx] matchedNums=${r.size}")
-        for ((n, hits) in r) {
-            merged.getOrPut(n) { mutableListOf() }.addAll(hits)
+
+    val variantProducers = listOf<suspend () -> Bitmap>(
+        { diagramBitmap },
+        { withContext(Dispatchers.Default) { toGrayscaleContrast(diagramBitmap, contrast = 1.20f) } },
+        { withContext(Dispatchers.Default) { preprocessForOcr(diagramBitmap, thresholdBias = 0, erode = false) } },
+        { withContext(Dispatchers.Default) { preprocessForOcr(diagramBitmap, thresholdBias = 10, erode = false) } },
+        { withContext(Dispatchers.Default) { preprocessForOcr(diagramBitmap, thresholdBias = 0, erode = true) } },
+        { withContext(Dispatchers.Default) { preprocessForOcr(diagramBitmap, thresholdBias = 10, erode = true) } }
+    )
+
+    variantProducers.forEachIndexed { idx, producer ->
+        kotlinx.coroutines.yield()
+        val bmp = producer()
+        try {
+            val r = runMlKitRawMultiPass(bmp, expectedNums)
+            Log.i(OCR_TAG, "OCR variant[$idx] matchedNums=${r.size}")
+            for ((n, hits) in r) {
+                merged.getOrPut(n) { mutableListOf() }.addAll(hits)
+            }
+        } finally {
+            if (idx > 0 && !bmp.isRecycled) {
+                bmp.recycle()
+            }
         }
     }
     val deduped = merged.mapValues { (_, hits) ->
@@ -2369,6 +2396,7 @@ private suspend fun runMlKitRawMultiPass(
     )
 
     tiles.forEachIndexed { i, t ->
+        kotlinx.coroutines.yield()
         val tw = (t.right - t.left).coerceAtLeast(1)
         val th = (t.bottom - t.top).coerceAtLeast(1)
         val tileBmp = Bitmap.createBitmap(bitmap, t.left, t.top, tw, th)

@@ -29,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -47,6 +48,7 @@ import com.kkc.sheettracker.data.models.SupplyCategory
 import com.kkc.sheettracker.data.models.SupplyItem
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.ui.components.TopBarClock
+import com.kkc.sheettracker.ui.components.headerBackground
 import kotlin.math.roundToInt
 
 fun buildCncDashboardWidgets(
@@ -353,13 +355,17 @@ fun DashboardShell(
     Scaffold(
         topBar = {
             TopAppBar(
+                modifier = Modifier.headerBackground(),
                 title = {
                     val displayTitle = if (!subtitle.isNullOrBlank()) {
                         "KKC Dashboard - $subtitle"
                     } else {
                         title
                     }
-                    Text(displayTitle)
+                    Text(
+                        displayTitle,
+                        style = MaterialTheme.typography.titleMedium
+                    )
                 },
                 actions = {
                     if (onRefresh != null) {
@@ -369,7 +375,12 @@ fun DashboardShell(
                     }
                     topBarActions()
                     TopBarClock()
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                )
             )
         },
         floatingActionButton = floatingActionButton

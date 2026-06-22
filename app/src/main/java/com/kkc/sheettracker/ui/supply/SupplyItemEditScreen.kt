@@ -17,7 +17,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.SupplyRepository
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.data.models.ALL_SUPPLY_STATUSES
 import com.kkc.sheettracker.data.models.SUPPLY_STATUS_PRIORITY
 import com.kkc.sheettracker.data.models.SupplyCategory
@@ -122,7 +123,7 @@ fun SupplyItemEditScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         if (itemId == null) "New Item" else "Edit Item",
@@ -307,6 +308,7 @@ fun SupplyItemEditScreen(
             onDismissRequest = { showCategorySheet = false },
             sheetState = categorySheetState
         ) {
+            ImmersiveDialogDecor()
             Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
                 Text(
                     "Select Category",
@@ -335,6 +337,7 @@ fun SupplyItemEditScreen(
             onDismissRequest = { showStatusSheet = false },
             sheetState = statusSheetState
         ) {
+            ImmersiveDialogDecor()
             Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
                 Text(
                     "Select Status",

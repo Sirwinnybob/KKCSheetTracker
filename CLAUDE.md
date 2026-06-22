@@ -47,6 +47,14 @@ Format with `"%.2f"` (two decimal places), never `"%.1f"`. Hub rounds up to near
 - Hub timezone: `TZ=America/Los_Angeles` in docker-compose — handles DST automatically
 
 ## Build
+
+**Tablet deployment (release build — default for production tablets):**
+```
+.\adb-install-release.ps1
+```
+Builds release APK and installs to all connected devices with `-r` flag (preserves data).
+
+**Local development (debug build):**
 ```
 cd C:\Scripts\KKCSheetTracker
 .\gradlew.bat assembleDebug

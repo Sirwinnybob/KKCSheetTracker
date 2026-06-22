@@ -20,8 +20,8 @@ android {
         applicationId = "com.kkc.sheettracker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6010
-        versionName = "6.0.1"
+        versionCode = 6014
+        versionName = "6.0.5"
     }
 
     signingConfigs {
@@ -91,6 +91,7 @@ dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-gif:2.7.0")
+    implementation("io.coil-kt:coil-svg:2.7.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("org.nanohttpd:nanohttpd:2.3.1")

@@ -54,7 +54,9 @@ import com.kkc.sheettracker.sync.SyncthingSupervisor
 import androidx.lifecycle.lifecycleScope
 import com.kkc.sheettracker.ui.migration.MigrationRequiredScreen
 import com.kkc.sheettracker.ui.components.PersistentNavigationBarHider
+import com.kkc.sheettracker.ui.theme.KKCThemeRepository
 import com.kkc.sheettracker.ui.theme.KKCTheme
+import com.kkc.sheettracker.ui.theme.SharedPreferencesKKCThemePreferenceStore
 import com.kkc.sheettracker.update.DeviceOwnerUpdateFallback
 import com.kkc.sheettracker.update.UpdateManager
 import com.kkc.sheettracker.update.ExternalAppUpdate
@@ -95,14 +97,6 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putString("base_path", discoveredPath).apply()
                 }
 
-        // Write the tablet ID to a shared file so that updater-agent can read it
-        runCatching {
-            val appUpdatesDir = File(basePath, ".appupdates")
-            if (!appUpdatesDir.exists()) {
-                appUpdatesDir.mkdirs()
-            }
-            File(appUpdatesDir, "tablet_id.txt").writeText(tabletId)
-        }
         val useLegacyUpdatePrompt = DeviceOwnerUpdateFallback(this)
             .shouldUseLegacyPrompt(basePath = basePath, tabletId = tabletId)
         updateManager = UpdateManager(this).apply {
@@ -127,7 +121,10 @@ class MainActivity : ComponentActivity() {
                 val followSystemTheme = prefs.getBoolean("follow_system_theme", true)
                 val darkThemeOverride = prefs.getBoolean("dark_theme", false)
                 val isDarkTheme = if (followSystemTheme) systemDark else darkThemeOverride
-                KKCTheme(darkTheme = isDarkTheme) {
+                val themePrefs = remember { SharedPreferencesKKCThemePreferenceStore(prefs) }
+                val themeRepository = remember(basePath) { KKCThemeRepository(File(basePath), themePrefs) }
+                val themeCatalog = remember(themeRepository) { themeRepository.loadCatalog() }
+                KKCTheme(darkTheme = isDarkTheme, themeTokens = themeCatalog.activeTheme.tokens) {
                     PersistentNavigationBarHider()
                     Surface(
                         modifier = Modifier.fillMaxSize(),
@@ -209,8 +206,14 @@ class MainActivity : ComponentActivity() {
             var setupApiKeyInput by rememberSaveable { mutableStateOf("") }
             var acknowledgedSyncFailureAttemptAtMs by rememberSaveable { mutableStateOf<Long?>(null) }
             var showViewOnlyNotice by rememberSaveable { mutableStateOf(isViewOnlyMode) }
+            val themePrefs = remember { SharedPreferencesKKCThemePreferenceStore(prefs) }
+            val themeRepository = remember(basePath) { KKCThemeRepository(File(basePath), themePrefs) }
+            var themeCatalog by remember(themeRepository) { mutableStateOf(themeRepository.loadCatalog()) }
+            fun reloadThemeCatalog() {
+                themeCatalog = themeRepository.loadCatalog()
+            }
 
-            KKCTheme(darkTheme = isDarkTheme) {
+            KKCTheme(darkTheme = isDarkTheme, themeTokens = themeCatalog.activeTheme.tokens) {
                 PersistentNavigationBarHider()
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -275,7 +278,17 @@ class MainActivity : ComponentActivity() {
                         },
                         onSyncthingStartNow = {
                             syncthingSupervisor.startNow()
-                        }
+                        },
+                        themeCatalog = themeCatalog,
+                        onThemeFollowSyncedDefaultChanged = { follow ->
+                            themeRepository.setFollowSyncedDefault(follow)
+                            reloadThemeCatalog()
+                        },
+                        onThemeOverrideChanged = { themeId ->
+                            themeRepository.setOverrideThemeId(themeId)
+                            reloadThemeCatalog()
+                        },
+                        onThemeCatalogReload = { reloadThemeCatalog() }
                     )
 
                     if (updateManager.pendingUpdateApk != null) {

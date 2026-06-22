@@ -43,7 +43,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
+import com.kkc.sheettracker.ui.components.headerBackground
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -164,7 +165,7 @@ fun HardwoodsDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "Hardwoods Dashboard",
@@ -722,6 +723,7 @@ private fun HardwoodsFlaggedPartsSheet(
     val totalIssues = jobsWithIssues.sumOf { countSelector(it.counts) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        ImmersiveDialogDecor()
         Column(
             modifier = Modifier
                 .fillMaxWidth()

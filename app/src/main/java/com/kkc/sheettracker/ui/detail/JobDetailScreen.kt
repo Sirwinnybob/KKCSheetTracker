@@ -65,7 +65,7 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.CountStatusChip
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.PageStatusBar
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
@@ -180,7 +180,7 @@ fun JobDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         job?.folderName ?: "Loading...",

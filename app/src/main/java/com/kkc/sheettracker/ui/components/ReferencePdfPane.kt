@@ -71,6 +71,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -880,17 +882,20 @@ private fun ZoomablePdfImage(
                                     hadTransformInput = true
                                 }
                                 val centroid = event.calculateCentroid(useCurrent = true)
-                                val nextZoom = (zoom * zoomChange).coerceIn(minZoom, maxZoom)
-                                // Compensate for graphicsLayer's center-anchored scaling so the
-                                // pinch centroid stays under the fingers instead of the zoom
-                                // always appearing to originate from the view's center.
-                                val appliedZoomChange = nextZoom / zoom
-                                val anchorX = centroid.x - viewSize.width / 2f
-                                val anchorY = centroid.y - viewSize.height / 2f
-                                val nextPanX = panX * appliedZoomChange + panChange.x + anchorX * (1f - appliedZoomChange)
-                                val nextPanY = panY * appliedZoomChange + panChange.y + anchorY * (1f - appliedZoomChange)
-                                val (clampedX, clampedY) = clampPan(nextZoom, nextPanX, nextPanY)
-                                zoom = nextZoom
+                                val next = computeZoomPan(
+                                    zoom = zoom,
+                                    panX = panX,
+                                    panY = panY,
+                                    zoomChange = zoomChange,
+                                    panChange = panChange,
+                                    centroid = centroid,
+                                    viewWidth = viewSize.width,
+                                    viewHeight = viewSize.height,
+                                    minZoom = minZoom,
+                                    maxZoom = maxZoom
+                                )
+                                val (clampedX, clampedY) = clampPan(next.zoom, next.panX, next.panY)
+                                zoom = next.zoom
                                 panX = clampedX
                                 panY = clampedY
                                 emitViewport()
@@ -1018,6 +1023,7 @@ private fun ReferenceTocSheet(
     val pages = remember(pageCount) { if (pageCount <= 0) emptyList() else (1..pageCount).toList() }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        ImmersiveDialogDecor()
         Column(modifier = Modifier.fillMaxWidth().height(620.dp)) {
             Row(
                 modifier = Modifier
@@ -1085,6 +1091,45 @@ private fun ReferenceTocSheet(
             }
         }
     }
+}
+
+internal data class ZoomPanResult(
+    val zoom: Float,
+    val panX: Float,
+    val panY: Float
+)
+
+/**
+ * Computes the next zoom + pan from a transform gesture frame, compensating for
+ * graphicsLayer's center-anchored scaling so the pinch centroid stays under the
+ * fingers instead of the zoom appearing to originate from the view's center.
+ *
+ * Guards against an unspecified centroid: [calculateCentroid] returns
+ * [Offset.Unspecified] (NaN, NaN) on the terminal frame of a gesture once all
+ * pointers have lifted. Without the guard, `anchor * (1f - appliedZoomChange)`
+ * evaluates to `NaN * 0f == NaN`, poisoning the pan offsets and crashing later
+ * in `roundToInt()` ("Cannot round NaN value"). When there is no valid centroid
+ * there is no anchor to compensate around, so the anchor contribution is zero.
+ */
+internal fun computeZoomPan(
+    zoom: Float,
+    panX: Float,
+    panY: Float,
+    zoomChange: Float,
+    panChange: Offset,
+    centroid: Offset,
+    viewWidth: Int,
+    viewHeight: Int,
+    minZoom: Float,
+    maxZoom: Float
+): ZoomPanResult {
+    val nextZoom = (zoom * zoomChange).coerceIn(minZoom, maxZoom)
+    val appliedZoomChange = if (zoom == 0f) 1f else nextZoom / zoom
+    val anchorX = if (centroid.isSpecified) centroid.x - viewWidth / 2f else 0f
+    val anchorY = if (centroid.isSpecified) centroid.y - viewHeight / 2f else 0f
+    val nextPanX = panX * appliedZoomChange + panChange.x + anchorX * (1f - appliedZoomChange)
+    val nextPanY = panY * appliedZoomChange + panChange.y + anchorY * (1f - appliedZoomChange)
+    return ZoomPanResult(zoom = nextZoom, panX = nextPanX, panY = nextPanY)
 }
 
 private data class QuantizedViewportState(

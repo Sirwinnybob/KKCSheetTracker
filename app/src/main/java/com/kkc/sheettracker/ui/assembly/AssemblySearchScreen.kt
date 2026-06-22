@@ -45,7 +45,7 @@ import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.ScanStatus
-import com.kkc.sheettracker.ui.components.headerGradientBrush
+import com.kkc.sheettracker.ui.components.headerBackground
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -116,7 +116,7 @@ fun AssemblySearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(headerGradientBrush()),
+                modifier = Modifier.headerBackground(),
                 title = {
                     Text(
                         "Assembly Search",

@@ -83,6 +83,7 @@ fun HardwoodsRevisionHistorySheet(
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        ImmersiveDialogDecor()
         val revisions = history?.revisions.orEmpty().sortedByDescending { it.revision }
         Column(
             modifier = Modifier
