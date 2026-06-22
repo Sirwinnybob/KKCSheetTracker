@@ -99,12 +99,16 @@ class SpecialtyStateStore(
         completionKey: String,
         completed: Boolean
     ) = withContext(ioDispatcher) {
+        val item = getResolvedItems(jobFolderName).firstOrNull { it.item.id == itemId }?.item
         specialtyProgressStore.setCompletion(
             jobFolderName = jobFolderName,
             itemId = itemId,
             completionKey = completionKey,
             completed = completed
         )
+        if (completionKey.equals(SpecialtyStation.SAW.name, ignoreCase = true) && item != null) {
+            autoCompleteDoorPanelRows(jobFolderName, item, completed)
+        }
     }
 
     suspend fun setItemCompletion(

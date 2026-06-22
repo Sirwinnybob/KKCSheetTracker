@@ -72,6 +72,43 @@ class DoorPanelAutoCompleteWiringTest {
         assertTrue(specialtyProgressStore.loadResolvedItems(jobFolderName).first().isComplete)
     }
 
+    @Test
+    fun setItemCompletionKey_sawStepOnMultiStationAutoDoorPanelUpdatesRows() = runBlocking {
+        val baseDir = Files.createTempDirectory("door-panel-auto-complete-key-test").toFile()
+        val jobFolderName = "1234 - Door Panel Test"
+        writeMaterialMappings(
+            baseDir = baseDir,
+            body = """{"3/4 Armor Core":"3_4 PG Armor Core"}"""
+        )
+        writeArmorCoreCutlistIndex(baseDir, jobFolderName)
+        writeArmorCoreSpecialtyItems(baseDir, jobFolderName)
+
+        val specialtyProgressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val store = SpecialtyStateStore(
+            specialtyScanCoordinator = SpecialtyScanCoordinator(
+                SpecialtyRepository(baseDir = baseDir, progressStore = specialtyProgressStore)
+            ),
+            specialtyProgressStore = specialtyProgressStore,
+            hardwoodsProgressStore = hardwoodsProgressStore,
+            sheetRipProgressStore = SheetRipProgressStore(baseDir = baseDir),
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
+        )
+
+        store.setItemCompletionKey(jobFolderName, "auto-door", "SAW", true)
+
+        val resolvedAfterSaw = specialtyProgressStore.loadResolvedItems(jobFolderName).first()
+        assertTrue(resolvedAfterSaw.completionByKey["SAW"]?.completed == true)
+        assertTrue(resolvedAfterSaw.completionByKey["EDGE_BANDER"]?.completed != true)
+        assertEquals(2, doneCount(hardwoodsProgressStore, jobFolderName, "slab"))
+        assertEquals(0, doneCount(hardwoodsProgressStore, jobFolderName, "rail"))
+
+        store.setItemCompletionKey(jobFolderName, "auto-door", "SAW", false)
+
+        assertEquals(0, doneCount(hardwoodsProgressStore, jobFolderName, "slab"))
+    }
+
     private fun doneCount(
         hardwoodsProgressStore: HardwoodsProgressStore,
         jobFolderName: String,
@@ -157,6 +194,65 @@ class DoorPanelAutoCompleteWiringTest {
                       "autoDetected": true,
                       "automationKey": "door_panels_auto|1/4 2S HICKORY RUSTIC|flat",
                       "material": "1/4 2s Hickory Rustic"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+    }
+
+    private fun writeArmorCoreCutlistIndex(baseDir: File, jobFolderName: String) {
+        writeRawCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body =
+            """
+                {
+                  "documents": [
+                    {
+                      "docType": "DOOR_CUT_LIST",
+                      "rows": [
+                        {
+                          "rowId": "slab",
+                          "page": 1,
+                          "rowOrdinal": 1,
+                          "qty": 2,
+                          "material": "3/4 Armor Core",
+                          "description": "Door Slab",
+                          "unitType": "SHEETS"
+                        },
+                        {
+                          "rowId": "rail",
+                          "page": 1,
+                          "rowOrdinal": 2,
+                          "qty": 4,
+                          "material": "3/4 Solid Hickory Rustic",
+                          "description": "Rail",
+                          "unitType": "BD_FT"
+                        }
+                      ]
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+    }
+
+    private fun writeArmorCoreSpecialtyItems(baseDir: File, jobFolderName: String) {
+        val file = File(baseDir, "$jobFolderName/.metadata/admin/specialty_items.json")
+        file.parentFile?.mkdirs()
+        file.writeText(
+            """
+                {
+                  "items": [
+                    {
+                      "id": "auto-door",
+                      "name": "Door panels - 3/4 Armor Core",
+                      "category": "CUSTOM",
+                      "stations": ["SAW", "EDGE_BANDER"],
+                      "autoDetected": true,
+                      "automationKey": "door_panels_auto|3/4 ARMOR CORE|slab",
+                      "material": "3/4 Armor Core"
                     }
                   ]
                 }
