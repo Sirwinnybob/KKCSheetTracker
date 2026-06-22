@@ -783,6 +783,7 @@ data class SpecialtyItem(
     val notes: String? = null,
     val attachments: List<SpecialtyItemAttachment> = emptyList(),
     val autoDetected: Boolean = false,
+    val automationKey: String? = null,
     val createdAt: String? = null,
     val createdBy: String? = null,
     val dimensions: String? = null,

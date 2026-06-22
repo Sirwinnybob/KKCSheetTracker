@@ -689,6 +689,37 @@ class SpecialtyProgressStoreTest {
     }
 
     @Test
+    fun parsesAutomationKeyFromSpecialtyItems() {
+        val baseDir = createTempBaseDir()
+        writeSpecialtyItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id":"door-panels",
+                      "name":"Door panels - 1/4 2s Hickory Rustic",
+                      "category":"CUSTOM",
+                      "stations":["SAW"],
+                      "material":"1/4 2s Hickory Rustic",
+                      "autoDetected":true,
+                      "automationKey":"door_panels_auto|1/4 2S HICKORY RUSTIC|flat"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        val item = SpecialtyProgressStore(baseDir = baseDir, tabletId = tabletId)
+            .loadResolvedItems(jobFolderName)
+            .first()
+            .item
+
+        assertEquals("door_panels_auto|1/4 2S HICKORY RUSTIC|flat", item.automationKey)
+        assertEquals("1/4 2s Hickory Rustic", item.material)
+    }
+    @Test
     fun checklistCompletionSeedMergesWithTrackerAndNewestWins() {
         val baseDir = createTempBaseDir()
         writeChecklistItems(

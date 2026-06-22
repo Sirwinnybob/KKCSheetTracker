@@ -304,6 +304,7 @@ class SpecialtyProgressStore(
                 notes = obj.getNullableString("notes"),
                 attachments = obj.getAttachments("attachments"),
                 autoDetected = obj.getBoolean("autoDetected"),
+                automationKey = obj.getNullableString("automationKey"),
                 createdAt = obj.getNullableString("createdAt"),
                 createdBy = obj.getNullableString("createdBy"),
                 dimensions = obj.getNullableString("dimensions"),
