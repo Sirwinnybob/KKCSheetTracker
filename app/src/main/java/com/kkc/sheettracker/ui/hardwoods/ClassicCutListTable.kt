@@ -842,7 +842,7 @@ private fun TableRow(
 
         // Size Column
         Text(
-            "${row.width} x ${row.length}",
+            cutlistDimensionDisplay(row),
             modifier = Modifier.width(150.dp),
             textAlign = TextAlign.Center,
             style = DimensionTextStyle,

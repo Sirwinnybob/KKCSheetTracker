@@ -291,6 +291,7 @@ enum class HardwoodDocType {
     FACE_FRAME_CUT_LIST,
     NAILER_CUT_LIST,
     DOOR_CUT_LIST,
+    CLOSET_ROD_CUT_LIST,
     DOOR_LIST
 }
 
@@ -324,6 +325,7 @@ data class HardwoodCutlistRow(
     val description: String = "",
     val width: String = "",
     val length: String = "",
+    val unitType: String = "",
     val cabinets: List<String> = emptyList(),
     val rawCabinetText: String = ""
 )
@@ -334,7 +336,8 @@ data class HardwoodTotalsBlock(
     val material: String? = null,
     val widthValues: List<String> = emptyList(),
     val lengthValues: List<String> = emptyList(),
-    val ripsValues: List<String> = emptyList()
+    val ripsValues: List<String> = emptyList(),
+    val unitType: String = ""
 )
 
 data class HardwoodDocumentIndex(
@@ -787,7 +790,7 @@ data class SpecialtyItem(
     val createdAt: String? = null,
     val createdBy: String? = null,
     val dimensions: String? = null,
-    val quantity: Int? = null,
+    val quantity: Double? = null,
     val material: String? = null
 )
 
@@ -798,7 +801,7 @@ data class TabletSpecialtyItem(
     val cabinetNumbers: List<String> = emptyList(),
     val stations: List<SpecialtyStation> = emptyList(),
     val dimensions: String? = null,
-    val quantity: Int? = null,
+    val quantity: Double? = null,
     val material: String? = null,
     val supplier: String? = null,
     val modelNumber: String? = null,

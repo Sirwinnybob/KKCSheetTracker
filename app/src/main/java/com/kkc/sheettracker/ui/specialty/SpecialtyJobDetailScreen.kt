@@ -84,6 +84,8 @@ import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.completionKeysForItem
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.loadAdminBoardStock
+import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
+import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import androidx.compose.material.icons.filled.Print
 import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
@@ -106,10 +108,12 @@ fun SpecialtyJobDetailScreen(
     hasPlansElevations: Boolean,
     hasDeliverySheet: Boolean,
     hasThreeDAssets: Boolean,
+    hasClosetRods: Boolean,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
     onOpenDoorPanels: () -> Unit,
     onOpenSawRipList: () -> Unit,
+    onOpenClosetRods: () -> Unit,
     onOpenSplitView: () -> Unit,
     onJumpToCabinet: ((String) -> Unit)? = null,
     onBack: () -> Unit
@@ -266,23 +270,31 @@ fun SpecialtyJobDetailScreen(
 
             item(key = "actions-specialty") {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     SpecialtyActionWidget(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.width(168.dp),
                         title = "Door Panels",
                         subtitle = "View filtered panel cut lists",
                         onClick = onOpenDoorPanels
                     )
                     SpecialtyActionWidget(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.width(168.dp),
                         title = "Rip List",
                         subtitle = "View sheet stock rip cuts",
                         onClick = onOpenSawRipList
                     )
+                    if (hasClosetRods) {
+                        SpecialtyActionWidget(
+                            modifier = Modifier.width(168.dp),
+                            title = "Closet Rods",
+                            subtitle = "View rod cut list",
+                            onClick = onOpenClosetRods
+                        )
+                    }
                     SpecialtyActionWidget(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.width(168.dp),
                         title = "Split View",
                         subtitle = "Open assembly + plans workspace",
                         onClick = onOpenSplitView
@@ -534,6 +546,15 @@ fun SpecialtyJobDetailScreen(
     }
 }
 
+internal fun hasClosetRodCutList(index: HardwoodCutlistIndex?): Boolean {
+    return index
+        ?.documents
+        .orEmpty()
+        .any { doc ->
+            doc.docType == HardwoodDocType.CLOSET_ROD_CUT_LIST && doc.rows.isNotEmpty()
+        }
+}
+
 @Composable
 private fun SpecialtySectionHeader(
     label: String,
@@ -695,7 +716,7 @@ internal fun SpecialtyChecklistRow(
     stationOrder: List<SpecialtyStation> = SpecialtyStation.entries.toList(),
     onCheckedChange: (SpecialtyChecklistToggle, Boolean) -> Unit,
     onJumpToCabinet: ((String) -> Unit)? = null,
-    onPatchDims: ((String?, Int?, String?) -> Unit)? = null,
+    onPatchDims: ((String?, Double?, String?) -> Unit)? = null,
     basePath: String = "",
     jobFolderName: String = "",
     onEditItem: ((com.kkc.sheettracker.data.models.TabletSpecialtyItem) -> Unit)? = null,
@@ -1156,7 +1177,7 @@ private fun stationFilterLabel(station: SpecialtyStation): String = when (statio
 private fun SpecialtyDimsSection(
     item: com.kkc.sheettracker.data.models.SpecialtyItem,
     isSawStation: Boolean,
-    onPatchDims: (String?, Int?, String?) -> Unit
+    onPatchDims: (String?, Double?, String?) -> Unit
 ) {
     var editing by remember(item.id) { mutableStateOf(false) }
     var editDims by remember(item.id) { mutableStateOf(item.dimensions ?: "") }
@@ -1174,7 +1195,7 @@ private fun SpecialtyDimsSection(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
-                        onPatchDims(editDims.trim().takeIf { it.isNotBlank() }, editQty.trim().toIntOrNull(), editMat.trim().takeIf { it.isNotBlank() })
+                        onPatchDims(editDims.trim().takeIf { it.isNotBlank() }, editQty.trim().toDoubleOrNull(), editMat.trim().takeIf { it.isNotBlank() })
                         editing = false
                     }) { Text("Save") }
                     TextButton(onClick = {

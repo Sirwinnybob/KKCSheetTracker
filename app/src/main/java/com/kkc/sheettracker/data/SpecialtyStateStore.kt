@@ -109,6 +109,7 @@ class SpecialtyStateStore(
         if (completionKey.equals(SpecialtyStation.SAW.name, ignoreCase = true) && item != null) {
             autoCompleteDoorPanelRows(jobFolderName, item, completed)
         }
+        item?.let { autoCompleteClosetRodRows(jobFolderName, it, completed) }
     }
 
     suspend fun setItemCompletion(
@@ -128,7 +129,43 @@ class SpecialtyStateStore(
             completionKeys = completionKeys,
             completed = completed
         )
-        resolvedItem?.item?.let { autoCompleteDoorPanelRows(jobFolderName, it, completed) }
+        resolvedItem?.item?.let {
+            autoCompleteDoorPanelRows(jobFolderName, it, completed)
+            autoCompleteClosetRodRows(jobFolderName, it, completed)
+        }
+    }
+
+    private fun autoCompleteClosetRodRows(
+        jobFolderName: String,
+        item: SpecialtyItem,
+        completed: Boolean
+    ) {
+        val automationKey = item.automationKey.orEmpty().trim()
+        if (!automationKey.startsWith("closet_rods_auto|", ignoreCase = true)) return
+
+        runCatching {
+            val rawJson = loadHardwoodsCutlistIndexRawJson(baseDir.absolutePath, jobFolderName) ?: return
+            val hardwoodIndex = hardwoodIndexGson.fromJson(rawJson, HardwoodCutlistIndex::class.java) ?: return
+            val closetRows = hardwoodIndex.documents
+                .firstOrNull { it.docType == HardwoodDocType.CLOSET_ROD_CUT_LIST }
+                ?.rows
+                ?: return
+            val normalizedMaterial = normalizeClosetRodAutomationMaterial(automationKey, item.material)
+            closetRows
+                .filter { row ->
+                    row.unitType.equals("PER_FT", ignoreCase = true) &&
+                        normalizeClosetRodMaterial(row.material) == normalizedMaterial
+                }
+                .forEach { target ->
+                    hardwoodsProgressStore.setDoneCount(
+                        jobFolderName = jobFolderName,
+                        docType = HardwoodDocType.CLOSET_ROD_CUT_LIST.name,
+                        rowId = target.rowId,
+                        qty = target.qty,
+                        doneCount = if (completed) target.qty else 0
+                    )
+                }
+        }
     }
 
     private fun autoCompleteDoorPanelRows(
@@ -167,7 +204,7 @@ class SpecialtyStateStore(
         jobFolderName: String,
         itemId: String,
         dimensions: String?,
-        quantity: Int?,
+        quantity: Double?,
         material: String?
     ) = withContext(ioDispatcher) {
         specialtyProgressStore.updateSpecialtyItemFields(
@@ -218,4 +255,17 @@ class SpecialtyStateStore(
         }
         return totals.keys.map { s -> StationProgress(s, dones[s] ?: 0, totals[s] ?: 0) }
     }
+}
+
+private fun normalizeClosetRodAutomationMaterial(automationKey: String, material: String?): String {
+    val fromKey = automationKey.substringAfter("closet_rods_auto|", missingDelimiterValue = "")
+    return normalizeClosetRodMaterial(fromKey.ifBlank { material })
+}
+
+private fun normalizeClosetRodMaterial(value: String?): String {
+    return value
+        .orEmpty()
+        .trim()
+        .replace(Regex("""\s+"""), " ")
+        .uppercase()
 }

@@ -109,6 +109,40 @@ class DoorPanelAutoCompleteWiringTest {
         assertEquals(0, doneCount(hardwoodsProgressStore, jobFolderName, "slab"))
     }
 
+    @Test
+    fun setItemCompletion_autoClosetRodItemUpdatesMatchingClosetRodRows() = runBlocking {
+        val baseDir = Files.createTempDirectory("closet-rod-auto-complete-wiring-test").toFile()
+        val jobFolderName = "1234 - Closet Rod Test"
+        writeClosetRodCutlistIndex(baseDir, jobFolderName)
+        writeClosetRodSpecialtyItems(baseDir, jobFolderName)
+
+        val specialtyProgressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val store = SpecialtyStateStore(
+            specialtyScanCoordinator = SpecialtyScanCoordinator(
+                SpecialtyRepository(baseDir = baseDir, progressStore = specialtyProgressStore)
+            ),
+            specialtyProgressStore = specialtyProgressStore,
+            hardwoodsProgressStore = hardwoodsProgressStore,
+            sheetRipProgressStore = SheetRipProgressStore(baseDir = baseDir),
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
+        )
+
+        store.setItemCompletion(jobFolderName, "auto-rods", true)
+        hardwoodsProgressStore.awaitPendingWrites()
+
+        assertEquals(2, doneCount(hardwoodsProgressStore, jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST, "rod-a"))
+        assertEquals(1, doneCount(hardwoodsProgressStore, jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST, "rod-b"))
+        assertEquals(0, doneCount(hardwoodsProgressStore, jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST, "rod-other"))
+
+        store.setItemCompletion(jobFolderName, "auto-rods", false)
+        hardwoodsProgressStore.awaitPendingWrites()
+
+        assertEquals(0, doneCount(hardwoodsProgressStore, jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST, "rod-a"))
+        assertEquals(0, doneCount(hardwoodsProgressStore, jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST, "rod-b"))
+    }
+
     private fun doneCount(
         hardwoodsProgressStore: HardwoodsProgressStore,
         jobFolderName: String,
@@ -117,6 +151,19 @@ class DoorPanelAutoCompleteWiringTest {
         return hardwoodsProgressStore.getRowProgress(
             jobFolderName,
             HardwoodDocType.DOOR_CUT_LIST.name,
+            rowId
+        ).doneCount
+    }
+
+    private fun doneCount(
+        hardwoodsProgressStore: HardwoodsProgressStore,
+        jobFolderName: String,
+        docType: HardwoodDocType,
+        rowId: String
+    ): Int {
+        return hardwoodsProgressStore.getRowProgress(
+            jobFolderName,
+            docType.name,
             rowId
         ).doneCount
     }
@@ -253,6 +300,77 @@ class DoorPanelAutoCompleteWiringTest {
                       "autoDetected": true,
                       "automationKey": "door_panels_auto|3/4 ARMOR CORE|slab",
                       "material": "3/4 Armor Core"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+    }
+
+    private fun writeClosetRodCutlistIndex(baseDir: File, jobFolderName: String) {
+        writeRawCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body =
+            """
+                {
+                  "documents": [
+                    {
+                      "docType": "CLOSET_ROD_CUT_LIST",
+                      "rows": [
+                        {
+                          "rowId": "rod-a",
+                          "page": 1,
+                          "rowOrdinal": 1,
+                          "qty": 2,
+                          "material": "Oval Chrome",
+                          "description": "Closet Rod",
+                          "length": "36",
+                          "unitType": "PER_FT"
+                        },
+                        {
+                          "rowId": "rod-b",
+                          "page": 1,
+                          "rowOrdinal": 2,
+                          "qty": 1,
+                          "material": " oval   chrome ",
+                          "description": "Closet Rod",
+                          "length": "24",
+                          "unitType": "PER_FT"
+                        },
+                        {
+                          "rowId": "rod-other",
+                          "page": 1,
+                          "rowOrdinal": 3,
+                          "qty": 1,
+                          "material": "Brass",
+                          "description": "Closet Rod",
+                          "length": "48",
+                          "unitType": "PER_FT"
+                        }
+                      ]
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+    }
+
+    private fun writeClosetRodSpecialtyItems(baseDir: File, jobFolderName: String) {
+        val file = File(baseDir, "$jobFolderName/.metadata/admin/specialty_items.json")
+        file.parentFile?.mkdirs()
+        file.writeText(
+            """
+                {
+                  "items": [
+                    {
+                      "id": "auto-rods",
+                      "name": "Closet rods - Oval Chrome",
+                      "category": "CUSTOM",
+                      "stations": ["SPECIALTY", "HARDWOODS"],
+                      "autoDetected": true,
+                      "automationKey": "closet_rods_auto|OVAL CHROME",
+                      "material": "Oval Chrome"
                     }
                   ]
                 }

@@ -1377,12 +1377,12 @@ private fun HardwoodsPartRow(
                         }
                         if (isDoorListDoc) {
                             Text(
-                                "$qty pcs • ${row.width} x ${row.length}",
+                                "$qty pcs • ${cutlistDimensionDisplay(row)}",
                                 style = DimensionTextStyle
                             )
                         } else {
                             Text(
-                                "${row.width} x ${row.length}",
+                                cutlistDimensionDisplay(row),
                                 style = DimensionTextStyle
                             )
                             Text(

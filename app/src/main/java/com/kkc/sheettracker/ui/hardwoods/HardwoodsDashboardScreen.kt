@@ -631,6 +631,7 @@ private fun HardwoodsJobCard(
                             HardwoodDocType.FACE_FRAME_CUT_LIST -> "Face Frame"
                             HardwoodDocType.NAILER_CUT_LIST -> "Nailers"
                             HardwoodDocType.DOOR_CUT_LIST -> "Doors"
+                            HardwoodDocType.CLOSET_ROD_CUT_LIST -> "Closet Rods"
                             HardwoodDocType.DOOR_LIST -> "" // excluded above, never reached
                         }
                         Column(
@@ -762,6 +763,7 @@ private fun HardwoodsFlaggedPartsSheet(
                                         HardwoodDocType.FACE_FRAME_CUT_LIST -> "Face Frame Cut List"
                                         HardwoodDocType.NAILER_CUT_LIST -> "Nailer Cut List"
                                         HardwoodDocType.DOOR_CUT_LIST -> "Door Cut List"
+                                        HardwoodDocType.CLOSET_ROD_CUT_LIST -> "Closet Rod Cut List"
                                         HardwoodDocType.DOOR_LIST -> "Door List"
                                     }
                                     Row(

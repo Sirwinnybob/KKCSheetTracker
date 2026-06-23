@@ -2,6 +2,10 @@ package com.kkc.sheettracker.ui.specialty
 
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER
 import com.kkc.sheettracker.data.SpecialtyProgressStore
+import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
+import com.kkc.sheettracker.data.models.HardwoodCutlistRow
+import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.SpecialtyCompletionState
 import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
@@ -151,6 +155,34 @@ class SpecialtyJobDetailScreenLogicTest {
             listOf(SpecialtyStation.SAW, SpecialtyStation.ASSEMBLY, SpecialtyStation.CNC),
             ordered
         )
+    }
+
+    @Test
+    fun hasClosetRodCutList_requiresClosetRodRows() {
+        val index = HardwoodCutlistIndex(
+            documents = listOf(
+                HardwoodDocumentIndex(
+                    docType = HardwoodDocType.DOOR_CUT_LIST,
+                    rows = listOf(HardwoodCutlistRow(rowId = "door-1"))
+                ),
+                HardwoodDocumentIndex(
+                    docType = HardwoodDocType.CLOSET_ROD_CUT_LIST,
+                    rows = listOf(HardwoodCutlistRow(rowId = "rod-1", length = "36", unitType = "PER_FT"))
+                )
+            )
+        )
+
+        assertTrue(hasClosetRodCutList(index))
+        assertFalse(
+            hasClosetRodCutList(
+                HardwoodCutlistIndex(
+                    documents = listOf(
+                        HardwoodDocumentIndex(docType = HardwoodDocType.CLOSET_ROD_CUT_LIST)
+                    )
+                )
+            )
+        )
+        assertFalse(hasClosetRodCutList(null))
     }
 
     private fun resolvedItem(

@@ -102,7 +102,7 @@ class TabletSpecialtyItemsStore(
             cabinetNumbers = cabinetNumbers,
             stations = stations,
             dimensions = obj.getNullStr("dimensions"),
-            quantity = runCatching { obj.get("quantity")?.takeIf { !it.isJsonNull }?.asInt }.getOrNull(),
+            quantity = runCatching { obj.get("quantity")?.takeIf { !it.isJsonNull }?.asDouble }.getOrNull(),
             material = obj.getNullStr("material"),
             supplier = obj.getNullStr("supplier"),
             modelNumber = obj.getNullStr("modelNumber"),

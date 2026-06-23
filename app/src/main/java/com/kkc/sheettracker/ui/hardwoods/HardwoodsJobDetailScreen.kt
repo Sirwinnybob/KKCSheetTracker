@@ -364,6 +364,7 @@ internal fun HardwoodDocType.uiLabel(): String = when (this) {
     HardwoodDocType.FACE_FRAME_CUT_LIST -> "Face Frame Cut List"
     HardwoodDocType.NAILER_CUT_LIST -> "Nailer Cut List"
     HardwoodDocType.DOOR_CUT_LIST -> "Door Cut List"
+    HardwoodDocType.CLOSET_ROD_CUT_LIST -> "Closet Rod Cut List"
     HardwoodDocType.DOOR_LIST -> "Door List"
 }
 

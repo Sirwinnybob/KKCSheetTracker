@@ -78,6 +78,17 @@ fun formatCabinetDisplay(rawCabinetText: String?, cabinets: List<String>): Strin
     return if (fromList.isNotEmpty()) fromList else "None listed"
 }
 
+fun cutlistDimensionDisplay(row: HardwoodCutlistRow): String {
+    val width = row.width.trim()
+    val length = row.length.trim()
+    return when {
+        width.isNotEmpty() && length.isNotEmpty() -> "$width x $length"
+        length.isNotEmpty() -> length
+        width.isNotEmpty() -> width
+        else -> ""
+    }
+}
+
 private fun parseCabinetCounts(raw: String): LinkedHashMap<String, Int>? {
     val entries = LinkedHashMap<String, Int>()
     val chunks = raw.split(",")

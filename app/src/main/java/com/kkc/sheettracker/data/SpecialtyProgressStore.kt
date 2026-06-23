@@ -140,7 +140,7 @@ class SpecialtyProgressStore(
         jobFolderName: String,
         itemId: String,
         dimensions: String?,
-        quantity: Int?,
+        quantity: Double?,
         material: String?
     ) {
         if (readOnly) return
@@ -308,7 +308,7 @@ class SpecialtyProgressStore(
                 createdAt = obj.getNullableString("createdAt"),
                 createdBy = obj.getNullableString("createdBy"),
                 dimensions = obj.getNullableString("dimensions"),
-                quantity = runCatching { obj.get("quantity")?.let { e -> if (e.isJsonPrimitive && e.asJsonPrimitive.isNumber) e.asInt else null } }.getOrNull(),
+                quantity = obj.getQuantityOrNull("quantity"),
                 material = obj.getNullableString("material")
             )
         }
@@ -749,11 +749,7 @@ class SpecialtyProgressStore(
                 createdAt = obj.getNullableString("createdAt"),
                 createdBy = obj.getNullableString("createdByDevice"),
                 dimensions = obj.getNullableString("dimensions"),
-                quantity = runCatching {
-                    obj.get("quantity")?.let { e ->
-                        if (e.isJsonPrimitive && e.asJsonPrimitive.isNumber) e.asInt else null
-                    }
-                }.getOrNull(),
+                quantity = obj.getQuantityOrNull("quantity"),
                 material = obj.getNullableString("material")
             )
         }
@@ -799,11 +795,7 @@ class SpecialtyProgressStore(
                 createdAt = obj.getNullableString("createdAt"),
                 createdBy = obj.getNullableString("createdBy"),
                 dimensions = obj.getNullableString("dimensions"),
-                quantity = runCatching {
-                    obj.get("quantity")?.let { e ->
-                        if (e.isJsonPrimitive && e.asJsonPrimitive.isNumber) e.asInt else null
-                    }
-                }.getOrNull(),
+                quantity = obj.getQuantityOrNull("quantity"),
                 material = obj.getNullableString("material")
             )
         }
@@ -909,6 +901,19 @@ class SpecialtyProgressStore(
         return runCatching {
             if (isJsonNull || !isJsonPrimitive) return@runCatching null
             asInt
+        }.getOrNull()
+    }
+
+    private fun JsonObject.getQuantityOrNull(name: String): Double? {
+        return runCatching {
+            val element = get(name) ?: return@runCatching null
+            if (element.isJsonNull || !element.isJsonPrimitive) return@runCatching null
+            val primitive = element.asJsonPrimitive
+            when {
+                primitive.isNumber -> primitive.asDouble
+                primitive.isString -> primitive.asString.trim().toDoubleOrNull()
+                else -> null
+            }
         }.getOrNull()
     }
 }

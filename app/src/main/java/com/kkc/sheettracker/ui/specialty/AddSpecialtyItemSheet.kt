@@ -87,7 +87,7 @@ fun AddSpecialtyItemSheet(
             stations = selectedStations.toList(),
             notes = notes.trim().takeIf { it.isNotBlank() },
             dimensions = dimensions.trim().takeIf { it.isNotBlank() },
-            quantity = quantityText.trim().toIntOrNull(),
+            quantity = quantityText.trim().toDoubleOrNull(),
             material = material.trim().takeIf { it.isNotBlank() },
             supplier = supplier.trim().takeIf { it.isNotBlank() },
             modelNumber = modelNumber.trim().takeIf { it.isNotBlank() },

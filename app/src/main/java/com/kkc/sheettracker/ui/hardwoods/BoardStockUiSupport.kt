@@ -84,6 +84,7 @@ internal fun applySkippedPartRowsToBoardStockRows(
             HardwoodDocType.FACE_FRAME_CUT_LIST -> BoardStockSource.FRAME
             HardwoodDocType.NAILER_CUT_LIST -> BoardStockSource.NAILER
             HardwoodDocType.DOOR_CUT_LIST -> BoardStockSource.DOOR
+            HardwoodDocType.CLOSET_ROD_CUT_LIST -> null
             HardwoodDocType.DOOR_LIST -> null
         } ?: return@forEach
 

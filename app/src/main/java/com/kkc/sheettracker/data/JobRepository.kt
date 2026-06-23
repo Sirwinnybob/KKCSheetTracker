@@ -158,4 +158,8 @@ class JobRepository(
     fun getJobPdfCatalog(jobFolderName: String): JobPdfCatalog {
         return engine().getPdfCatalog(jobFolderName).catalog
     }
+
+    fun loadHardwoodsIndex(jobFolderName: String): HardwoodCutlistIndex? {
+        return engine().getHardwoodsSnapshot(jobFolderName)?.job?.index
+    }
 }

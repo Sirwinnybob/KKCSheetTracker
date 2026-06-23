@@ -126,6 +126,7 @@ import com.kkc.sheettracker.ui.supply.SupplyItemDetailScreen
 import com.kkc.sheettracker.ui.supply.SupplyItemEditScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
+import com.kkc.sheettracker.ui.specialty.hasClosetRodCutList
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobsScreen
 import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.viewer.ReferencePdfViewerScreen
@@ -1303,6 +1304,9 @@ private fun JobsTabHost(
             val hasThreeDAssets = remember(folderName) {
                 jobRepository.hasThreeDAssets(folderName)
             }
+            val hasClosetRods = remember(folderName) {
+                hasClosetRodCutList(jobRepository.loadHardwoodsIndex(folderName))
+            }
             SpecialtyJobDetailScreen(
                 jobFolderName = folderName,
                 specialtyStateStore = specialtyStateStore,
@@ -1312,6 +1316,7 @@ private fun JobsTabHost(
                 hasPlansElevations = hasPlansElevations,
                 hasDeliverySheet = hasDeliverySheet,
                 hasThreeDAssets = hasThreeDAssets,
+                hasClosetRods = hasClosetRods,
                 onOpenReferenceDocument = { docType, startPage ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
                         launchSingleTop = true
@@ -1348,6 +1353,15 @@ private fun JobsTabHost(
                             folderName,
                             HardwoodDocType.DOOR_CUT_LIST,
                             HARDWOODS_SAW_RIP_LIST_ROW_ID
+                        )
+                    ) { launchSingleTop = true }
+                },
+                onOpenClosetRods = {
+                    navController.navigate(
+                        hardwoodsWorkspaceRoute(
+                            folderName,
+                            HardwoodDocType.CLOSET_ROD_CUT_LIST,
+                            null
                         )
                     ) { launchSingleTop = true }
                 },
@@ -2440,6 +2454,9 @@ private fun LegacySingleStackNavigation(
                     val hasThreeDAssets = remember(folderName) {
                         jobRepository.hasThreeDAssets(folderName)
                     }
+                    val hasClosetRods = remember(folderName) {
+                        hasClosetRodCutList(jobRepository.loadHardwoodsIndex(folderName))
+                    }
                     SpecialtyJobDetailScreen(
                         jobFolderName = folderName,
                         specialtyStateStore = specialtyStateStore,
@@ -2449,6 +2466,7 @@ private fun LegacySingleStackNavigation(
                         hasPlansElevations = hasPlansElevations,
                         hasDeliverySheet = hasDeliverySheet,
                         hasThreeDAssets = hasThreeDAssets,
+                        hasClosetRods = hasClosetRods,
                         onOpenReferenceDocument = { docType, startPage ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
                                 launchSingleTop = true
@@ -2485,6 +2503,15 @@ private fun LegacySingleStackNavigation(
                                     folderName,
                                     HardwoodDocType.DOOR_CUT_LIST,
                                     HARDWOODS_SAW_RIP_LIST_ROW_ID
+                                )
+                            ) { launchSingleTop = true }
+                        },
+                        onOpenClosetRods = {
+                            navController.navigate(
+                                hardwoodsWorkspaceRoute(
+                                    folderName,
+                                    HardwoodDocType.CLOSET_ROD_CUT_LIST,
+                                    null
                                 )
                             ) { launchSingleTop = true }
                         },
