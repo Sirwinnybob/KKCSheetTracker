@@ -17,6 +17,7 @@ class HardwoodsRevisionHistoryTest {
             val job = File(root, "998 - TEST")
             val metadata = File(job, ".metadata/hardwoods")
             metadata.mkdirs()
+            writeDeploymentGate(job)
             File(metadata, "cutlist_revisions.json").writeText(
                 """
                 {
@@ -54,6 +55,7 @@ class HardwoodsRevisionHistoryTest {
             val job = File(root, "998 - TEST")
             val metadata = File(job, ".metadata/hardwoods")
             metadata.mkdirs()
+            writeDeploymentGate(job)
             File(metadata, "cutlist_revisions.json").writeText(
                 """
                 {
@@ -77,5 +79,10 @@ class HardwoodsRevisionHistoryTest {
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    private fun writeDeploymentGate(jobDir: File) {
+        val metadataDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(metadataDir, "deployment_gate.json").writeText("""{"deployed": true}""")
     }
 }

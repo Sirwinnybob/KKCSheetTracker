@@ -234,7 +234,8 @@ class ProgressStore(
             if (cached != null && cached.first == mtime) return cached.second
         }
         val state = try {
-            gson.fromJson(file.readText(), DraftBadPartState::class.java)
+            val parsed = gson.fromJson(file.readText(), DraftBadPartState::class.java)
+            sanitizeDraftBadPartState(parsed, tabletId)
         } catch (_: Exception) {
             DraftBadPartState(tabletId)
         }
@@ -882,7 +883,7 @@ class ProgressStore(
         val file = ocrCacheFile(jobFolderName, pdfFilename, page, fileFingerprint)
         if (!file.exists()) return null
         return try {
-            val raw = gson.fromJson(file.readText(), OcrPageCache::class.java)
+            val raw = gson.fromJson(file.readText(), OcrPageCache::class.java).let { sanitizeOcrPageCache(it) }
             val parsed = raw.boxes.mapNotNull { (k, v) ->
                 val num = k.toIntOrNull() ?: return@mapNotNull null
                 num to v.map { Rect(it.left, it.top, it.right, it.bottom) }
@@ -1130,5 +1131,32 @@ class ProgressStore(
                 )
             }
         }
+    }
+
+    private fun sanitizeDraftBadPartState(state: DraftBadPartState?, defaultTabletId: String): DraftBadPartState {
+        if (state == null) return DraftBadPartState(defaultTabletId)
+        return DraftBadPartState(
+            tabletId = state.tabletId ?: defaultTabletId,
+            entries = (state.entries ?: emptyList()).map { entry ->
+                DraftBadPartEntry(
+                    file = entry.file ?: "",
+                    page = entry.page,
+                    fileFingerprint = entry.fileFingerprint ?: "",
+                    parts = entry.parts ?: emptyList()
+                )
+            }
+        )
+    }
+
+    private fun sanitizeOcrPageCache(cache: OcrPageCache?): OcrPageCache {
+        if (cache == null) return OcrPageCache()
+        return OcrPageCache(
+            boxes = (cache.boxes ?: emptyMap()).mapValues { (_, list) ->
+                (list ?: emptyList()).mapNotNull { box ->
+                    if (box == null) null else OcrBox(box.left, box.top, box.right, box.bottom)
+                }
+            },
+            savedAt = cache.savedAt ?: ""
+        )
     }
 }

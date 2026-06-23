@@ -336,7 +336,7 @@ class DoorPanelAutoCompleteWiringTest {
                           "material": " oval   chrome ",
                           "description": "Closet Rod",
                           "length": "24",
-                          "unitType": "PER_FT"
+                          "unitType": "Per FT"
                         },
                         {
                           "rowId": "rod-other",

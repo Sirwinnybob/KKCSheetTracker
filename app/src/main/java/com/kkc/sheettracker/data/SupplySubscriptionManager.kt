@@ -67,7 +67,8 @@ class SupplySubscriptionManager(
     suspend fun loadData(): SupplySubscriptionData = withContext(Dispatchers.IO) {
         if (!subscriptionsFile.exists()) return@withContext SupplySubscriptionData()
         runCatching {
-            gson.fromJson(subscriptionsFile.readText(), SupplySubscriptionData::class.java)
+            val parsed = gson.fromJson(subscriptionsFile.readText(), SupplySubscriptionData::class.java)
+            sanitizeSubscriptionData(parsed)
         }.onFailure {
             logError("Failed to load subscription data", it)
         }.getOrDefault(SupplySubscriptionData())
@@ -201,6 +202,22 @@ class SupplySubscriptionManager(
 
         _notificationCount.value = notifications.size
         notifications
+    }
+
+    private fun sanitizeSubscriptionData(data: SupplySubscriptionData?): SupplySubscriptionData {
+        if (data == null) return SupplySubscriptionData()
+        return SupplySubscriptionData(
+            subscribedCategoryIds = data.subscribedCategoryIds ?: emptySet(),
+            subscribedItemIds = data.subscribedItemIds ?: emptySet(),
+            itemSnapshots = (data.itemSnapshots ?: emptyMap()).mapValues { (_, snapshot) ->
+                SupplyItemSnapshot(
+                    lastSeenUpdatedAt = snapshot.lastSeenUpdatedAt ?: "",
+                    lastSeenStatusAt = snapshot.lastSeenStatusAt ?: "",
+                    lastSeenCommentIds = snapshot.lastSeenCommentIds ?: emptyList(),
+                    lastSeenAttachmentIds = snapshot.lastSeenAttachmentIds ?: emptyList()
+                )
+            }
+        )
     }
 
     companion object {

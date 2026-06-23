@@ -98,6 +98,16 @@ fun buildCncDashboardWidgets(
                 )
             )
         ),
+        DashboardWidgetModel.AlertBlock(
+            key = "cnc-alert",
+            title = "Quality Review",
+            message = buildQualityAlertMessage(
+                badCount = dashboard.badPartsSheets,
+                skippedCount = dashboard.skippedSheets
+            ),
+            supportingText = "${remainingCount(dashboard.completedSheets, dashboard.totalSheets)} ${pluralize("sheet", remainingCount(dashboard.completedSheets, dashboard.totalSheets))} remaining",
+            accent = alertAccent
+        ),
         DashboardWidgetModel.RecentItemsBlock(
             key = "cnc-recents",
             title = "Recent In-Progress Materials",

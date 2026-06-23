@@ -22,6 +22,19 @@ data class DoorCutUnitTypeMetadata(
 )
 
 private val doorCutGson = Gson()
+private val cabinetVisionUnitNames = setOf(
+    "EACH",
+    "PER FT",
+    "SQ FT",
+    "BD FT",
+    "SHEET",
+    "PER M",
+    "SQ M",
+    "BD M",
+    "CUBIC M",
+    "CUBIC FT",
+    "PAIR"
+)
 
 fun loadHardwoodsCutlistIndexRawJson(basePath: String, jobFolderName: String): String? {
     val file = File(basePath, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
@@ -189,7 +202,7 @@ private fun collectDoorCutUnitTypes(
             val unitType = obj.getStringIgnoreCase("unitType")
             if (unitType != null) {
                 onUnitTypeDetected()
-                if (unitType.equals("SHEETS", ignoreCase = true)) {
+                if (isSheetUnitType(unitType)) {
                     obj.getStringIgnoreCase("rowId")
                         ?.let(::normalizedDoorPanelRowIdKey)
                         ?.takeIf { it.isNotBlank() }
@@ -211,7 +224,7 @@ private fun collectDoorCutUnitTypes(
                     value.asJsonObject.entrySet().forEach { (materialName, unitTypeValue) ->
                         if (unitTypeValue.isJsonPrimitive && unitTypeValue.asJsonPrimitive.isString) {
                             onUnitTypeDetected()
-                            if (unitTypeValue.asString.equals("SHEETS", ignoreCase = true)) {
+                            if (isSheetUnitType(unitTypeValue.asString)) {
                                 normalizedDoorPanelMaterialKey(materialName)
                                     .takeIf { it.isNotBlank() }
                                     ?.let(onSheetMaterialDetected)
@@ -227,6 +240,23 @@ private fun collectDoorCutUnitTypes(
                 )
             }
         }
+    }
+}
+
+private fun isSheetUnitType(unitType: String): Boolean {
+    return normalizeCabinetVisionUnitType(unitType) == "SHEET"
+}
+
+internal fun normalizeCabinetVisionUnitType(unitType: String): String {
+    val normalized = unitType
+        .trim()
+        .replace('_', ' ')
+        .replace(Regex("""\s+"""), " ")
+        .uppercase(Locale.US)
+    return when {
+        normalized == "SHEETS" -> "SHEET"
+        normalized in cabinetVisionUnitNames -> normalized
+        else -> normalized
     }
 }
 

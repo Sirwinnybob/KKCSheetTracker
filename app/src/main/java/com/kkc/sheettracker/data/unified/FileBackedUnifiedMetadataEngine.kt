@@ -30,8 +30,27 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.ScanIssue
 import com.kkc.sheettracker.data.models.ScanIssueType
-import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.parseJobFolderName
+import com.kkc.sheettracker.data.models.CabinetSheetIndexDocuments
+import com.kkc.sheettracker.data.models.ReferenceDocumentIndex
+import com.kkc.sheettracker.data.models.DeliveryDocumentIndex
+import com.kkc.sheettracker.data.models.CabinetPageDetail
+import com.kkc.sheettracker.data.models.AssemblySourceDocumentIndex
+import com.kkc.sheettracker.data.models.AssemblyVirtualCombinedIndex
+import com.kkc.sheettracker.data.models.AssemblyVirtualEntry
+import com.kkc.sheettracker.data.models.AssemblyVirtualSourceRef
+import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
+import com.kkc.sheettracker.data.models.HardwoodCutlistRow
+import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
+import com.kkc.sheettracker.data.models.HardwoodRevisionEntry
+import com.kkc.sheettracker.data.models.HardwoodRevisionRowSnapshot
+import com.kkc.sheettracker.data.models.HardwoodRevisionModifiedEntry
+import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
+import com.kkc.sheettracker.data.models.PageMetadata
+import com.kkc.sheettracker.data.models.Part
+import com.kkc.sheettracker.data.models.OcrBoxMetadata
+import com.kkc.sheettracker.data.models.RemakePageMetadata
+import com.kkc.sheettracker.data.models.RemadePartMetadata
 import java.io.File
 import java.math.BigDecimal
 import java.util.Locale
@@ -237,7 +256,8 @@ class FileBackedUnifiedMetadataEngine(
                 val rawInfo = if (existing != null && existing.signature == cacheMTime) {
                     existing.data.jobInfo
                 } else {
-                    val data = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: continue
+                    val rawData = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: continue
+                    val data = sanitizeStaticJobData(rawData)
                     staticByJob[dir.name] = CachedStaticEntry(signature = cacheMTime, data = data)
                     data.jobInfo
                 }
@@ -284,7 +304,8 @@ class FileBackedUnifiedMetadataEngine(
         if (!cacheFile.isFile) return null
         return try {
             val cacheMTime = cacheFile.lastModified()
-            val data = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: return null
+            val rawData = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: return null
+            val data = sanitizeStaticJobData(rawData)
             staticByJob[folderName] = CachedStaticEntry(signature = cacheMTime, data = data)
             data.jobInfo
         } catch (e: Exception) {
@@ -584,8 +605,9 @@ class FileBackedUnifiedMetadataEngine(
 
             if (!checkIsCacheStale(jobDir, cacheMTime)) {
                 try {
-                    val data = gson.fromJson(cacheFile.readText(), StaticJobData::class.java)
-                    if (data != null) {
+                    val rawData = gson.fromJson(cacheFile.readText(), StaticJobData::class.java)
+                    if (rawData != null) {
+                        val data = sanitizeStaticJobData(rawData)
                         staticByJob[jobFolderName] = CachedStaticEntry(signature = cacheMTime, data = data)
                         return data
                     }
@@ -769,7 +791,10 @@ class FileBackedUnifiedMetadataEngine(
             )
             return null
         }
-        return runCatching { gson.fromJson(metadataFile.readText(), MaterialMetadata::class.java) }
+        return runCatching {
+            val parsed = gson.fromJson(metadataFile.readText(), MaterialMetadata::class.java)
+            sanitizeMaterialMetadata(parsed)
+        }
             .onFailure { error ->
                 issues += ScanIssue(
                     type = ScanIssueType.INVALID_METADATA_JSON,
@@ -785,19 +810,28 @@ class FileBackedUnifiedMetadataEngine(
     private fun loadCabinetSheetIndex(jobFolderName: String): CabinetSheetIndex? {
         val indexFile = File(baseDir, "$jobFolderName/.metadata/cabinet_sheet_index.json")
         if (!indexFile.exists() || !indexFile.isFile) return null
-        return runCatching { gson.fromJson(indexFile.readText(), CabinetSheetIndex::class.java) }.getOrNull()
+        return runCatching {
+            val parsed = gson.fromJson(indexFile.readText(), CabinetSheetIndex::class.java)
+            sanitizeCabinetSheetIndex(parsed)
+        }.getOrNull()
     }
 
     private fun loadHardwoodIndex(jobFolderName: String): HardwoodCutlistIndex? {
         val indexFile = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
         if (!indexFile.exists() || !indexFile.isFile) return null
-        return runCatching { gson.fromJson(indexFile.readText(), HardwoodCutlistIndex::class.java) }.getOrNull()
+        return runCatching {
+            val parsed = gson.fromJson(indexFile.readText(), HardwoodCutlistIndex::class.java)
+            sanitizeHardwoodCutlistIndex(parsed)
+        }.getOrNull()
     }
 
     private fun loadHardwoodRevisionHistory(jobFolderName: String): HardwoodRevisionHistory? {
         val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_revisions.json")
         if (!file.exists() || !file.isFile) return null
-        return runCatching { gson.fromJson(file.readText(), HardwoodRevisionHistory::class.java) }.getOrNull()
+        return runCatching {
+            val parsed = gson.fromJson(file.readText(), HardwoodRevisionHistory::class.java)
+            sanitizeHardwoodRevisionHistory(parsed)
+        }.getOrNull()
     }
 
     private fun buildPdfCatalog(jobFolderName: String): JobPdfCatalog {
@@ -1116,11 +1150,339 @@ class FileBackedUnifiedMetadataEngine(
         return hash
     }
 
+    private fun sanitizeStaticJobData(data: StaticJobData): StaticJobData {
+        val rawInfo = data.jobInfo
+        val sanitizedJobInfo = UnifiedJobInfo(
+            folderName = rawInfo.folderName ?: "",
+            jobNumber = rawInfo.jobNumber ?: "",
+            jobName = rawInfo.jobName ?: "",
+            hiddenFromProduction = rawInfo.hiddenFromProduction,
+            lineupPosition = rawInfo.lineupPosition,
+            labels = rawInfo.labels ?: emptyList(),
+            isPending = rawInfo.isPending,
+            boardSection = rawInfo.boardSection
+        )
+
+        val cnc = data.cncJob
+        val sanitizedCncJob = if (cnc != null) {
+            Job(
+                folderName = cnc.folderName ?: "",
+                jobNumber = cnc.jobNumber ?: "",
+                jobName = cnc.jobName ?: "",
+                materials = cnc.materials ?: emptyList(),
+                hiddenFromProduction = cnc.hiddenFromProduction,
+                lineupPosition = cnc.lineupPosition,
+                labels = cnc.labels ?: emptyList(),
+                isPending = cnc.isPending,
+                boardSection = cnc.boardSection
+            )
+        } else null
+
+        val hardwood = data.hardwoodJob
+        val sanitizedHardwoodJob = if (hardwood != null) {
+            HardwoodJob(
+                folderName = hardwood.folderName ?: "",
+                jobNumber = hardwood.jobNumber ?: "",
+                jobName = hardwood.jobName ?: "",
+                index = hardwood.index,
+                hiddenFromProduction = hardwood.hiddenFromProduction,
+                lineupPosition = hardwood.lineupPosition,
+                labels = hardwood.labels ?: emptyList(),
+                isPending = hardwood.isPending,
+                boardSection = hardwood.boardSection
+            )
+        } else null
+
+        val assembly = data.assemblyJob
+        val sanitizedAssemblyJob = if (assembly != null) {
+            AssemblyJob(
+                folderName = assembly.folderName ?: "",
+                jobNumber = assembly.jobNumber ?: "",
+                jobName = assembly.jobName ?: "",
+                cabinetSheetIndex = assembly.cabinetSheetIndex,
+                cncSummary = assembly.cncSummary,
+                hardwoodsSummary = assembly.hardwoodsSummary,
+                hiddenFromProduction = assembly.hiddenFromProduction,
+                lineupPosition = assembly.lineupPosition,
+                labels = assembly.labels ?: emptyList(),
+                isPending = assembly.isPending,
+                boardSection = assembly.boardSection
+            )
+        } else null
+
+        val catalog = data.pdfCatalog
+        val sanitizedPdfCatalog = JobPdfCatalog(
+            deliverySheet = catalog?.deliverySheet,
+            managedDocs = catalog?.managedDocs ?: emptyList(),
+            otherDocs = catalog?.otherDocs ?: emptyList()
+        )
+
+        return data.copy(
+            jobInfo = sanitizedJobInfo,
+            cncJob = sanitizedCncJob,
+            cncIssues = data.cncIssues ?: emptyList(),
+            hardwoodJob = sanitizedHardwoodJob,
+            assemblyJob = sanitizedAssemblyJob,
+            pdfCatalog = sanitizedPdfCatalog,
+            boardStockRows = data.boardStockRows ?: emptyList()
+        )
+    }
+
     private fun signatureForFile(file: File): Long {
         if (!file.exists() || !file.isFile) return 0L
         var sig = file.name.hashCode().toLong()
         sig = sig * 31 + file.length()
         sig = sig * 31 + file.lastModified()
         return sig
+    }
+
+    private fun sanitizeCabinetSheetIndex(index: CabinetSheetIndex?): CabinetSheetIndex {
+        if (index == null) return CabinetSheetIndex()
+        return CabinetSheetIndex(
+            documents = sanitizeCabinetSheetIndexDocuments(index.documents),
+            generatedAt = index.generatedAt
+        )
+    }
+
+    private fun sanitizeCabinetSheetIndexDocuments(docs: CabinetSheetIndexDocuments?): CabinetSheetIndexDocuments {
+        if (docs == null) return CabinetSheetIndexDocuments()
+        return CabinetSheetIndexDocuments(
+            assembly = sanitizeReferenceDocumentIndex(docs.assembly),
+            plansElevations = sanitizeReferenceDocumentIndex(docs.plansElevations),
+            delivery = sanitizeDeliveryDocumentIndex(docs.delivery)
+        )
+    }
+
+    private fun sanitizeReferenceDocumentIndex(ref: ReferenceDocumentIndex?): ReferenceDocumentIndex {
+        if (ref == null) return ReferenceDocumentIndex()
+        return ReferenceDocumentIndex(
+            pdfFilename = ref.pdfFilename ?: "",
+            cabinetToPages = ref.cabinetToPages ?: emptyMap(),
+            pageDetails = (ref.pageDetails ?: emptyMap()).mapValues { (_, detail) -> sanitizeCabinetPageDetail(detail) },
+            mode = ref.mode,
+            modeSource = ref.modeSource,
+            sources = (ref.sources ?: emptyList()).map { sanitizeAssemblySourceDocumentIndex(it) },
+            virtualCombined = ref.virtualCombined?.let { vc ->
+                AssemblyVirtualCombinedIndex(
+                    cabinetOrder = vc.cabinetOrder ?: emptyList(),
+                    entriesByCabinet = (vc.entriesByCabinet ?: emptyMap()).mapValues { (_, list) ->
+                        (list ?: emptyList()).map { ent ->
+                            AssemblyVirtualEntry(
+                                variant = ent.variant ?: "",
+                                pdfFilename = ent.pdfFilename ?: "",
+                                page = ent.page,
+                                virtualPage = ent.virtualPage
+                            )
+                        }
+                    },
+                    cabinetToPages = vc.cabinetToPages ?: emptyMap(),
+                    virtualPageToSource = (vc.virtualPageToSource ?: emptyMap()).mapValues { (_, sr) ->
+                        AssemblyVirtualSourceRef(
+                            variant = sr.variant ?: "",
+                            pdfFilename = sr.pdfFilename ?: "",
+                            page = sr.page,
+                            cabinet = sr.cabinet
+                        )
+                    },
+                    pageDetails = (vc.pageDetails ?: emptyMap()).mapValues { (_, detail) -> sanitizeCabinetPageDetail(detail) },
+                    totalVirtualPages = vc.totalVirtualPages
+                )
+            }
+        )
+    }
+
+    private fun sanitizeDeliveryDocumentIndex(del: DeliveryDocumentIndex?): DeliveryDocumentIndex {
+        if (del == null) return DeliveryDocumentIndex()
+        return DeliveryDocumentIndex(
+            pdfFilename = del.pdfFilename ?: "",
+            mode = del.mode,
+            modeSource = del.modeSource
+        )
+    }
+
+    private fun sanitizeAssemblySourceDocumentIndex(src: AssemblySourceDocumentIndex?): AssemblySourceDocumentIndex {
+        if (src == null) return AssemblySourceDocumentIndex()
+        return AssemblySourceDocumentIndex(
+            variant = src.variant ?: "",
+            pdfFilename = src.pdfFilename ?: "",
+            cabinetToPages = src.cabinetToPages ?: emptyMap(),
+            pageDetails = (src.pageDetails ?: emptyMap()).mapValues { (_, v) -> sanitizeCabinetPageDetail(v) }
+        )
+    }
+
+    private fun sanitizeCabinetPageDetail(detail: CabinetPageDetail?): CabinetPageDetail {
+        if (detail == null) return CabinetPageDetail()
+        return CabinetPageDetail(
+            cabinets = detail.cabinets ?: emptyList(),
+            room = detail.room,
+            wall = detail.wall,
+            parts = (detail.parts ?: emptyList()).map { part ->
+                AssemblySheetPart(
+                    qty = part.qty,
+                    width = part.width,
+                    length = part.length,
+                    description = part.description ?: "",
+                    material = part.material ?: "",
+                    sectionType = part.sectionType ?: "",
+                    isPurchased = part.isPurchased
+                )
+            },
+            sourceVariant = detail.sourceVariant,
+            sourcePdfFilename = detail.sourcePdfFilename,
+            sourcePage = detail.sourcePage
+        )
+    }
+
+    private fun sanitizeHardwoodCutlistIndex(index: HardwoodCutlistIndex?): HardwoodCutlistIndex {
+        if (index == null) return HardwoodCutlistIndex()
+        return HardwoodCutlistIndex(
+            generatedAt = index.generatedAt,
+            documents = (index.documents ?: emptyList()).map { doc ->
+                HardwoodDocumentIndex(
+                    docType = doc.docType ?: HardwoodDocType.FACE_FRAME_CUT_LIST,
+                    pdfFilename = doc.pdfFilename ?: "",
+                    pageCount = doc.pageCount,
+                    rows = (doc.rows ?: emptyList()).map { row ->
+                        HardwoodCutlistRow(
+                            rowId = row.rowId ?: "",
+                            page = row.page,
+                            rowOrdinal = row.rowOrdinal,
+                            qty = row.qty,
+                            material = row.material,
+                            description = row.description ?: "",
+                            width = row.width ?: "",
+                            length = row.length ?: "",
+                            unitType = row.unitType ?: "",
+                            cabinets = row.cabinets ?: emptyList(),
+                            rawCabinetText = row.rawCabinetText ?: ""
+                        )
+                    },
+                    totals = (doc.totals ?: emptyList()).map { tot ->
+                        HardwoodTotalsBlock(
+                            page = tot.page,
+                            sourcePages = tot.sourcePages ?: emptyList(),
+                            material = tot.material,
+                            widthValues = tot.widthValues ?: emptyList(),
+                            lengthValues = tot.lengthValues ?: emptyList(),
+                            ripsValues = tot.ripsValues ?: emptyList(),
+                            unitType = tot.unitType ?: ""
+                        )
+                    }
+                )
+            }
+        )
+    }
+
+    private fun sanitizeHardwoodRevisionHistory(hist: HardwoodRevisionHistory?): HardwoodRevisionHistory {
+        if (hist == null) return HardwoodRevisionHistory()
+        return HardwoodRevisionHistory(
+            schemaVersion = hist.schemaVersion,
+            updatedAt = hist.updatedAt,
+            currentRevision = hist.currentRevision,
+            revisions = (hist.revisions ?: emptyList()).map { rev ->
+                HardwoodRevisionEntry(
+                    revision = rev.revision,
+                    kind = rev.kind ?: "DIFF",
+                    timestamp = rev.timestamp,
+                    added = (rev.added ?: emptyList()).map { sanitizeHardwoodRevisionRowSnapshot(it) },
+                    removed = (rev.removed ?: emptyList()).map { sanitizeHardwoodRevisionRowSnapshot(it) },
+                    modified = (rev.modified ?: emptyList()).map { mod ->
+                        HardwoodRevisionModifiedEntry(
+                            before = sanitizeHardwoodRevisionRowSnapshot(mod.before),
+                            after = sanitizeHardwoodRevisionRowSnapshot(mod.after),
+                            changedFields = mod.changedFields ?: emptyList()
+                        )
+                    }
+                )
+            },
+            currentRowStates = (hist.currentRowStates ?: emptyList()).map { state ->
+                HardwoodRowRevisionState(
+                    docType = state.docType ?: "",
+                    rowId = state.rowId ?: "",
+                    latestRevision = state.latestRevision,
+                    changedPendingRecut = state.changedPendingRecut
+                )
+            }
+        )
+    }
+
+    private fun sanitizeHardwoodRevisionRowSnapshot(snap: HardwoodRevisionRowSnapshot?): HardwoodRevisionRowSnapshot {
+        if (snap == null) return HardwoodRevisionRowSnapshot()
+        return HardwoodRevisionRowSnapshot(
+            docType = snap.docType ?: "",
+            rowId = snap.rowId ?: "",
+            page = snap.page,
+            rowOrdinal = snap.rowOrdinal,
+            qty = snap.qty,
+            material = snap.material ?: "",
+            description = snap.description ?: "",
+            width = snap.width ?: "",
+            length = snap.length ?: "",
+            cabinets = snap.cabinets ?: emptyList()
+        )
+    }
+
+    private fun sanitizeMaterialMetadata(metadata: MaterialMetadata?): MaterialMetadata {
+        if (metadata == null) return MaterialMetadata()
+        return MaterialMetadata(
+            jobNumber = metadata.jobNumber ?: "",
+            jobName = metadata.jobName ?: "",
+            material = metadata.material ?: "",
+            pdfFilename = metadata.pdfFilename ?: "",
+            remakeLabel = metadata.remakeLabel,
+            pages = (metadata.pages ?: emptyList()).map { page ->
+                PageMetadata(
+                    pageNumber = page.pageNumber,
+                    sheetId = page.sheetId ?: "",
+                    sheetFiles = page.sheetFiles ?: emptyList(),
+                    sheetDimensions = page.sheetDimensions,
+                    logicalSheetKey = page.logicalSheetKey,
+                    isPartListContinuation = page.isPartListContinuation,
+                    continuationHeadPage = page.continuationHeadPage,
+                    trackingExcluded = page.trackingExcluded,
+                    hiddenInApp = page.hiddenInApp,
+                    partListSpansPages = page.partListSpansPages,
+                    thumbnailPath = page.thumbnailPath,
+                    parts = (page.parts ?: emptyList()).map { part ->
+                        Part(
+                            number = part.number,
+                            width = part.width,
+                            length = part.length,
+                            name = part.name ?: "",
+                            cabNumber = part.cabNumber,
+                            room = part.room ?: "",
+                            rotated = part.rotated
+                        )
+                    },
+                    ocrBoxes = page.ocrBoxes?.mapValues { (_, list) ->
+                        (list ?: emptyList()).map { box ->
+                            OcrBoxMetadata(
+                                left = box.left,
+                                top = box.top,
+                                right = box.right,
+                                bottom = box.bottom
+                            )
+                        }
+                    },
+                    ocrSource = page.ocrSource,
+                    ocrGeneratedAt = page.ocrGeneratedAt,
+                    ocrVersion = page.ocrVersion,
+                    remake = page.remake?.let { rm ->
+                        RemakePageMetadata(
+                            label = rm.label ?: "",
+                            remadeParts = (rm.remadeParts ?: emptyList()).map { rp ->
+                                RemadePartMetadata(
+                                    partNumber = rp.partNumber,
+                                    partName = rp.partName ?: "",
+                                    sourcePdfFilename = rp.sourcePdfFilename,
+                                    sourcePage = rp.sourcePage,
+                                    sourcePartNumber = rp.sourcePartNumber
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        )
     }
 }

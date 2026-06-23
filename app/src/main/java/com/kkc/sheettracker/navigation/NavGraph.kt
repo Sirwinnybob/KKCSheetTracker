@@ -57,6 +57,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.kkc.sheettracker.clock.ClockInNotificationContract
+import com.kkc.sheettracker.crash.CrashReporter
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyPaneView
@@ -506,6 +507,11 @@ private fun MultiBackStackNavigation(
         } else null
         activeJobFolderName.value = folderName
         appStateStore.notifyJobFocus(folderName)
+        CrashReporter.updateNavigationContext(
+            currentTab = selectedTab.route,
+            currentRoute = if (selectedTab == TopLevelTab.JOBS) route.ifBlank { selectedTab.route } else selectedTab.route,
+            activeJobFolderName = folderName
+        )
     }
 
     val coordinator = remember(

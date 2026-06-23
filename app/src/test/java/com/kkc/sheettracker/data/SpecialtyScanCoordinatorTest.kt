@@ -20,6 +20,7 @@ class SpecialtyScanCoordinatorTest {
     fun refreshWithMissingSpecialtyFiles_listsJobWithZeroSpecialtyItems() {
         val baseDir = createTempBaseDir()
         File(baseDir, jobFolderName).mkdirs()
+        writeDeploymentGate(baseDir, jobFolderName)
 
         val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-a")
         val repository = SpecialtyRepository(baseDir = baseDir, progressStore = progressStore)
@@ -287,7 +288,14 @@ class SpecialtyScanCoordinatorTest {
 
     private fun createTempBaseDir(): File = Files.createTempDirectory("specialty-scan-coordinator-test").toFile()
 
+    private fun writeDeploymentGate(baseDir: File, jobFolderName: String) {
+        val file = File(baseDir, "$jobFolderName/.metadata/deployment_gate.json")
+        file.parentFile?.mkdirs()
+        file.writeText("""{"deployed": true}""")
+    }
+
     private fun writeSpecialtyItems(baseDir: File, jobFolderName: String, body: String) {
+        writeDeploymentGate(baseDir, jobFolderName)
         val file = File(baseDir, "$jobFolderName/.metadata/admin/specialty_items.json")
         file.parentFile?.mkdirs()
         file.writeText(body)
@@ -300,6 +308,7 @@ class SpecialtyScanCoordinatorTest {
     }
 
     private fun writeChecklistItems(baseDir: File, jobFolderName: String, body: String) {
+        writeDeploymentGate(baseDir, jobFolderName)
         val file = File(baseDir, "$jobFolderName/.metadata/admin/checklist.json")
         file.parentFile?.mkdirs()
         file.writeText(body)

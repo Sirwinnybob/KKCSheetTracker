@@ -30,14 +30,16 @@ class SpecialtyRepository(
     fun currentBasePath(): String = baseDir.absolutePath
 
     fun scanJobs(): List<SpecialtyJob> {
-        val (jobInfos, _) = engine().listJobsFromCacheOnly()
+        val (cachedJobInfos, needsDeepLoad) = engine().listJobsFromCacheOnly()
+        val jobInfos = if (needsDeepLoad.isEmpty()) cachedJobInfos else engine().listJobs()
         return jobInfos.map { info -> buildSpecialtyJob(info) }
         // Preserve production order (set by server in cache); no secondary sort needed
     }
 
     /** Re-builds one SpecialtyJob from the current engine cache. Used by SpecialtyScanCoordinator. */
     fun getUpdatedJob(folderName: String): SpecialtyJob? {
-        val info = engine().getJobInfo(folderName) ?: return null
+        val (jobInfos, _) = engine().listJobsFromCacheOnly()
+        val info = jobInfos.find { it.folderName == folderName } ?: return null
         return buildSpecialtyJob(info)
     }
 

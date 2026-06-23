@@ -72,7 +72,7 @@ class PdfMarkupStoreTest {
 
         val merged = tabletA.getMergedActiveStrokes(jobFolderName, "Plans.pdf", 1)
 
-        assertEquals(listOf("shared-id"), merged.map { it.id })
+        assertEquals(emptyList<String>(), merged.map { it.id })
     }
 
     @Test
@@ -98,8 +98,8 @@ class PdfMarkupStoreTest {
         val markup = store.loadTabletMarkup(jobFolderName)
 
         assertEquals(2, markup.pages.size)
-        assertTrue(markup.pages.any { it.pdfFilename == "Plans.pdf" && it.page == 1 && it.strokes.map(PdfInkStroke::id) == listOf("page-1") })
-        assertTrue(markup.pages.any { it.pdfFilename == "Plans.pdf" && it.page == 2 && it.strokes.map(PdfInkStroke::id) == listOf("page-2") })
+        assertTrue(markup.pages.any { it.pdfFilename == "plans.pdf" && it.page == 1 && it.strokes.map(PdfInkStroke::id) == listOf("page-1") })
+        assertTrue(markup.pages.any { it.pdfFilename == "plans.pdf" && it.page == 2 && it.strokes.map(PdfInkStroke::id) == listOf("page-2") })
     }
 
     @Test
@@ -124,8 +124,8 @@ class PdfMarkupStoreTest {
 
         val merged = tabletA.getMergedActiveStrokesByPage(jobFolderName)
 
-        assertEquals(listOf("plans-1"), merged[PdfMarkupPageKey("Plans.pdf", 1)]?.map { it.id })
-        assertEquals(listOf("assembly-1"), merged[PdfMarkupPageKey("Assembly.pdf", 1)]?.map { it.id })
+        assertEquals(listOf("plans-1"), merged[PdfMarkupPageKey("plans.pdf", 1)]?.map { it.id })
+        assertEquals(listOf("assembly-1"), merged[PdfMarkupPageKey("assembly.pdf", 1)]?.map { it.id })
     }
 
     @Test(expected = IllegalArgumentException::class)

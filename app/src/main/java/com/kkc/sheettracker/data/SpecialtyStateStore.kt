@@ -153,7 +153,7 @@ class SpecialtyStateStore(
             val normalizedMaterial = normalizeClosetRodAutomationMaterial(automationKey, item.material)
             closetRows
                 .filter { row ->
-                    row.unitType.equals("PER_FT", ignoreCase = true) &&
+                    normalizeCabinetVisionUnitType(row.unitType) == "PER FT" &&
                         normalizeClosetRodMaterial(row.material) == normalizedMaterial
                 }
                 .forEach { target ->

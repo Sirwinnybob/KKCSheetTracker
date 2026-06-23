@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +35,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.kkc.sheettracker.clock.ClockInNotificationContract
+import com.kkc.sheettracker.crash.CrashReporter
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
@@ -96,6 +98,12 @@ class MainActivity : ComponentActivity() {
                 .also { discoveredPath ->
                     prefs.edit().putString("base_path", discoveredPath).apply()
                 }
+        CrashReporter.updateContext(
+            tabletId = tabletId,
+            basePath = basePath,
+            workMode = prefs.getString("work_mode", null) ?: WorkMode.CNC.name
+        )
+        CrashReporter.flushPending(basePath)
 
         val useLegacyUpdatePrompt = DeviceOwnerUpdateFallback(this)
             .shouldUseLegacyPrompt(basePath = basePath, tabletId = tabletId)
@@ -199,6 +207,9 @@ class MainActivity : ComponentActivity() {
                     WorkMode.fromStored(prefs.getString("work_mode", null))
                 )
             }
+            LaunchedEffect(workMode) {
+                CrashReporter.updateContext(workMode = workMode.name)
+            }
             val syncthingStatus by syncthingSupervisor.status.collectAsState()
             val syncthingApiKey by syncthingSupervisor.apiKey.collectAsState()
             val composeScope = rememberCoroutineScope()
@@ -256,6 +267,7 @@ class MainActivity : ComponentActivity() {
                         onWorkModeChanged = { mode ->
                             workMode = mode
                             prefs.edit().putString("work_mode", mode.name).apply()
+                            CrashReporter.updateContext(workMode = mode.name)
                         },
                         onReinstallLatest = { updateManager.reinstallLatest() },
                         onBasePathChanged = { newPath ->

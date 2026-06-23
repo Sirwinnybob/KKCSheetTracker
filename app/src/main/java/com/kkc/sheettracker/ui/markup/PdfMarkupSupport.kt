@@ -117,24 +117,36 @@ fun distanceToViewStroke(
 }
 
 fun findRelevantMotionEventPointerIndex(motionEvent: MotionEvent): Int {
-    if (motionEvent.pointerCount <= 0) return 0
+    return findRelevantPointerIndex(
+        pointerCount = motionEvent.pointerCount,
+        actionIndex = motionEvent.actionIndex,
+        toolTypeAt = motionEvent::getToolType
+    )
+}
 
-    val actionIndex = motionEvent.actionIndex
-        .takeIf { it in 0 until motionEvent.pointerCount }
+internal fun findRelevantPointerIndex(
+    pointerCount: Int,
+    actionIndex: Int,
+    toolTypeAt: (Int) -> Int
+): Int {
+    if (pointerCount <= 0) return 0
+
+    val safeActionIndex = actionIndex
+        .takeIf { it in 0 until pointerCount }
         ?: 0
-    val actionToolType = motionEvent.getToolType(actionIndex)
+    val actionToolType = toolTypeAt(safeActionIndex)
     if (actionToolType == MotionEvent.TOOL_TYPE_STYLUS || actionToolType == MotionEvent.TOOL_TYPE_ERASER) {
-        return actionIndex
+        return safeActionIndex
     }
 
-    for (pointerIndex in 0 until motionEvent.pointerCount) {
-        val toolType = motionEvent.getToolType(pointerIndex)
+    for (pointerIndex in 0 until pointerCount) {
+        val toolType = toolTypeAt(pointerIndex)
         if (toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER) {
             return pointerIndex
         }
     }
 
-    return actionIndex
+    return safeActionIndex
 }
 
 data class PdfPageTransform(

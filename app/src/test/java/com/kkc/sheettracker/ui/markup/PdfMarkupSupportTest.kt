@@ -111,46 +111,15 @@ class PdfMarkupSupportTest {
 
     @Test
     fun `relevant motion event pointer index prefers stylus pointer over finger pointer`() {
-        val motionEvent = MotionEvent.obtain(
-            0L,
-            10L,
-            MotionEvent.ACTION_MOVE,
-            2,
-            arrayOf(
-                MotionEvent.PointerProperties().apply {
-                    id = 0
-                    toolType = MotionEvent.TOOL_TYPE_FINGER
-                },
-                MotionEvent.PointerProperties().apply {
-                    id = 1
-                    toolType = MotionEvent.TOOL_TYPE_STYLUS
-                }
-            ),
-            arrayOf(
-                MotionEvent.PointerCoords().apply {
-                    x = 10f
-                    y = 20f
-                },
-                MotionEvent.PointerCoords().apply {
-                    x = 30f
-                    y = 40f
-                }
-            ),
-            0,
-            0,
-            1f,
-            1f,
-            0,
-            0,
-            0,
-            0
+        val index = findRelevantPointerIndex(
+            pointerCount = 2,
+            actionIndex = 0,
+            toolTypeAt = { pointerIndex ->
+                if (pointerIndex == 1) MotionEvent.TOOL_TYPE_STYLUS else MotionEvent.TOOL_TYPE_FINGER
+            }
         )
 
-        try {
-            assertEquals(1, findRelevantMotionEventPointerIndex(motionEvent))
-        } finally {
-            motionEvent.recycle()
-        }
+        assertEquals(1, index)
     }
 
     @Test

@@ -104,6 +104,8 @@ class UnifiedFacadeParityTest {
 
     private fun seedJob(baseDir: File) {
         val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
+        val sheetIndexDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(sheetIndexDir, "deployment_gate.json").writeText("""{"deployed": true}""")
         File(jobDir, "1234 - Assembly Sheets.pdf").writeText("pdf")
         File(jobDir, "1234 - Plans & Elevations.pdf").writeText("pdf")
 
@@ -136,7 +138,6 @@ class UnifiedFacadeParityTest {
             """.trimIndent()
         )
 
-        val sheetIndexDir = File(jobDir, ".metadata").apply { mkdirs() }
         File(sheetIndexDir, "cabinet_sheet_index.json").writeText(
             """
             {

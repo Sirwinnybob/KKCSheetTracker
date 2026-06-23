@@ -34,17 +34,33 @@ class HardwoodsRepository(private var baseDir: File) {
     fun currentBasePath(): String = baseDir.absolutePath
 
     fun scanJobs(): List<HardwoodJob> {
-        val (jobInfos, _) = engine().listJobsFromCacheOnly()
+        val (cachedJobInfos, needsDeepLoad) = engine().listJobsFromCacheOnly()
+        val jobInfos = if (needsDeepLoad.isEmpty()) cachedJobInfos else engine().listJobs()
         return jobInfos.mapNotNull { info ->
             engine().getHardwoodsSnapshot(info.folderName)?.job
-                ?.copy(lineupPosition = info.lineupPosition, labels = info.labels)
+                ?.copy(
+                    lineupPosition = info.lineupPosition,
+                    labels = info.labels,
+                    hiddenFromProduction = info.hiddenFromProduction,
+                    isPending = info.isPending,
+                    boardSection = info.boardSection
+                )
         }
         // Preserve production order (set by server in cache); no secondary sort needed
     }
 
     /** Re-projects one job from the engine's in-memory cache. Used by HardwoodsScanCoordinator. */
     fun getUpdatedJob(folderName: String): HardwoodJob? {
+        val (jobInfos, _) = engine().listJobsFromCacheOnly()
+        val info = jobInfos.find { it.folderName == folderName } ?: return null
         return engine().getHardwoodsSnapshot(folderName)?.job
+            ?.copy(
+                lineupPosition = info.lineupPosition,
+                labels = info.labels,
+                hiddenFromProduction = info.hiddenFromProduction,
+                isPending = info.isPending,
+                boardSection = info.boardSection
+            )
     }
 
     fun buildSearchIndex(jobs: List<HardwoodJob>): List<HardwoodSearchEntry> {

@@ -432,6 +432,54 @@ class DoorCutSheetFilterTest {
         assertTrue(owned.isEmpty())
     }
 
+    @Test
+    fun parseDoorCutUnitTypeMetadata_acceptsCabinetVisionUnitNames() {
+        val cabinetVisionUnitNames = listOf(
+            "Each",
+            "Per FT",
+            "SQ FT",
+            "BD FT",
+            "Sheet",
+            "Per M",
+            "SQ M",
+            "BD M",
+            "Cubic M",
+            "Cubic FT",
+            "Pair"
+        )
+        val rowsJson = cabinetVisionUnitNames.mapIndexed { index, unitName ->
+            """
+                {
+                  "rowId": "row-$index",
+                  "material": "Material $index",
+                  "unitType": "$unitName"
+                }
+            """.trimIndent()
+        }.joinToString(",")
+        val materialUnitJson = cabinetVisionUnitNames.mapIndexed { index, unitName ->
+            """"Material By Unit $index": "$unitName""""
+        }.joinToString(",")
+        val rawJson = """
+            {
+              "documents": [
+                {
+                  "docType": "DOOR_CUT_LIST",
+                  "rows": [$rowsJson],
+                  "unitTypeByMaterial": {
+                    $materialUnitJson
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val parsed = parseDoorCutUnitTypeMetadata(rawJson)
+
+        assertTrue(parsed.hasUnitTypeMetadata)
+        assertEquals(setOf("ROW-4"), parsed.sheetRowIds)
+        assertEquals(setOf("MATERIAL 4", "MATERIAL BY UNIT 4"), parsed.sheetMaterials)
+    }
+
     private fun createTempDirectory(): File = Files.createTempDirectory("door-cut-sheet-filter-test").toFile()
 
     private fun writeMaterialMappings(baseDir: File, body: String) {

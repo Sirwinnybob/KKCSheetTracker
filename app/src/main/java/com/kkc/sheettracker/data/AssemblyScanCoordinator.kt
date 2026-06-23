@@ -91,7 +91,13 @@ class AssemblyScanCoordinator(
         val jobs = jobInfos.mapNotNull { info ->
             runCatching {
                 unifiedEngine.getAssemblySnapshot(info.folderName)?.job
-                    ?.copy(lineupPosition = info.lineupPosition, labels = info.labels)
+                    ?.copy(
+                        lineupPosition = info.lineupPosition,
+                        labels = info.labels,
+                        hiddenFromProduction = info.hiddenFromProduction,
+                        isPending = info.isPending,
+                        boardSection = info.boardSection
+                    )
             }.getOrNull()
         }
         if (needsDeepLoad.isNotEmpty()) {
@@ -107,7 +113,16 @@ class AssemblyScanCoordinator(
     /** Re-projects one job from the engine's in-memory cache and emits an updated AssemblyScanState. */
     fun updateJobInState(folderName: String) {
         scope.launch {
-            val updatedJob = unifiedEngine.getAssemblySnapshot(folderName)?.job ?: return@launch
+            val (jobInfos, _) = unifiedEngine.listJobsFromCacheOnly()
+            val info = jobInfos.find { it.folderName == folderName } ?: return@launch
+            val updatedJob = unifiedEngine.getAssemblySnapshot(folderName)?.job
+                ?.copy(
+                    lineupPosition = info.lineupPosition,
+                    labels = info.labels,
+                    hiddenFromProduction = info.hiddenFromProduction,
+                    isPending = info.isPending,
+                    boardSection = info.boardSection
+                ) ?: return@launch
             val current = _state.value
             val existingJobs = current.snapshot.jobs
             val newJobs = if (existingJobs.any { it.folderName == folderName }) {
