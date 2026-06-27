@@ -16,7 +16,7 @@ UI order below is a starting guess; early data passes may re-rank it (note any c
 
 | # | Subsystem | Key files | Status |
 |---|-----------|-----------|--------|
-| D1 | Scan coordinators + change monitor | `data/ScanCoordinator.kt`, `HardwoodsScanCoordinator.kt`, `AssemblyScanCoordinator.kt`, `SpecialtyScanCoordinator.kt`, `TrackerChangeMonitor.kt`, `StaticCachePoller.kt` | in-progress |
+| D1 | Scan coordinators + change monitor | `data/ScanCoordinator.kt`, `HardwoodsScanCoordinator.kt`, `AssemblyScanCoordinator.kt`, `SpecialtyScanCoordinator.kt`, `TrackerChangeMonitor.kt`, `StaticCachePoller.kt` | done — findings-only (see note) |
 | D2 | Progress stores + index caching | `data/ProgressStore.kt`, `HardwoodsProgressStore.kt`, `SpecialtyProgressStore.kt`, `SheetRipProgressStore.kt` | pending |
 | D3 | Unified metadata engine | `data/unified/FileBackedUnifiedMetadataEngine.kt` (+ `data/unified/`) | pending |
 | D4 | Repositories | `data/JobRepository.kt`, `HardwoodsRepository.kt`, `SpecialtyRepository.kt`, `SupplyRepository.kt`, `DeliveryScheduleRepository.kt`, `TimecardRepository.kt` | pending |
@@ -45,4 +45,6 @@ Newest at top. One row per completed pass.
 
 | Date | Subsystem | Commit | What changed | Verify |
 |------|-----------|--------|--------------|--------|
-| _(none yet)_ | | | | |
+| 2026-06-27 | D1 Scan coordinators + change monitor | _(this commit)_ | Findings-only pass. Profiled all 6 files + the engine methods they call. Subsystem is already tightly optimized (two-phase cache scan, coalescing, warmup, per-job invalidation, dedup). No low-risk code wins found; the real issues are above the line and parked: (1) N+1 — per-job `updateJobInState` re-scans every job via `listJobsFromCacheOnly()`; needs an additive engine accessor → D3. (2) per-job search-index rebuild + per-folder state emissions in the deep-load loop → couple with (1). (3) dead warmup branch in `TrackerChangeMonitor.flushPendingNow` (ambiguous intent). (4) `flushJob === this` self-clear never fires (benign). All 4 written to FINDINGS.md. | `assembleDebug` + `testDebugUnitTest` BUILD SUCCESSFUL (33s, green baseline; no code changed) |
+
+**Note on D1:** no code changes applied. Every actionable improvement was either engine-coupled (belongs to subsystem D3 — adding a single-job `getJobInfo` accessor) or had ambiguous intent (the warmup branch). Per the loop's "all medium/high-risk → mark done with a note and park proposals" rule, D1 is complete. The N+1 finding is the priority item to pick up when D3 runs.
