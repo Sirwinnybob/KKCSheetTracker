@@ -34,7 +34,7 @@ UI order below is a starting guess; early data passes may re-rank it (note any c
 | U6 | Supply | `ui/supply/` | done — already optimized (no change) |
 | U7 | Job detail / browser / search | `ui/detail/`, `ui/browser/`, `ui/search/` | done — findings-only |
 | U8 | Navigation + scaffold | `navigation/NavGraph.kt`, `ui/components/AppScaffold.kt` | done — already optimized / off-limits (no change) |
-| U9 | Shared components + calculator | `ui/components/` (tables, status, `CalculatorOverlay.kt`) | pending |
+| U9 | Shared components + calculator | `ui/components/` (tables, status, `CalculatorOverlay.kt`) | in-progress |
 | U10 | Settings + timecard/hours/clock | `ui/settings/`, `ui/timecard/`, `ui/hours/`, `clock/` | pending |
 
 ---
