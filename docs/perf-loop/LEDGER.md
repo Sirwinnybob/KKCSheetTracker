@@ -29,7 +29,7 @@ UI order below is a starting guess; early data passes may re-rank it (note any c
 | U1 | Dashboards | `ui/dashboard/` (`UnifiedModeDashboardScreen.kt`, `DashboardWidgetFactories.kt`), `ui/hardwoods/HardwoodsDashboardScreen.kt`, `ui/assembly/AssemblyDashboardScreen.kt`, `ui/supply/SupplyDashboardScreen.kt` | done |
 | U2 | Viewers + markup | `ui/viewer/SheetViewerScreen.kt`, `UnifiedReferenceViewer.kt`, `ReferencePdfViewerScreen.kt`, `ui/components/ReferencePdfPane.kt`, `ui/markup/` | done — already optimized (no change) |
 | U3 | Hardwoods workspace | `ui/hardwoods/HardwoodsWorkspaceScreen.kt`, `ClassicCutListTable.kt`, `HardwoodsJobsScreen.kt`, row helpers | done |
-| U4 | Assembly + 3D viewer | `ui/assembly/`, `viewer3d/` | pending |
+| U4 | Assembly + 3D viewer | `ui/assembly/`, `viewer3d/` | in-progress |
 | U5 | Specialty | `ui/specialty/` | pending |
 | U6 | Supply | `ui/supply/` | pending |
 | U7 | Job detail / browser / search | `ui/detail/`, `ui/browser/`, `ui/search/` | pending |
