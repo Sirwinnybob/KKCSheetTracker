@@ -39,6 +39,23 @@ UI order below is a starting guess; early data passes may re-rank it (note any c
 
 ---
 
+## Queue complete — 2026-06-27
+
+All 15 subsystems (D1–D5, U1–U10) are `done`. Final FINDINGS.md sweep performed:
+no parked item has become a clean low-risk standalone apply — the remainder are
+engine-API changes, sync-observed write-cadence changes, outward-facing
+update-flow threading, or central-screen behavior trade-offs needing owner
+judgment. Loop stopped; no further code changes.
+
+**Shipped (low-risk, behavior-preserving):** D2 (2 progress-store N+1s), D3
+(cabinet-parts single-snapshot), D4 (supply getItems N+1), U1 (dashboard widget
+memoization), U3 (hardwoods regex hoisting), U4 (assembly derive off main
+thread), U5 (specialty derive off main thread). D1/D5/U2/U6/U7/U8/U9/U10 were
+findings-only or already-optimized. See FINDINGS.md for the parked backlog (the
+engine single-job accessor N+1 is the highest-value follow-up).
+
+---
+
 ## Pass log
 
 Newest at top. One row per completed pass.
