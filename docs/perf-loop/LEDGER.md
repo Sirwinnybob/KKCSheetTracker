@@ -32,7 +32,7 @@ UI order below is a starting guess; early data passes may re-rank it (note any c
 | U4 | Assembly + 3D viewer | `ui/assembly/`, `viewer3d/` | done |
 | U5 | Specialty | `ui/specialty/` | done |
 | U6 | Supply | `ui/supply/` | done — already optimized (no change) |
-| U7 | Job detail / browser / search | `ui/detail/`, `ui/browser/`, `ui/search/` | pending |
+| U7 | Job detail / browser / search | `ui/detail/`, `ui/browser/`, `ui/search/` | in-progress |
 | U8 | Navigation + scaffold | `navigation/NavGraph.kt`, `ui/components/AppScaffold.kt` | pending |
 | U9 | Shared components + calculator | `ui/components/` (tables, status, `CalculatorOverlay.kt`) | pending |
 | U10 | Settings + timecard/hours/clock | `ui/settings/`, `ui/timecard/`, `ui/hours/`, `clock/` | pending |
