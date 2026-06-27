@@ -6,6 +6,9 @@ import java.util.Locale
 private val MIXED_FRACTION_REGEX = Regex("""(-?\d+)\s+(\d+)\s*/\s*(\d+)""")
 private val FRACTION_ONLY_REGEX = Regex("""(-?\d+)\s*/\s*(\d+)""")
 private val DECIMAL_REGEX = Regex("""-?\d+(?:\.\d+)?""")
+private val OPEN_PAREN_SPACING_REGEX = Regex("""\s*\(\s*""")
+private val CLOSE_PAREN_SPACING_REGEX = Regex("""\s*\)\s*""")
+private val CABINET_COUNT_REGEX = Regex("""^(\d{1,5})(?:\s*\(\s*(\d+)\s*\))?$""")
 
 enum class HardwoodsRowSortMode {
     CutlistOrder,
@@ -63,8 +66,8 @@ fun formatCabinetDisplay(rawCabinetText: String?, cabinets: List<String>): Strin
         }
         // Fallback to compact style if parsing fails.
         return raw
-            .replace(Regex("""\s*\(\s*"""), "(")
-            .replace(Regex("""\s*\)\s*"""), ")")
+            .replace(OPEN_PAREN_SPACING_REGEX, "(")
+            .replace(CLOSE_PAREN_SPACING_REGEX, ")")
             .replace(", ", ", ")
     }
 
@@ -92,11 +95,10 @@ fun cutlistDimensionDisplay(row: HardwoodCutlistRow): String {
 private fun parseCabinetCounts(raw: String): LinkedHashMap<String, Int>? {
     val entries = LinkedHashMap<String, Int>()
     val chunks = raw.split(",")
-    val pattern = Regex("""^(\d{1,5})(?:\s*\(\s*(\d+)\s*\))?$""")
     for (chunk in chunks) {
         val token = chunk.trim()
         if (token.isEmpty()) continue
-        val m = pattern.matchEntire(token) ?: return null
+        val m = CABINET_COUNT_REGEX.matchEntire(token) ?: return null
         val cab = m.groupValues[1]
         val qty = m.groupValues[2].toIntOrNull() ?: 1
         entries[cab] = (entries[cab] ?: 0) + qty
