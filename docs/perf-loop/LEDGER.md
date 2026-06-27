@@ -20,7 +20,7 @@ UI order below is a starting guess; early data passes may re-rank it (note any c
 | D2 | Progress stores + index caching | `data/ProgressStore.kt`, `HardwoodsProgressStore.kt`, `SpecialtyProgressStore.kt`, `SheetRipProgressStore.kt` | done |
 | D3 | Unified metadata engine | `data/unified/FileBackedUnifiedMetadataEngine.kt` (+ `data/unified/`) | done |
 | D4 | Repositories | `data/JobRepository.kt`, `HardwoodsRepository.kt`, `SpecialtyRepository.kt`, `SupplyRepository.kt`, `DeliveryScheduleRepository.kt`, `TimecardRepository.kt` | done |
-| D5 | Sync + update | `sync/` (Syncthing*), `update/UpdateManager.kt` | pending |
+| D5 | Sync + update | `sync/` (Syncthing*), `update/UpdateManager.kt` | in-progress |
 
 ### Phase 2 — UI (audit-ranked; refine as you learn)
 
