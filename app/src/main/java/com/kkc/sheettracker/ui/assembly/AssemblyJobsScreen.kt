@@ -71,6 +71,7 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import com.kkc.sheettracker.data.models.AssemblyJobCard
+import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
@@ -132,11 +133,21 @@ fun AssemblyJobsScreen(
     // Cleared on each new scan generation; populated async per-item to avoid blocking composition.
     val badgeCache = remember(scanState.snapshot.generation) { mutableStateMapOf<String, AssemblyJobBadgeState>() }
 
-    val allCards = remember(scanState.snapshot.generation, cncProgressVersion, hardwoodProgressVersion) {
-        assemblyStateStore.deriveJobCards()
+    // deriveJobCards() builds CNC + hardwood progress indexes from tracker files on a
+    // cache miss, so it must not run synchronously in composition (main thread). Mirror the
+    // dashboard and derive on Dispatchers.IO; the screen already renders an empty-then-
+    // populated flow as the scan completes, so an empty initial value is consistent.
+    val allCards by produceState(
+        initialValue = emptyList<AssemblyJobCard>(),
+        scanState.snapshot.generation, cncProgressVersion, hardwoodProgressVersion
+    ) {
+        value = withContext(Dispatchers.IO) { assemblyStateStore.deriveJobCards() }
     }
-    val specialtyCards = remember(specialtyScanState.snapshot.generation, specialtyProgressVersion, specialtyProgressVersionHint) {
-        specialtyStateStore.deriveJobCards()
+    val specialtyCards by produceState(
+        initialValue = emptyList<SpecialtyJobCard>(),
+        specialtyScanState.snapshot.generation, specialtyProgressVersion, specialtyProgressVersionHint
+    ) {
+        value = withContext(Dispatchers.IO) { specialtyStateStore.deriveJobCards() }
     }
     val specialtySummary = remember(specialtyCards) {
         val total = specialtyCards.sumOf { it.totalItems }
