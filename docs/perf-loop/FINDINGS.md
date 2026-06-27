@@ -70,6 +70,22 @@ and leave a one-line pointer here.
 - **What & why:** every `appendAction` does a synchronous `loadTabletProgress` (readText + full Gson parse + sanitize over ALL prior actions) followed by `saveTabletProgress` (copy the whole actions list + serialize + writeText). For a job worked all day the action log is large, so each append is O(A). `markSheetComplete` calls `appendAction` (2 + number-of-draft-bad-parts) times, i.e. O(A·K) per sheet completion, each a separate disk write + `bumpProgressVersion()`. The sibling stores (`HardwoodsProgressStore`, `SpecialtyProgressStore`) already avoid this with an in-memory `cacheByJob`/`resolvedCacheByJob` + async/atomic persist; the CNC store is the laggard.
 - **Suggested fix:** mirror the Hardwoods pattern — keep an in-memory per-job action list, append in memory + update the index, and persist asynchronously (debounced/coalesced) under a per-job write mutex. Minimum viable contained step: batch the multiple `appendAction` calls inside `markSheetComplete`/`resolveBadPartsOnSheet` into a single load→append-all→save. Verify the change-monitor still sees one coalesced write and that crash-durability is acceptable (async persist). Deferred — write cadence is observed by sync.
 
+### Update check runs APK-archive parsing + external-storage scan on the main thread
+- **Where:** `update/UpdateManager.kt:121` (`checkForUpdates`) → `findUpdateDirectory`/`findReleaseUpdateDirectory`/`checkForSelfUpdatesInDirectory`/`checkForExternalUpdatesInDirectory` → `getApkInfo`/`getApkVersionCode` (`getPackageArchiveInfo`). Called on the main thread from `MainActivity.kt:115` (`onCreate`) and `MainActivity.kt:499` (`onStart`, every foreground).
+- **Type:** perf
+- **Risk:** medium (threading-model change; the method mutates Compose `mutableStateOf` and shows `AlertDialog`s, which must stay on main, and it lives in the outward-facing update flow)
+- **Found in pass:** D5 / 2026-06-27
+- **What & why:** each foreground triggers a synchronous main-thread sweep of the external-storage update folders: `listFiles()` + `File.exists()/isDirectory` stats, and `PackageManager.getPackageArchiveInfo(apk, 0)` which **parses each APK archive** (tens of ms per APK, worse on networked/SD storage). `checkForExternalUpdatesInDirectory` even parses every APK in the folder (incl. self/other) before filtering to the two `externalApps`. On a slow drive this janks app start and every resume.
+- **Suggested fix:** split `checkForUpdates` into a background scan (run the directory walk + APK parsing on `Dispatchers.IO`, returning the resolved dirs + a `Map<pkg, ApkInfo>`) and a main-thread apply step that sets the Compose state / shows the manual-path dialog. Have `MainActivity` call it from `lifecycleScope.launch`. Keep all `mutableStateOf` writes and dialog calls on main. Verify the no-permission early-return (`requestStoragePermission`) and the manual-path re-entrancy (`showManualPathDialog` → `checkForUpdates`) still sequence correctly. Outward-facing update flow — deliberate change, not the loop.
+
+### Minor: `findUpdateDirectory`/`findReleaseUpdateDirectory` duplicate the custom-path read + job-folder walk
+- **Where:** `update/UpdateManager.kt:184-239`
+- **Type:** cleanup
+- **Risk:** low (deferred — sits in the outward-facing update flow; bundle with the threading fix above)
+- **Found in pass:** D5 / 2026-06-27
+- **What & why:** both methods re-read the `custom_update_path` pref and walk `JOB_FOLDER_NAMES`; the only real difference is the debug `.Testing_Updates` subfolder vs release `.Updates`/`Updates` set and whether `resolvedUpdatePath` is assigned. Two SharedPreferences reads + two external-storage walks per `checkForUpdates`.
+- **Suggested fix:** factor the shared walk into one helper parameterized by the subfolder list + whether to record `resolvedUpdatePath`. Do it alongside the main-thread fix so the update flow is only restructured once.
+
 ### `TrackerChangeMonitor` flushJob self-clear never fires (`=== this` compares Job to CoroutineScope)
 - **Where:** `data/TrackerChangeMonitor.kt:306-308`
 - **Type:** bug (benign today)
