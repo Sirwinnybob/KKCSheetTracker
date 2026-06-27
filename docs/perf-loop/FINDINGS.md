@@ -86,6 +86,15 @@ and leave a one-line pointer here.
 - **What & why:** both methods re-read the `custom_update_path` pref and walk `JOB_FOLDER_NAMES`; the only real difference is the debug `.Testing_Updates` subfolder vs release `.Updates`/`Updates` set and whether `resolvedUpdatePath` is assigned. Two SharedPreferences reads + two external-storage walks per `checkForUpdates`.
 - **Suggested fix:** factor the shared walk into one helper parameterized by the subfolder list + whether to record `resolvedUpdatePath`. Do it alongside the main-thread fix so the update flow is only restructured once.
 
+### JobBrowserScreen derives all-job status counts synchronously in `remember` (legacy path)
+- **Where:** `ui/browser/JobBrowserScreen.kt:170-210` (`jobUiStates`)
+- **Type:** perf
+- **Risk:** medium (central screen; behavior trade-off — async introduces a first-frame empty flicker)
+- **Found in pass:** U7 / 2026-06-27
+- **What & why:** `jobUiStates` maps over every filtered job and, on the non-appState path, calls `progressStore.getJobStatusCounts(job)` + `getMaterialStatusCounts(material)` synchronously inside `remember{}` (main thread). Those build the per-job progress index from tracker files on a cache miss → main-thread I/O for ALL jobs, the same shape fixed in U4/U5 (`deriveJobCards`). **Mitigated** in production: when `useAppState && appModel != null` it uses precomputed `appModel.counts` (no I/O), and the index is usually warm (in-memory). Only the legacy/fallback path hits disk.
+- **Why parked (not applied like U4/U5):** this is the primary CNC job-list derivation; converting to `produceState{ withContext(IO) }` makes the first frame render empty then populate — an acceptable trade-off on the less-central assembly/specialty screens (U4/U5) but a more visible change on the main browser, and the appState fast path already avoids the jank in production. Owner should confirm the flicker trade-off (or gate the async path on `!useAppState`).
+- **Suggested fix:** wrap `jobUiStates` in `produceState(initialValue = emptyList(), <same keys>) { value = withContext(Dispatchers.IO) { filteredJobs.map { … } } }` — mechanically identical to the U4/U5 fixes. The DEBUG appState-parity `LaunchedEffect` (lines 216-233) is independent and unaffected.
+
 ### `TrackerChangeMonitor` flushJob self-clear never fires (`=== this` compares Job to CoroutineScope)
 - **Where:** `data/TrackerChangeMonitor.kt:306-308`
 - **Type:** bug (benign today)
