@@ -17,7 +17,7 @@ UI order below is a starting guess; early data passes may re-rank it (note any c
 | # | Subsystem | Key files | Status |
 |---|-----------|-----------|--------|
 | D1 | Scan coordinators + change monitor | `data/ScanCoordinator.kt`, `HardwoodsScanCoordinator.kt`, `AssemblyScanCoordinator.kt`, `SpecialtyScanCoordinator.kt`, `TrackerChangeMonitor.kt`, `StaticCachePoller.kt` | done — findings-only (see note) |
-| D2 | Progress stores + index caching | `data/ProgressStore.kt`, `HardwoodsProgressStore.kt`, `SpecialtyProgressStore.kt`, `SheetRipProgressStore.kt` | pending |
+| D2 | Progress stores + index caching | `data/ProgressStore.kt`, `HardwoodsProgressStore.kt`, `SpecialtyProgressStore.kt`, `SheetRipProgressStore.kt` | in-progress |
 | D3 | Unified metadata engine | `data/unified/FileBackedUnifiedMetadataEngine.kt` (+ `data/unified/`) | pending |
 | D4 | Repositories | `data/JobRepository.kt`, `HardwoodsRepository.kt`, `SpecialtyRepository.kt`, `SupplyRepository.kt`, `DeliveryScheduleRepository.kt`, `TimecardRepository.kt` | pending |
 | D5 | Sync + update | `sync/` (Syncthing*), `update/UpdateManager.kt` | pending |
