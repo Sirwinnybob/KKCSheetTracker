@@ -62,7 +62,10 @@ class SpecialtyProgressStore(
     fun loadResolvedItems(jobFolderName: String): List<SpecialtyResolvedItem> {
         resolvedCacheByJob[jobFolderName]?.let { cached -> return cached }
         val items = loadSpecialtyItems(jobFolderName)
-        val merged = loadMergedCompletionByItem(jobFolderName)
+        // Reuse the items we just loaded — loadMergedCompletionByItem otherwise re-runs the
+        // full multi-file specialty parse (specialty_items + checklist + tablet_items +
+        // material mappings + door-panel derivation), doubling the load cost on a cache miss.
+        val merged = loadMergedCompletionByItem(jobFolderName, items)
 
         val resolved = items.map { item ->
             val mergedByKey = merged[item.id].orEmpty()
@@ -205,8 +208,10 @@ class SpecialtyProgressStore(
         return true
     }
 
-    private fun loadMergedCompletionByItem(jobFolderName: String): Map<String, Map<String, SpecialtyCompletionState>> {
-        val items = loadSpecialtyItems(jobFolderName)
+    private fun loadMergedCompletionByItem(
+        jobFolderName: String,
+        items: List<SpecialtyItem> = loadSpecialtyItems(jobFolderName)
+    ): Map<String, Map<String, SpecialtyCompletionState>> {
         val checklistSeeds = loadChecklistCompletionSeeds(jobFolderName, items)
         val files = trackerDir(jobFolderName)
             .listFiles()

@@ -45,6 +45,14 @@ and leave a one-line pointer here.
 - **What & why:** the block `if (now < startupWarmupUntilMs && viewerInteraction.value) { scheduleFlushLocked(); return }` is only reached after the preceding `if (viewerInteraction.value) return` has already returned, so `viewerInteraction.value` is false here and the condition is effectively always false (dead). If the intent was "defer the flush during the startup warmup window," that deferral never happens. Fixing it to actually defer (`now < startupWarmupUntilMs`) would be a behavior change, so not applied.
 - **Suggested fix:** confirm intent. If warmup-deferral is desired, drop the `&& viewerInteraction.value`. If not, delete the dead block.
 
+### CNC `ProgressStore` write path: full JSON re-parse + re-serialize per appended action
+- **Where:** `data/ProgressStore.kt:254-275` (`appendAction`), amplified by `markSheetComplete` `data/ProgressStore.kt:473-485`
+- **Type:** perf
+- **Risk:** medium (touches the tracker-write cadence that TrackerChangeMonitor + other tablets observe; changes the append API)
+- **Found in pass:** D2 / 2026-06-27
+- **What & why:** every `appendAction` does a synchronous `loadTabletProgress` (readText + full Gson parse + sanitize over ALL prior actions) followed by `saveTabletProgress` (copy the whole actions list + serialize + writeText). For a job worked all day the action log is large, so each append is O(A). `markSheetComplete` calls `appendAction` (2 + number-of-draft-bad-parts) times, i.e. O(A·K) per sheet completion, each a separate disk write + `bumpProgressVersion()`. The sibling stores (`HardwoodsProgressStore`, `SpecialtyProgressStore`) already avoid this with an in-memory `cacheByJob`/`resolvedCacheByJob` + async/atomic persist; the CNC store is the laggard.
+- **Suggested fix:** mirror the Hardwoods pattern — keep an in-memory per-job action list, append in memory + update the index, and persist asynchronously (debounced/coalesced) under a per-job write mutex. Minimum viable contained step: batch the multiple `appendAction` calls inside `markSheetComplete`/`resolveBadPartsOnSheet` into a single load→append-all→save. Verify the change-monitor still sees one coalesced write and that crash-durability is acceptable (async persist). Deferred — write cadence is observed by sync.
+
 ### `TrackerChangeMonitor` flushJob self-clear never fires (`=== this` compares Job to CoroutineScope)
 - **Where:** `data/TrackerChangeMonitor.kt:306-308`
 - **Type:** bug (benign today)
