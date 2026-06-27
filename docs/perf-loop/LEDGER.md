@@ -31,7 +31,7 @@ UI order below is a starting guess; early data passes may re-rank it (note any c
 | U3 | Hardwoods workspace | `ui/hardwoods/HardwoodsWorkspaceScreen.kt`, `ClassicCutListTable.kt`, `HardwoodsJobsScreen.kt`, row helpers | done |
 | U4 | Assembly + 3D viewer | `ui/assembly/`, `viewer3d/` | done |
 | U5 | Specialty | `ui/specialty/` | done |
-| U6 | Supply | `ui/supply/` | pending |
+| U6 | Supply | `ui/supply/` | in-progress |
 | U7 | Job detail / browser / search | `ui/detail/`, `ui/browser/`, `ui/search/` | pending |
 | U8 | Navigation + scaffold | `navigation/NavGraph.kt`, `ui/components/AppScaffold.kt` | pending |
 | U9 | Shared components + calculator | `ui/components/` (tables, status, `CalculatorOverlay.kt`) | pending |
