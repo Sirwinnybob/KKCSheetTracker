@@ -22,7 +22,7 @@ and leave a one-line pointer here.
 ---
 
 ### N+1: per-job `updateJobInState` re-scans every job via `listJobsFromCacheOnly()`
-- **Where:** `data/ScanCoordinator.kt:218-247` (`updateJobInState`), reached from the deep-load loop `ScanCoordinator.kt:163-171` and from `StaticCachePoller` fan-out. Same shape in `AssemblyScanCoordinator.kt:114-140`. Backed by `unified/FileBackedUnifiedMetadataEngine.kt:232-290` (`listJobsFromCacheOnly`).
+- **Where:** `data/ScanCoordinator.kt:218-247` (`updateJobInState`), reached from the deep-load loop `ScanCoordinator.kt:163-171` and from `StaticCachePoller` fan-out. Same shape in `AssemblyScanCoordinator.kt:114-140`, and at the repository layer in `HardwoodsRepository.getUpdatedJob` (`HardwoodsRepository.kt:53-64`) and `SpecialtyRepository.getUpdatedJob` (`SpecialtyRepository.kt:40-44`) — both call `listJobsFromCacheOnly()` then `.find { it.folderName == … }` for a single job. Backed by `unified/FileBackedUnifiedMetadataEngine.kt:232-290` (`listJobsFromCacheOnly`). (D4-pass note 2026-06-27: these repo `getUpdatedJob` callers are the same N+1; fix them all together with the single-job board-merged accessor.)
 - **Type:** perf
 - **Risk:** medium (needs an additive engine API — belongs to subsystem D3)
 - **Found in pass:** D1 / 2026-06-27

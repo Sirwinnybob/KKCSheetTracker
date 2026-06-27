@@ -26,14 +26,23 @@ class SupplyRepository(private val basePath: String) {
     private fun resolveStatus(itemId: String): SupplyStatusRecord {
         val dir = statusDir
         if (!dir.exists()) return SupplyStatusRecord("IN STOCK")
-        return dir.listFiles { f -> f.name.startsWith("$itemId.") && f.name.endsWith(".json") }
-            ?.mapNotNull { readJson<SupplyStatusRecord>(it) }
-            ?.maxByOrNull { it.at }
+        return resolveStatusFrom(itemId, dir.listFiles()?.toList().orEmpty())
+    }
+
+    // Resolve a single item's status from an already-listed set of status files.
+    // Lets getItems() list the status directory once instead of once per item
+    // (was O(items) directory listings — an N+1 on the networked supply drive).
+    private fun resolveStatusFrom(itemId: String, statusFiles: List<File>): SupplyStatusRecord {
+        return statusFiles
+            .filter { it.name.startsWith("$itemId.") && it.name.endsWith(".json") }
+            .mapNotNull { readJson<SupplyStatusRecord>(it) }
+            .maxByOrNull { it.at }
             ?: SupplyStatusRecord("IN STOCK")
     }
 
-    private fun StoredSupplyItem.resolve(): SupplyItem {
-        val s = resolveStatus(id)
+    private fun StoredSupplyItem.resolve(): SupplyItem = resolveWith(resolveStatus(id))
+
+    private fun StoredSupplyItem.resolveWith(s: SupplyStatusRecord): SupplyItem {
         return SupplyItem(
             id = id, categoryId = categoryId, name = name,
             status = s.status, statusBy = s.by, statusAt = s.at,
@@ -52,8 +61,14 @@ class SupplyRepository(private val basePath: String) {
 
     fun getItems(): List<SupplyItem> {
         if (!itemsDir.exists()) return emptyList()
+        // List the status directory once and reuse it across all items, instead of
+        // re-listing it inside resolve()/resolveStatus() for every item.
+        val statusFiles = statusDir.listFiles()?.toList().orEmpty()
         return itemsDir.listFiles { f -> f.extension == "json" }
-            ?.mapNotNull { readJson<StoredSupplyItem>(it)?.resolve() }
+            ?.mapNotNull { file ->
+                val stored = readJson<StoredSupplyItem>(file) ?: return@mapNotNull null
+                stored.resolveWith(resolveStatusFrom(stored.id, statusFiles))
+            }
             ?: emptyList()
     }
 
