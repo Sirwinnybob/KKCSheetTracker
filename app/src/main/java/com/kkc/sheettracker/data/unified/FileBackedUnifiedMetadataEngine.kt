@@ -428,7 +428,12 @@ class FileBackedUnifiedMetadataEngine(
         overlayLookup: UnifiedPartOverlayLookup
     ): UnifiedAssemblyCabinetParts {
         val normalizedCab = cabinetNumber.trim()
-        val index = getCabinetSheetIndex(jobFolderName).index
+        // Resolve the cabinet index, CNC job, and hardwood job from a single cached
+        // StaticJobData snapshot. Going through getCabinetSheetIndex/getCncSnapshot/
+        // getHardwoodsSnapshot would re-stat the cache file three times and, via
+        // getCncSnapshot, rebuild the entire CNC search index only to discard it.
+        val staticData = loadStaticJobData(jobFolderName)
+        val index = staticData?.cabinetSheetIndex
         val assemblyPages = assemblyCabinetToPages(index)[normalizedCab].orEmpty()
         val assemblyDetails = assemblyPageDetails(index)
 
@@ -437,7 +442,7 @@ class FileBackedUnifiedMetadataEngine(
         }
 
         val cncParts = mutableListOf<AssemblyCncPart>()
-        val cncJob = getCncSnapshot(jobFolderName)?.job
+        val cncJob = staticData?.cncJob
         cncJob?.materials.orEmpty().forEach { material ->
             material.metadata?.pages.orEmpty().forEach { page ->
                 if (page.hiddenInApp || page.trackingExcluded || page.isPartListContinuation) return@forEach
@@ -463,7 +468,7 @@ class FileBackedUnifiedMetadataEngine(
         }
 
         val hardwoodRows = mutableListOf<AssemblyHardwoodRow>()
-        val hardwoodJob = getHardwoodsSnapshot(jobFolderName)?.job
+        val hardwoodJob = staticData?.hardwoodJob
         hardwoodJob?.index?.documents.orEmpty().forEach { doc ->
             doc.rows
                 .filter { row -> row.cabinets.any { it.trim() == normalizedCab } }
