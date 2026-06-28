@@ -217,8 +217,7 @@ class ScanCoordinator(
     /** Re-projects one job from the engine's in-memory cache and emits an updated ScanState. */
     fun updateJobInState(folderName: String) {
         scope.launch {
-            val (jobInfos, _) = unifiedEngine.listJobsFromCacheOnly()
-            val info = jobInfos.find { it.folderName == folderName } ?: return@launch
+            val info = unifiedEngine.getMergedJobInfo(folderName) ?: return@launch
             val snapshot = unifiedEngine.getCncSnapshot(folderName) ?: return@launch
             val current = _state.value
             val existingJobs = current.snapshot.jobs

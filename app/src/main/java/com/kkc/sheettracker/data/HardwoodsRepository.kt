@@ -51,8 +51,7 @@ class HardwoodsRepository(private var baseDir: File) {
 
     /** Re-projects one job from the engine's in-memory cache. Used by HardwoodsScanCoordinator. */
     fun getUpdatedJob(folderName: String): HardwoodJob? {
-        val (jobInfos, _) = engine().listJobsFromCacheOnly()
-        val info = jobInfos.find { it.folderName == folderName } ?: return null
+        val info = engine().getMergedJobInfo(folderName) ?: return null
         return engine().getHardwoodsSnapshot(folderName)?.job
             ?.copy(
                 lineupPosition = info.lineupPosition,

@@ -12,6 +12,15 @@ interface UnifiedMetadataEngine {
     fun getJobInfo(folderName: String): UnifiedJobInfo?
 
     /**
+     * Single-job board-merged accessor. Loads this one folder's cache_static.json (reusing the
+     * in-memory cache when fresh) and merges its job_board.json config (labels/isPending/
+     * boardSection). Returns null if the folder is gated out, has no cache yet, or fails to parse.
+     * Use this instead of listJobsFromCacheOnly().find { ... } when only one job is needed —
+     * avoids the O(N) full-base-dir scan + sort.
+     */
+    fun getMergedJobInfo(folderName: String): UnifiedJobInfo?
+
+    /**
      * Fast cache-only scan: reads each job's cache_static.json without any staleness check.
      * Populates the in-memory cache so subsequent snapshot calls are instant.
      * Returns the list of jobs found in cache paired with folder names that have no cache yet.
