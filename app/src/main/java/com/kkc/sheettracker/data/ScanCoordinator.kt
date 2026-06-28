@@ -159,14 +159,14 @@ class ScanCoordinator(
                     lastRefreshReason = reason
                 )
 
-                // Background: deep-load any job folders that had no cache_static.json yet
+                // Background: deep-load any job folders that had no cache_static.json yet.
+                // Coalesce all changed folders into ONE re-projection + ONE state emission instead
+                // of re-filtering the whole search index and emitting per folder (O(K·M) + K
+                // recompositions). Trade-off: deep-loaded jobs appear as a batch, not one-by-one.
                 if (needsDeepLoad.isNotEmpty()) {
                     scope.launch {
-                        needsDeepLoad.forEach { folderName ->
-                            if (unifiedEngine.refreshJobDeep(folderName)) {
-                                updateJobInState(folderName)
-                            }
-                        }
+                        val changed = needsDeepLoad.filter { unifiedEngine.refreshJobDeep(it) }
+                        updateJobsInState(changed)
                     }
                 }
             } catch (e: Exception) {
@@ -214,27 +214,52 @@ class ScanCoordinator(
         val needsDeepLoad: List<String>
     )
 
+    private data class JobReprojection(
+        val folderName: String,
+        val job: Job,
+        val searchIndex: List<PartSearchEntry>
+    )
+
     /** Re-projects one job from the engine's in-memory cache and emits an updated ScanState. */
-    fun updateJobInState(folderName: String) {
+    fun updateJobInState(folderName: String) = updateJobsInState(listOf(folderName))
+
+    /**
+     * Re-projects a batch of jobs from the engine's in-memory cache in a single state emission.
+     * Filtering the search index once over all changed folders (instead of once per folder) keeps
+     * a deep-load batch at O(M) rather than O(K·M), and emits a single StateFlow update.
+     */
+    fun updateJobsInState(folderNames: List<String>) {
+        if (folderNames.isEmpty()) return
         scope.launch {
-            val info = unifiedEngine.getMergedJobInfo(folderName) ?: return@launch
-            val snapshot = unifiedEngine.getCncSnapshot(folderName) ?: return@launch
+            val updates = folderNames.distinct().mapNotNull { folderName ->
+                val info = unifiedEngine.getMergedJobInfo(folderName) ?: return@mapNotNull null
+                val snapshot = unifiedEngine.getCncSnapshot(folderName) ?: return@mapNotNull null
+                JobReprojection(
+                    folderName = folderName,
+                    job = snapshot.job.copy(
+                        lineupPosition = info.lineupPosition,
+                        labels = info.labels,
+                        hiddenFromProduction = info.hiddenFromProduction,
+                        isPending = info.isPending,
+                        boardSection = info.boardSection
+                    ),
+                    searchIndex = snapshot.searchIndex
+                )
+            }
+            if (updates.isEmpty()) return@launch
+
             val current = _state.value
             val existingJobs = current.snapshot.jobs
-            val updatedJob = snapshot.job.copy(
-                lineupPosition = info.lineupPosition,
-                labels = info.labels,
-                hiddenFromProduction = info.hiddenFromProduction,
-                isPending = info.isPending,
-                boardSection = info.boardSection
-            )
-            val updatedJobs = if (existingJobs.any { it.folderName == folderName }) {
-                existingJobs.map { if (it.folderName == folderName) updatedJob else it }
-            } else {
-                existingJobs + updatedJob
-            }
+            val updatedJobByFolder = updates.associateBy({ it.folderName }, { it.job })
+            val existingFolders = existingJobs.mapTo(HashSet()) { it.folderName }
+            val replacedJobs = existingJobs.map { updatedJobByFolder[it.folderName] ?: it }
+            val appendedJobs = updates.filter { it.folderName !in existingFolders }.map { it.job }
+            val updatedJobs = replacedJobs + appendedJobs
+
+            val changedFolders = updatedJobByFolder.keys
             val updatedSearch = current.snapshot.searchIndex
-                .filter { it.jobFolderName != folderName } + snapshot.searchIndex
+                .filter { it.jobFolderName !in changedFolders } + updates.flatMap { it.searchIndex }
+
             _state.value = current.copy(
                 snapshot = current.snapshot.copy(
                     generation = generation.incrementAndGet(),
