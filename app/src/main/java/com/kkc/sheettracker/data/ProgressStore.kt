@@ -251,6 +251,21 @@ class ProgressStore(
         synchronized(indexLock) { draftStateCache[jobFolderName] = file.lastModified() to state }
     }
 
+    private fun trackerAction(
+        pdfFilename: String,
+        page: Int,
+        action: String,
+        fileFingerprint: String,
+        part: Int? = null
+    ) = TrackerAction(
+        file = pdfFilename,
+        page = page,
+        part = part,
+        action = action,
+        timestamp = Instant.now().toString(),
+        fileFingerprint = fileFingerprint
+    )
+
     private fun appendAction(
         jobFolderName: String,
         pdfFilename: String,
@@ -260,17 +275,20 @@ class ProgressStore(
         part: Int? = null
     ) {
         if (readOnly) return
+        appendActions(jobFolderName, listOf(trackerAction(pdfFilename, page, action, fileFingerprint, part)))
+    }
+
+    /**
+     * Append multiple actions with a single load → append-all → save → version bump, instead of
+     * one full re-parse/re-serialize per action. Callers that emit several actions at once
+     * (markSheetComplete, resolveBadPartsOnSheet, resolveSpecificBadParts) avoid O(A·K) writes,
+     * and the change monitor sees one coalesced write rather than many.
+     */
+    private fun appendActions(jobFolderName: String, entries: List<TrackerAction>) {
+        if (readOnly || entries.isEmpty()) return
         val progress = loadTabletProgress(jobFolderName)
-        val entry = TrackerAction(
-            file = pdfFilename,
-            page = page,
-            part = part,
-            action = action,
-            timestamp = Instant.now().toString(),
-            fileFingerprint = fileFingerprint
-        )
-        saveTabletProgress(jobFolderName, progress.copy(actions = progress.actions + entry))
-        applyActionToIndex(jobFolderName, entry)
+        saveTabletProgress(jobFolderName, progress.copy(actions = progress.actions + entries))
+        entries.forEach { applyActionToIndex(jobFolderName, it) }
         bumpProgressVersion()
     }
 
@@ -472,14 +490,16 @@ class ProgressStore(
 
     fun markSheetComplete(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
         if (readOnly) return
+        val actions = mutableListOf<TrackerAction>()
         if (isSheetSkipped(jobFolderName, pdfFilename, page, fileFingerprint)) {
-            appendAction(jobFolderName, pdfFilename, page, "unskip", fileFingerprint)
+            actions += trackerAction(pdfFilename, page, "unskip", fileFingerprint)
         }
-        appendAction(jobFolderName, pdfFilename, page, "complete", fileFingerprint)
+        actions += trackerAction(pdfFilename, page, "complete", fileFingerprint)
         val draftParts = getDraftBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
         draftParts.forEach { part ->
-            appendAction(jobFolderName, pdfFilename, page, "bad_part", fileFingerprint, part = part)
+            actions += trackerAction(pdfFilename, page, "bad_part", fileFingerprint, part = part)
         }
+        appendActions(jobFolderName, actions)
         clearDraftBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
         onSheetStatusChangedListener?.invoke(jobFolderName, pdfFilename, page, fileFingerprint, true)
     }
@@ -705,16 +725,12 @@ class ProgressStore(
     ) {
         if (readOnly) return
         val committed = getCommittedBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
-        committed.forEach { partNumber ->
-            appendAction(
-                jobFolderName = jobFolderName,
-                pdfFilename = pdfFilename,
-                page = page,
-                action = "unbad_part",
-                fileFingerprint = fileFingerprint,
-                part = partNumber
-            )
-        }
+        appendActions(
+            jobFolderName,
+            committed.map { partNumber ->
+                trackerAction(pdfFilename, page, "unbad_part", fileFingerprint, part = partNumber)
+            }
+        )
         clearDraftBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
     }
 
@@ -729,16 +745,12 @@ class ProgressStore(
         if (partNumbers.isEmpty()) return 0
         val committed = getCommittedBadParts(jobFolderName, pdfFilename, page, fileFingerprint)
         val targets = committed.intersect(partNumbers)
-        targets.forEach { partNumber ->
-            appendAction(
-                jobFolderName = jobFolderName,
-                pdfFilename = pdfFilename,
-                page = page,
-                action = "unbad_part",
-                fileFingerprint = fileFingerprint,
-                part = partNumber
-            )
-        }
+        appendActions(
+            jobFolderName,
+            targets.map { partNumber ->
+                trackerAction(pdfFilename, page, "unbad_part", fileFingerprint, part = partNumber)
+            }
+        )
         return targets.size
     }
 
