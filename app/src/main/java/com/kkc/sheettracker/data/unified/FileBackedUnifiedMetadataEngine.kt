@@ -88,8 +88,16 @@ class FileBackedUnifiedMetadataEngine(
         val signature: Long
     )
 
+    private data class CachedSearchEntry(
+        val signature: Long,
+        val index: List<PartSearchEntry>
+    )
+
     private val staticByJob = ConcurrentHashMap<String, CachedStaticEntry>()
     private val trackerByJob = ConcurrentHashMap<String, CachedTrackerEntry>()
+    // CNC part search index, memoized per job keyed by the static signature so it is rebuilt
+    // only when the underlying static data changes (not on every getCncSnapshot call).
+    private val cncSearchByJob = ConcurrentHashMap<String, CachedSearchEntry>()
 
     override fun updateBasePath(path: String) {
         baseDir = File(path)
@@ -99,11 +107,13 @@ class FileBackedUnifiedMetadataEngine(
     override fun invalidateAll() {
         staticByJob.clear()
         trackerByJob.clear()
+        cncSearchByJob.clear()
     }
 
     override fun invalidateJob(jobFolderName: String) {
         staticByJob.remove(jobFolderName)
         trackerByJob.remove(jobFolderName)
+        cncSearchByJob.remove(jobFolderName)
     }
 
     private fun getProductionOrder(): List<String> {
@@ -352,7 +362,21 @@ class FileBackedUnifiedMetadataEngine(
     override fun getCncSnapshot(jobFolderName: String): UnifiedCncSnapshot? {
         val staticData = loadStaticJobData(jobFolderName) ?: return null
         val cncJob = staticData.cncJob ?: return null
-        val searchIndex = buildCncSearchIndex(cncJob)
+        // Reuse the memoized search index when the static signature is unchanged; only rebuild
+        // (one PartSearchEntry per part across all materials/pages) on a real data change.
+        val signature = staticByJob[jobFolderName]?.signature
+        val searchIndex = if (signature != null) {
+            val cached = cncSearchByJob[jobFolderName]
+            if (cached != null && cached.signature == signature) {
+                cached.index
+            } else {
+                buildCncSearchIndex(cncJob).also {
+                    cncSearchByJob[jobFolderName] = CachedSearchEntry(signature, it)
+                }
+            }
+        } else {
+            buildCncSearchIndex(cncJob)
+        }
         return UnifiedCncSnapshot(job = cncJob, searchIndex = searchIndex, issues = staticData.cncIssues)
     }
 
