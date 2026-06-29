@@ -856,13 +856,20 @@ internal fun SpecialtyChecklistRow(
                 if (tracking.isNotBlank()) SpecialtyMetaRow(label = "Tracking", value = tracking)
                 if (orderDate.isNotBlank()) SpecialtyMetaRow(label = "Order Date", value = orderDate)
                 if (orderUrl.isNotBlank()) SpecialtyMetaRow(label = "Order URL", value = orderUrl)
-                val isSawStation = SpecialtyStation.SAW in item.stations
-                if (isSawStation || item.dimensions != null || item.quantity != null || !item.material.isNullOrBlank()) {
-                    SpecialtyDimsSection(
+                if (item.category == com.kkc.sheettracker.data.models.SpecialtyItemCategory.TO_ORDER) {
+                    SpecialtyQuantitySection(
                         item = item,
-                        isSawStation = isSawStation,
-                        onPatchDims = { d, q, m -> onPatchDims?.invoke(d, q, m) }
+                        onPatchQuantity = { q -> onPatchDims?.invoke(item.dimensions, q, item.material) }
                     )
+                } else {
+                    val isSawStation = SpecialtyStation.SAW in item.stations
+                    if (isSawStation || item.dimensions != null || item.quantity != null || !item.material.isNullOrBlank()) {
+                        SpecialtyDimsSection(
+                            item = item,
+                            isSawStation = isSawStation,
+                            onPatchDims = { d, q, m -> onPatchDims?.invoke(d, q, m) }
+                        )
+                    }
                 }
                 if (attachmentCount > 0) {
                     Box {
@@ -1222,6 +1229,37 @@ private fun SpecialtyDimsSection(
             if (!item.dimensions.isNullOrBlank()) Row { Text("Dims: ", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold); Text(item.dimensions, style = MaterialTheme.typography.bodySmall) }
             if (item.quantity != null) Row { Text("Qty: ", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold); Text(item.quantity.toString(), style = MaterialTheme.typography.bodySmall) }
             if (!item.material.isNullOrBlank()) Row { Text("Material: ", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold); Text(item.material, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+}
+
+@Composable
+private fun SpecialtyQuantitySection(
+    item: com.kkc.sheettracker.data.models.SpecialtyItem,
+    onPatchQuantity: (Double?) -> Unit
+) {
+    var editing by remember(item.id) { mutableStateOf(false) }
+    var editQty by remember(item.id) { mutableStateOf(item.quantity?.toString() ?: "") }
+
+    if (editing) {
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(value = editQty, onValueChange = { editQty = it }, label = { Text("Qty") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            Button(onClick = {
+                onPatchQuantity(editQty.trim().toDoubleOrNull())
+                editing = false
+            }) { Text("Save") }
+            TextButton(onClick = {
+                editQty = item.quantity?.toString() ?: ""
+                editing = false
+            }) { Text("Cancel") }
+        }
+    } else {
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (item.quantity != null) {
+                SuggestionChip(onClick = { editing = true }, label = { Text("Qty: ${item.quantity}", style = MaterialTheme.typography.labelSmall) })
+            } else {
+                SuggestionChip(onClick = { editing = true }, label = { Text("Add quantity...", style = MaterialTheme.typography.labelSmall) })
+            }
         }
     }
 }
