@@ -697,13 +697,15 @@ private fun HardwoodsDashboardContent(
     val summaries = remember(jobs, progressStore) {
         jobs.map { job -> progressStore.summarizeJob(job) }
     }
-    val totalCounts = summaries.fold(HardwoodStatusCounts()) { acc, entry ->
-        HardwoodStatusCounts(
-            totalPieces = acc.totalPieces + entry.counts.totalPieces,
-            donePieces = acc.donePieces + entry.counts.donePieces,
-            badPieces = acc.badPieces + entry.counts.badPieces,
-            skippedPieces = acc.skippedPieces + entry.counts.skippedPieces
-        )
+    val totalCounts = remember(summaries) {
+        summaries.fold(HardwoodStatusCounts()) { acc, entry ->
+            HardwoodStatusCounts(
+                totalPieces = acc.totalPieces + entry.counts.totalPieces,
+                donePieces = acc.donePieces + entry.counts.donePieces,
+                badPieces = acc.badPieces + entry.counts.badPieces,
+                skippedPieces = acc.skippedPieces + entry.counts.skippedPieces
+            )
+        }
     }
     val recentJobs = remember(jobs) {
         jobs.take(6).map { job ->
@@ -716,6 +718,13 @@ private fun HardwoodsDashboardContent(
             )
         }
     }
+    val widgets = remember(jobs.size, totalCounts, recentJobs) {
+        buildHardwoodsDashboardWidgets(
+            totalJobs = jobs.size,
+            totalCounts = totalCounts,
+            recentJobs = recentJobs
+        )
+    }
     DashboardShell(
         title = "Hardwoods Dashboard",
         subtitle = "Hardwoods",
@@ -726,11 +735,7 @@ private fun HardwoodsDashboardContent(
         onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
     ) {
         DashboardWidgetRenderer(
-            widgets = buildHardwoodsDashboardWidgets(
-                totalJobs = jobs.size,
-                totalCounts = totalCounts,
-                recentJobs = recentJobs
-            ),
+            widgets = widgets,
             onItemClick = { item ->
                 if (item is DashboardProgressItemModel) {
                     jobs.firstOrNull { it.folderName == item.id }?.let(onOpenJob)
@@ -771,6 +776,14 @@ private fun AssemblyDashboardContent(
         )
     }
 
+    val widgets = remember(cardItems, scanState.status, specialtySummary) {
+        buildAssemblyDashboardWidgets(
+            cards = cardItems,
+            specialtyStatus = scanState.status,
+            specialtySummary = specialtySummary,
+            totalCabinets = cardItems.size
+        )
+    }
     DashboardShell(
         title = "Assembly Dashboard",
         subtitle = "Assembly",
@@ -781,12 +794,7 @@ private fun AssemblyDashboardContent(
         onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
     ) {
         DashboardWidgetRenderer(
-            widgets = buildAssemblyDashboardWidgets(
-                cards = cardItems,
-                specialtyStatus = scanState.status,
-                specialtySummary = specialtySummary,
-                totalCabinets = cardItems.size
-            ),
+            widgets = widgets,
             onItemClick = { item ->
                 if (item is DashboardProgressItemModel) {
                     onOpenJob(item.id)
@@ -843,6 +851,16 @@ private fun SpecialtyDashboardContent(
         }
     }
 
+    val widgets = remember(jobs, recentJobs, jobItems, inProgressItems) {
+        buildSpecialtyDashboardWidgets(
+            totalJobs = jobs.size,
+            totalItems = jobs.sumOf { it.totalItems },
+            completedItems = jobs.sumOf { it.completedItems },
+            recentJobs = recentJobs,
+            jobItems = jobItems,
+            inProgressItems = inProgressItems
+        )
+    }
     DashboardShell(
         title = "Specialty Dashboard",
         subtitle = "Specialty",
@@ -853,14 +871,7 @@ private fun SpecialtyDashboardContent(
         onRefresh = { specialtyStateStore.refresh(RefreshReason.USER_REFRESH, force = true) }
     ) {
         DashboardWidgetRenderer(
-            widgets = buildSpecialtyDashboardWidgets(
-                totalJobs = jobs.size,
-                totalItems = jobs.sumOf { it.totalItems },
-                completedItems = jobs.sumOf { it.completedItems },
-                recentJobs = recentJobs,
-                jobItems = jobItems,
-                inProgressItems = inProgressItems
-            ),
+            widgets = widgets,
             onItemClick = { item ->
                 if (item is DashboardProgressItemModel) {
                     onOpenJob(item.subtitle.ifBlank { item.id.substringBefore("::").ifBlank { item.id } })

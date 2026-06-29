@@ -532,7 +532,13 @@ class HardwoodsProgressStore(
     }
 
     fun summarizeDocument(jobFolderName: String, document: HardwoodDocumentIndex): HardwoodDocSummary {
-        val states = getRowProgressMap(jobFolderName)
+        return summarizeDocument(getRowProgressMap(jobFolderName), document)
+    }
+
+    private fun summarizeDocument(
+        states: Map<Pair<String, String>, HardwoodRowProgress>,
+        document: HardwoodDocumentIndex
+    ): HardwoodDocSummary {
         var totalPieces = 0
         var donePieces = 0
         var badPieces = 0
@@ -566,7 +572,10 @@ class HardwoodsProgressStore(
 
     fun summarizeJob(job: HardwoodJob): HardwoodJobSummary {
         val index: HardwoodCutlistIndex = job.index ?: HardwoodCutlistIndex()
-        val docs = index.documents.map { summarizeDocument(job.folderName, it) }
+        // Fetch the row-progress map once per job; summarizeDocument was previously
+        // re-snapshotting it for every document (O(docs) full map copies per summary).
+        val states = getRowProgressMap(job.folderName)
+        val docs = index.documents.map { summarizeDocument(states, it) }
         val total = docs.sumOf { it.counts.totalPieces }
         val done = docs.sumOf { it.counts.donePieces }
         val bad = docs.sumOf { it.counts.badPieces }

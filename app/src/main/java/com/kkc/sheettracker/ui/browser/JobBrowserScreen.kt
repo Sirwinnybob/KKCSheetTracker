@@ -43,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -167,13 +168,21 @@ fun JobBrowserScreen(
         filteredJobs.mapIndexed { i, job -> job.folderName to (i + 1) }.toMap()
     }
 
-    val jobUiStates = remember(filteredJobs, scanState.snapshot.generation, progressVersion, useAppState, appJobModelsByFolder) {
+    // Builds the per-job UI states. On the appState fast path counts come from the in-memory
+    // model (cheap), so they are always populated. On the legacy/fallback path the status counts
+    // require tracker-file I/O on a cache miss; [resolveCounts] gates that disk work so it runs
+    // only on the background pass. The placeholder pass uses zero counts — the card renders at its
+    // final size either way (the 8dp progress bar + Done/Bad/Skip chips + one segment per material
+    // are present regardless), so only the bar fill / numbers animate in once counts resolve.
+    val buildJobUiStates: (Boolean) -> List<JobBrowserItemUiState> = { resolveCounts ->
         filteredJobs.map { job ->
             val appModel = appJobModelsByFolder[job.folderName]
             val counts = if (useAppState && appModel != null) {
                 appModel.counts
-            } else {
+            } else if (resolveCounts) {
                 progressStore.getJobStatusCounts(job.folderName, job.materials)
+            } else {
+                StatusCounts()
             }
             val fraction = if (useAppState && appModel != null) {
                 appModel.completionFraction
@@ -192,7 +201,7 @@ fun JobBrowserScreen(
                 job.materials.map { material ->
                     MaterialSegmentData(
                         materialName = material.materialName,
-                        counts = progressStore.getMaterialStatusCounts(job.folderName, material),
+                        counts = if (resolveCounts) progressStore.getMaterialStatusCounts(job.folderName, material) else StatusCounts(),
                         isRemake = material.metadata?.remakeLabel != null
                     )
                 }
@@ -207,6 +216,16 @@ fun JobBrowserScreen(
                 revisionCount = null
             )
         }
+    }
+
+    // First frame: appState counts populated, fallback counts zeroed (cards already at final size).
+    // Background: resolve fallback counts off the main thread, then swap in. produceState keeps the
+    // previous populated value across key changes, so refreshes never flash back to empty.
+    val jobUiStates by produceState(
+        initialValue = buildJobUiStates(false),
+        filteredJobs, scanState.snapshot.generation, progressVersion, useAppState, appJobModelsByFolder
+    ) {
+        value = withContext(Dispatchers.IO) { buildJobUiStates(true) }
     }
 
     val pinnedUiStates = remember(pinnedFolderNames, jobUiStates) {

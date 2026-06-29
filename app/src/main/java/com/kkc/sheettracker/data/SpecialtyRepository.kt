@@ -38,8 +38,7 @@ class SpecialtyRepository(
 
     /** Re-builds one SpecialtyJob from the current engine cache. Used by SpecialtyScanCoordinator. */
     fun getUpdatedJob(folderName: String): SpecialtyJob? {
-        val (jobInfos, _) = engine().listJobsFromCacheOnly()
-        val info = jobInfos.find { it.folderName == folderName } ?: return null
+        val info = engine().getMergedJobInfo(folderName) ?: return null
         return buildSpecialtyJob(info)
     }
 

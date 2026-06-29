@@ -137,13 +137,15 @@ fun HardwoodsDashboardScreen(
             }
         }
     }
-    val totalCounts = summaries.fold(HardwoodStatusCounts()) { acc, entry ->
-        HardwoodStatusCounts(
-            totalPieces = acc.totalPieces + entry.summary.counts.totalPieces,
-            donePieces = acc.donePieces + entry.summary.counts.donePieces,
-            badPieces = acc.badPieces + entry.summary.counts.badPieces,
-            skippedPieces = acc.skippedPieces + entry.summary.counts.skippedPieces
-        )
+    val totalCounts = remember(summaries) {
+        summaries.fold(HardwoodStatusCounts()) { acc, entry ->
+            HardwoodStatusCounts(
+                totalPieces = acc.totalPieces + entry.summary.counts.totalPieces,
+                donePieces = acc.donePieces + entry.summary.counts.donePieces,
+                badPieces = acc.badPieces + entry.summary.counts.badPieces,
+                skippedPieces = acc.skippedPieces + entry.summary.counts.skippedPieces
+            )
+        }
     }
 
     val statusColors = KKCThemeColors.statusColors

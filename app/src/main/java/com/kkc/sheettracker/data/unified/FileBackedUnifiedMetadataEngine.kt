@@ -88,8 +88,16 @@ class FileBackedUnifiedMetadataEngine(
         val signature: Long
     )
 
+    private data class CachedSearchEntry(
+        val signature: Long,
+        val index: List<PartSearchEntry>
+    )
+
     private val staticByJob = ConcurrentHashMap<String, CachedStaticEntry>()
     private val trackerByJob = ConcurrentHashMap<String, CachedTrackerEntry>()
+    // CNC part search index, memoized per job keyed by the static signature so it is rebuilt
+    // only when the underlying static data changes (not on every getCncSnapshot call).
+    private val cncSearchByJob = ConcurrentHashMap<String, CachedSearchEntry>()
 
     override fun updateBasePath(path: String) {
         baseDir = File(path)
@@ -99,11 +107,13 @@ class FileBackedUnifiedMetadataEngine(
     override fun invalidateAll() {
         staticByJob.clear()
         trackerByJob.clear()
+        cncSearchByJob.clear()
     }
 
     override fun invalidateJob(jobFolderName: String) {
         staticByJob.remove(jobFolderName)
         trackerByJob.remove(jobFolderName)
+        cncSearchByJob.remove(jobFolderName)
     }
 
     private fun getProductionOrder(): List<String> {
@@ -229,6 +239,42 @@ class FileBackedUnifiedMetadataEngine(
     override fun getJobInfo(folderName: String): UnifiedJobInfo? =
         staticByJob[folderName]?.data?.jobInfo
 
+    override fun getMergedJobInfo(folderName: String): UnifiedJobInfo? {
+        val jobDir = File(baseDir, folderName)
+        if (!jobDir.isDirectory) return null
+        // Gate check first — skip hidden/undeployed jobs before touching the cache file.
+        if (!DeploymentGateRules.evaluate(jobDir, isDebugBuild = isDebugBuild).includeJob) return null
+        val cacheFile = File(jobDir, ".metadata/cache_static.json")
+        if (!cacheFile.isFile) return null
+        val rawInfo = try {
+            val cacheMTime = cacheFile.lastModified()
+            val existing = staticByJob[folderName]
+            if (existing != null && existing.signature == cacheMTime) {
+                existing.data.jobInfo
+            } else {
+                val rawData = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: return null
+                val data = sanitizeStaticJobData(rawData)
+                staticByJob[folderName] = CachedStaticEntry(signature = cacheMTime, data = data)
+                data.jobInfo
+            }
+        } catch (e: Exception) {
+            return null
+        }
+        // Merge board config for just this folder — same fields listJobsFromCacheOnly() merges,
+        // but reads job_board.json once for one job instead of scanning every job dir.
+        val config = readJobBoardConfig()[folderName]
+        return UnifiedJobInfo(
+            folderName = rawInfo.folderName ?: folderName,
+            jobNumber = rawInfo.jobNumber ?: "",
+            jobName = rawInfo.jobName ?: "",
+            hiddenFromProduction = rawInfo.hiddenFromProduction,
+            lineupPosition = rawInfo.lineupPosition,
+            labels = config?.labels ?: emptyList(),
+            isPending = config?.isPending ?: false,
+            boardSection = config?.boardSection ?: 0
+        )
+    }
+
     override fun listJobsFromCacheOnly(): Pair<List<UnifiedJobInfo>, List<String>> {
         if (!baseDir.exists() || !baseDir.isDirectory) return Pair(emptyList(), emptyList())
         val loaded = mutableListOf<UnifiedJobInfo>()
@@ -316,7 +362,21 @@ class FileBackedUnifiedMetadataEngine(
     override fun getCncSnapshot(jobFolderName: String): UnifiedCncSnapshot? {
         val staticData = loadStaticJobData(jobFolderName) ?: return null
         val cncJob = staticData.cncJob ?: return null
-        val searchIndex = buildCncSearchIndex(cncJob)
+        // Reuse the memoized search index when the static signature is unchanged; only rebuild
+        // (one PartSearchEntry per part across all materials/pages) on a real data change.
+        val signature = staticByJob[jobFolderName]?.signature
+        val searchIndex = if (signature != null) {
+            val cached = cncSearchByJob[jobFolderName]
+            if (cached != null && cached.signature == signature) {
+                cached.index
+            } else {
+                buildCncSearchIndex(cncJob).also {
+                    cncSearchByJob[jobFolderName] = CachedSearchEntry(signature, it)
+                }
+            }
+        } else {
+            buildCncSearchIndex(cncJob)
+        }
         return UnifiedCncSnapshot(job = cncJob, searchIndex = searchIndex, issues = staticData.cncIssues)
     }
 
@@ -428,7 +488,12 @@ class FileBackedUnifiedMetadataEngine(
         overlayLookup: UnifiedPartOverlayLookup
     ): UnifiedAssemblyCabinetParts {
         val normalizedCab = cabinetNumber.trim()
-        val index = getCabinetSheetIndex(jobFolderName).index
+        // Resolve the cabinet index, CNC job, and hardwood job from a single cached
+        // StaticJobData snapshot. Going through getCabinetSheetIndex/getCncSnapshot/
+        // getHardwoodsSnapshot would re-stat the cache file three times and, via
+        // getCncSnapshot, rebuild the entire CNC search index only to discard it.
+        val staticData = loadStaticJobData(jobFolderName)
+        val index = staticData?.cabinetSheetIndex
         val assemblyPages = assemblyCabinetToPages(index)[normalizedCab].orEmpty()
         val assemblyDetails = assemblyPageDetails(index)
 
@@ -437,7 +502,7 @@ class FileBackedUnifiedMetadataEngine(
         }
 
         val cncParts = mutableListOf<AssemblyCncPart>()
-        val cncJob = getCncSnapshot(jobFolderName)?.job
+        val cncJob = staticData?.cncJob
         cncJob?.materials.orEmpty().forEach { material ->
             material.metadata?.pages.orEmpty().forEach { page ->
                 if (page.hiddenInApp || page.trackingExcluded || page.isPartListContinuation) return@forEach
@@ -463,7 +528,7 @@ class FileBackedUnifiedMetadataEngine(
         }
 
         val hardwoodRows = mutableListOf<AssemblyHardwoodRow>()
-        val hardwoodJob = getHardwoodsSnapshot(jobFolderName)?.job
+        val hardwoodJob = staticData?.hardwoodJob
         hardwoodJob?.index?.documents.orEmpty().forEach { doc ->
             doc.rows
                 .filter { row -> row.cabinets.any { it.trim() == normalizedCab } }

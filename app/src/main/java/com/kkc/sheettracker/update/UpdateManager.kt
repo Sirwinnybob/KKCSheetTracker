@@ -57,6 +57,7 @@ class UpdateManager(private val activity: Activity) {
 
     private val skippedExternalPackagesInSession = mutableSetOf<String>()
 
+    @Volatile
     var resolvedUpdatePath: String? = null
         private set
 
@@ -118,33 +119,56 @@ class UpdateManager(private val activity: Activity) {
         pendingExternalUpdates = pendingExternalUpdates.filter { it.packageName != update.packageName }
     }
 
+    private data class UpdateScanResult(
+        val selfUpdateDir: File?,
+        val selfApk: File?,
+        val externalUpdates: List<ExternalAppUpdate>
+    )
+
+    /**
+     * Runs the storage walk + APK-archive parsing off the main thread (each foreground triggered a
+     * synchronous sweep of getPackageArchiveInfo over every APK — tens of ms each, worse on
+     * networked/SD storage), then applies Compose state + any dialog back on the main thread.
+     * The boolean return is retained for source compatibility but is always false now (no caller
+     * uses it); state changes land asynchronously via applyUpdateScan.
+     */
     fun checkForUpdates(checkSelf: Boolean = true): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
             requestStoragePermission()
             return true
         }
+        Thread {
+            val scan = scanForUpdates(checkSelf)
+            activity.runOnUiThread { applyUpdateScan(scan, checkSelf) }
+        }.apply { name = "UpdateScan"; isDaemon = true }.start()
+        return false
+    }
 
+    /** Background: directory walks + APK parsing only — no Compose state writes, no dialogs. */
+    private fun scanForUpdates(checkSelf: Boolean): UpdateScanResult {
         val selfUpdateDir = findUpdateDirectory()
         val releaseUpdateDir = findReleaseUpdateDirectory()
-
-        val selfFound = if (checkSelf && selfUpdateDir != null) {
-            checkForSelfUpdatesInDirectory(selfUpdateDir)
+        val selfApk = if (checkSelf && selfUpdateDir != null) {
+            computeSelfUpdateApk(selfUpdateDir)
         } else {
-            false
+            null
         }
-
-        if (releaseUpdateDir != null) {
-            checkForExternalUpdatesInDirectory(releaseUpdateDir)
+        val externalUpdates = if (releaseUpdateDir != null) {
+            computeExternalUpdates(releaseUpdateDir)
         } else {
-            pendingExternalUpdates = emptyList()
+            emptyList()
         }
+        return UpdateScanResult(selfUpdateDir, selfApk, externalUpdates)
+    }
 
-        if (checkSelf && selfUpdateDir == null) {
+    /** Main thread: apply the scan results (Compose state + manual-path dialog). */
+    private fun applyUpdateScan(scan: UpdateScanResult, checkSelf: Boolean) {
+        // Preserve prior behavior: pendingUpdateApk is only ever set, never cleared by a scan.
+        scan.selfApk?.let { pendingUpdateApk = it }
+        pendingExternalUpdates = scan.externalUpdates
+        if (checkSelf && scan.selfUpdateDir == null) {
             showManualPathDialog()
-            return true
         }
-
-        return selfFound || pendingExternalUpdates.isNotEmpty()
     }
 
     fun reinstallLatest() {
@@ -181,56 +205,34 @@ class UpdateManager(private val activity: Activity) {
         }
     }
 
-    private fun findUpdateDirectory(): File? {
-        val storageRoot = Environment.getExternalStorageDirectory()
-
+    /**
+     * Shared custom-path read + JOB_FOLDER_NAMES walk for both finders.
+     * [subfolders] selects the update-folder set (debug `.Testing_Updates` vs release `.Updates`/
+     * `Updates`). When [recordResolved] is true (self-update path) the match is stored in
+     * resolvedUpdatePath and a stale custom path is cleared — matching the prior
+     * findUpdateDirectory behavior; the release finder passes false (record/clear neither).
+     */
+    private fun resolveUpdateDir(subfolders: Array<String>, recordResolved: Boolean): File? {
         val prefs = activity.getSharedPreferences(PREFS_NAME, Activity.MODE_PRIVATE)
         val customPath = prefs.getString(PREF_CUSTOM_UPDATE_PATH, null)
         if (customPath != null) {
             val customDir = File(customPath)
             if (customDir.exists() && customDir.isDirectory) {
-                resolvedUpdatePath = customPath
+                if (recordResolved) resolvedUpdatePath = customPath
                 return customDir
-            } else {
+            } else if (recordResolved) {
                 prefs.edit().remove(PREF_CUSTOM_UPDATE_PATH).apply()
             }
         }
 
-        val isDebug = (activity.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        for (jobFolder in JOB_FOLDER_NAMES) {
-            val jobDir = File(storageRoot, jobFolder)
-            if (!jobDir.exists() || !jobDir.isDirectory) continue
-            val foldersToCheck = if (isDebug) arrayOf(".Testing_Updates") else arrayOf(".Updates", "Updates")
-            for (updateSubfolder in foldersToCheck) {
-                val updateDir = File(jobDir, updateSubfolder)
-                if (updateDir.exists() && updateDir.isDirectory) {
-                    resolvedUpdatePath = updateDir.absolutePath
-                    return updateDir
-                }
-            }
-        }
-        return null
-    }
-
-    private fun findReleaseUpdateDirectory(): File? {
         val storageRoot = Environment.getExternalStorageDirectory()
-
-        val prefs = activity.getSharedPreferences(PREFS_NAME, Activity.MODE_PRIVATE)
-        val customPath = prefs.getString(PREF_CUSTOM_UPDATE_PATH, null)
-        if (customPath != null) {
-            val customDir = File(customPath)
-            if (customDir.exists() && customDir.isDirectory) {
-                return customDir
-            }
-        }
-
         for (jobFolder in JOB_FOLDER_NAMES) {
             val jobDir = File(storageRoot, jobFolder)
             if (!jobDir.exists() || !jobDir.isDirectory) continue
-            val foldersToCheck = arrayOf(".Updates", "Updates")
-            for (updateSubfolder in foldersToCheck) {
+            for (updateSubfolder in subfolders) {
                 val updateDir = File(jobDir, updateSubfolder)
                 if (updateDir.exists() && updateDir.isDirectory) {
+                    if (recordResolved) resolvedUpdatePath = updateDir.absolutePath
                     return updateDir
                 }
             }
@@ -238,10 +240,20 @@ class UpdateManager(private val activity: Activity) {
         return null
     }
 
-    private fun checkForSelfUpdatesInDirectory(updateDir: File): Boolean {
-        if (!updateDir.exists() || !updateDir.isDirectory) return false
+    private fun findUpdateDirectory(): File? {
+        val isDebug = (activity.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        val subfolders = if (isDebug) arrayOf(".Testing_Updates") else arrayOf(".Updates", "Updates")
+        return resolveUpdateDir(subfolders, recordResolved = true)
+    }
+
+    private fun findReleaseUpdateDirectory(): File? =
+        resolveUpdateDir(arrayOf(".Updates", "Updates"), recordResolved = false)
+
+    /** Pure: returns the newest valid self-update APK in [updateDir], or null. No state writes. */
+    private fun computeSelfUpdateApk(updateDir: File): File? {
+        if (!updateDir.exists() || !updateDir.isDirectory) return null
         val apkFiles = updateDir.listFiles { _, name -> name.lowercase().endsWith(".apk") }
-        if (apkFiles.isNullOrEmpty()) return false
+        if (apkFiles.isNullOrEmpty()) return null
 
         val currentVersionCode = getCurrentVersionCode()
         var newestApk: File? = null
@@ -257,23 +269,17 @@ class UpdateManager(private val activity: Activity) {
                 newestApk = apk
             }
         }
-
-        if (newestApk != null) {
-            pendingUpdateApk = newestApk
-            return true
-        }
-        return false
+        return newestApk
     }
 
-    private fun checkForExternalUpdatesInDirectory(updateDir: File) {
+    /** Pure: returns the list of pending external-app updates in [updateDir]. No state writes. */
+    private fun computeExternalUpdates(updateDir: File): List<ExternalAppUpdate> {
         if (!updateDir.exists() || !updateDir.isDirectory) {
-            pendingExternalUpdates = emptyList()
-            return
+            return emptyList()
         }
         val apkFiles = updateDir.listFiles { _, name -> name.lowercase().endsWith(".apk") }
         if (apkFiles.isNullOrEmpty()) {
-            pendingExternalUpdates = emptyList()
-            return
+            return emptyList()
         }
 
         val newestMap = mutableMapOf<String, ApkInfo>()
@@ -317,7 +323,7 @@ class UpdateManager(private val activity: Activity) {
                 )
             }
         }
-        pendingExternalUpdates = externalList
+        return externalList
     }
 
     private fun getApkInfo(apkFile: File): ApkInfo? {

@@ -10,6 +10,11 @@ import java.math.BigDecimal
 import java.util.Locale
 import kotlin.math.ceil
 
+private val WHITESPACE_RUN_REGEX = Regex("""\s+""")
+private val MIXED_FRACTION_TOKEN_REGEX = Regex("""^(\d+)\s+(\d+)\s*/\s*(\d+)$""")
+private val FRACTION_TOKEN_REGEX = Regex("""^(\d+)\s*/\s*(\d+)$""")
+private val DASH_MIXED_FRACTION_TOKEN_REGEX = Regex("""^(\d+)-(\d+)\s*/\s*(\d+)$""")
+
 internal data class BoardStockMaterialSection(
     val material: String,
     val rows: List<BoardStockRow>
@@ -130,7 +135,7 @@ internal fun applySkippedPartRowsToBoardStockRows(
 }
 
 private fun boardStockKey(material: String, width: Double, source: BoardStockSource): String {
-    val materialKey = material.trim().replace(Regex("""\s+"""), " ").uppercase(Locale.US)
+    val materialKey = material.trim().replace(WHITESPACE_RUN_REGEX, " ").uppercase(Locale.US)
     val widthKey = BigDecimal.valueOf(if (width == -0.0) 0.0 else width).stripTrailingZeros().toPlainString()
     return "$materialKey|$widthKey|${source.name}"
 }
@@ -140,7 +145,7 @@ private fun parseDimensionToken(raw: String): Double? {
     if (text.isEmpty()) return null
     text.toDoubleOrNull()?.let { return it }
 
-    val mixed = Regex("""^(\d+)\s+(\d+)\s*/\s*(\d+)$""").matchEntire(text)
+    val mixed = MIXED_FRACTION_TOKEN_REGEX.matchEntire(text)
     if (mixed != null) {
         val whole = mixed.groupValues[1].toDoubleOrNull() ?: return null
         val num = mixed.groupValues[2].toDoubleOrNull() ?: return null
@@ -148,14 +153,14 @@ private fun parseDimensionToken(raw: String): Double? {
         return whole + (num / den)
     }
 
-    val frac = Regex("""^(\d+)\s*/\s*(\d+)$""").matchEntire(text)
+    val frac = FRACTION_TOKEN_REGEX.matchEntire(text)
     if (frac != null) {
         val num = frac.groupValues[1].toDoubleOrNull() ?: return null
         val den = frac.groupValues[2].toDoubleOrNull()?.takeIf { it != 0.0 } ?: return null
         return num / den
     }
 
-    val dashMixed = Regex("""^(\d+)-(\d+)\s*/\s*(\d+)$""").matchEntire(text)
+    val dashMixed = DASH_MIXED_FRACTION_TOKEN_REGEX.matchEntire(text)
     if (dashMixed != null) {
         val whole = dashMixed.groupValues[1].toDoubleOrNull() ?: return null
         val num = dashMixed.groupValues[2].toDoubleOrNull() ?: return null

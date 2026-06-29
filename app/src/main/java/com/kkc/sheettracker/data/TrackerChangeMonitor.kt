@@ -304,7 +304,10 @@ class TrackerChangeMonitor(
                 flushPendingNow()
             } finally {
                 synchronized(lock) {
-                    if (flushJob === this) {
+                    // `this` here is the launch block's CoroutineScope, not the Job — comparing it
+                    // to flushJob never matched, so the self-clear was dead. Use this coroutine's
+                    // actual Job so a newer flush that replaced flushJob is not wrongly nulled.
+                    if (flushJob === coroutineContext[Job]) {
                         flushJob = null
                     }
                 }
@@ -323,11 +326,10 @@ class TrackerChangeMonitor(
                 scheduleFlushLocked()
                 return
             }
-            val now = System.currentTimeMillis()
-            if (now < startupWarmupUntilMs && viewerInteraction.value) {
-                scheduleFlushLocked()
-                return
-            }
+            // (Dead warmup-defer block removed: this point is only reached when
+            // viewerInteraction.value is false, so its `&& viewerInteraction.value` was always
+            // false. Startup-warmup deferral is already handled by the `inWarmup` delay in
+            // scheduleFlushLocked, so flushPendingNow only runs after the warmup window.)
             val values = pendingByKey.values.toList()
             pendingByKey.clear()
             values
