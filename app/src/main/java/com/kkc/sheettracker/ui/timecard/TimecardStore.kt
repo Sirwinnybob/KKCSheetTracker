@@ -43,6 +43,12 @@ class TimecardStore(
     private val _state = MutableStateFlow<TimecardUiState>(TimecardUiState.Searching)
     val state: StateFlow<TimecardUiState> = _state.asStateFlow()
 
+    // Monotonically increments on each SUCCESSFUL punch (clock in/out). Observers (e.g. the
+    // clock-before-update overlay) watch this to react to a completed punch without inspecting
+    // the transient resultMessage (which is also set on errors).
+    private val _punchCompletions = MutableStateFlow(0)
+    val punchCompletions: StateFlow<Int> = _punchCompletions.asStateFlow()
+
     private var repo: TimecardRepository? = null
 
     init {
@@ -175,6 +181,7 @@ class TimecardStore(
                         resultIsClockIn = isClockIn
                     )
                 }
+                _punchCompletions.value += 1
                 delay(5500)
                 (_state.value as? TimecardUiState.Ready)?.let {
                     _state.value = it.copy(

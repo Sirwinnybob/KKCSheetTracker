@@ -15,10 +15,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
@@ -30,6 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -59,6 +65,7 @@ import com.kkc.sheettracker.ui.components.PersistentNavigationBarHider
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
 import com.kkc.sheettracker.ui.theme.KKCTheme
 import com.kkc.sheettracker.ui.theme.SharedPreferencesKKCThemePreferenceStore
+import com.kkc.sheettracker.ui.timecard.ClockForUpdateOverlay
 import com.kkc.sheettracker.update.DeviceOwnerUpdateFallback
 import com.kkc.sheettracker.update.UpdateManager
 import com.kkc.sheettracker.update.ExternalAppUpdate
@@ -303,16 +310,34 @@ class MainActivity : ComponentActivity() {
                         onThemeCatalogReload = { reloadThemeCatalog() }
                     )
 
-                    if (updateManager.pendingUpdateApk != null) {
+                    var showClockForUpdate by rememberSaveable { mutableStateOf(false) }
+
+                    if (showClockForUpdate) {
+                        ClockForUpdateOverlay(
+                            basePath = basePath,
+                            onFinished = { showClockForUpdate = false }
+                        )
+                    }
+
+                    if (updateManager.pendingUpdateApk != null && !showClockForUpdate) {
                         val isSilent = updateManager.isSilentUpdateSupported
                         AlertDialog(
                             onDismissRequest = {},
                             title = { Text(if (isSilent) "Update Ready" else "Update Available") },
                             text = {
-                                Text(
-                                    if (isSilent) "A new version of KKC Sheet Tracker is ready to install. Update now? (The app will close and update silently)"
-                                    else "A new version of KKC Sheet Tracker is available. Install now?"
-                                )
+                                Column {
+                                    Text(
+                                        if (isSilent) "A new version of KKC Sheet Tracker is ready to install. Update now? (The app will close and update silently)"
+                                        else "A new version of KKC Sheet Tracker is available. Install now?"
+                                    )
+                                    Spacer(Modifier.height(16.dp))
+                                    FilledTonalButton(
+                                        onClick = { showClockForUpdate = true },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Clock In / Out First")
+                                    }
+                                }
                             },
                             confirmButton = {
                                 Button(
