@@ -92,3 +92,17 @@ This task is the **app-side** work: surface both fields in the CNC nest-parts vi
   - `.\gradlew.bat assembleDebug` passed.
 - Learnings for future iterations:
   - The app does not own external Syncthing folder inclusion/exclusion rules; if a tablet ever lacks `.metadata/parts/` files, inspect the Syncthing folder config outside this repo.
+
+### 2026-06-30 - Completion audit after handoff resume
+
+- Re-verified the current worktree against the original app-side objective and found the requested state present: nullable part fields, sanitized metadata preservation, fixed-cell rotation/banding glyphs, optional long-press dialog part detail, shared sidecar path resolution, and no app-side Syncthing allowlist requiring `.metadata/parts/`.
+- Key decisions + rationale:
+  - No code changes were needed during this resume because the authoritative current state already matched the requested scope.
+  - Kept the prior implementation shape: additive nullable JSON fields for compatibility, no new banding column, and no changes to the hardwoods/classic cut-list UI or PDF splitter.
+- Files changed:
+  - `HANDOFF_part_graphics_banding.md`
+- Verification:
+  - `.\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.data.unified.UnifiedMetadataEngineTest" --tests "com.kkc.sheettracker.ui.viewer.SheetViewerScreenTest"` passed with `BUILD SUCCESSFUL`.
+  - `.\gradlew.bat assembleDebug` passed with `BUILD SUCCESSFUL`.
+- Learnings for future iterations:
+  - The implementation is already committed in `b886ac9 feat: show CNC part graphics and banding`; this resume added only the fresh completion audit.
