@@ -1516,7 +1516,9 @@ class FileBackedUnifiedMetadataEngine(
                             name = part.name ?: "",
                             cabNumber = part.cabNumber,
                             room = part.room ?: "",
-                            rotated = part.rotated
+                            rotated = part.rotated,
+                            graphicPath = part.graphicPath,
+                            banding = part.banding
                         )
                     },
                     ocrBoxes = page.ocrBoxes?.mapValues { (_, list) ->

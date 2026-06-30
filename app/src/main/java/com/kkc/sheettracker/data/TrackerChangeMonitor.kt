@@ -223,6 +223,19 @@ class TrackerChangeMonitor(
                     dir = specialtyTrackerDir
                 )
             }
+            // Item definitions (specialty_items.json, checklist.json, rip_items.json,
+            // tablet_items_<tablet>.json, ...) live one level up from .tracker and are published
+            // by Hours Tracker/admin or other tablets — watch them too, or new/edited items never
+            // invalidate SpecialtyProgressStore.resolvedCacheByJob since only completion-state
+            // writes under .tracker were triggering invalidation before.
+            val specialtyAdminDir = File(jobDir, ".metadata/admin")
+            if (specialtyAdminDir.isDirectory) {
+                tracked += TrackedDir(
+                    kind = TrackerKind.SPECIALTY,
+                    jobFolderName = jobFolderName,
+                    dir = specialtyAdminDir
+                )
+            }
         }
         return tracked
     }

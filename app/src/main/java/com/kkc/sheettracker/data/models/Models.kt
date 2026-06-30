@@ -80,7 +80,9 @@ data class Part(
     val name: String = "",
     val cabNumber: Int = 0,
     val room: String = "",
-    val rotated: Boolean = false
+    val rotated: Boolean = false,
+    val graphicPath: String? = null,
+    val banding: String? = null
 )
 
 enum class ReferenceDocType {

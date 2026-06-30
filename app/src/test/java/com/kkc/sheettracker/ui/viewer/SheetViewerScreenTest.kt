@@ -8,6 +8,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import kotlin.math.abs
 
 class SheetViewerScreenTest {
@@ -147,5 +148,45 @@ class SheetViewerScreenTest {
         assertNotNull(config)
         assertEquals("C:/Jobs/Base", config?.basePath)
         assertEquals("tablet-7", config?.tabletId)
+    }
+
+    @Test
+    fun partMarkerGlyphs_returnsIndependentRotationAndBandingMarkers() {
+        assertEquals(emptyList<String>(), partMarkerGlyphs(rotated = false, banding = null))
+        assertEquals(listOf("🗘"), partMarkerGlyphs(rotated = true, banding = null))
+        assertEquals(listOf("𖦹"), partMarkerGlyphs(rotated = false, banding = "2WD2LD"))
+        assertEquals(listOf("🗘", "𖦹"), partMarkerGlyphs(rotated = true, banding = "2WD2LD"))
+        assertEquals(emptyList<String>(), partMarkerGlyphs(rotated = false, banding = "   "))
+    }
+
+    @Test
+    fun resolveCncSidecarFile_returnsNullForBlankPath() {
+        val pdfFile = File("C:/Ready Jobs/597b - TEST JOB/CNC/597b - Material.pdf")
+
+        assertNull(resolveCncSidecarFile(pdfFile, null))
+        assertNull(resolveCncSidecarFile(pdfFile, "   "))
+    }
+
+    @Test
+    fun resolveCncSidecarFile_resolvesRelativePathFromPdfParent() {
+        val pdfFile = File("C:/Ready Jobs/597b - TEST JOB/CNC/597b - Material.pdf")
+
+        val resolved = resolveCncSidecarFile(
+            pdfFile,
+            ".metadata/parts/597b - Material_p001_part001.jpeg"
+        )
+
+        assertEquals(
+            File("C:/Ready Jobs/597b - TEST JOB/CNC/.metadata/parts/597b - Material_p001_part001.jpeg"),
+            resolved
+        )
+    }
+
+    @Test
+    fun resolveCncSidecarFile_keepsAbsolutePath() {
+        val pdfFile = File("C:/Ready Jobs/597b - TEST JOB/CNC/597b - Material.pdf")
+        val absolute = File("D:/cache/part.png")
+
+        assertEquals(absolute, resolveCncSidecarFile(pdfFile, absolute.path))
     }
 }

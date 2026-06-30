@@ -38,9 +38,17 @@ class StaticCachePoller(
 
     fun start() {
         if (pollJob?.isActive == true) return
-        // Snapshot current mtimes so first poll only fires on actual changes
-        snapshotAllMtimes()
+        val isFirstStart = mtimeSnapshot.isEmpty()
         pollJob = scope.launch {
+            if (isFirstStart) {
+                // First start: snapshot current mtimes so the first poll only fires on actual changes.
+                snapshotAllMtimes()
+            } else {
+                // Resuming after a stop (screen timeout, backgrounding, etc.) — check immediately
+                // against the snapshot taken before stopping, so a cache update that landed while
+                // stopped is caught instead of being silently adopted as the new baseline.
+                checkForChanges()
+            }
             while (isActive) {
                 delay(pollIntervalMs)
                 checkForChanges()

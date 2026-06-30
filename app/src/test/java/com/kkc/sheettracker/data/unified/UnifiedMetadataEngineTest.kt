@@ -37,6 +37,9 @@ class UnifiedMetadataEngineTest {
         assertNotNull(cnc)
         assertEquals(1, cnc?.job?.materials?.size)
         assertEquals(1, cnc?.searchIndex?.size)
+        val loadedPart = cnc?.job?.materials?.first()?.metadata?.pages?.first()?.parts?.first()
+        assertEquals(".metadata/parts/1234 - White Melamine_p001_part001.jpeg", loadedPart?.graphicPath)
+        assertEquals("2WD2LD", loadedPart?.banding)
 
         val hardwood = engine.getHardwoodsSnapshot(jobFolder)
         assertNotNull(hardwood)
@@ -62,6 +65,43 @@ class UnifiedMetadataEngineTest {
         val jump = engine.resolveCabinetJump(jobFolder, "42")
         assertEquals(3, jump.assemblyPage)
         assertEquals(9, jump.plansPage)
+    }
+
+    @Test
+    fun loadsLegacyCncPartsWhenGraphicAndBandingFieldsAreMissing() {
+        val legacyJson = """
+            {
+              "jobNumber": "1234",
+              "jobName": "Test Job",
+              "material": "White Melamine",
+              "pdfFilename": "1234 - White Melamine.pdf",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    {
+                      "number": 1,
+                      "width": 12.0,
+                      "length": 24.0,
+                      "name": "Side Panel",
+                      "cabNumber": 42,
+                      "room": "Kitchen"
+                    }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val metadata = gson.fromJson(
+            legacyJson,
+            com.kkc.sheettracker.data.models.MaterialMetadata::class.java
+        )
+        val part = metadata.pages.first().parts.first()
+
+        assertEquals(false, part.rotated)
+        assertEquals(null, part.graphicPath)
+        assertEquals(null, part.banding)
     }
 
     @Test
@@ -141,7 +181,10 @@ class UnifiedMetadataEngineTest {
                       "length": 24.0,
                       "name": "Side Panel",
                       "cabNumber": 42,
-                      "room": "Kitchen"
+                      "room": "Kitchen",
+                      "rotated": true,
+                      "graphicPath": ".metadata/parts/1234 - White Melamine_p001_part001.jpeg",
+                      "banding": "2WD2LD"
                     }
                   ]
                 }

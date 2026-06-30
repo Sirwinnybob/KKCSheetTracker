@@ -123,6 +123,8 @@ import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -308,6 +310,9 @@ fun SheetViewerScreen(
     }
     val sheetFilesLabel = remember(currentPageMetadata) {
         inferSheetFiles(currentPageMetadata).joinToString("  |  ")
+    }
+    val sheetSizeLabel = remember(currentPageMetadata) {
+        formatSheetDimensions(currentPageMetadata?.sheetDimensions)
     }
     var sheetStatus by remember { mutableStateOf(SheetStatus.NOT_STARTED) }
     var badParts by remember { mutableStateOf<Set<Int>>(emptySet()) }
@@ -1232,7 +1237,7 @@ fun SheetViewerScreen(
                     inferSheetFiles(currentPageMetadata)
                 }
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    if (chips.isNotEmpty()) {
+                    if (chips.isNotEmpty() || sheetSizeLabel != null) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1243,7 +1248,20 @@ fun SheetViewerScreen(
                                 AssistChip(
                                     onClick = {},
                                     label = { Text(label) },
-                                    enabled = false
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                )
+                            }
+                            if (sheetSizeLabel != null) {
+                                AssistChip(
+                                    onClick = {},
+                                    label = { Text(sheetSizeLabel) },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
                                 )
                             }
                         }
@@ -1567,6 +1585,11 @@ fun SheetViewerScreen(
         } else {
             null
         }
+        val partGraphicFile = remember(selectedPart?.graphicPath, pdfFile) {
+            resolveCncSidecarFile(pdfFile, selectedPart?.graphicPath)
+        }
+        val bandingCode = selectedPart?.banding?.trim()?.takeIf { it.isNotEmpty() }
+        val hasPartDetail = partGraphicFile != null || bandingCode != null
         AlertDialog(
             onDismissRequest = { showReferenceDocDialog = false },
             title = { Text("Open Reference Sheet") },
@@ -1586,6 +1609,35 @@ fun SheetViewerScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                    if (hasPartDetail) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (partGraphicFile != null) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(partGraphicFile)
+                                        .crossfade(false)
+                                        .build(),
+                                    contentDescription = "Part graphic",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 260.dp)
+                                )
+                            }
+                            if (bandingCode != null) {
+                                Text(
+                                    "Banding: $bandingCode",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            HorizontalDivider()
+                        }
                     }
                     if (hasAssemblyReference && assemblyPage != null) {
                         Button(
@@ -2482,19 +2534,25 @@ private suspend fun runMlKitRawSingle(
             .addOnFailureListener { cont.resumeWithException(it) }
     }
 
+internal fun resolveCncSidecarFile(
+    pdfFile: File,
+    relativeOrAbsolute: String?
+): File? {
+    val trimmed = relativeOrAbsolute?.trim().orEmpty()
+    if (trimmed.isBlank()) return null
+    val candidate = File(trimmed)
+    return if (candidate.isAbsolute) candidate else File(pdfFile.parentFile, trimmed)
+}
+
 private fun loadSheetThumbnailForToc(
-    pdfFile: java.io.File,
+    pdfFile: File,
     pageIndex: Int,
     thumbnailPath: String?
 ): Bitmap? {
     // 1) Prefer sidecar thumbnail if splitter generated one.
-    if (!thumbnailPath.isNullOrBlank()) {
+    val thumbFile = resolveCncSidecarFile(pdfFile, thumbnailPath)
+    if (thumbFile != null) {
         try {
-            val thumbFile = if (java.io.File(thumbnailPath).isAbsolute) {
-                java.io.File(thumbnailPath)
-            } else {
-                java.io.File(pdfFile.parentFile, thumbnailPath)
-            }
             if (thumbFile.exists() && thumbFile.isFile) {
                 val decoded = BitmapFactory.decodeFile(thumbFile.absolutePath)
                 if (decoded != null) return resizeThumbnail(decoded)
@@ -3192,7 +3250,7 @@ private fun PartsTable(
             }
         }
 
-        // Fixed width for the rotation indicator (*) column — not resizable
+        // Fixed width for the marker column — not resizable.
         val rotColWidth = 20.dp
 
         Row(
@@ -3201,9 +3259,9 @@ private fun PartsTable(
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
-            // Rotation indicator column header — muted, not sortable
+            // Marker column header — muted, not sortable.
             Text(
-                "*",
+                "🗘",
                 modifier = Modifier.width(rotColWidth),
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp,
@@ -3250,16 +3308,13 @@ private fun PartsTable(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Rotation indicator — shown in amber when rotated, blank otherwise.
+                    // Rotation and banding markers share the same fixed-width column.
                     // Spacers after each data cell match the 16dp ResizeHandle gaps in the header,
                     // keeping all columns aligned.
-                    Text(
-                        if (part.rotated) "*" else "",
-                        modifier = Modifier.width(rotColWidth),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center,
-                        color = Color(0xFFE65100)
+                    PartMarkers(
+                        rotated = part.rotated,
+                        banding = part.banding,
+                        modifier = Modifier.width(rotColWidth)
                     )
                     Text("${part.number}", Modifier.width(numberColDp.dp), style = DimensionTextStyle)
                     Spacer(Modifier.width(16.dp))
@@ -3298,6 +3353,43 @@ private fun PartsTable(
     }
 }
 
+@Composable
+private fun PartMarkers(
+    rotated: Boolean,
+    banding: String?,
+    modifier: Modifier = Modifier
+) {
+    val glyphs = partMarkerGlyphs(rotated, banding)
+    if (glyphs.isEmpty()) {
+        Spacer(modifier = modifier)
+        return
+    }
+
+    val markerHeight = if (glyphs.size > 1) 22.dp else 20.dp
+    Column(
+        modifier = modifier.height(markerHeight),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        glyphs.forEach { glyph ->
+            Text(
+                glyph,
+                modifier = if (glyph == "🗘") Modifier.offset(y = (-1).dp) else Modifier,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                lineHeight = 10.sp,
+                textAlign = TextAlign.Center,
+                color = if (glyph == "🗘") Color(0xFFE65100) else MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+internal fun partMarkerGlyphs(rotated: Boolean, banding: String?): List<String> = buildList {
+    if (rotated) add("🗘")
+    if (!banding.isNullOrBlank()) add("𖦹")
+}
+
 
 private fun inferSheetFiles(pageMeta: com.kkc.sheettracker.data.models.PageMetadata?): List<String> {
     val fromSidecar = pageMeta?.sheetFiles?.filter { it.isNotBlank() }?.distinct().orEmpty()
@@ -3314,4 +3406,11 @@ private fun inferSheetFiles(pageMeta: com.kkc.sheettracker.data.models.PageMetad
         'A' -> listOf(single.dropLast(1) + "Z", single)
         else -> listOf(single)
     }
+}
+
+private fun formatSheetDimensions(dimensions: List<Double>?): String? {
+    if (dimensions == null || dimensions.size < 2) return null
+    fun fmt(value: Double): String =
+        if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
+    return "${fmt(dimensions[0])} × ${fmt(dimensions[1])}"
 }
