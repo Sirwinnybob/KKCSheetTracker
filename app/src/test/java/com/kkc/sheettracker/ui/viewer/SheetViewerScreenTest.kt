@@ -151,12 +151,12 @@ class SheetViewerScreenTest {
     }
 
     @Test
-    fun partMarkerGlyphs_returnsIndependentRotationAndBandingMarkers() {
-        assertEquals(emptyList<String>(), partMarkerGlyphs(rotated = false, banding = null))
-        assertEquals(listOf("🗘"), partMarkerGlyphs(rotated = true, banding = null))
-        assertEquals(listOf("𖦹"), partMarkerGlyphs(rotated = false, banding = "2WD2LD"))
-        assertEquals(listOf("🗘", "𖦹"), partMarkerGlyphs(rotated = true, banding = "2WD2LD"))
-        assertEquals(emptyList<String>(), partMarkerGlyphs(rotated = false, banding = "   "))
+    fun partMarkers_returnsIndependentRotationAndBandingMarkers() {
+        assertEquals(emptyList<PartMarker>(), partMarkers(rotated = false, banding = null))
+        assertEquals(listOf(PartMarker.Rotation), partMarkers(rotated = true, banding = null))
+        assertEquals(listOf(PartMarker.Banding), partMarkers(rotated = false, banding = "2WD2LD"))
+        assertEquals(listOf(PartMarker.Rotation, PartMarker.Banding), partMarkers(rotated = true, banding = "2WD2LD"))
+        assertEquals(emptyList<PartMarker>(), partMarkers(rotated = false, banding = "   "))
     }
 
     @Test

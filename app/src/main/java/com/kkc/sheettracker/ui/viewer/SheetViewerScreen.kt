@@ -38,6 +38,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.BorderOuter
+import androidx.compose.material.icons.filled.CropRotate
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
@@ -532,7 +534,9 @@ fun SheetViewerScreen(
                     key = key,
                     source = source
                 ) {
-                    extractLargestEmbeddedImage(targetPdfFile, pageIndex)
+                    val pageMeta = resolvePageMetadata(targetMaterial, pageNumber)
+                    loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
+                        ?: extractLargestEmbeddedImage(targetPdfFile, pageIndex)
                 }
             }
             renderer.close()
@@ -2550,20 +2554,30 @@ private fun loadSheetThumbnailForToc(
     thumbnailPath: String?
 ): Bitmap? {
     // 1) Prefer sidecar thumbnail if splitter generated one.
-    val thumbFile = resolveCncSidecarFile(pdfFile, thumbnailPath)
-    if (thumbFile != null) {
-        try {
-            if (thumbFile.exists() && thumbFile.isFile) {
-                val decoded = BitmapFactory.decodeFile(thumbFile.absolutePath)
-                if (decoded != null) return resizeThumbnail(decoded)
-            }
-        } catch (_: Exception) {
-        }
+    val sidecarBitmap = loadCncSidecarBitmap(pdfFile, thumbnailPath)
+    if (sidecarBitmap != null) {
+        return resizeThumbnail(sidecarBitmap)
     }
 
     // 2) Fallback: generate thumbnail on tablet from embedded sheet image.
     val generated = extractLargestEmbeddedImage(pdfFile, pageIndex) ?: return null
     return resizeThumbnail(generated)
+}
+
+private fun loadCncSidecarBitmap(
+    pdfFile: File,
+    imagePath: String?
+): Bitmap? {
+    val imageFile = resolveCncSidecarFile(pdfFile, imagePath) ?: return null
+    return try {
+        if (imageFile.exists() && imageFile.isFile) {
+            BitmapFactory.decodeFile(imageFile.absolutePath)
+        } else {
+            null
+        }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private fun resizeThumbnail(src: Bitmap, maxW: Int = 420, maxH: Int = 280): Bitmap {
@@ -3260,14 +3274,17 @@ private fun PartsTable(
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             // Marker column header — muted, not sortable.
-            Text(
-                "🗘",
+            Box(
                 modifier = Modifier.width(rotColWidth),
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-            )
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.CropRotate,
+                    contentDescription = "Rotation marker",
+                    modifier = Modifier.size(15.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                )
+            }
             SortHeader("#", Modifier.width(numberColDp.dp), sortColumn == SortColumn.NUMBER, sortDirection) { onSortChange(SortColumn.NUMBER) }
             ResizeHandle(onDrag = onResizeNumber)
             SortHeader("Width", Modifier.width(widthColDp.dp), sortColumn == SortColumn.WIDTH, sortDirection) { onSortChange(SortColumn.WIDTH) }
@@ -3359,35 +3376,46 @@ private fun PartMarkers(
     banding: String?,
     modifier: Modifier = Modifier
 ) {
-    val glyphs = partMarkerGlyphs(rotated, banding)
-    if (glyphs.isEmpty()) {
+    val markers = partMarkers(rotated, banding)
+    if (markers.isEmpty()) {
         Spacer(modifier = modifier)
         return
     }
 
-    val markerHeight = if (glyphs.size > 1) 22.dp else 20.dp
+    val markerHeight = if (markers.size > 1) 22.dp else 20.dp
     Column(
         modifier = modifier.height(markerHeight),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        glyphs.forEach { glyph ->
-            Text(
-                glyph,
-                modifier = if (glyph == "🗘") Modifier.offset(y = (-1).dp) else Modifier,
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-                lineHeight = 10.sp,
-                textAlign = TextAlign.Center,
-                color = if (glyph == "🗘") Color(0xFFE65100) else MaterialTheme.colorScheme.primary
+        markers.forEach { marker ->
+            Icon(
+                imageVector = when (marker) {
+                    PartMarker.Rotation -> Icons.Default.CropRotate
+                    PartMarker.Banding -> Icons.Default.BorderOuter
+                },
+                contentDescription = when (marker) {
+                    PartMarker.Rotation -> "Rotated part"
+                    PartMarker.Banding -> "Banded part"
+                },
+                modifier = Modifier.size(12.dp),
+                tint = when (marker) {
+                    PartMarker.Rotation -> Color(0xFFE65100)
+                    PartMarker.Banding -> MaterialTheme.colorScheme.primary
+                }
             )
         }
     }
 }
 
-internal fun partMarkerGlyphs(rotated: Boolean, banding: String?): List<String> = buildList {
-    if (rotated) add("🗘")
-    if (!banding.isNullOrBlank()) add("𖦹")
+internal enum class PartMarker {
+    Rotation,
+    Banding
+}
+
+internal fun partMarkers(rotated: Boolean, banding: String?): List<PartMarker> = buildList {
+    if (rotated) add(PartMarker.Rotation)
+    if (!banding.isNullOrBlank()) add(PartMarker.Banding)
 }
 
 
