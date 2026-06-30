@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.viewer
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
@@ -38,8 +39,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.BorderOuter
-import androidx.compose.material.icons.filled.CropRotate
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
@@ -62,12 +61,15 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment as UiAlignment
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -80,6 +82,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.PathParser
 import com.kkc.sheettracker.BuildConfig
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -535,8 +538,8 @@ fun SheetViewerScreen(
                     source = source
                 ) {
                     val pageMeta = resolvePageMetadata(targetMaterial, pageNumber)
-                    loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
-                        ?: extractLargestEmbeddedImage(targetPdfFile, pageIndex)
+                    extractLargestEmbeddedImage(targetPdfFile, pageIndex)
+                        ?: loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
                 }
             }
             renderer.close()
@@ -2611,8 +2614,18 @@ private fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int): 
                 val xo: PDXObject = resources.getXObject(name) ?: continue
                 when (xo) {
                     is PDImageXObject -> {
-                        val bmp = xo.image ?: continue
                         val area = xo.width.toLong() * xo.height.toLong()
+                        if (xo.width <= 1 || xo.height <= 1 || area <= 1L) continue
+                        val bmp = try {
+                            xo.image
+                        } catch (e: Exception) {
+                            Log.w(
+                                OCR_TAG,
+                                "Skipping undecodable embedded image pageIndex=$pageIndex size=${xo.width}x${xo.height}",
+                                e
+                            )
+                            null
+                        } ?: continue
                         if (area > fallbackArea) {
                             fallbackArea = area
                             fallbackBitmap = bmp
@@ -3274,17 +3287,14 @@ private fun PartsTable(
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             // Marker column header — muted, not sortable.
-            Box(
+            Text(
+                "*",
                 modifier = Modifier.width(rotColWidth),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.CropRotate,
-                    contentDescription = "Rotation marker",
-                    modifier = Modifier.size(15.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                )
-            }
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+            )
             SortHeader("#", Modifier.width(numberColDp.dp), sortColumn == SortColumn.NUMBER, sortDirection) { onSortChange(SortColumn.NUMBER) }
             ResizeHandle(onDrag = onResizeNumber)
             SortHeader("Width", Modifier.width(widthColDp.dp), sortColumn == SortColumn.WIDTH, sortDirection) { onSortChange(SortColumn.WIDTH) }
@@ -3382,27 +3392,69 @@ private fun PartMarkers(
         return
     }
 
-    val markerHeight = if (markers.size > 1) 22.dp else 20.dp
-    Column(
-        modifier = modifier.height(markerHeight),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    Box(
+        modifier = modifier.height(24.dp),
+        contentAlignment = Alignment.Center
     ) {
-        markers.forEach { marker ->
-            Icon(
-                imageVector = when (marker) {
-                    PartMarker.Rotation -> Icons.Default.CropRotate
-                    PartMarker.Banding -> Icons.Default.BorderOuter
-                },
-                contentDescription = when (marker) {
-                    PartMarker.Rotation -> "Rotated part"
-                    PartMarker.Banding -> "Banded part"
-                },
-                modifier = Modifier.size(12.dp),
-                tint = when (marker) {
-                    PartMarker.Rotation -> Color(0xFFE65100)
-                    PartMarker.Banding -> MaterialTheme.colorScheme.primary
-                }
+        if (PartMarker.Banding in markers) {
+            EdgeBandingIcon(
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        if (PartMarker.Rotation in markers) {
+            Text(
+                "*",
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 1.dp, y = (-5).dp),
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                lineHeight = 13.sp,
+                color = Color(0xFFE65100)
+            )
+        }
+    }
+}
+
+@Composable
+private fun EdgeBandingIcon(
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        drawIntoCanvas { canvas ->
+            val nativeCanvas = canvas.nativeCanvas
+            val scale = min(size.width, size.height) / 100f
+            nativeCanvas.save()
+            nativeCanvas.scale(scale, scale)
+            nativeCanvas.translate(30f, 40f)
+
+            val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = tint.toArgb()
+                style = Paint.Style.STROKE
+                strokeWidth = 6f
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+            }
+            val bandPath = PathParser.createPathFromPathData(
+                "M -4 0 A 4 4 0 0 1 4 0 A 8 8 0 0 1 -12 0 " +
+                    "A 12 12 0 0 1 12 0 A 16 16 0 0 1 -20 0 " +
+                    "A 20 20 0 0 1 20 0 C 20 20 28 27 40 27 L 55 27"
+            )
+            nativeCanvas.drawPath(bandPath, strokePaint)
+            nativeCanvas.restore()
+
+            val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = tint.toArgb()
+                style = Paint.Style.FILL
+            }
+            nativeCanvas.drawRect(
+                5f * scale,
+                70f * scale,
+                88f * scale,
+                85f * scale,
+                fillPaint
             )
         }
     }
