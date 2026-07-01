@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
@@ -81,16 +82,26 @@ fun DashboardSurfaceCard(
     accent: DashboardAccent = DashboardAccent.NEUTRAL,
     shape: Shape = DashboardSurfaceDefaults.sectionShape,
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+    // Tints the card background with the accent color instead of plain surface —
+    // opt-in so existing call sites (which pass accent purely for badge/text color) don't change.
+    tinted: Boolean = false,
+    // Overrides the tint source color when tinted=true — lets callers with a more precise
+    // palette than the 5-bucket DashboardAccent (e.g. supply's per-status colors) tint exactly.
+    tintOverride: Color? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val containerColor = if (tinted) {
+        val wash = tintOverride?.copy(alpha = 0.14f) ?: DashboardSurfaceDefaults.accentWash(accent)
+        wash.compositeOver(MaterialTheme.colorScheme.surface)
+    } else {
+        DashboardSurfaceDefaults.containerColor(accent)
+    }
     Card(
         modifier = modifier
             .fillMaxWidth()
             .shadow(elevation = 3.dp, shape = shape, clip = false),
         shape = shape,
-        colors = CardDefaults.cardColors(
-            containerColor = DashboardSurfaceDefaults.containerColor(accent)
-        ),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(
             defaultElevation = 0.dp,
             pressedElevation = 1.dp

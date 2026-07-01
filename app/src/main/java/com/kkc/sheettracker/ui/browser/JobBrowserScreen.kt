@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
@@ -87,6 +86,7 @@ import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
+import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
@@ -267,7 +267,10 @@ fun JobBrowserScreen(
                 ),
                 windowInsets = WindowInsets.statusBars,
                 actions = {
-                    IconButton(onClick = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) { Icon(Icons.Default.Refresh, "Refresh") }
+                    RefreshIconButton(
+                        loading = scanState.status == ScanStatus.LOADING,
+                        onClick = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
+                    )
                     IconButton(
                         onClick = {
                             boardView = !boardView

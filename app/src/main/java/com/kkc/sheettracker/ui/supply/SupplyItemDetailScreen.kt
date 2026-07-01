@@ -4,29 +4,27 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import com.kkc.sheettracker.ui.components.headerBackground
-import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
+import com.kkc.sheettracker.ui.components.MarkdownText
+import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.dashboard.DashboardSectionHeader
+import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceCard
+import com.kkc.sheettracker.ui.dashboard.DashboardAccent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -66,9 +64,6 @@ fun SupplyItemDetailScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    val subscriptionData by subscriptionManager.subscriptionData.collectAsState()
-    val isSubscribed = subscriptionData.subscribedItemIds.contains(itemId)
-
     var item by remember { mutableStateOf<SupplyItem?>(null) }
     var comments by remember { mutableStateOf<List<SupplyComment>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -81,7 +76,6 @@ fun SupplyItemDetailScreen(
     var captureTargetFile by remember { mutableStateOf<File?>(null) }
 
     var showStatusSheet by remember { mutableStateOf(false) }
-    val statusSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     fun loadData() {
         coroutineScope.launch {
@@ -187,57 +181,17 @@ fun SupplyItemDetailScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
-                title = {
-                    Text(
-                        currentItem?.name ?: "Supply Item",
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        coroutineScope.launch {
-                            subscriptionManager.toggleItemSubscription(itemId)
-                        }
-                    }) {
-                        Icon(
-                            imageVector = if (isSubscribed) Icons.Filled.Notifications else Icons.Outlined.Notifications,
-                            contentDescription = if (isSubscribed) "Unsubscribe from notifications" else "Subscribe to notifications",
-                            tint = if (isSubscribed) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                        )
-                    }
-                    IconButton(onClick = onEdit) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Edit item")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars
-            )
-        }
-    ) { padding ->
+    Box(modifier = Modifier.fillMaxSize()) {
         when {
             isLoading -> {
                 Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
+                    modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) { CircularProgressIndicator() }
             }
             errorMessage != null -> {
                 Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
+                    modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -254,31 +208,27 @@ fun SupplyItemDetailScreen(
                 }
             }
             currentItem != null -> {
-                val tier = SUPPLY_STATUS_PRIORITY[currentItem.status] ?: 99
-                val statusColor = supplyStatusColor(tier)
-
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding),
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Status chip
+                    // Status pill
                     item {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("Status:", style = MaterialTheme.typography.labelLarge)
-                            AssistChip(
-                                onClick = { showStatusSheet = true },
-                                label = { Text(currentItem.status) },
-                                leadingIcon = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(10.dp)
-                                            .background(statusColor, CircleShape)
-                                    )
-                                }
+                            StatusChip(
+                                text = currentItem.status,
+                                backgroundColor = supplyStatusColor(SUPPLY_STATUS_PRIORITY[currentItem.status] ?: 99),
+                                contentColor = Color.White,
+                                modifier = Modifier.clickable { showStatusSheet = true }
+                            )
+                            Text(
+                                "Tap to change status",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -286,8 +236,8 @@ fun SupplyItemDetailScreen(
                     // Notes
                     if (!currentItem.notes.isNullOrBlank()) {
                         item {
-                            DetailSection(title = "Notes") {
-                                Text(currentItem.notes, style = MaterialTheme.typography.bodyMedium)
+                            DetailSection(title = "Notes", accent = supplyAccent(currentItem.status)) {
+                                MarkdownText(currentItem.notes, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -326,7 +276,13 @@ fun SupplyItemDetailScreen(
 
                     // Attachments
                     item {
-                        DetailSection(title = "Photos & Attachments") {
+                        val attachmentCount = currentItem.attachmentIds.size
+                        DetailSection(
+                            title = "Photos & Attachments",
+                            subtitle = if (attachmentCount == 0) null else {
+                                "$attachmentCount file${if (attachmentCount == 1) "" else "s"}"
+                            }
+                        ) {
                             // Existing attachments
                             currentItem.attachmentIds.forEach { att ->
                                 val attFile = repository.getAttachmentFile(currentItem.id, att.storedName)
@@ -405,8 +361,13 @@ fun SupplyItemDetailScreen(
 
                     // Comments header
                     item {
-                        Text("Comments", style = MaterialTheme.typography.titleMedium)
-                        HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
+                        DashboardSectionHeader(
+                            title = "Comments",
+                            subtitle = if (comments.isEmpty()) null else {
+                                "${comments.size} comment${if (comments.size == 1) "" else "s"}"
+                            },
+                            modifier = Modifier.fillMaxWidth(0.5f)
+                        )
                     }
 
                     // Comment list
@@ -415,23 +376,20 @@ fun SupplyItemDetailScreen(
                             Text(
                                 "No comments yet.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.fillMaxWidth(0.5f)
                             )
                         }
                     } else {
                         items(comments, key = { it.id }) { comment ->
-                            CommentCard(comment = comment)
+                            CommentCard(comment = comment, modifier = Modifier.fillMaxWidth(0.5f))
                         }
                     }
 
                     // Add comment form
                     item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium
-                        ) {
+                        DashboardSurfaceCard(modifier = Modifier.fillMaxWidth(0.5f)) {
                             Column(
-                                modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text("Add Comment", style = MaterialTheme.typography.labelLarge)
@@ -501,83 +459,61 @@ fun SupplyItemDetailScreen(
 
     // Status change sheet
     if (showStatusSheet && currentItem != null) {
-        ModalBottomSheet(
-            onDismissRequest = { showStatusSheet = false },
-            sheetState = statusSheetState
-        ) {
-            ImmersiveDialogDecor()
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 32.dp)
-            ) {
-                Text(
-                    "Change Status",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-                HorizontalDivider()
-                ALL_SUPPLY_STATUSES.forEach { status ->
-                    val tier = SUPPLY_STATUS_PRIORITY[status] ?: 99
-                    val color = supplyStatusColor(tier)
-                    NavigationDrawerItem(
-                        label = { Text(status) },
-                        selected = currentItem.status == status,
-                        onClick = {
-                            coroutineScope.launch {
-                                statusSheetState.hide()
-                                showStatusSheet = false
-                                withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        repository.setStatus(
-                                            itemId, status,
-                                            employeeName.ifBlank { "Floor" }, tabletId
-                                        )
-                                    }
+        SupplyPickerDialog(
+            title = "Change Status",
+            options = ALL_SUPPLY_STATUSES.map { status ->
+                val tier = SUPPLY_STATUS_PRIORITY[status] ?: 99
+                val color = supplyStatusColor(tier)
+                SupplyPickerOption(
+                    id = status,
+                    label = status,
+                    selected = currentItem.status == status,
+                    onClick = {
+                        coroutineScope.launch {
+                            showStatusSheet = false
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    repository.setStatus(
+                                        itemId, status,
+                                        employeeName.ifBlank { "Floor" }, tabletId
+                                    )
                                 }
-                                val updated = withContext(Dispatchers.IO) {
-                                    runCatching { repository.getItem(itemId) }.getOrNull()
-                                }
-                                if (updated != null) item = updated
                             }
-                        },
-                        icon = {
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .background(color, CircleShape)
-                            )
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                }
-            }
-        }
+                            val updated = withContext(Dispatchers.IO) {
+                                runCatching { repository.getItem(itemId) }.getOrNull()
+                            }
+                            if (updated != null) item = updated
+                        }
+                    },
+                    icon = {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .background(color, CircleShape)
+                        )
+                    }
+                )
+            },
+            onDismiss = { showStatusSheet = false }
+        )
     }
 }
 
 @Composable
 private fun DetailSection(
     title: String,
+    subtitle: String? = null,
+    accent: DashboardAccent = DashboardAccent.NEUTRAL,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            HorizontalDivider()
-            content()
-        }
+    DashboardSurfaceCard(accent = accent) {
+        DashboardSectionHeader(title = title, subtitle = subtitle)
+        content()
     }
 }
 
 @Composable
-private fun CommentCard(comment: SupplyComment) {
+private fun CommentCard(comment: SupplyComment, modifier: Modifier = Modifier) {
     val formattedTime = remember(comment.createdAt) {
         runCatching {
             val instant = Instant.parse(comment.createdAt)
@@ -587,31 +523,51 @@ private fun CommentCard(comment: SupplyComment) {
                 .format(instant)
         }.getOrElse { comment.createdAt }
     }
+    val initials = remember(comment.author) {
+        comment.author.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.let { parts ->
+            when {
+                parts.isEmpty() -> "?"
+                parts.size == 1 -> parts[0].take(2)
+                else -> parts.first().take(1) + parts.last().take(1)
+            }
+        }.uppercase()
+    }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+    DashboardSurfaceCard(modifier = modifier, contentPadding = PaddingValues(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
-                    comment.author,
+                    initials,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    formattedTime,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(comment.text, style = MaterialTheme.typography.bodyMedium)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        comment.author,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        formattedTime,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                MarkdownText(comment.text, style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }

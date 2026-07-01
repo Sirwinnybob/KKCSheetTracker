@@ -123,8 +123,6 @@ import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_SAW_RIP_LIST_ROW_ID
 import com.kkc.sheettracker.ui.search.SearchScreen
 import com.kkc.sheettracker.ui.settings.SettingsScreen
 import com.kkc.sheettracker.ui.supply.SupplyDashboardScreen
-import com.kkc.sheettracker.ui.supply.SupplyItemDetailScreen
-import com.kkc.sheettracker.ui.supply.SupplyItemEditScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
 import com.kkc.sheettracker.ui.specialty.hasClosetRodCutList
@@ -1839,57 +1837,7 @@ private fun SupplyTabHost(
                 basePath = basePath,
                 tabletId = tabletId,
                 employeeName = employeeName,
-                navController = navController,
                 subscriptionManager = subscriptionManager
-            )
-        }
-        composable(
-            "supply/item/{itemId}",
-            arguments = listOf(navArgument("itemId") { type = NavType.StringType })
-        ) { entry ->
-            val itemId = entry.arguments?.getString("itemId") ?: return@composable
-            SupplyItemDetailScreen(
-                itemId = itemId,
-                basePath = basePath,
-                tabletId = tabletId,
-                employeeName = employeeName,
-                onBack = { navController.popBackStack() },
-                onEdit = { navController.navigate("supply/item/$itemId/edit") },
-                subscriptionManager = subscriptionManager
-            )
-        }
-        composable(
-            "supply/item/{itemId}/edit",
-            arguments = listOf(navArgument("itemId") { type = NavType.StringType })
-        ) { entry ->
-            val itemId = entry.arguments?.getString("itemId") ?: return@composable
-            SupplyItemEditScreen(
-                itemId = itemId,
-                initialCategoryId = null,
-                basePath = basePath,
-                tabletId = tabletId,
-                employeeName = employeeName,
-                onBack = { navController.popBackStack() },
-                onSaved = { navController.popBackStack() }
-            )
-        }
-        composable(
-            "supply/new/{categoryId}",
-            arguments = listOf(navArgument("categoryId") { type = NavType.StringType })
-        ) { entry ->
-            val categoryId = entry.arguments?.getString("categoryId") ?: return@composable
-            SupplyItemEditScreen(
-                itemId = null,
-                initialCategoryId = categoryId,
-                basePath = basePath,
-                tabletId = tabletId,
-                employeeName = employeeName,
-                onBack = { navController.popBackStack() },
-                onSaved = { newItemId ->
-                    navController.navigate("supply/item/$newItemId") {
-                        popUpTo("supply") { inclusive = false }
-                    }
-                }
             )
         }
     }

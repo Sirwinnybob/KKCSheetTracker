@@ -15,13 +15,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -49,6 +47,7 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.KKCSpacing
@@ -102,9 +101,10 @@ fun AssemblyDashboardScreen(
                 ),
                 windowInsets = WindowInsets.statusBars,
                 actions = {
-                    IconButton(onClick = { assemblyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                    }
+                    RefreshIconButton(
+                        loading = scanState.status == ScanStatus.LOADING,
+                        onClick = { assemblyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
+                    )
                 }
             )
         }

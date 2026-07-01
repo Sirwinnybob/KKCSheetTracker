@@ -2,23 +2,15 @@ package com.kkc.sheettracker.ui.supply
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.SupplyRepository
-import com.kkc.sheettracker.ui.components.headerBackground
-import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.data.models.ALL_SUPPLY_STATUSES
 import com.kkc.sheettracker.data.models.SUPPLY_STATUS_PRIORITY
 import com.kkc.sheettracker.data.models.SupplyCategory
@@ -26,7 +18,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
+data class SupplyItemEditorChromeState(
+    val canSave: Boolean,
+    val isSaving: Boolean,
+    val onSave: () -> Unit
+)
+
 @Composable
 fun SupplyItemEditScreen(
     itemId: String?,
@@ -35,7 +32,8 @@ fun SupplyItemEditScreen(
     tabletId: String,
     employeeName: String,
     onBack: () -> Unit,
-    onSaved: (newItemId: String) -> Unit
+    onSaved: (newItemId: String) -> Unit,
+    onChromeStateChanged: (SupplyItemEditorChromeState) -> Unit = {}
 ) {
     val repository = remember(basePath) { SupplyRepository(basePath) }
     val coroutineScope = rememberCoroutineScope()
@@ -56,10 +54,8 @@ fun SupplyItemEditScreen(
     var categories by remember { mutableStateOf<List<SupplyCategory>>(emptyList()) }
     var showCategorySheet by remember { mutableStateOf(false) }
     var showStatusSheet by remember { mutableStateOf(false) }
-    val categorySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val statusSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    LaunchedEffect(itemId) {
+    LaunchedEffect(itemId, initialCategoryId) {
         val cats = withContext(Dispatchers.IO) { repository.getCategories() }
         categories = cats.sortedBy { it.position }
         if (itemId != null) {
@@ -76,12 +72,15 @@ fun SupplyItemEditScreen(
                 selectedStatus = item.status
             }
             isLoading = false
+        } else {
+            selectedCategoryId = initialCategoryId ?: ""
         }
     }
 
     val selectedCategory = categories.find { it.id == selectedCategoryId }
     val statusTier = SUPPLY_STATUS_PRIORITY[selectedStatus] ?: 99
     val statusColor = supplyStatusColor(statusTier)
+    val canSave = name.isNotBlank() && selectedCategoryId.isNotBlank() && !isSaving && !isLoading
 
     fun save() {
         if (name.isBlank() || selectedCategoryId.isBlank()) return
@@ -120,252 +119,201 @@ fun SupplyItemEditScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
-                title = {
-                    Text(
-                        if (itemId == null) "New Item" else "Edit Item",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    TextButton(
-                        onClick = { save() },
-                        enabled = name.isNotBlank() && selectedCategoryId.isNotBlank() && !isSaving && !isLoading
-                    ) {
-                        if (isSaving) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text("Save")
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars
+    SideEffect {
+        onChromeStateChanged(
+            SupplyItemEditorChromeState(
+                canSave = canSave,
+                isSaving = isSaving,
+                onSave = ::save
             )
-        }
-    ) { padding ->
-        if (isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) { CircularProgressIndicator() }
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        )
+    }
+
+    if (isLoading) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) { CircularProgressIndicator() }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedCard(
+                onClick = { showCategorySheet = true },
+                modifier = Modifier.fillMaxWidth()
             ) {
-                // Category selector
-                OutlinedCard(
-                    onClick = { showCategorySheet = true },
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Category",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            selectedCategory?.name ?: "Select…",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (selectedCategory != null) MaterialTheme.colorScheme.onSurface
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Item Name *") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    isError = name.isBlank(),
-                    shape = MaterialTheme.shapes.medium
-                )
-
-                // Status selector
-                OutlinedCard(
-                    onClick = { showStatusSheet = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Status",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(statusColor, CircleShape)
-                            )
-                            Text(
-                                selectedStatus,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Notes") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3,
-                    maxLines = 8,
-                    shape = MaterialTheme.shapes.medium
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                Text(
-                    "Details",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                OutlinedTextField(
-                    value = sku,
-                    onValueChange = { sku = it },
-                    label = { Text("SKU") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-                OutlinedTextField(
-                    value = quantity,
-                    onValueChange = { quantity = it },
-                    label = { Text("Quantity") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-                OutlinedTextField(
-                    value = vendorLink,
-                    onValueChange = { vendorLink = it },
-                    label = { Text("Vendor Link") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-                OutlinedTextField(
-                    value = trackingNumber,
-                    onValueChange = { trackingNumber = it },
-                    label = { Text("Tracking #") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-
-                if (errorMessage != null) {
                     Text(
-                        errorMessage!!,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
+                        "Category",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        selectedCategory?.name ?: "Select...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (selectedCategory != null) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-
-                Spacer(modifier = Modifier.height(32.dp))
             }
+
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Item Name *") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                isError = name.isBlank(),
+                shape = MaterialTheme.shapes.medium
+            )
+
+            OutlinedCard(
+                onClick = { showStatusSheet = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Status",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .background(statusColor, CircleShape)
+                        )
+                        Text(
+                            selectedStatus,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("Notes") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                maxLines = 8,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            Text(
+                "Details",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            OutlinedTextField(
+                value = sku,
+                onValueChange = { sku = it },
+                label = { Text("SKU") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+            OutlinedTextField(
+                value = quantity,
+                onValueChange = { quantity = it },
+                label = { Text("Quantity") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+            OutlinedTextField(
+                value = vendorLink,
+                onValueChange = { vendorLink = it },
+                label = { Text("Vendor Link") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+            OutlinedTextField(
+                value = trackingNumber,
+                onValueChange = { trackingNumber = it },
+                label = { Text("Tracking #") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            if (errorMessage != null) {
+                Text(
+                    errorMessage!!,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 
-    // Category picker sheet
     if (showCategorySheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showCategorySheet = false },
-            sheetState = categorySheetState
-        ) {
-            ImmersiveDialogDecor()
-            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
-                Text(
-                    "Select Category",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        SupplyPickerDialog(
+            title = "Select Category",
+            options = categories.map { cat ->
+                SupplyPickerOption(
+                    id = cat.id,
+                    label = cat.name,
+                    selected = cat.id == selectedCategoryId,
+                    onClick = {
+                        selectedCategoryId = cat.id
+                        showCategorySheet = false
+                    }
                 )
-                HorizontalDivider()
-                categories.forEach { cat ->
-                    NavigationDrawerItem(
-                        label = { Text(cat.name) },
-                        selected = cat.id == selectedCategoryId,
-                        onClick = {
-                            selectedCategoryId = cat.id
-                            showCategorySheet = false
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                }
-            }
-        }
+            },
+            onDismiss = { showCategorySheet = false }
+        )
     }
 
-    // Status picker sheet
     if (showStatusSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showStatusSheet = false },
-            sheetState = statusSheetState
-        ) {
-            ImmersiveDialogDecor()
-            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
-                Text(
-                    "Select Status",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        SupplyPickerDialog(
+            title = "Select Status",
+            options = ALL_SUPPLY_STATUSES.map { status ->
+                val tier = SUPPLY_STATUS_PRIORITY[status] ?: 99
+                val color = supplyStatusColor(tier)
+                SupplyPickerOption(
+                    id = status,
+                    label = status,
+                    selected = selectedStatus == status,
+                    onClick = {
+                        selectedStatus = status
+                        showStatusSheet = false
+                    },
+                    icon = {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .background(color, CircleShape)
+                        )
+                    }
                 )
-                HorizontalDivider()
-                ALL_SUPPLY_STATUSES.forEach { status ->
-                    val tier = SUPPLY_STATUS_PRIORITY[status] ?: 99
-                    val color = supplyStatusColor(tier)
-                    NavigationDrawerItem(
-                        label = { Text(status) },
-                        selected = selectedStatus == status,
-                        onClick = {
-                            selectedStatus = status
-                            showStatusSheet = false
-                        },
-                        icon = {
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .background(color, CircleShape)
-                            )
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                }
-            }
-        }
+            },
+            onDismiss = { showStatusSheet = false }
+        )
     }
 }

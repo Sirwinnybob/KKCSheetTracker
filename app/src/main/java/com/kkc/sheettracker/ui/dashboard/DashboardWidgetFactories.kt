@@ -15,13 +15,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -47,8 +43,12 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.models.SupplyCategory
 import com.kkc.sheettracker.data.models.SupplyItem
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
+import com.kkc.sheettracker.ui.components.MarkdownText
+import com.kkc.sheettracker.ui.components.RefreshIconButton
+import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.supply.supplyStatusColor
 import kotlin.math.roundToInt
 
 fun buildCncDashboardWidgets(
@@ -379,9 +379,7 @@ fun DashboardShell(
                 },
                 actions = {
                     if (onRefresh != null) {
-                        IconButton(onClick = onRefresh) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                        }
+                        RefreshIconButton(loading = loading, onClick = onRefresh)
                     }
                     topBarActions()
                     TopBarClock()
@@ -600,49 +598,70 @@ fun DashboardWidgetRenderer(
                     }
                 }
 
-                is DashboardWidgetModel.InventoryBlock -> DashboardSurfaceCard {
+                is DashboardWidgetModel.InventoryBlock -> DashboardSurfaceCard(contentPadding = PaddingValues(0.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DashboardSectionHeader(widget.title, widget.subtitle)
-                        widget.summary?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            DashboardSectionHeader(widget.title, widget.subtitle)
+                            widget.summary?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
+                        Column(
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
                         if (widget.items.isEmpty()) {
                             Text(widget.emptyMessage, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             widget.items.forEach { item ->
+                                val tier = item.badge?.let { SUPPLY_STATUS_PRIORITY[it] } ?: 99
                                 DashboardSurfaceCard(
                                     accent = item.accent,
+                                    tinted = true,
+                                    tintOverride = supplyStatusColor(tier),
                                     modifier = androidx.compose.ui.Modifier.combinedClickable(
                                         onClick = { onItemClick(item) },
                                         onLongClick = { onItemLongPress?.invoke(item) }
                                     ),
                                     contentPadding = PaddingValues(14.dp)
                                 ) {
-                                    Box(modifier = Modifier.fillMaxWidth()) {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(item.title, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        item.badge?.let { badge ->
+                                            StatusChip(
+                                                text = badge,
+                                                backgroundColor = supplyStatusColor(tier),
+                                                contentColor = Color.White
+                                            )
+                                        }
+                                        Text(
+                                            item.title,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                        )
+                                        if (item.subtitle.isNotBlank()) {
                                             Text(
                                                 item.subtitle,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
-                                        item.badge?.let { badge ->
-                                            DashboardAccentPill(
-                                                text = badge,
-                                                accent = item.accent,
-                                                modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd)
+                                        item.supportingText?.let {
+                                            MarkdownText(
+                                                it,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
-                                    item.supportingText?.let {
-                                        Text(it, style = MaterialTheme.typography.bodySmall)
-                                    }
                                 }
                             }
+                        }
                         }
                     }
                 }
@@ -705,19 +724,14 @@ private fun toAssemblyJobItemModel(card: AssemblyJobCard): DashboardProgressItem
 
 private fun toInventoryItemModel(item: SupplyItem): DashboardInventoryItemModel {
     val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
-    val supportingText = buildString {
-        if (quantity != null) {
-            append("Qty $quantity")
-        }
-        if (!item.notes.isNullOrBlank()) {
-            if (isNotEmpty()) append(" • ")
-            append(item.notes)
-        }
-    }.ifBlank { null }
+    val supportingText = listOfNotNull(
+        quantity?.let { "Qty $it" },
+        item.notes?.takeIf { it.isNotBlank() }
+    ).joinToString("\n").ifBlank { null }
     return DashboardInventoryItemModel(
         id = item.id,
         title = item.name,
-        subtitle = item.status,
+        subtitle = "",
         supportingText = supportingText,
         badge = item.status,
         accent = supplyAccent(item.status)

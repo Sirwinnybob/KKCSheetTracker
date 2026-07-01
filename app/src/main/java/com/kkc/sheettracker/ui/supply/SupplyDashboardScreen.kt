@@ -14,31 +14,30 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -54,7 +53,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavHostController
 import com.kkc.sheettracker.data.SupplyChange
 import com.kkc.sheettracker.data.SupplyNotificationItem
 import com.kkc.sheettracker.data.SupplyRepository
@@ -82,7 +80,6 @@ fun SupplyDashboardScreen(
     basePath: String,
     tabletId: String,
     employeeName: String,
-    navController: NavHostController,
     subscriptionManager: SupplySubscriptionManager
 ) {
     val context = LocalContext.current
@@ -98,13 +95,15 @@ fun SupplyDashboardScreen(
     var newCategoryName by remember { mutableStateOf("") }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var statusSheetItem by remember { mutableStateOf<SupplyItem?>(null) }
+    var activeModal by remember { mutableStateOf<SupplyDashboardModal?>(null) }
+    var editChromeState by remember { mutableStateOf<SupplyItemEditorChromeState?>(null) }
 
     val subscriptionData by subscriptionManager.subscriptionData.collectAsState()
     val notificationCount by subscriptionManager.notificationCount.collectAsState()
     var notifications by remember { mutableStateOf<List<SupplyNotificationItem>>(emptyList()) }
+    val categoryMap = remember(categories) { categories.associateBy { it.id } }
     val tabCount = (categories.size + 2).coerceAtLeast(2)
     val pagerState = rememberPagerState(pageCount = { tabCount })
-    val statusSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Categories can reload smaller/empty while the pager still points at a former category page.
     // Snap back into range so ScrollableTabRow never reads a tab index past the tab list.
@@ -131,6 +130,25 @@ fun SupplyDashboardScreen(
 
     suspend fun reloadUpdates() {
         notifications = withContext(Dispatchers.IO) { subscriptionManager.scanForUpdates() }
+    }
+
+    fun openDetailModal(itemId: String) {
+        editChromeState = null
+        activeModal = SupplyDashboardModal.Detail(itemId)
+    }
+
+    fun openNewItemModal(categoryId: String) {
+        editChromeState = null
+        activeModal = SupplyDashboardModal.NewItem(categoryId)
+    }
+
+    fun dismissSupplyModal() {
+        activeModal = null
+        editChromeState = null
+        scope.launch {
+            loadData()
+            reloadUpdates()
+        }
     }
 
     LaunchedEffect(basePath) { loadData() }
@@ -181,7 +199,7 @@ fun SupplyDashboardScreen(
         },
         floatingActionButton = {
             currentCategoryId?.let { catId ->
-                FloatingActionButton(onClick = { navController.navigate("supply/new/$catId") }) {
+                FloatingActionButton(onClick = { openNewItemModal(catId) }) {
                     Icon(Icons.Filled.Add, contentDescription = "Add item")
                 }
             }
@@ -215,14 +233,14 @@ fun SupplyDashboardScreen(
                             DashboardWidgetModel.InventoryBlock(
                                 key = "supply-search",
                                 title = "Search Results",
-                                items = filtered.map(::toInventoryItemModel),
+                                items = filtered.map { toInventoryItemModel(it, categoryMap) },
                                 summary = if (filtered.isEmpty()) null else "${filtered.size} matching items",
                                 emptyMessage = "No items match \"$searchQuery\""
                             )
                         ),
                         onItemClick = { item ->
                             if (item is DashboardInventoryItemModel) {
-                                navController.navigate("supply/item/${item.id}")
+                                openDetailModal(item.id)
                             }
                         },
                         onItemLongPress = { item ->
@@ -236,7 +254,18 @@ fun SupplyDashboardScreen(
                 DashboardSurfaceCard(contentPadding = PaddingValues(vertical = 6.dp)) {
                     ScrollableTabRow(
                         selectedTabIndex = pagerState.currentPage.coerceIn(0, tabCount - 1),
-                        edgePadding = 12.dp
+                        edgePadding = 12.dp,
+                        indicator = { tabPositions ->
+                            // Material3's default indicator indexes tabPositions[selectedTabIndex]
+                            // with no bounds check. The subcomposed tab count can briefly lag one
+                            // frame behind tabCount when categories reload, so guard here too.
+                            val safeIndex = pagerState.currentPage.coerceIn(0, tabCount - 1)
+                            tabPositions.getOrNull(safeIndex)?.let { position ->
+                                TabRowDefaults.SecondaryIndicator(
+                                    Modifier.tabIndicatorOffset(position)
+                                )
+                            }
+                        }
                     ) {
                         Tab(
                             selected = pagerState.currentPage == 0,
@@ -302,15 +331,15 @@ fun SupplyDashboardScreen(
                     0 -> UpdatesPage(
                         notifications = notifications,
                         categories = categories,
-                        navController = navController,
                         subscriptionManager = subscriptionManager,
+                        onOpenItem = ::openDetailModal,
                         reloadUpdates = { scope.launch { reloadUpdates() } },
                         modifier = Modifier.fillMaxSize()
                     )
                     1 -> NeedsAttentionPage(
                         items = items,
                         categories = categories,
-                        navController = navController,
+                        onOpenItem = ::openDetailModal,
                         onLongPress = { item -> statusSheetItem = items.firstOrNull { it.id == item.id } },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -329,6 +358,10 @@ fun SupplyDashboardScreen(
                                     .padding(bottom = 160.dp),
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
+                                CategoryAddHeader(
+                                    category = category,
+                                    onAddItem = { openNewItemModal(category.id) }
+                                )
                                 DashboardWidgetRenderer(
                                     widgets = buildSupplyCategoryWidgets(
                                         category = category,
@@ -338,13 +371,19 @@ fun SupplyDashboardScreen(
                                     ),
                                     onItemClick = { item ->
                                         if (item is DashboardInventoryItemModel) {
-                                            navController.navigate("supply/item/${item.id}")
+                                            openDetailModal(item.id)
                                         }
                                     },
                                     onItemLongPress = { item ->
                                         statusSheetItem = items.firstOrNull { it.id == item.id }
                                     }
                                 )
+                                if (categoryItems.isEmpty()) {
+                                    EmptyCategoryAddCard(
+                                        category = category,
+                                        onAddItem = { openNewItemModal(category.id) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -355,10 +394,17 @@ fun SupplyDashboardScreen(
     }
 
     if (showAddCategoryDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddCategoryDialog = false },
-            title = { Text("New Category") },
-            text = {
+        SupplyModalFrame(
+            title = "New Category",
+            onDismiss = { showAddCategoryDialog = false },
+            modifier = Modifier.heightIn(max = 420.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
                 OutlinedTextField(
                     value = newCategoryName,
                     onValueChange = { newCategoryName = it },
@@ -367,51 +413,234 @@ fun SupplyDashboardScreen(
                     singleLine = true,
                     shape = MaterialTheme.shapes.medium
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val name = newCategoryName.trim()
-                    if (name.isNotBlank()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { showAddCategoryDialog = false }) { Text("Cancel") }
+                    Button(
+                        onClick = {
+                            val name = newCategoryName.trim()
+                            if (name.isNotBlank()) {
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) { runCatching { repository.createCategory(name) } }
+                                    result.onFailure { Toast.makeText(context, "Failed to create category: ${it.message}", Toast.LENGTH_LONG).show() }
+                                    showAddCategoryDialog = false
+                                    loadData()
+                                }
+                            }
+                        },
+                        enabled = newCategoryName.isNotBlank()
+                    ) { Text("Create") }
+                }
+            }
+        }
+    }
+
+    when (val modal = activeModal) {
+        is SupplyDashboardModal.Detail -> {
+            val isSubscribed = subscriptionData.subscribedItemIds.contains(modal.itemId)
+            val itemTitle = items.firstOrNull { it.id == modal.itemId }?.name ?: "Supply Item"
+            SupplyModalFrame(
+                title = itemTitle,
+                onDismiss = { dismissSupplyModal() },
+                actions = {
+                    IconButton(onClick = {
                         scope.launch {
-                            val result = withContext(Dispatchers.IO) { runCatching { repository.createCategory(name) } }
-                            result.onFailure { Toast.makeText(context, "Failed to create category: ${it.message}", Toast.LENGTH_LONG).show() }
-                            showAddCategoryDialog = false
-                            loadData()
+                            subscriptionManager.toggleItemSubscription(modal.itemId)
+                        }
+                    }) {
+                        Icon(
+                            imageVector = if (isSubscribed) Icons.Filled.Notifications else Icons.Outlined.Notifications,
+                            contentDescription = if (isSubscribed) "Unsubscribe from notifications" else "Subscribe to notifications",
+                            tint = if (isSubscribed) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                        )
+                    }
+                    IconButton(onClick = {
+                        editChromeState = null
+                        activeModal = SupplyDashboardModal.EditItem(modal.itemId)
+                    }) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Edit item")
+                    }
+                }
+            ) {
+                SupplyItemDetailScreen(
+                    itemId = modal.itemId,
+                    basePath = basePath,
+                    tabletId = tabletId,
+                    employeeName = employeeName,
+                    onBack = { dismissSupplyModal() },
+                    onEdit = {
+                        editChromeState = null
+                        activeModal = SupplyDashboardModal.EditItem(modal.itemId)
+                    },
+                    subscriptionManager = subscriptionManager
+                )
+            }
+        }
+        is SupplyDashboardModal.EditItem -> {
+            SupplyModalFrame(
+                title = "Edit Item",
+                onDismiss = { dismissSupplyModal() },
+                actions = {
+                    editChromeState?.let { chrome ->
+                        TextButton(
+                            onClick = chrome.onSave,
+                            enabled = chrome.canSave
+                        ) {
+                            if (chrome.isSaving) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Save")
+                            }
                         }
                     }
-                }, enabled = newCategoryName.isNotBlank()) { Text("Create") }
-            },
-            dismissButton = { TextButton(onClick = { showAddCategoryDialog = false }) { Text("Cancel") } }
-        )
+                }
+            ) {
+                SupplyItemEditScreen(
+                    itemId = modal.itemId,
+                    initialCategoryId = null,
+                    basePath = basePath,
+                    tabletId = tabletId,
+                    employeeName = employeeName,
+                    onBack = { dismissSupplyModal() },
+                    onSaved = { savedItemId ->
+                        scope.launch {
+                            loadData()
+                            reloadUpdates()
+                            editChromeState = null
+                            activeModal = SupplyDashboardModal.Detail(savedItemId)
+                        }
+                    },
+                    onChromeStateChanged = { editChromeState = it }
+                )
+            }
+        }
+        is SupplyDashboardModal.NewItem -> {
+            SupplyModalFrame(
+                title = "New Item",
+                onDismiss = { dismissSupplyModal() },
+                actions = {
+                    editChromeState?.let { chrome ->
+                        TextButton(
+                            onClick = chrome.onSave,
+                            enabled = chrome.canSave
+                        ) {
+                            if (chrome.isSaving) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Save")
+                            }
+                        }
+                    }
+                }
+            ) {
+                SupplyItemEditScreen(
+                    itemId = null,
+                    initialCategoryId = modal.categoryId,
+                    basePath = basePath,
+                    tabletId = tabletId,
+                    employeeName = employeeName,
+                    onBack = { dismissSupplyModal() },
+                    onSaved = { savedItemId ->
+                        scope.launch {
+                            loadData()
+                            reloadUpdates()
+                            editChromeState = null
+                            activeModal = SupplyDashboardModal.Detail(savedItemId)
+                        }
+                    },
+                    onChromeStateChanged = { editChromeState = it }
+                )
+            }
+        }
+        null -> Unit
     }
 
     statusSheetItem?.let { item ->
-        ModalBottomSheet(onDismissRequest = { statusSheetItem = null }, sheetState = statusSheetState) {
-            ImmersiveDialogDecor()
-            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
-                Text("Change Status: ${item.name}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                HorizontalDivider()
-                ALL_SUPPLY_STATUSES.forEach { status ->
-                    NavigationDrawerItem(
-                        label = { Text(status) },
-                        selected = item.status == status,
-                        onClick = {
-                            scope.launch {
-                                statusSheetState.hide()
-                                statusSheetItem = null
-                                val result = withContext(Dispatchers.IO) {
-                                    runCatching { repository.setStatus(item.id, status, employeeName.ifBlank { "Floor" }, tabletId) }
-                                }
-                                result.onFailure { Toast.makeText(context, "Failed to change status: ${it.message}", Toast.LENGTH_LONG).show() }
-                                items = withContext(Dispatchers.IO) { runCatching { repository.getItems() }.getOrDefault(items) }
+        SupplyPickerDialog(
+            title = "Change Status: ${item.name}",
+            options = ALL_SUPPLY_STATUSES.map { status ->
+                SupplyPickerOption(
+                    id = status,
+                    label = status,
+                    selected = item.status == status,
+                    onClick = {
+                        scope.launch {
+                            statusSheetItem = null
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching { repository.setStatus(item.id, status, employeeName.ifBlank { "Floor" }, tabletId) }
                             }
-                        },
-                        icon = {
-                            Box(modifier = Modifier.size(12.dp).background(supplyStatusColor(SUPPLY_STATUS_PRIORITY[status] ?: 99), CircleShape))
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                }
+                            result.onFailure { Toast.makeText(context, "Failed to change status: ${it.message}", Toast.LENGTH_LONG).show() }
+                            items = withContext(Dispatchers.IO) { runCatching { repository.getItems() }.getOrDefault(items) }
+                        }
+                    },
+                    icon = {
+                        Box(modifier = Modifier.size(12.dp).background(supplyStatusColor(SUPPLY_STATUS_PRIORITY[status] ?: 99), CircleShape))
+                    }
+                )
+            },
+            onDismiss = { statusSheetItem = null }
+        )
+    }
+}
+
+private sealed interface SupplyDashboardModal {
+    data class Detail(val itemId: String) : SupplyDashboardModal
+    data class EditItem(val itemId: String) : SupplyDashboardModal
+    data class NewItem(val categoryId: String) : SupplyDashboardModal
+}
+
+@Composable
+private fun CategoryAddHeader(
+    category: SupplyCategory,
+    onAddItem: () -> Unit
+) {
+    DashboardSurfaceCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(category.name, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Category inventory",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Button(onClick = onAddItem) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Add Item")
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyCategoryAddCard(
+    category: SupplyCategory,
+    onAddItem: () -> Unit
+) {
+    DashboardSurfaceCard(accent = DashboardAccent.INFO) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("No items in ${category.name}", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Add the first item so this category is useful on the floor.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Button(onClick = onAddItem) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Add Item")
             }
         }
     }
@@ -422,8 +651,8 @@ fun SupplyDashboardScreen(
 private fun UpdatesPage(
     notifications: List<SupplyNotificationItem>,
     categories: List<SupplyCategory>,
-    navController: NavHostController,
     subscriptionManager: SupplySubscriptionManager,
+    onOpenItem: (String) -> Unit,
     reloadUpdates: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -479,7 +708,7 @@ private fun UpdatesPage(
                     accent = supplyAccent(notification.item.status),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { navController.navigate("supply/item/${notification.item.id}") }
+                        .clickable { onOpenItem(notification.item.id) }
                 ) {
                     Column(
                         modifier = Modifier
@@ -524,16 +753,19 @@ private fun UpdatesPage(
     }
 }
 
-private fun toInventoryItemModel(item: SupplyItem): DashboardInventoryItemModel {
+private fun toInventoryItemModel(
+    item: SupplyItem,
+    categoryMap: Map<String, SupplyCategory> = emptyMap()
+): DashboardInventoryItemModel {
     val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
-    val supportingText = buildList {
-        if (quantity != null) add("Qty $quantity")
-        if (!item.notes.isNullOrBlank()) add(item.notes)
-    }.joinToString(" • ").ifBlank { null }
+    val supportingText = listOfNotNull(
+        quantity?.let { "Qty $it" },
+        item.notes?.takeIf { it.isNotBlank() }
+    ).joinToString("\n").ifBlank { null }
     return DashboardInventoryItemModel(
         id = item.id,
         title = item.name,
-        subtitle = item.status,
+        subtitle = categoryMap[item.categoryId]?.name ?: "",
         supportingText = supportingText,
         badge = item.status,
         accent = supplyAccent(item.status)
@@ -547,7 +779,7 @@ fun supplyStatusColor(tier: Int): Color = when (tier) {
     else -> Color(0xFF2E7D32)
 }
 
-private fun supplyAccent(status: String): DashboardAccent = when (status.uppercase()) {
+fun supplyAccent(status: String): DashboardAccent = when (status.uppercase()) {
     "OUT", "ASAP", "MALFUNCTIONING", "NEED" -> DashboardAccent.DANGER
     "LOW" -> DashboardAccent.WARNING
     "ORDERED", "IN PROCESS", "ACKNOWLEDGED" -> DashboardAccent.INFO
@@ -572,7 +804,7 @@ private val ATTENTION_TIERS = listOf(
 private fun NeedsAttentionPage(
     items: List<SupplyItem>,
     categories: List<SupplyCategory>,
-    navController: NavHostController,
+    onOpenItem: (String) -> Unit,
     onLongPress: (DashboardInventoryItemModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -621,14 +853,13 @@ private fun NeedsAttentionPage(
                             val categoryName = categoryMap[item.categoryId]?.name
                             val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
                             val supporting = listOfNotNull(
-                                categoryName,
                                 quantity?.let { "Qty $it" },
                                 item.notes?.takeIf { it.isNotBlank() }
-                            ).joinToString(" • ").ifBlank { null }
+                            ).joinToString("\n").ifBlank { null }
                             DashboardInventoryItemModel(
                                 id = item.id,
                                 title = item.name,
-                                subtitle = item.status,
+                                subtitle = categoryName ?: "",
                                 supportingText = supporting,
                                 badge = item.status,
                                 accent = supplyAccent(item.status)
@@ -638,7 +869,7 @@ private fun NeedsAttentionPage(
                 ),
                 onItemClick = { item ->
                     if (item is DashboardInventoryItemModel) {
-                        navController.navigate("supply/item/${item.id}")
+                        onOpenItem(item.id)
                     }
                 },
                 onItemLongPress = { item ->

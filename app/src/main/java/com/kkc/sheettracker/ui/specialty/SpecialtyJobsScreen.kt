@@ -17,7 +17,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
@@ -56,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.ui.components.PinButton
+import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
@@ -160,9 +160,10 @@ fun SpecialtyJobsScreen(
                 ),
                 windowInsets = WindowInsets.statusBars,
                 actions = {
-                    IconButton(onClick = { specialtyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                    }
+                    RefreshIconButton(
+                        loading = scanState.status == ScanStatus.LOADING,
+                        onClick = { specialtyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
+                    )
                     IconButton(
                         onClick = {
                             boardView = !boardView

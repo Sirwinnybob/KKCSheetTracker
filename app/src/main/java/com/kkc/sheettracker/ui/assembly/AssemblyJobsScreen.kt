@@ -17,7 +17,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
@@ -60,6 +59,7 @@ import android.content.res.Configuration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.PinButton
+import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
@@ -215,9 +215,10 @@ fun AssemblyJobsScreen(
                 ),
                 windowInsets = WindowInsets.statusBars,
                 actions = {
-                    IconButton(onClick = { assemblyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }) {
-                        Icon(Icons.Default.Refresh, "Refresh")
-                    }
+                    RefreshIconButton(
+                        loading = scanState.status == ScanStatus.LOADING,
+                        onClick = { assemblyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
+                    )
                     IconButton(
                         onClick = {
                             boardView = !boardView
