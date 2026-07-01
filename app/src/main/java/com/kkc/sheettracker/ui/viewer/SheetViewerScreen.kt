@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.slideInVertically
@@ -128,8 +129,6 @@ import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -236,6 +235,8 @@ internal fun resolveSheetViewerMarkupStoreConfig(
         tabletId = safeTabletId
     )
 }
+
+internal fun cncSheetViewerUiVisible(): Boolean = true
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1004,9 +1005,9 @@ fun SheetViewerScreen(
 
     // True fullscreen: hide system bars for the lifetime of this screen.
     ImmersiveSystemBars()
-    // Tap-to-show/hide overlay UI.
-    var showUi by rememberSaveable { mutableStateOf(true) }
-    // Restore bottom nav visibility when navigating back.
+    // CNC viewer controls stay visible so cache refresh/loading states cannot strand operators.
+    val showUi = cncSheetViewerUiVisible()
+    LaunchedEffect(Unit) { onUiVisibilityChanged(true) }
     DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
     val topBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "topBarAlpha")
     val navBarDeco = LocalNavBarDecoration.current
@@ -1412,10 +1413,7 @@ fun SheetViewerScreen(
                                         }
                                         persistCurrentPageMarkup()
                                     },
-                                    onTapEmpty = {
-                                        showUi = !showUi
-                                        onUiVisibilityChanged(showUi)
-                                    }
+                                    onTapEmpty = null
                                 )
                             } else {
                                 DiagramView(
@@ -1454,10 +1452,7 @@ fun SheetViewerScreen(
                                         )
                                         showReferenceDocDialog = true
                                     },
-                                    onTapEmpty = {
-                                        showUi = !showUi
-                                        onUiVisibilityChanged(showUi)
-                                    }
+                                    onTapEmpty = null
                                 )
                             }
                         } else {
@@ -1592,11 +1587,12 @@ fun SheetViewerScreen(
         } else {
             null
         }
-        val partGraphicFile = remember(selectedPart?.graphicPath, pdfFile) {
-            resolveCncSidecarFile(pdfFile, selectedPart?.graphicPath)
+        val partGraphicsArchive = currentMaterial?.metadata?.partGraphicsArchive
+        val partGraphicBitmap = remember(selectedPart?.graphicPath, partGraphicsArchive, pdfFile) {
+            loadPartGraphicBitmap(pdfFile, partGraphicsArchive, selectedPart?.graphicPath)
         }
         val bandingCode = selectedPart?.banding?.trim()?.takeIf { it.isNotEmpty() }
-        val hasPartDetail = partGraphicFile != null || bandingCode != null
+        val hasPartDetail = partGraphicBitmap != null || bandingCode != null
         AlertDialog(
             onDismissRequest = { showReferenceDocDialog = false },
             title = { Text("Open Reference Sheet") },
@@ -1622,12 +1618,9 @@ fun SheetViewerScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (partGraphicFile != null) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(partGraphicFile)
-                                        .crossfade(false)
-                                        .build(),
+                            if (partGraphicBitmap != null) {
+                                Image(
+                                    bitmap = partGraphicBitmap.asImageBitmap(),
                                     contentDescription = "Part graphic",
                                     contentScale = ContentScale.Fit,
                                     modifier = Modifier
@@ -2581,6 +2574,40 @@ private fun loadCncSidecarBitmap(
     } catch (_: Exception) {
         null
     }
+}
+
+/**
+ * Load a part graphic. New splitter output bundles a material's part images
+ * into one ZIP (`archiveRelPath`); the part's [graphicPath] basename is the
+ * entry name inside it. When no archive is present (legacy jobs), fall back to
+ * decoding the loose file the old way. Returns null (graceful, no crash) on any
+ * missing file/entry or decode error.
+ */
+private fun loadPartGraphicBitmap(
+    pdfFile: File,
+    archiveRelPath: String?,
+    graphicPath: String?
+): Bitmap? {
+    if (graphicPath.isNullOrBlank()) return null
+    if (!archiveRelPath.isNullOrBlank()) {
+        val archiveFile = resolveCncSidecarFile(pdfFile, archiveRelPath)
+        if (archiveFile != null && archiveFile.exists() && archiveFile.isFile) {
+            val entryName = File(graphicPath).name
+            try {
+                java.util.zip.ZipFile(archiveFile).use { zip ->
+                    val entry = zip.getEntry(entryName) ?: return null
+                    zip.getInputStream(entry).use { input ->
+                        return BitmapFactory.decodeStream(input)
+                    }
+                }
+            } catch (_: Exception) {
+                return null
+            }
+        }
+        // Archive declared but missing on disk: fall through to loose-file
+        // lookup so a partially-synced job still shows anything it has.
+    }
+    return loadCncSidecarBitmap(pdfFile, graphicPath)
 }
 
 private fun resizeThumbnail(src: Bitmap, maxW: Int = 420, maxH: Int = 280): Bitmap {

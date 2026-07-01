@@ -140,6 +140,13 @@ class ScanCoordinator(
                     return
                 }
 
+                // User pressed Refresh: force a full per-file staleness check + re-parse across
+                // ALL jobs so newer on-disk files not yet folded into cache_static.json show up.
+                // Automatic refreshes (foreground/watcher/start) stay cache-only for speed.
+                if (reason == RefreshReason.USER_REFRESH) {
+                    unifiedEngine.deepScanAllJobs()
+                }
+
                 val (jobs, searchIndex, issues, needsDeepLoad) = scanJobsFromCacheOnly()
                 val nextSnapshot = ScanSnapshot(
                     generation = generation.incrementAndGet(),

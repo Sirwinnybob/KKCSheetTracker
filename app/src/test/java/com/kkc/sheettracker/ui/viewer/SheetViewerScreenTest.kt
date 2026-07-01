@@ -151,6 +151,11 @@ class SheetViewerScreenTest {
     }
 
     @Test
+    fun cncSheetViewerUiVisible_alwaysKeepsControlsVisible() {
+        assertTrue(cncSheetViewerUiVisible())
+    }
+
+    @Test
     fun partMarkers_returnsIndependentRotationAndBandingMarkers() {
         assertEquals(emptyList<PartMarker>(), partMarkers(rotated = false, banding = null))
         assertEquals(listOf(PartMarker.Rotation), partMarkers(rotated = true, banding = null))

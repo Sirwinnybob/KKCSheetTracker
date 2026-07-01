@@ -126,6 +126,14 @@ class SpecialtyScanCoordinator(
         try {
             val started = System.currentTimeMillis()
             val basePath = repository.currentBasePath()
+            // User pressed Refresh: deep-scan all jobs (full staleness check + re-parse) so newer
+            // on-disk files not yet in cache_static.json appear. Auto refreshes stay cache-only.
+            if (reason == RefreshReason.USER_REFRESH) {
+                UnifiedMetadataEngineRegistry.getOrCreate(
+                    baseDir = File(basePath),
+                    isDebugBuild = BuildConfig.DEBUG
+                ).deepScanAllJobs()
+            }
             val jobs = scanJobsProvider()
             val unchanged = !force &&
                 previous.status == ScanStatus.READY &&

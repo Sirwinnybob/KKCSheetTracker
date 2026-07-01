@@ -773,7 +773,7 @@ fun UnifiedReferenceViewer(
                     tocThumbCache[page] = thumb
                     tocLruOrder.remove(page)
                     tocLruOrder.add(page)
-                    trimVirtualTocCache(tocThumbCache, tocLruOrder, maxEntries = 120)
+                    trimVirtualTocCache(tocThumbCache, tocLruOrder, maxEntries = 40)
                 }
                 yield()
             }
@@ -948,9 +948,10 @@ private fun trimVirtualTocCache(
 ) {
     while (lruOrder.size > maxEntries) {
         val stale = lruOrder.removeAt(0)
-        cache.remove(stale)?.let { bmp ->
-            runCatching { if (!bmp.isRecycled) bmp.recycle() }
-        }
+        // Drop the reference only — do NOT recycle. asImageBitmap() shares this buffer with a live
+        // Compose Image; recycling an evicted-but-still-drawn thumbnail crashes with
+        // "Canvas: trying to use a recycled bitmap". GC reclaims the evicted bitmap safely.
+        cache.remove(stale)
     }
 }
 

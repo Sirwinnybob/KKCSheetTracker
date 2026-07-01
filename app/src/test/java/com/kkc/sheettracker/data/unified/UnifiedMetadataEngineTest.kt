@@ -153,6 +153,47 @@ class UnifiedMetadataEngineTest {
         assertTrue(parts.hardwoodRows.isNotEmpty())
     }
 
+    @Test
+    fun deepScanAllJobsReportsNewAndUpdatedJobs() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        val engine = FileBackedUnifiedMetadataEngine(
+            basePath = baseDir.absolutePath,
+            isDebugBuild = true,
+            pdfPageCounter = { UnifiedPdfPageCountResult(8) }
+        )
+
+        // First deep scan: job not yet in the in-memory cache -> reported as changed.
+        assertEquals(listOf(jobFolder), engine.deepScanAllJobs())
+
+        // Nothing changed on disk -> deep scan finds no changes (cheap staleness pass).
+        assertTrue(engine.deepScanAllJobs().isEmpty())
+
+        // Update raw CNC metadata (larger file -> different signature) without touching any cache.
+        File(baseDir, "$jobFolder/CNC/.metadata/1234 - White Melamine.json").writeText(
+            """
+            {
+              "jobNumber": "1234",
+              "jobName": "Test Job",
+              "material": "White Melamine",
+              "pdfFilename": "1234 - White Melamine.pdf",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    { "number": 1, "width": 12.0, "length": 24.0, "name": "Side Panel", "cabNumber": 42, "room": "Kitchen" },
+                    { "number": 2, "width": 6.0, "length": 10.0, "name": "Shelf", "cabNumber": 42, "room": "Kitchen" }
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+
+        // Deep scan re-parses the newer file and reports the job as changed.
+        assertEquals(listOf(jobFolder), engine.deepScanAllJobs())
+    }
+
     private fun seedJob(baseDir: File) {
         val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
         val sheetIndexDir = File(jobDir, ".metadata").apply { mkdirs() }

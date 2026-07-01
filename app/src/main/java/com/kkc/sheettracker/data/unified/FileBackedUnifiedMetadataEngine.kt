@@ -344,6 +344,21 @@ class FileBackedUnifiedMetadataEngine(
         return newSignature != oldSignature
     }
 
+    override fun deepScanAllJobs(): List<String> {
+        if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
+        val dirs = baseDir.listFiles() ?: return emptyList()
+        val changed = mutableListOf<String>()
+        for (dir in dirs) {
+            if (!dir.isDirectory) continue
+            // Only real job folders that pass the deployment gate — mirrors listJobs()/listJobsFromCacheOnly().
+            if (parseJobFolderName(dir.name) == null) continue
+            if (!DeploymentGateRules.evaluate(dir, isDebugBuild = isDebugBuild).includeJob) continue
+            // refreshJobDeep runs checkIsCacheStale (cheap stats) and only re-parses when stale.
+            if (refreshJobDeep(dir.name)) changed.add(dir.name)
+        }
+        return changed
+    }
+
     override fun loadJobFromCacheFile(folderName: String): UnifiedJobInfo? {
         val jobDir = File(baseDir, folderName)
         val cacheFile = File(jobDir, ".metadata/cache_static.json")
@@ -1495,6 +1510,7 @@ class FileBackedUnifiedMetadataEngine(
             material = metadata.material ?: "",
             pdfFilename = metadata.pdfFilename ?: "",
             remakeLabel = metadata.remakeLabel,
+            partGraphicsArchive = metadata.partGraphicsArchive,
             pages = (metadata.pages ?: emptyList()).map { page ->
                 PageMetadata(
                     pageNumber = page.pageNumber,

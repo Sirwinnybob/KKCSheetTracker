@@ -102,8 +102,17 @@ fun SupplyDashboardScreen(
     val subscriptionData by subscriptionManager.subscriptionData.collectAsState()
     val notificationCount by subscriptionManager.notificationCount.collectAsState()
     var notifications by remember { mutableStateOf<List<SupplyNotificationItem>>(emptyList()) }
-    val pagerState = rememberPagerState(pageCount = { (categories.size + 2).coerceAtLeast(2) })
+    val tabCount = (categories.size + 2).coerceAtLeast(2)
+    val pagerState = rememberPagerState(pageCount = { tabCount })
     val statusSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Categories can reload smaller/empty while the pager still points at a former category page.
+    // Snap back into range so ScrollableTabRow never reads a tab index past the tab list.
+    LaunchedEffect(tabCount) {
+        if (pagerState.currentPage > tabCount - 1) {
+            pagerState.scrollToPage(tabCount - 1)
+        }
+    }
 
     suspend fun loadData() {
         isLoading = true
@@ -226,7 +235,7 @@ fun SupplyDashboardScreen(
             else -> {
                 DashboardSurfaceCard(contentPadding = PaddingValues(vertical = 6.dp)) {
                     ScrollableTabRow(
-                        selectedTabIndex = pagerState.currentPage,
+                        selectedTabIndex = pagerState.currentPage.coerceIn(0, tabCount - 1),
                         edgePadding = 12.dp
                     ) {
                         Tab(

@@ -30,6 +30,11 @@ data class MaterialMetadata(
     val material: String = "",
     val pdfFilename: String = "",
     val remakeLabel: String? = null,
+    // Relative path (e.g. ".metadata/parts/{material}.zip") to a ZIP bundling
+    // this material's per-part graphics. When present, a part's graphicPath
+    // basename is the entry name inside this archive. Null for legacy jobs
+    // whose part images are loose files.
+    val partGraphicsArchive: String? = null,
     val pages: List<PageMetadata> = emptyList()
 )
 
