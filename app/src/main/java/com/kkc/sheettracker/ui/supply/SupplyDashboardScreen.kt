@@ -113,8 +113,10 @@ fun SupplyDashboardScreen(
         }
     }
 
-    suspend fun loadData() {
-        isLoading = true
+    suspend fun loadData(showLoading: Boolean = true) {
+        if (showLoading) {
+            isLoading = true
+        }
         errorMessage = null
         try {
             val cats = withContext(Dispatchers.IO) { repository.getCategories() }.sortedBy { it.position }
@@ -124,7 +126,9 @@ fun SupplyDashboardScreen(
         } catch (e: Exception) {
             errorMessage = e.message ?: "Failed to load supply data"
         } finally {
-            isLoading = false
+            if (showLoading) {
+                isLoading = false
+            }
         }
     }
 
@@ -146,7 +150,7 @@ fun SupplyDashboardScreen(
         activeModal = null
         editChromeState = null
         scope.launch {
-            loadData()
+            loadData(showLoading = false)
             reloadUpdates()
         }
     }
@@ -426,7 +430,7 @@ fun SupplyDashboardScreen(
                                     val result = withContext(Dispatchers.IO) { runCatching { repository.createCategory(name) } }
                                     result.onFailure { Toast.makeText(context, "Failed to create category: ${it.message}", Toast.LENGTH_LONG).show() }
                                     showAddCategoryDialog = false
-                                    loadData()
+                                    loadData(showLoading = false)
                                 }
                             }
                         },
@@ -506,7 +510,7 @@ fun SupplyDashboardScreen(
                     onBack = { dismissSupplyModal() },
                     onSaved = { savedItemId ->
                         scope.launch {
-                            loadData()
+                            loadData(showLoading = false)
                             reloadUpdates()
                             editChromeState = null
                             activeModal = SupplyDashboardModal.Detail(savedItemId)
@@ -544,7 +548,7 @@ fun SupplyDashboardScreen(
                     onBack = { dismissSupplyModal() },
                     onSaved = { savedItemId ->
                         scope.launch {
-                            loadData()
+                            loadData(showLoading = false)
                             reloadUpdates()
                             editChromeState = null
                             activeModal = SupplyDashboardModal.Detail(savedItemId)
