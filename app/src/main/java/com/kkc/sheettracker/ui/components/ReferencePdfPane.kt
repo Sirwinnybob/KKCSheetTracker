@@ -353,15 +353,10 @@ fun ReferencePdfPane(
         else -> "${pdfFile.absolutePath}|${pdfFile.length()}|${pdfFile.lastModified()}"
     }
     val engine = remember(pdfIdentityKey) { pdfFile?.takeIf { it.exists() }?.let { PdfRenderEngine(it) } }
-    val basePageCache = remember(pdfIdentityKey) {
-        object : LruCache<Int, Bitmap>(6) {
-            override fun entryRemoved(evicted: Boolean, key: Int?, oldValue: Bitmap?, newValue: Bitmap?) {
-                if (evicted && oldValue != null && !oldValue.isRecycled) {
-                    runCatching { oldValue.recycle() }
-                }
-            }
-        }
-    }
+    // Plain size-bounded cache. Do NOT recycle on eviction: asImageBitmap() shares the buffer with a
+    // live Compose Image, so recycling an evicted-but-still-drawn page crashes with
+    // "Canvas: trying to use a recycled bitmap". GC reclaims evicted pages safely.
+    val basePageCache = remember(pdfIdentityKey) { LruCache<Int, Bitmap>(6) }
     DisposableEffect(engine) {
         onDispose {
             engine?.close()
