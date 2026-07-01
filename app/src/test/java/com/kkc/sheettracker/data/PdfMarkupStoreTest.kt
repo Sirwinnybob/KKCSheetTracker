@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 
 class PdfMarkupStoreTest {
@@ -143,6 +144,19 @@ class PdfMarkupStoreTest {
     }
 
     @Test
+    fun trackerContentVersion_toleratesJobFolderSymlinkInsideBase() {
+        val baseDir = createTempBaseDir()
+        val outsideJobDir = Files.createTempDirectory("pdf-markup-store-linked-job").toFile()
+        val linkedJobDir = File(baseDir, jobFolderName)
+        createSymlinkOrJunction(linkedJobDir, outsideJobDir)
+        val store = PdfMarkupStore(baseDir, "tablet-a")
+
+        val version = store.trackerContentVersion(jobFolderName)
+
+        assertEquals(0L, version)
+    }
+
+    @Test
     fun loadTabletMarkup_toleratesLegacyNullCollections() {
         val baseDir = createTempBaseDir()
         val trackerDir = File(baseDir, "$jobFolderName/.metadata/pdf_markup/.tracker").apply { mkdirs() }
@@ -212,5 +226,29 @@ class PdfMarkupStoreTest {
 
     private fun createTempBaseDir(): File {
         return Files.createTempDirectory("pdf-markup-store-test").toFile()
+    }
+
+    private fun createSymlinkOrJunction(link: File, target: File) {
+        runCatching {
+            Files.createSymbolicLink(link.toPath(), target.toPath())
+        }.getOrElse { symlinkError ->
+            if ((System.getProperty("os.name") ?: "").contains("Windows", ignoreCase = true)) {
+                val process = ProcessBuilder(
+                    "cmd",
+                    "/c",
+                    "mklink",
+                    "/J",
+                    link.absolutePath,
+                    target.absolutePath
+                ).redirectErrorStream(true).start()
+                val output = process.inputStream.bufferedReader().readText()
+                val exitCode = process.waitFor()
+                if (exitCode != 0 && symlinkError !is FileAlreadyExistsException) {
+                    throw AssertionError("Could not create symlink or junction for test: $output", symlinkError)
+                }
+            } else {
+                throw AssertionError("Could not create symlink for test", symlinkError)
+            }
+        }
     }
 }

@@ -494,7 +494,8 @@ fun SupplyItemDetailScreen(
                     }
                 )
             },
-            onDismiss = { showStatusSheet = false }
+            onDismiss = { showStatusSheet = false },
+            headerTint = supplyStatusHeaderTint(currentItem.status)
         )
     }
 }

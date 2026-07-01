@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -63,6 +64,7 @@ fun SupplyModalFrame(
     title: String,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    headerTint: Color? = null,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -107,6 +109,10 @@ fun SupplyModalFrame(
                     color = MaterialTheme.colorScheme.surface
                 ) {
                     ImmersiveDialogDecor()
+                    val topBarColor = headerTint
+                        ?.copy(alpha = 0.16f)
+                        ?.compositeOver(MaterialTheme.colorScheme.surface)
+                        ?: Color.Transparent
                     Scaffold(
                         containerColor = Color.Transparent,
                         topBar = {
@@ -125,11 +131,17 @@ fun SupplyModalFrame(
                                     }
                                 },
                                 colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = Color.Transparent,
+                                    containerColor = topBarColor,
                                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                                     actionIconContentColor = MaterialTheme.colorScheme.onSurface
                                 )
                             )
+                            if (headerTint != null) {
+                                HorizontalDivider(
+                                    thickness = 2.dp,
+                                    color = headerTint.copy(alpha = 0.85f)
+                                )
+                            }
                         }
                     ) { innerPadding ->
                         Column(
@@ -150,12 +162,14 @@ fun SupplyPickerDialog(
     title: String,
     options: List<SupplyPickerOption>,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    headerTint: Color? = null
 ) {
     SupplyModalFrame(
         title = title,
         onDismiss = onDismiss,
-        modifier = modifier.heightIn(max = 620.dp)
+        modifier = modifier.heightIn(max = 620.dp),
+        headerTint = headerTint
     ) {
         HorizontalDivider()
         LazyColumn(

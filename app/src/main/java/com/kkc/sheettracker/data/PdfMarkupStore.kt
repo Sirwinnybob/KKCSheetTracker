@@ -26,13 +26,19 @@ class PdfMarkupStore(
         pdfFilename.trim().lowercase(Locale.US)
 
     private fun jobDir(jobFolderName: String): File {
-        val canonicalBaseDir = baseDir.canonicalFile
-        val resolved = File(canonicalBaseDir, jobFolderName).canonicalFile
-        val basePath = canonicalBaseDir.path
-        val resolvedPath = resolved.path
-        val withinBase = resolvedPath == basePath || resolvedPath.startsWith("$basePath${File.separator}")
+        require(isSafeJobFolderName(jobFolderName)) { "Job folder escapes base directory: $jobFolderName" }
+        val basePath = baseDir.absoluteFile.toPath().normalize()
+        val resolvedPath = basePath.resolve(jobFolderName).normalize()
+        val withinBase = resolvedPath == basePath || resolvedPath.startsWith(basePath)
         require(withinBase) { "Job folder escapes base directory: $jobFolderName" }
-        return resolved
+        return resolvedPath.toFile()
+    }
+
+    private fun isSafeJobFolderName(jobFolderName: String): Boolean {
+        return jobFolderName.isNotBlank() &&
+            jobFolderName != "." &&
+            jobFolderName != ".." &&
+            jobFolderName.indexOfAny(charArrayOf('/', '\\')) == -1
     }
 
     private fun trackerDir(jobFolderName: String): File =

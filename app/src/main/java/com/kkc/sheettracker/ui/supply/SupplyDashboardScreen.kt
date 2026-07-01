@@ -444,10 +444,12 @@ fun SupplyDashboardScreen(
     when (val modal = activeModal) {
         is SupplyDashboardModal.Detail -> {
             val isSubscribed = subscriptionData.subscribedItemIds.contains(modal.itemId)
-            val itemTitle = items.firstOrNull { it.id == modal.itemId }?.name ?: "Supply Item"
+            val item = items.firstOrNull { it.id == modal.itemId }
+            val itemTitle = item?.name ?: "Supply Item"
             SupplyModalFrame(
                 title = itemTitle,
                 onDismiss = { dismissSupplyModal() },
+                headerTint = supplyStatusHeaderTint(item?.status),
                 actions = {
                     IconButton(onClick = {
                         scope.launch {
@@ -483,9 +485,11 @@ fun SupplyDashboardScreen(
             }
         }
         is SupplyDashboardModal.EditItem -> {
+            val item = items.firstOrNull { it.id == modal.itemId }
             SupplyModalFrame(
                 title = "Edit Item",
                 onDismiss = { dismissSupplyModal() },
+                headerTint = supplyStatusHeaderTint(editChromeState?.status ?: item?.status),
                 actions = {
                     editChromeState?.let { chrome ->
                         TextButton(
@@ -524,6 +528,7 @@ fun SupplyDashboardScreen(
             SupplyModalFrame(
                 title = "New Item",
                 onDismiss = { dismissSupplyModal() },
+                headerTint = supplyStatusHeaderTint(editChromeState?.status ?: "IN STOCK"),
                 actions = {
                     editChromeState?.let { chrome ->
                         TextButton(
@@ -584,7 +589,8 @@ fun SupplyDashboardScreen(
                     }
                 )
             },
-            onDismiss = { statusSheetItem = null }
+            onDismiss = { statusSheetItem = null },
+            headerTint = supplyStatusHeaderTint(item.status)
         )
     }
 }
@@ -781,6 +787,11 @@ fun supplyStatusColor(tier: Int): Color = when (tier) {
     3 -> Color(0xFFEF6C00)
     4 -> Color(0xFF1565C0)
     else -> Color(0xFF2E7D32)
+}
+
+fun supplyStatusHeaderTint(status: String?): Color? {
+    val normalized = status?.takeIf { it.isNotBlank() } ?: return null
+    return supplyStatusColor(SUPPLY_STATUS_PRIORITY[normalized] ?: 99)
 }
 
 fun supplyAccent(status: String): DashboardAccent = when (status.uppercase()) {

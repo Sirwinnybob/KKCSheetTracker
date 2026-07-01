@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 data class SupplyItemEditorChromeState(
     val canSave: Boolean,
     val isSaving: Boolean,
+    val status: String?,
     val onSave: () -> Unit
 )
 
@@ -124,6 +125,7 @@ fun SupplyItemEditScreen(
             SupplyItemEditorChromeState(
                 canSave = canSave,
                 isSaving = isSaving,
+                status = selectedStatus.takeIf { it.isNotBlank() },
                 onSave = ::save
             )
         )
@@ -313,7 +315,8 @@ fun SupplyItemEditScreen(
                     }
                 )
             },
-            onDismiss = { showStatusSheet = false }
+            onDismiss = { showStatusSheet = false },
+            headerTint = supplyStatusHeaderTint(selectedStatus)
         )
     }
 }
