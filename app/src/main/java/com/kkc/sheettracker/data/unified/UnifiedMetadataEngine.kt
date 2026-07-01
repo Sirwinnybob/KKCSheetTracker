@@ -35,6 +35,13 @@ interface UnifiedMetadataEngine {
     fun refreshJobDeep(folderName: String): Boolean
 
     /**
+     * Deep-scans every gated-in job folder: runs the full per-file staleness check and
+     * re-parses raw metadata for any job whose cache is stale. Returns the folder names whose
+     * data actually changed. Fresh jobs cost only a few stat calls; only stale jobs re-parse.
+     */
+    fun deepScanAllJobs(): List<String>
+
+    /**
      * Loads (or reloads) a single job's data directly from its cache_static.json
      * without a staleness check. Used by the StaticCachePoller when the server
      * updates a cache file. Returns the job's UnifiedJobInfo on success, null on failure.
