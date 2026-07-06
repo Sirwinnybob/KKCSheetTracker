@@ -51,7 +51,6 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -139,21 +138,19 @@ fun SpecialtyJobsScreen(
     val deliverySchedule = remember(scanState.snapshot.generation) {
         deliveryScheduleRepository.fetchSchedule()
     }
-    // deriveJobCards() resolves specialty items per job (parsing specialty_items/checklist/
-    // tablet_items + merging tracker progress), so it must not run synchronously in
-    // composition. Derive on Dispatchers.IO; the screen already renders empty-then-populated
-    // as the scan completes, so an empty initial value is consistent.
-    val cards by produceState(
-        initialValue = emptyList<SpecialtyJobCard>(),
-        scanState.snapshot.generation, progressVersion, sortByName
-    ) {
-        value = withContext(Dispatchers.IO) {
-            val all = specialtyStateStore.deriveJobCards()
-            if (sortByName) {
-                all.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
-            } else {
-                all // already in production order from listJobs
-            }
+    // deriveJobCards() is a pure in-memory transform over already-resolved job state (no file
+    // I/O), so it's safe to compute synchronously here. This matters beyond perf: activeOrder
+    // below reseeds in the same composition frame keyed on scanState.snapshot.generation. An
+    // async produceState with an emptyList() initial value left activeOrder reseeded from an
+    // empty set on every fresh composition (e.g. LegacySingleStackNavigation fully recreates this
+    // screen on each tab switch), so returning from another tab showed only the Pending section
+    // until a manual refresh bumped the generation again.
+    val cards = remember(scanState.snapshot.generation, progressVersion, sortByName) {
+        val all = specialtyStateStore.deriveJobCards()
+        if (sortByName) {
+            all.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
+        } else {
+            all // already in production order from listJobs
         }
     }
     val filteredCards = remember(cards, query) {

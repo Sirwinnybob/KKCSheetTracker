@@ -176,11 +176,13 @@ fun AssemblyJobsScreen(
     ) {
         value = withContext(Dispatchers.IO) { assemblyStateStore.deriveJobCards() }
     }
-    val specialtyCards by produceState(
-        initialValue = emptyList<SpecialtyJobCard>(),
+    // deriveJobCards() is a pure in-memory transform (no file I/O) — safe synchronously, and
+    // avoids a spurious "Specialty: scanning..." flash to zero every time this screen is
+    // recreated (e.g. tab switches under LegacySingleStackNavigation).
+    val specialtyCards = remember(
         specialtyScanState.snapshot.generation, specialtyProgressVersion, specialtyProgressVersionHint
     ) {
-        value = withContext(Dispatchers.IO) { specialtyStateStore.deriveJobCards() }
+        specialtyStateStore.deriveJobCards()
     }
     val specialtySummary = remember(specialtyCards) {
         val total = specialtyCards.sumOf { it.totalItems }
