@@ -18,6 +18,7 @@ import com.kkc.sheettracker.data.models.DeliverySchedule
 import com.kkc.sheettracker.data.models.DELIVERY_DAY_LABELS
 import com.kkc.sheettracker.data.models.DELIVERY_DAYS
 import com.kkc.sheettracker.data.models.DELIVERY_PERIODS
+import com.kkc.sheettracker.ui.theme.KKCSpacing
 
 /**
  * Compact always-visible delivery schedule row, shown above the job board grid.
@@ -27,9 +28,10 @@ import com.kkc.sheettracker.data.models.DELIVERY_PERIODS
 fun DeliveryScheduleWidget(
     schedule: DeliverySchedule,
     onTap: () -> Unit,
+    showWhenEmpty: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    if (schedule.isEmpty) return
+    if (!shouldShowDeliveryScheduleWidget(schedule, showWhenEmpty)) return
 
     Surface(
         tonalElevation = 2.dp,
@@ -37,17 +39,17 @@ fun DeliveryScheduleWidget(
             .fillMaxWidth()
             .clickable { onTap() }
     ) {
-        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+        Column(modifier = Modifier.padding(horizontal = KKCSpacing.s, vertical = KKCSpacing.xs)) {
             Text(
                 text = "DELIVERIES",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 4.dp)
+                modifier = Modifier.padding(bottom = KKCSpacing.xxs)
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)
             ) {
                 DELIVERY_DAYS.forEachIndexed { dayIdx, day ->
                     Column(modifier = Modifier.weight(1f)) {
@@ -56,7 +58,7 @@ fun DeliveryScheduleWidget(
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(bottom = 2.dp)
+                            modifier = Modifier.padding(bottom = KKCSpacing.xxs)
                         )
                         DELIVERY_PERIODS.forEach { period ->
                             val slot = schedule.slot(day, period)
@@ -68,7 +70,7 @@ fun DeliveryScheduleWidget(
                             )
                             if (slot.jobs.isEmpty()) {
                                 Text(
-                                    text = "—",
+                                    text = if (showWhenEmpty) "Tap to add" else "—",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                 )
@@ -90,3 +92,8 @@ fun DeliveryScheduleWidget(
         }
     }
 }
+
+internal fun shouldShowDeliveryScheduleWidget(
+    schedule: DeliverySchedule,
+    showWhenEmpty: Boolean
+): Boolean = showWhenEmpty || !schedule.isEmpty

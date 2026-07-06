@@ -3,7 +3,8 @@ package com.kkc.sheettracker.data.models
 data class DeliveryJob(
     val jobNumber: String = "",
     val description: String = "",
-    val address: String = ""
+    val address: String = "",
+    val folderName: String = ""
 )
 
 data class DeliverySlot(
@@ -19,6 +20,12 @@ data class DeliverySchedule(
     val isEmpty: Boolean
         get() = slots.values.all { it.jobs.isEmpty() }
 }
+
+data class DeliverySchedulePickerJob(
+    val folderName: String,
+    val jobNumber: String,
+    val description: String
+)
 
 val DELIVERY_DAYS = listOf("monday", "tuesday", "wednesday", "thursday", "friday")
 val DELIVERY_DAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri")

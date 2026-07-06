@@ -17,4 +17,15 @@ class UiPreferencesStore(context: Context) {
 
     fun setBoardView(screen: String, value: Boolean) =
         prefs.edit().putBoolean("board_view_$screen", value).apply()
+
+    /**
+     * Admin mode is a simple, non-security hide/show gate unlocked by a plain-text
+     * password in Settings. When on, extra UI (the supply "To Order" tab and job-lineup
+     * editing) becomes visible. This is intentionally not real authentication.
+     */
+    fun getAdminMode(): Boolean =
+        prefs.getBoolean("admin_mode", false)
+
+    fun setAdminMode(enabled: Boolean) =
+        prefs.edit().putBoolean("admin_mode", enabled).apply()
 }

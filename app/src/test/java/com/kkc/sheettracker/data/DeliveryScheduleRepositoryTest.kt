@@ -34,7 +34,8 @@ class DeliveryScheduleRepositoryTest {
                     {
                       "jobNumber": "1001",
                       "description": "Cabinet delivery",
-                      "address": "123 Main St"
+                      "address": "123 Main St",
+                      "folderName": "1001 - Cabinet delivery"
                     }
                   ]
                 },
@@ -63,6 +64,7 @@ class DeliveryScheduleRepositoryTest {
         assertEquals("1001", monAm.jobs[0].jobNumber)
         assertEquals("Cabinet delivery", monAm.jobs[0].description)
         assertEquals("123 Main St", monAm.jobs[0].address)
+        assertEquals("1001 - Cabinet delivery", monAm.jobs[0].folderName)
 
         val tuePm = schedule.slot("tuesday", "pm")
         assertEquals(1, tuePm.jobs.size)

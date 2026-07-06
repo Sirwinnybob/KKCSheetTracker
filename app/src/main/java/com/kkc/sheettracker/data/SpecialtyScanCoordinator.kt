@@ -26,6 +26,7 @@ class SpecialtyScanCoordinator(
     private val generation = AtomicLong(0L)
     private val refreshLock = Any()
 
+    @Volatile private var lastStalenessSignature: Long? = null
     @Volatile private var refreshInFlight = false
     @Volatile private var pendingRefresh = false
     @Volatile private var pendingForce = false
@@ -41,6 +42,7 @@ class SpecialtyScanCoordinator(
 
     fun updateBasePath(path: String) {
         repository.updateBaseDir(File(path))
+        lastStalenessSignature = null
     }
 
     fun refresh(reason: RefreshReason, force: Boolean = false) {
@@ -126,6 +128,25 @@ class SpecialtyScanCoordinator(
         try {
             val started = System.currentTimeMillis()
             val basePath = repository.currentBasePath()
+            // Lightweight signature: only checks cache_static.json mtimes (one stat per job).
+            // Skips the (potentially expensive) scanJobsProvider() call entirely when nothing
+            // on disk has changed, instead of computing the full job list just to discard it.
+            val currentSignature = computeLightStalenessSignature(File(basePath))
+            val unchangedByStaleness = !force &&
+                currentSignature == lastStalenessSignature &&
+                previous.status == ScanStatus.READY &&
+                previous.snapshot.basePath == basePath &&
+                previous.snapshot.jobs.isNotEmpty()
+
+            if (unchangedByStaleness) {
+                _state.value = previous.copy(
+                    status = ScanStatus.READY,
+                    errorMessage = null,
+                    lastRefreshReason = reason
+                )
+                return
+            }
+
             // User pressed Refresh: deep-scan all jobs (full staleness check + re-parse) so newer
             // on-disk files not yet in cache_static.json appear. Auto refreshes stay cache-only.
             if (reason == RefreshReason.USER_REFRESH) {
@@ -135,6 +156,7 @@ class SpecialtyScanCoordinator(
                 ).deepScanAllJobs()
             }
             val jobs = scanJobsProvider()
+            lastStalenessSignature = currentSignature
             val unchanged = !force &&
                 previous.status == ScanStatus.READY &&
                 previous.snapshot.basePath == basePath &&

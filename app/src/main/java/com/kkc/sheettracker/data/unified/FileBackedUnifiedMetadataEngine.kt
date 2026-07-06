@@ -145,19 +145,35 @@ class FileBackedUnifiedMetadataEngine(
         val isDeleted: Boolean = false
     )
 
+    private fun readLabelCatalog(root: JsonObject): Map<Int, JobLabel> {
+        val labelDefs = mutableMapOf<Int, JobLabel>()
+        root.getAsJsonArray("labels")?.forEach { el ->
+            val obj = el.asJsonObject
+            val id = obj.get("id")?.asInt ?: return@forEach
+            val name = obj.get("name")?.asString ?: return@forEach
+            val color = obj.get("color")?.asString ?: "#888888"
+            labelDefs[id] = JobLabel(id, name, color)
+        }
+        return labelDefs
+    }
+
+    override fun listAllLabels(): List<JobLabel> {
+        val file = File(baseDir, "job_board.json")
+        if (!file.exists()) return emptyList()
+        return try {
+            val root = gson.fromJson(file.readText(), JsonObject::class.java) ?: return emptyList()
+            readLabelCatalog(root).values.sortedBy { it.name }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     private fun readJobBoardConfig(): Map<String, JobBoardConfig> {
         val file = File(baseDir, "job_board.json")
         if (!file.exists()) return emptyMap()
         return try {
             val root = gson.fromJson(file.readText(), JsonObject::class.java) ?: return emptyMap()
-            val labelDefs = mutableMapOf<Int, JobLabel>()
-            root.getAsJsonArray("labels")?.forEach { el ->
-                val obj = el.asJsonObject
-                val id = obj.get("id")?.asInt ?: return@forEach
-                val name = obj.get("name")?.asString ?: return@forEach
-                val color = obj.get("color")?.asString ?: "#888888"
-                labelDefs[id] = JobLabel(id, name, color)
-            }
+            val labelDefs = readLabelCatalog(root)
             val result = mutableMapOf<String, JobBoardConfig>()
             root.getAsJsonArray("jobs")?.forEach { el ->
                 val obj = el.asJsonObject

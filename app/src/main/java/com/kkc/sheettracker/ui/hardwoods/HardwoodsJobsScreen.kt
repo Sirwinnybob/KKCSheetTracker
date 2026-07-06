@@ -14,10 +14,13 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.animation.AnimatedContent
@@ -41,16 +44,25 @@ import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
+import java.io.File
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,20 +72,30 @@ import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
+import com.kkc.sheettracker.data.JobBoardRequestStore
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.ProductionOrderRequestStore
+import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
+import com.kkc.sheettracker.data.models.DeliverySchedulePickerJob
+import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import com.kkc.sheettracker.ui.admin.JobLabelEditorNavBarControls
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.JobBoardGrid
 import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.TopBarClock
+import com.kkc.sheettracker.ui.components.mergeActiveReorder
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
@@ -92,6 +114,9 @@ fun HardwoodsJobsScreen(
     progressStore: HardwoodsProgressStore,
     jobRepository: JobRepository,
     deliveryScheduleRepository: DeliveryScheduleRepository,
+    basePath: String,
+    tabletId: String,
+    isDebugBuild: Boolean,
     pinnedFolderNames: List<String> = emptyList(),
     onTogglePin: (folderName: String, isCurrentlyPinned: Boolean) -> Unit = { _, _ -> },
     onJobClick: (HardwoodJob) -> Unit,
@@ -113,6 +138,14 @@ fun HardwoodsJobsScreen(
     var expandedJobs by rememberSaveable { mutableStateOf(setOf<String>()) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    val adminMode by AdminModeController.enabled.collectAsState()
+    LaunchedEffect(adminMode) {
+        if (adminMode) {
+            query = ""
+            sortByName = false
+            boardView = false
+        }
+    }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -153,11 +186,22 @@ fun HardwoodsJobsScreen(
         }
     }
 
-    var hardwoodsUiStates by remember { mutableStateOf<List<HardwoodsJobItemUiState>>(emptyList()) }
-
-    LaunchedEffect(filtered, scanState.snapshot.generation, progressVersion, scanState.snapshot.basePath) {
-        hardwoodsUiStates = withContext(Dispatchers.IO) {
-            filtered.map { job ->
+    // Builds the per-job UI states. The placeholder pass (resolveCounts = false) needs only the
+    // job model already in memory, so cards render at their final size/shape immediately; the
+    // background pass resolves the tracker-file-backed counts (rip totals, skip overlays, badges)
+    // and swaps them in. Mirrors JobBrowserScreen's buildJobUiStates so Hardwoods doesn't sit on
+    // an empty list while the heavier board-stock computation runs.
+    val buildHardwoodsUiStates: (Boolean) -> List<HardwoodsJobItemUiState> = { resolveCounts ->
+        filtered.map { job ->
+            if (!resolveCounts) {
+                HardwoodsJobItemUiState(
+                    job = job,
+                    counts = HardwoodStatusCounts(),
+                    docCount = 0,
+                    docSegments = emptyList(),
+                    availableDocTypes = emptySet()
+                )
+            } else {
                 val summary = progressStore.summarizeJob(job)
                 val availableDocTypes = job.index?.documents
                     .orEmpty()
@@ -232,11 +276,68 @@ fun HardwoodsJobsScreen(
         }
     }
 
+    val hardwoodsUiStates by produceState(
+        initialValue = buildHardwoodsUiStates(false),
+        filtered, scanState.snapshot.generation, progressVersion, scanState.snapshot.basePath
+    ) {
+        value = withContext(Dispatchers.IO) { buildHardwoodsUiStates(true) }
+    }
+
     val positionMap = remember(filtered) {
         filtered.mapIndexed { i, job -> job.folderName to (i + 1) }.toMap()
     }
     val pinnedUiStates = remember(pinnedFolderNames, hardwoodsUiStates) {
         pinnedFolderNames.mapNotNull { folder -> hardwoodsUiStates.find { it.job.folderName == folder } }
+    }
+    val activeUiStates = remember(hardwoodsUiStates) { hardwoodsUiStates.filter { it.job.boardSection == 0 } }
+    val pendingUiStates = remember(hardwoodsUiStates) { hardwoodsUiStates.filter { it.job.boardSection == 1 } }
+    val activeUiStatesByFolder = remember(activeUiStates) { activeUiStates.associateBy { it.job.folderName } }
+
+    val activeOrder = remember(scanState.snapshot.generation) {
+        mutableStateListOf(*activeUiStates.map { it.job.folderName }.toTypedArray())
+    }
+    val dragOffset = if (pinnedUiStates.isNotEmpty()) pinnedUiStates.size + 2 else 0
+    val listState = rememberLazyListState()
+    val saveScope = rememberCoroutineScope()
+    val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
+    val jobBoardRequestStore = remember(basePath) { JobBoardRequestStore(File(basePath)) }
+    val deliveryScheduleRequestStore = remember(basePath) { DeliveryScheduleRequestStore(File(basePath)) }
+    val deliveryPickerJobs = remember(filtered) {
+        filtered.map {
+            DeliverySchedulePickerJob(
+                folderName = it.folderName,
+                jobNumber = it.jobNumber,
+                description = it.jobName
+            )
+        }
+    }
+    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+        val f = from.index - dragOffset
+        val t = to.index - dragOffset
+        if (f in activeOrder.indices && t in activeOrder.indices) {
+            activeOrder.add(t, activeOrder.removeAt(f))
+        }
+    }
+    val saveActiveOrder = {
+        val newOrder = mergeActiveReorder(
+            original = filtered,
+            reorderedActiveFolderNames = activeOrder,
+            boardSectionOf = { it.boardSection },
+            folderNameOf = { it.folderName }
+        )
+        saveScope.launch {
+            withContext(Dispatchers.IO) { requestStore.writeRequest(newOrder, tabletId) }
+        }
+    }
+
+    var editingLabelsFor by remember { mutableStateOf<HardwoodJob?>(null) }
+    var allLabels by remember { mutableStateOf<List<JobLabel>>(emptyList()) }
+    LaunchedEffect(basePath, scanState.snapshot.generation) {
+        allLabels = withContext(Dispatchers.IO) {
+            runCatching {
+                UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild).listAllLabels()
+            }.getOrDefault(emptyList())
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -267,7 +368,7 @@ fun HardwoodsJobsScreen(
                             boardView = !boardView
                             uiPrefs.setBoardView("hardwoods", boardView)
                         },
-                        enabled = !sortByName
+                        enabled = !sortByName && !adminMode
                     ) {
                         Icon(
                             imageVector = if (boardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
@@ -289,9 +390,10 @@ fun HardwoodsJobsScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Filter jobs by number or name...") },
                 singleLine = true,
-                shape = MaterialTheme.shapes.medium
+                shape = MaterialTheme.shapes.medium,
+                enabled = !adminMode
             )
-            SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
+            SortToggleBar(sortByName = sortByName, onSortChange = { if (!adminMode) sortByName = it })
             Text(
                 text = if (query.isBlank()) {
                     "${filtered.size} jobs"
@@ -306,6 +408,7 @@ fun HardwoodsJobsScreen(
             DeliveryScheduleWidget(
                 schedule = deliverySchedule,
                 onTap = { showScheduleDialog = true },
+                showWhenEmpty = adminMode,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -347,10 +450,9 @@ fun HardwoodsJobsScreen(
                     scanGeneration = scanState.snapshot.generation
                 )
             } else {
-                val activeUiStates  = hardwoodsUiStates.filter { it.job.boardSection == 0 }
-                val pendingUiStates = hardwoodsUiStates.filter { it.job.boardSection == 1 }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
+                    state = listState,
                     contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -404,7 +506,10 @@ fun HardwoodsJobsScreen(
                             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                         }
                     }
-                    items(activeUiStates, key = { "active_${it.job.folderName}" }) { uiState ->
+                    items(activeOrder, key = { it }) { activeFolderName ->
+                    val uiState = activeUiStatesByFolder[activeFolderName]
+                    if (uiState != null) {
+                        ReorderableItem(reorderState, key = activeFolderName) {
                         val job = uiState.job
                         val badge = badgeCache[job.folderName]
                         val counts = uiState.counts
@@ -460,6 +565,21 @@ fun HardwoodsJobsScreen(
                                 }
                                 val isPinned = job.folderName in pinnedFolderNames
                                 PinButton(isPinned = isPinned, onClick = { onTogglePin(job.folderName, isPinned) })
+                                if (adminMode) {
+                                    IconButton(onClick = {
+                                        editingLabelsFor = if (editingLabelsFor?.folderName == job.folderName) null else job
+                                    }) {
+                                        Icon(Icons.Filled.Sell, contentDescription = "Edit Labels")
+                                    }
+                                    IconButton(
+                                        modifier = Modifier.draggableHandle(
+                                            onDragStopped = { saveActiveOrder() }
+                                        ),
+                                        onClick = {}
+                                    ) {
+                                        Icon(Icons.Filled.DragHandle, contentDescription = "Reorder")
+                                    }
+                                }
                             },
                             inlineContent = {
                                 Row(
@@ -496,6 +616,8 @@ fun HardwoodsJobsScreen(
                                 )
                             }
                         }
+                        }
+                    }
                     }
                     if (pendingUiStates.isNotEmpty()) {
                         item(key = "pending_header") {
@@ -566,6 +688,13 @@ fun HardwoodsJobsScreen(
                                     }
                                     val isPinned = job.folderName in pinnedFolderNames
                                     PinButton(isPinned = isPinned, onClick = { onTogglePin(job.folderName, isPinned) })
+                                    if (adminMode) {
+                                        IconButton(onClick = {
+                                        editingLabelsFor = if (editingLabelsFor?.folderName == job.folderName) null else job
+                                    }) {
+                                            Icon(Icons.Filled.Sell, contentDescription = "Edit Labels")
+                                        }
+                                    }
                                 },
                                 inlineContent = {
                                     Row(
@@ -632,8 +761,66 @@ fun HardwoodsJobsScreen(
     if (showScheduleDialog) {
         DeliveryScheduleDialog(
             schedule = deliverySchedule,
-            onDismiss = { showScheduleDialog = false }
+            onDismiss = { showScheduleDialog = false },
+            isAdminMode = adminMode,
+            availableJobs = deliveryPickerJobs,
+            onQueueSlotEdit = { slot, jobs ->
+                saveScope.launch {
+                    withContext(Dispatchers.IO) {
+                        deliveryScheduleRequestStore.queueSlotEdit(slot, jobs, tabletId)
+                    }
+                }
+            },
+            onQueueReset = {
+                saveScope.launch {
+                    withContext(Dispatchers.IO) {
+                        deliveryScheduleRequestStore.queueReset(tabletId)
+                    }
+                }
+            }
         )
+    }
+
+    val navBarDeco = LocalNavBarDecoration.current
+    val labelEditJob = editingLabelsFor
+    DisposableEffect(navBarDeco) {
+        onDispose { navBarDeco.extendedControls = null }
+    }
+    SideEffect {
+        navBarDeco.extendedControls = if (labelEditJob != null) {
+            {
+                JobLabelEditorNavBarControls(
+                    jobTitle = listOf(labelEditJob.jobNumber, labelEditJob.jobName)
+                        .filter { it.isNotBlank() }.joinToString(" — ").ifBlank { labelEditJob.folderName },
+                    allLabels = allLabels,
+                    currentLabelIds = labelEditJob.labels.map { it.id }.toSet(),
+                    isPendingDelivery = labelEditJob.boardSection == 1,
+                    onToggleLabel = { label ->
+                        val newIds = if (label.id in labelEditJob.labels.map { it.id }) {
+                            labelEditJob.labels.filterNot { it.id == label.id }.map { it.id }
+                        } else {
+                            labelEditJob.labels.map { it.id } + label.id
+                        }
+                        saveScope.launch {
+                            withContext(Dispatchers.IO) {
+                                jobBoardRequestStore.queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
+                            }
+                        }
+                        editingLabelsFor = labelEditJob.copy(labels = allLabels.filter { it.id in newIds })
+                    },
+                    onSetPendingDelivery = { pending ->
+                        val newSection = if (pending) 1 else 0
+                        saveScope.launch {
+                            withContext(Dispatchers.IO) {
+                                jobBoardRequestStore.queueBoardSectionEdit(labelEditJob.folderName, newSection, tabletId)
+                            }
+                        }
+                        editingLabelsFor = labelEditJob.copy(boardSection = newSection)
+                    },
+                    onDismiss = { editingLabelsFor = null }
+                )
+            }
+        } else null
     }
 }
 

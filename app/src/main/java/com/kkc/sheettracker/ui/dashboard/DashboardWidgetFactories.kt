@@ -10,6 +10,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -305,7 +314,8 @@ fun buildSupplyCategoryWidgets(
     category: SupplyCategory,
     items: List<SupplyItem>,
     isSubscribed: Boolean,
-    notificationCount: Int
+    notificationCount: Int,
+    onAddItem: (() -> Unit)? = null
 ): List<DashboardWidgetModel> {
     val sortedItems = items.sortedWith(
         compareBy<SupplyItem>(
@@ -342,7 +352,8 @@ fun buildSupplyCategoryWidgets(
                 itemCount = sortedItems.size,
                 urgentCount = urgentCount,
                 notificationCount = notificationCount
-            )
+            ),
+            onHeaderAction = onAddItem
         )
     )
 }
@@ -600,16 +611,37 @@ fun DashboardWidgetRenderer(
 
                 is DashboardWidgetModel.InventoryBlock -> DashboardSurfaceCard(contentPadding = PaddingValues(0.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            DashboardSectionHeader(widget.title, widget.subtitle)
-                            widget.summary?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                DashboardSectionHeader(widget.title, widget.subtitle)
+                                widget.summary?.let {
+                                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            widget.onHeaderAction?.let { action ->
+                                TextButton(
+                                    onClick = action,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Add Item", style = MaterialTheme.typography.labelMedium)
+                                }
                             }
                         }
                         Column(

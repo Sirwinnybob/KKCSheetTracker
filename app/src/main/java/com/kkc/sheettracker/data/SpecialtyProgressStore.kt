@@ -179,6 +179,86 @@ class SpecialtyProgressStore(
         }
     }
 
+    suspend fun updateToOrderItem(
+        jobFolderName: String,
+        itemId: String,
+        name: String,
+        cabinetNumbers: List<String>,
+        supplier: String?,
+        model: String?,
+        orderDate: String?,
+        tracking: String?,
+        orderUrl: String?,
+        notes: String?,
+        quantity: Double?,
+        material: String?,
+        dimensions: String?
+    ) {
+        if (readOnly) return
+        if (itemId.isBlank()) return
+        val isChecklist = itemId.startsWith("checklist:")
+        val rawItemId = if (isChecklist) itemId.removePrefix("checklist:") else itemId
+        val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
+        mutex.withLock {
+            val file = if (isChecklist) checklistFile(jobFolderName) else specialtyItemsFile(jobFolderName)
+            if (!file.exists() || !file.isFile) return@withLock
+            val raw = runCatching { file.readText() }.getOrNull() ?: return@withLock
+            val root = runCatching { JsonParser.parseString(raw) }.getOrNull() ?: return@withLock
+            val itemsArray = when {
+                root.isJsonArray -> root.asJsonArray
+                root.isJsonObject -> root.asJsonObject.getAsJsonArray("items")
+                else -> null
+            } ?: return@withLock
+
+            var modified = false
+            itemsArray.forEach { element ->
+                val obj = element as? JsonObject ?: return@forEach
+                if (obj.getString("id") != rawItemId) return@forEach
+
+                if (isChecklist) {
+                    obj.addProperty("text", name)
+                } else {
+                    obj.addProperty("name", name)
+                }
+
+                val cabArray = com.google.gson.JsonArray()
+                cabinetNumbers.forEach { cabArray.add(it) }
+                obj.add("cabinetNumbers", cabArray)
+
+                if (supplier != null) obj.addProperty("supplier", supplier) else obj.remove("supplier")
+
+                if (obj.has("modelNumber") || isChecklist) {
+                    if (model != null) obj.addProperty("modelNumber", model) else obj.remove("modelNumber")
+                } else {
+                    if (model != null) obj.addProperty("model", model) else obj.remove("model")
+                }
+
+                if (orderDate != null) obj.addProperty("orderDate", orderDate) else obj.remove("orderDate")
+
+                if (obj.has("trackingNumber") || isChecklist) {
+                    if (tracking != null) obj.addProperty("trackingNumber", tracking) else obj.remove("trackingNumber")
+                } else {
+                    if (tracking != null) obj.addProperty("tracking", tracking) else obj.remove("tracking")
+                }
+
+                if (orderUrl != null) obj.addProperty("orderUrl", orderUrl) else obj.remove("orderUrl")
+                if (notes != null) obj.addProperty("notes", notes) else obj.remove("notes")
+                if (quantity != null) obj.addProperty("quantity", quantity) else obj.remove("quantity")
+                if (material != null) obj.addProperty("material", material) else obj.remove("material")
+                if (dimensions != null) obj.addProperty("dimensions", dimensions) else obj.remove("dimensions")
+
+                modified = true
+            }
+
+            if (!modified) return@withLock
+            val output: com.google.gson.JsonElement = if (root.isJsonObject) {
+                root.asJsonObject.apply { add("items", itemsArray) }
+            } else itemsArray
+            atomicWrite(file, gson.toJson(output))
+            invalidateJobCache(jobFolderName)
+        }
+    }
+
     fun invalidateJobCache(jobFolderName: String) {
         resolvedCacheByJob.remove(jobFolderName)
         bumpProgressVersion()

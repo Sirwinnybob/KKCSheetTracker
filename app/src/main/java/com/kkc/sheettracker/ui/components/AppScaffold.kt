@@ -88,14 +88,18 @@ private const val NAV_SLIDE_MS = 440
 // Size/shape morphs use a softly-tuned spring so the bar grows and SETTLES
 // organically (enlarge/shrink) instead of the mechanical linear-feel of a tween.
 // Slight underdamping (0.82) gives a barely-perceptible settle at the end — premium,
-// not bouncy. StiffnessMediumLow keeps the morph slow and deliberate.
+// not bouncy. StiffnessLow keeps the morph slow and deliberate.
 private val NavSpringDp   = spring<Dp>(
     dampingRatio = 0.82f,
-    stiffness    = Spring.StiffnessMediumLow
+    stiffness    = Spring.StiffnessLow
 )
+// Drives expandVertically/shrinkVertically and AnimatedContent's SizeTransform for the
+// decoration/extended panels. Same overshoot problem as the corner radius: underdamping on a
+// size animation reads as the whole bar growing past its final height then settling back down
+// ("gets bigger then gets smaller"). Critically damped removes that without slowing the morph.
 private val NavSpringSize = spring<IntSize>(
-    dampingRatio        = 0.82f,
-    stiffness           = Spring.StiffnessMediumLow,
+    dampingRatio        = 1f,
+    stiffness           = Spring.StiffnessLow,
     visibilityThreshold = IntSize(1, 1)
 )
 
@@ -218,37 +222,43 @@ private fun MorphingNavIconRow(
         destinations.forEach { dest ->
             // Calculator slot before HOURS destination
             if (dest == NavDestination.HOURS) {
-                Column(
-                    modifier = Modifier
-                        .clip(indicatorShape)
-                        .background(
-                            color = if (isCalculatorOpen) indicatorColor else Color.Transparent,
-                            shape = indicatorShape
-                        )
-                        .clickable { onCalculatorClick() }
-                        .padding(horizontal = hPad, vertical = vPad),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Icon(
-                        if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
-                        contentDescription = "Calculator",
-                        tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(iconSize)
-                    )
-                    AnimatedVisibility(
-                        visible = showLabels,
-                        enter = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
-                        exit  = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
+                // Fixed-width slot (not sized from content) so the icon's horizontal center
+                // stays put as its size/padding/label animate — see the per-destination Box
+                // below for why content-driven widths under SpaceEvenly cause a post-shrink
+                // horizontal shift.
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Column(
+                        modifier = Modifier
+                            .clip(indicatorShape)
+                            .background(
+                                color = if (isCalculatorOpen) indicatorColor else Color.Transparent,
+                                shape = indicatorShape
+                            )
+                            .clickable { onCalculatorClick() }
+                            .padding(horizontal = hPad, vertical = vPad),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        Text(
-                            text = "Calc",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isCalculatorOpen) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                        Icon(
+                            if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                            contentDescription = "Calculator",
+                            tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(iconSize)
                         )
+                        AnimatedVisibility(
+                            visible = showLabels,
+                            enter = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
+                            exit  = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
+                        ) {
+                            Text(
+                                text = "Calc",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isCalculatorOpen) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -264,45 +274,57 @@ private fun MorphingNavIconRow(
                 )
             }
 
-            Box {
-                Column(
-                    modifier = Modifier
-                        .clip(indicatorShape)
-                        .background(
-                            color = if (selected) indicatorColor else Color.Transparent,
-                            shape = indicatorShape
-                        )
-                        .clickable { onNavigate(dest) }
-                        .padding(horizontal = hPad, vertical = vPad),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                        BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+            // Fixed-width slot: under Arrangement.SpaceEvenly, each item's width was driven by
+            // its own content (icon + optional label), which changes size during the morph.
+            // The label's exit transition (shrinkVertically) only animates height, not width —
+            // so the item keeps reporting the wider label-included width for the whole fade,
+            // then snaps to the narrower icon-only width the instant the label finishes
+            // leaving composition. SpaceEvenly recomputes gaps off that width, so every icon in
+            // the row jumps sideways at that instant. A fixed weight(1f) slot removes the
+            // feedback loop: the icon's center is pinned regardless of how its content resizes.
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                // Inner wrap-content box keeps the edit badge anchored to the icon/label
+                // column's own corner rather than the fixed slot's (wider) corner.
+                Box {
+                    Column(
+                        modifier = Modifier
+                            .clip(indicatorShape)
+                            .background(
+                                color = if (selected) indicatorColor else Color.Transparent,
+                                shape = indicatorShape
+                            )
+                            .clickable { onNavigate(dest) }
+                            .padding(horizontal = hPad, vertical = vPad),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
+                            BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                                iconContent()
+                            }
+                        } else {
                             iconContent()
                         }
-                    } else {
-                        iconContent()
+                        AnimatedVisibility(
+                            visible = showLabels,
+                            enter = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
+                            exit  = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
+                        ) {
+                            Text(
+                                text = dest.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                    AnimatedVisibility(
-                        visible = showLabels,
-                        enter = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
-                        exit  = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
-                    ) {
-                        Text(
-                            text = dest.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    if (dest == NavDestination.TIMECARD && selected) {
+                        NavEditBadge(
+                            onClick = onTimeclockBgEdit,
+                            modifier = Modifier.align(Alignment.TopEnd)
                         )
                     }
-                }
-                if (dest == NavDestination.TIMECARD && selected) {
-                    NavEditBadge(
-                        onClick = onTimeclockBgEdit,
-                        modifier = Modifier.align(Alignment.TopEnd)
-                    )
                 }
             }
         }
@@ -344,7 +366,6 @@ private fun MorphingNavBar(
     val showDecorations = minimized && !showExtended && hasDecoration
     // Labels only in the roomy full bar (not minimized, not showing extended controls).
     val showLabels      = !minimized && !showExtended
-    val rounded         = showExtended || showDecorations
 
     // Icons morph: 22 (full+labels) → 20 (minimized pill) → 18 (decoration/extended).
     val minIconSize by animateDpAsState(
@@ -368,12 +389,18 @@ private fun MorphingNavBar(
                 bottom = KKCSpacing.floatingNavBottomGap
             )
     ) {
-        val cornerRadius by animateDpAsState(
-            targetValue   = if (rounded) 26.dp else 999.dp,
-            animationSpec = NavSpringDp,
-            label         = "navCorner"
-        )
-        val minNavShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+        // Fixed, not state-dependent: RoundedCornerShape already clamps its radius to half of
+        // the bar's current (animated) height every frame, so a single constant here still
+        // renders as a full pill whenever the bar is short (minimized icon row, or this radius
+        // exceeding half-height) and eases into a softly-rounded rect with flat sides once the
+        // bar grows taller than 2x this value (expanded panel). Previously this swapped between
+        // 26dp and 999dp ("always full pill") depending on state, which raced against the
+        // height animation from both directions — animating it caused a mid-transition snap,
+        // and even a plain instant swap popped on collapse (999 wins the clamp immediately
+        // while the bar is still tall from being expanded, before the shrink has caught down).
+        // One constant removes the race entirely: only the height moves.
+        val cornerRadius = 26.dp
+        val minNavShape = remember { RoundedCornerShape(cornerRadius) }
         Surface(
             modifier       = Modifier.fillMaxWidth(),
             shape          = minNavShape,
@@ -640,11 +667,16 @@ private fun MorphingNavBar(
                         }
                     }
 
-                    // ── Divider — visible when extended controls or a decoration shows
+                    // ── Divider — visible when extended controls or a decoration shows.
+                    // Needs the same expand/shrinkVertically as the content above it — fade
+                    // alone doesn't animate this row's own height, so without it the divider's
+                    // ~15dp (line + padding) footprint would pop in/out in a single frame
+                    // instead of shrinking together with the rest of the panel, leaving the
+                    // bar looking like it collapses in two uneven steps.
                     AnimatedVisibility(
                         visible = showExtended || showDecorations,
-                        enter   = fadeIn(NavAnimEnter),
-                        exit    = fadeOut(NavAnimExit)
+                        enter   = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
+                        exit    = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
                     ) {
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),

@@ -43,7 +43,8 @@ class DeliveryScheduleRepository(private val baseDir: File) {
                             DeliveryJob(
                                 jobNumber = obj.get("jobNumber")?.takeIf { !it.isJsonNull }?.asString ?: "",
                                 description = obj.get("description")?.takeIf { !it.isJsonNull }?.asString ?: "",
-                                address = obj.get("address")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                                address = obj.get("address")?.takeIf { !it.isJsonNull }?.asString ?: "",
+                                folderName = obj.get("folderName")?.takeIf { !it.isJsonNull }?.asString ?: ""
                             )
                         )
                     }

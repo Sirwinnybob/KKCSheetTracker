@@ -204,6 +204,21 @@ class UnifiedDashboardFactoriesTest {
         assertEquals(DashboardAccent.DANGER, inventoryBlock.items.first().accent)
     }
 
+    @Test
+    fun `buildSupplyCategoryWidgets registers onAddItem callback`() {
+        var clicked = false
+        val widgets = buildSupplyCategoryWidgets(
+            category = SupplyCategory(id = "cat-1", name = "Hardware", position = 1),
+            items = emptyList(),
+            isSubscribed = false,
+            notificationCount = 0,
+            onAddItem = { clicked = true }
+        )
+        val block = widgets.requireSingle<DashboardWidgetModel.InventoryBlock>()
+        block.onHeaderAction?.invoke()
+        assertTrue(clicked)
+    }
+
     private inline fun <reified T : DashboardWidgetModel> List<DashboardWidgetModel>.requireSingle(): T {
         val matches = filterIsInstance<T>()
         assertEquals(1, matches.size)

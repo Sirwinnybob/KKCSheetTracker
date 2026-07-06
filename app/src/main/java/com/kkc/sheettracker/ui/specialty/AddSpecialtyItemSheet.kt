@@ -216,7 +216,7 @@ fun AddSpecialtyItemSheet(
                 OutlinedTextField(
                     value = orderDate,
                     onValueChange = { orderDate = it },
-                    label = { Text("Order Date (YYYY-MM-DD)") },
+                    label = { Text("Order Date (MM-DD or any date)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )

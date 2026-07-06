@@ -14,6 +14,12 @@ import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import java.io.File
 
+data class HardwoodsCacheScanResult(
+    val jobs: List<HardwoodJob>,
+    val searchIndex: List<HardwoodSearchEntry>,
+    val needsDeepLoad: List<String>
+)
+
 class HardwoodsRepository(private var baseDir: File) {
     private var unifiedEngine: UnifiedMetadataEngine? = null
 
@@ -47,6 +53,29 @@ class HardwoodsRepository(private var baseDir: File) {
                 )
         }
         // Preserve production order (set by server in cache); no secondary sort needed
+    }
+
+    /**
+     * Fast path used by HardwoodsScanCoordinator: builds the job list purely from each job's
+     * cache_static.json (one file read per job, no fallback to a full listJobs() re-evaluation).
+     * Jobs missing a cache file are reported via needsDeepLoad for the caller to load in the
+     * background instead of blocking the whole list on them.
+     */
+    fun scanJobsFromCacheOnly(): HardwoodsCacheScanResult {
+        val (cachedJobInfos, needsDeepLoad) = engine().listJobsFromCacheOnly()
+        val jobs = cachedJobInfos.mapNotNull { info ->
+            runCatching {
+                engine().getHardwoodsSnapshot(info.folderName)?.job
+                    ?.copy(
+                        lineupPosition = info.lineupPosition,
+                        labels = info.labels,
+                        hiddenFromProduction = info.hiddenFromProduction,
+                        isPending = info.isPending,
+                        boardSection = info.boardSection
+                    )
+            }.getOrNull()
+        }
+        return HardwoodsCacheScanResult(jobs = jobs, searchIndex = buildSearchIndex(jobs), needsDeepLoad = needsDeepLoad)
     }
 
     /** Re-projects one job from the engine's in-memory cache. Used by HardwoodsScanCoordinator. */

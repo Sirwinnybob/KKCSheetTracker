@@ -52,7 +52,9 @@ val SUPPLY_STATUS_PRIORITY: Map<String, Int> = mapOf(
     "MALFUNCTIONING" to 2, "NEED" to 2,
     "LOW" to 3,
     "ORDERED" to 4, "IN PROCESS" to 4, "ACKNOWLEDGED" to 4,
-    "IN STOCK" to 5, "COMPLETE" to 5, "RECEIVED" to 5
+    "IN STOCK" to 5, "COMPLETE" to 5, "RECEIVED" to 5,
+    // To Order tab synthetic badge
+    "NOT ORDERED" to 6
 )
 
 val ALL_SUPPLY_STATUSES = listOf(

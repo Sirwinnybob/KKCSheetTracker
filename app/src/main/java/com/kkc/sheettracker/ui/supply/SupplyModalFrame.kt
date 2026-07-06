@@ -42,6 +42,27 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.animation.core.animate
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -68,6 +89,30 @@ fun SupplyModalFrame(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val thresholdPx = remember(density) { with(density) { 160.dp.toPx() } }
+    val deadZonePx = remember(density) { with(density) { 5.dp.toPx() } }
+    var rawOffsetY by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var isDismissing by remember { mutableStateOf(false) }
+    var animationJob by remember { mutableStateOf<Job?>(null) }
+
+    val offsetY = remember(rawOffsetY, thresholdPx, deadZonePx) {
+        val raw = rawOffsetY
+        val absRaw = kotlin.math.abs(raw)
+        if (absRaw <= deadZonePx) {
+            0f
+        } else {
+            val progress = if (thresholdPx > deadZonePx) {
+                ((absRaw - deadZonePx) / (thresholdPx - deadZonePx)).coerceAtMost(1f)
+            } else {
+                0f
+            }
+            val multiplier = 0.08f + 0.92f * (progress * progress * progress)
+            raw * multiplier
+        }
+    }
+
     val transitionState = remember {
         MutableTransitionState(false).apply { targetState = true }
     }
@@ -81,6 +126,116 @@ fun SupplyModalFrame(
             onDismiss()
         }
     }
+
+    fun handleRelease() {
+        val currentVal = rawOffsetY
+        if (kotlin.math.abs(currentVal) <= deadZonePx) {
+            rawOffsetY = 0f // Reset instantly without animating for taps/tiny movements
+            return
+        }
+
+        if (currentVal != 0f && !isDismissing && (animationJob == null || !animationJob!!.isActive)) {
+            val targetVal = if (currentVal > thresholdPx) {
+                2000f
+            } else if (currentVal < -thresholdPx) {
+                -2000f
+            } else {
+                0f
+            }
+
+            if (targetVal != 0f) {
+                isDismissing = true
+                animationJob = scope.launch {
+                    animate(
+                        initialValue = currentVal,
+                        targetValue = targetVal,
+                        animationSpec = tween(durationMillis = 200)
+                    ) { value, _ ->
+                        rawOffsetY = value
+                    }
+                    onDismiss() // Dismiss immediately when animated off-screen to clear dialog background
+                }
+            } else {
+                animationJob = scope.launch {
+                    animate(
+                        initialValue = currentVal,
+                        targetValue = 0f,
+                        animationSpec = tween(durationMillis = 150)
+                    ) { value, _ ->
+                        rawOffsetY = value
+                    }
+                }
+            }
+        }
+    }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (isDismissing) return Offset.Zero
+                if (source == NestedScrollSource.UserInput) {
+                    animationJob?.cancel()
+                    val delta = available.y
+                    val currentOffset = rawOffsetY
+
+                    if (currentOffset > 0f && delta < 0f) {
+                        val newOffset = (currentOffset + delta).coerceAtLeast(0f)
+                        rawOffsetY = newOffset
+                        return Offset(0f, newOffset - currentOffset)
+                    }
+                    if (currentOffset < 0f && delta > 0f) {
+                        val newOffset = (currentOffset + delta).coerceAtMost(0f)
+                        rawOffsetY = newOffset
+                        return Offset(0f, newOffset - currentOffset)
+                    }
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                if (isDismissing) return Offset.Zero
+                if (source == NestedScrollSource.UserInput) {
+                    animationJob?.cancel()
+                    val delta = available.y
+                    if (delta != 0f) {
+                        rawOffsetY += delta
+                        return Offset(0f, delta)
+                    }
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                handleRelease()
+                return Velocity.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                handleRelease()
+                return Velocity.Zero
+            }
+        }
+    }
+
+    val gestureModifier = Modifier
+        .pointerInput(Unit) {
+            detectVerticalDragGestures(
+                onDragStart = { animationJob?.cancel() },
+                onDragEnd = { handleRelease() },
+                onDragCancel = { handleRelease() },
+                onVerticalDrag = { change, dragAmount ->
+                    if (!isDismissing) {
+                        animationJob?.cancel()
+                        change.consume()
+                        rawOffsetY += dragAmount
+                    }
+                }
+            )
+        }
 
     Dialog(
         onDismissRequest = { requestDismiss() },
@@ -100,6 +255,9 @@ fun SupplyModalFrame(
             ) {
                 Surface(
                     modifier = modifier
+                        .offset { IntOffset(0, offsetY.roundToInt()) }
+                        .nestedScroll(nestedScrollConnection)
+                        .then(gestureModifier)
                         .fillMaxWidth()
                         .widthIn(max = 1040.dp)
                         .fillMaxHeight(0.92f),

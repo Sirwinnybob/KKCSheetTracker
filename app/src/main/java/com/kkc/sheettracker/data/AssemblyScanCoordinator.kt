@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
@@ -23,7 +25,9 @@ class AssemblyScanCoordinator(
     private val jobRepository: JobRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val refreshMutex = Mutex()
     private val generation = AtomicLong(0L)
+    private val pendingLock = Any()
 
     @Volatile
     private var baseDir: File = initialBaseDir
@@ -32,6 +36,11 @@ class AssemblyScanCoordinator(
         baseDir = initialBaseDir,
         isDebugBuild = BuildConfig.DEBUG
     )
+    @Volatile private var lastStalenessSignature: Long? = null
+    @Volatile private var refreshInFlight = false
+    @Volatile private var pendingRefresh = false
+    @Volatile private var pendingForce = false
+    @Volatile private var pendingReason: RefreshReason = RefreshReason.APP_START
 
     private val _state = MutableStateFlow(
         AssemblyScanState(
@@ -49,10 +58,44 @@ class AssemblyScanCoordinator(
             isDebugBuild = BuildConfig.DEBUG
         )
         unifiedEngine.updateBasePath(baseDir.absolutePath)
+        lastStalenessSignature = null
     }
 
+    /**
+     * Coalesces overlapping refresh() calls into a single in-flight run instead of running two
+     * full concurrent scans (mirrors ScanCoordinator/HardwoodsScanCoordinator).
+     */
     fun refresh(reason: RefreshReason, force: Boolean = false) {
+        synchronized(pendingLock) {
+            pendingRefresh = true
+            pendingForce = pendingForce || force
+            pendingReason = reason
+            if (refreshInFlight) return
+            refreshInFlight = true
+        }
+
         scope.launch {
+            while (true) {
+                val (runForce, runReason) = synchronized(pendingLock) {
+                    val f = pendingForce
+                    val r = pendingReason
+                    pendingRefresh = false
+                    pendingForce = false
+                    f to r
+                }
+                runRefresh(runReason, runForce)
+
+                val hasPending = synchronized(pendingLock) { pendingRefresh }
+                if (!hasPending) {
+                    synchronized(pendingLock) { refreshInFlight = false }
+                    break
+                }
+            }
+        }
+    }
+
+    private suspend fun runRefresh(reason: RefreshReason, force: Boolean) {
+        refreshMutex.withLock {
             val previous = _state.value
             _state.value = previous.copy(
                 status = ScanStatus.LOADING,
@@ -62,12 +105,29 @@ class AssemblyScanCoordinator(
 
             try {
                 val started = System.currentTimeMillis()
+                // Lightweight signature: only checks cache_static.json mtimes (one stat per job).
+                val currentSignature = computeLightStalenessSignature(baseDir)
+                val unchanged = !force &&
+                    currentSignature == lastStalenessSignature &&
+                    previous.snapshot.basePath == baseDir.absolutePath &&
+                    previous.snapshot.jobs.isNotEmpty()
+
+                if (unchanged) {
+                    _state.value = previous.copy(
+                        status = ScanStatus.READY,
+                        errorMessage = null,
+                        lastRefreshReason = reason
+                    )
+                    return
+                }
+
                 // User pressed Refresh: deep-scan all jobs (full staleness check + re-parse) so
                 // newer on-disk files not yet in cache_static.json appear. Auto refreshes stay fast.
                 if (reason == RefreshReason.USER_REFRESH) {
                     unifiedEngine.deepScanAllJobs()
                 }
                 val jobs = scanAssemblyJobs()
+                lastStalenessSignature = currentSignature
                 _state.value = AssemblyScanState(
                     status = ScanStatus.READY,
                     snapshot = AssemblyScanSnapshot(

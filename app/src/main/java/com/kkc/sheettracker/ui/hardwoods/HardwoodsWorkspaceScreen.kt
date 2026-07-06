@@ -74,6 +74,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
@@ -107,6 +108,8 @@ import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.data.models.CabinetSheetIndex
+import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.ChangedBadge
@@ -162,6 +165,19 @@ private enum class HardwoodsJumpTarget {
     PLANS,
     THREE_D
 }
+
+private data class HardwoodsProgressBundle(
+    val rowProgressMap: Map<Pair<String, String>, HardwoodRowProgress> = emptyMap(),
+    val rowRevisionStateMap: Map<Pair<String, String>, HardwoodRowRevisionState> = emptyMap(),
+    val skippedCabinetMap: Map<Pair<String, String>, Set<String>> = emptyMap(),
+    val totalsDoneMap: Map<String, Int> = emptyMap()
+)
+
+private data class HardwoodsReferenceAvailability(
+    val hasAssemblyReference: Boolean = false,
+    val hasPlansReference: Boolean = false,
+    val hasThreeDAssets: Boolean = false
+)
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -286,10 +302,26 @@ fun HardwoodsWorkspaceScreen(
         }
     }
     val isDoorPanelsActive = useDoorPanelsSheetFilter.value
-    val rowProgressMap = remember(progressVersion, jobFolderName) { hardwoodsProgressStore.getRowProgressMap(jobFolderName) }
-    val rowRevisionStateMap = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
-        hardwoodsRepository.getRowRevisionStates(jobFolderName)
+
+    // Bundles four engine()/disk-backed reads (row progress, revision history, skipped
+    // cabinets, rip-10 totals) into one background load instead of four separate
+    // synchronous main-thread calls that re-fire on every progressVersion bump.
+    val progressBundle by produceState(
+        initialValue = HardwoodsProgressBundle(),
+        scanState.snapshot.generation, progressVersion, jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) {
+            HardwoodsProgressBundle(
+                rowProgressMap = hardwoodsProgressStore.getRowProgressMap(jobFolderName),
+                rowRevisionStateMap = hardwoodsRepository.getRowRevisionStates(jobFolderName),
+                skippedCabinetMap = hardwoodsProgressStore.getSkippedCabinetMap(jobFolderName),
+                totalsDoneMap = hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)
+            )
+        }
     }
+    val rowProgressMap = progressBundle.rowProgressMap
+    val rowRevisionStateMap = progressBundle.rowRevisionStateMap
+    val totalsDoneMap = progressBundle.totalsDoneMap
     var highlightedRowId by remember(jobFolderName, initialRowId) {
         mutableStateOf(
             initialRowId.takeUnless {
@@ -297,24 +329,31 @@ fun HardwoodsWorkspaceScreen(
             }
         )
     }
-    val boardStockRows = remember(scanState.snapshot.basePath, jobFolderName, job?.index, rowProgressMap) {
-        applySkippedPartRowsToBoardStockRows(
-            rows = buildBoardStockRows(scanState.snapshot.basePath, jobFolderName, job?.index),
-            index = job?.index,
-            rowProgressMap = rowProgressMap
-        )
+    val boardStockRows by produceState(
+        initialValue = emptyList<BoardStockRow>(),
+        scanState.snapshot.basePath, jobFolderName, job?.index, rowProgressMap
+    ) {
+        value = withContext(Dispatchers.IO) {
+            applySkippedPartRowsToBoardStockRows(
+                rows = buildBoardStockRows(scanState.snapshot.basePath, jobFolderName, job?.index),
+                index = job?.index,
+                rowProgressMap = rowProgressMap
+            )
+        }
     }
-    val adminBoardStock = remember(scanState.snapshot.basePath, jobFolderName, isRipCutEntry, isSawRipEntry) {
-        loadAdminBoardStock(baseDir = File(scanState.snapshot.basePath), jobFolderName = jobFolderName)
-            .filter { item ->
-                when {
-                    isSawRipEntry -> item.mode == "sheet"
-                    else          -> item.mode == "bd_ft"
+    val adminBoardStock by produceState(
+        initialValue = emptyList<AdminBoardStockItem>(),
+        scanState.snapshot.basePath, jobFolderName, isRipCutEntry, isSawRipEntry
+    ) {
+        value = withContext(Dispatchers.IO) {
+            loadAdminBoardStock(baseDir = File(scanState.snapshot.basePath), jobFolderName = jobFolderName)
+                .filter { item ->
+                    when {
+                        isSawRipEntry -> item.mode == "sheet"
+                        else          -> item.mode == "bd_ft"
+                    }
                 }
-            }
-    }
-    val totalsDoneMap = remember(progressVersion, jobFolderName) {
-        hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)
+        }
     }
     val pendingChangedByDoc = remember(availableDocuments, rowRevisionStateMap, rowProgressMap) {
         availableDocuments.associate { doc ->
@@ -379,7 +418,7 @@ fun HardwoodsWorkspaceScreen(
     var showReferencePane by remember(jobFolderName) { mutableStateOf(true) }
     var referenceMarkupEnabled by rememberSaveable(jobFolderName) { mutableStateOf(false) }
     val sharedMarkupToolState = rememberPdfMarkupToolState()
-    val skippedCabinetMap = remember(progressVersion, jobFolderName) { hardwoodsProgressStore.getSkippedCabinetMap(jobFolderName) }
+    val skippedCabinetMap = progressBundle.skippedCabinetMap
 
     val resumePrefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
     val referenceResumeKey = remember(jobFolderName) { "hardwoods_reference_page_v1_${jobFolderName}" }
@@ -387,7 +426,9 @@ fun HardwoodsWorkspaceScreen(
     LaunchedEffect(referencePage, referenceResumeKey) {
         resumePrefs.edit().putInt(referenceResumeKey, referencePage).apply()
     }
-    val cabinetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
+    val cabinetIndex by produceState<CabinetSheetIndex?>(initialValue = null, jobFolderName) {
+        value = withContext(Dispatchers.IO) { jobRepository.getCabinetSheetIndex(jobFolderName) }
+    }
     val assemblyCabinetToPages = remember(cabinetIndex) {
         cabinetIndex?.documents?.assembly?.virtualCombined?.cabinetToPages
             ?.takeIf { it.isNotEmpty() }
@@ -1156,6 +1197,7 @@ fun HardwoodsWorkspaceScreen(
                 modifier = secondMod.fillMaxSize(),
                 jobRepository = jobRepository,
                 jobFolderName = jobFolderName,
+                cabinetIndex = cabinetIndex,
                 isDarkTheme = isDarkTheme,
                 referenceDocType = referenceDocType,
                 jumpTarget = jumpTarget,
@@ -1529,6 +1571,7 @@ private fun ReferencePane(
     modifier: Modifier,
     jobRepository: JobRepository,
     jobFolderName: String,
+    cabinetIndex: CabinetSheetIndex?,
     isDarkTheme: Boolean,
     referenceDocType: ReferenceDocType,
     jumpTarget: HardwoodsJumpTarget,
@@ -1557,16 +1600,21 @@ private fun ReferencePane(
             PdfMarkupStore(File(basePath), tabletId)
         }
     }
-    val cabinetIndex = remember(jobFolderName) { jobRepository.getCabinetSheetIndex(jobFolderName) }
-    val hasAssemblyReference = remember(jobFolderName) {
-        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
+    val referenceAvailability by produceState(
+        initialValue = HardwoodsReferenceAvailability(),
+        jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) {
+            HardwoodsReferenceAvailability(
+                hasAssemblyReference = jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY),
+                hasPlansReference = jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS),
+                hasThreeDAssets = jobRepository.hasThreeDAssets(jobFolderName)
+            )
+        }
     }
-    val hasPlansReference = remember(jobFolderName) {
-        jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
-    }
-    val hasThreeDAssets = remember(jobFolderName) {
-        jobRepository.hasThreeDAssets(jobFolderName)
-    }
+    val hasAssemblyReference = referenceAvailability.hasAssemblyReference
+    val hasPlansReference = referenceAvailability.hasPlansReference
+    val hasThreeDAssets = referenceAvailability.hasThreeDAssets
     val docIndex = remember(cabinetIndex, referenceDocType) {
         when (referenceDocType) {
             ReferenceDocType.ASSEMBLY -> cabinetIndex?.documents?.assembly
@@ -1592,17 +1640,25 @@ private fun ReferencePane(
     val assemblyVirtualTotalPages = remember(cabinetIndex) {
         (cabinetIndex?.documents?.assembly?.virtualCombined?.totalVirtualPages ?: 0).coerceAtLeast(0)
     }
+    val assemblyDefaultPdfFilenameFallback by produceState(
+        initialValue = "",
+        docIndex, jobFolderName
+    ) {
+        value = docIndex?.pdfFilename?.takeIf { it.isNotBlank() }
+            ?: withContext(Dispatchers.IO) {
+                jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY).orEmpty()
+            }
+    }
     val assemblyVirtualSanitized = remember(
         referenceDocType,
         assemblyVirtualTotalPages,
         assemblyVirtualRawMap,
         cabinetIndex,
-        docIndex
+        assemblyDefaultPdfFilenameFallback
     ) {
         sanitizeVirtualAssemblyData(
             totalVirtualPages = assemblyVirtualTotalPages,
-            defaultPdfFilename = docIndex?.pdfFilename?.takeIf { it.isNotBlank() }
-                ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY).orEmpty(),
+            defaultPdfFilename = assemblyDefaultPdfFilenameFallback,
             sourceByDisplayPage = assemblyVirtualRawMap,
             cabinetToPages = cabinetIndex?.documents?.assembly?.virtualCombined?.cabinetToPages.orEmpty()
         )
@@ -1641,10 +1697,14 @@ private fun ReferencePane(
         }
     }
 
-    val defaultPdfFilename = remember(docIndex, referenceDocType, jobFolderName) {
-        docIndex?.pdfFilename?.takeIf { it.isNotBlank() }
-            ?: jobRepository.findReferencePdfFilename(jobFolderName, referenceDocType)
-            ?: ""
+    val defaultPdfFilename by produceState(
+        initialValue = "",
+        docIndex, referenceDocType, jobFolderName
+    ) {
+        value = docIndex?.pdfFilename?.takeIf { it.isNotBlank() }
+            ?: withContext(Dispatchers.IO) {
+                jobRepository.findReferencePdfFilename(jobFolderName, referenceDocType)
+            }.orEmpty()
     }
 
     val docControls: @Composable RowScope.() -> Unit = {

@@ -305,18 +305,5 @@ class ScanCoordinator(
      * Lightweight staleness check: only examines each job's cache_static.json mtime.
      * Full per-file staleness is deferred to refreshJobOnOpen() for the job being viewed.
      */
-    private fun computeLightStalenessSignature(): Long {
-        if (!baseDir.exists() || !baseDir.isDirectory) return Long.MIN_VALUE
-        var hash = 1125899906842597L
-        fun mix(v: Long) { hash = (hash * 31L) xor v }
-        val dirs = baseDir.listFiles() ?: return Long.MIN_VALUE
-        mix(dirs.size.toLong())
-        dirs.forEach { dir ->
-            if (!dir.isDirectory) return@forEach
-            mix(dir.name.hashCode().toLong())
-            val cacheFile = File(dir, ".metadata/cache_static.json")
-            mix(if (cacheFile.isFile) cacheFile.lastModified() else 0L)
-        }
-        return hash
-    }
+    private fun computeLightStalenessSignature(): Long = computeLightStalenessSignature(baseDir)
 }

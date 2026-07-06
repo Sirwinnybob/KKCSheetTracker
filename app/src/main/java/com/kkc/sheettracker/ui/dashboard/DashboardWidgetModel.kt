@@ -101,6 +101,7 @@ sealed interface DashboardWidgetModel {
         val subtitle: String? = null,
         val items: List<DashboardInventoryItemModel>,
         val summary: String? = null,
-        val emptyMessage: String = "No inventory items are available."
+        val emptyMessage: String = "No inventory items are available.",
+        val onHeaderAction: (() -> Unit)? = null
     ) : DashboardWidgetModel
 }

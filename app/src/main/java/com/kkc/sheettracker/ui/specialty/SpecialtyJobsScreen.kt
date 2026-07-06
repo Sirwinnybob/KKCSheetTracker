@@ -13,11 +13,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.animation.AnimatedContent
@@ -38,15 +41,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,21 +67,35 @@ import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
+import com.kkc.sheettracker.data.JobBoardRequestStore
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.ProductionOrderRequestStore
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyStateStore
+import com.kkc.sheettracker.data.models.JobLabel
+import com.kkc.sheettracker.data.models.DeliverySchedulePickerJob
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StationProgress
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import com.kkc.sheettracker.ui.admin.JobLabelEditorNavBarControls
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.JobBoardGrid
 import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.TopBarClock
+import com.kkc.sheettracker.ui.components.mergeActiveReorder
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
+import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
+import java.io.File
 import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 
@@ -85,6 +106,9 @@ fun SpecialtyJobsScreen(
     specialtyStateStore: SpecialtyStateStore,
     jobRepository: JobRepository,
     deliveryScheduleRepository: DeliveryScheduleRepository,
+    basePath: String,
+    tabletId: String,
+    isDebugBuild: Boolean,
     pinnedFolderNames: List<String> = emptyList(),
     onTogglePin: (folderName: String, isCurrentlyPinned: Boolean) -> Unit = { _, _ -> },
     onJobClick: (com.kkc.sheettracker.data.models.SpecialtyJobCard) -> Unit,
@@ -101,6 +125,14 @@ fun SpecialtyJobsScreen(
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("specialty")) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    val adminMode by AdminModeController.enabled.collectAsState()
+    LaunchedEffect(adminMode) {
+        if (adminMode) {
+            query = ""
+            sortByName = false
+            boardView = false
+        }
+    }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
@@ -139,6 +171,56 @@ fun SpecialtyJobsScreen(
     val pinnedCards = remember(pinnedFolderNames, filteredCards) {
         pinnedFolderNames.mapNotNull { folder -> filteredCards.find { it.folderName == folder } }
     }
+    val activeCards = remember(filteredCards) { filteredCards.filter { it.boardSection == 0 } }
+    val pendingCards = remember(filteredCards) { filteredCards.filter { it.boardSection == 1 } }
+    val activeCardsByFolder = remember(activeCards) { activeCards.associateBy { it.folderName } }
+
+    val activeOrder = remember(scanState.snapshot.generation) {
+        mutableStateListOf(*activeCards.map { it.folderName }.toTypedArray())
+    }
+    val dragOffset = if (pinnedCards.isNotEmpty()) pinnedCards.size + 2 else 0
+    val listState = rememberLazyListState()
+    val saveScope = rememberCoroutineScope()
+    val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
+    val jobBoardRequestStore = remember(basePath) { JobBoardRequestStore(File(basePath)) }
+    val deliveryScheduleRequestStore = remember(basePath) { DeliveryScheduleRequestStore(File(basePath)) }
+    val deliveryPickerJobs = remember(filteredCards) {
+        filteredCards.map {
+            DeliverySchedulePickerJob(
+                folderName = it.folderName,
+                jobNumber = it.jobNumber,
+                description = it.jobName
+            )
+        }
+    }
+    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+        val f = from.index - dragOffset
+        val t = to.index - dragOffset
+        if (f in activeOrder.indices && t in activeOrder.indices) {
+            activeOrder.add(t, activeOrder.removeAt(f))
+        }
+    }
+    val saveActiveOrder = {
+        val newOrder = mergeActiveReorder(
+            original = filteredCards,
+            reorderedActiveFolderNames = activeOrder,
+            boardSectionOf = { it.boardSection },
+            folderNameOf = { it.folderName }
+        )
+        saveScope.launch {
+            withContext(Dispatchers.IO) { requestStore.writeRequest(newOrder, tabletId) }
+        }
+    }
+
+    var editingLabelsFor by remember { mutableStateOf<SpecialtyJobCard?>(null) }
+    var allLabels by remember { mutableStateOf<List<JobLabel>>(emptyList()) }
+    LaunchedEffect(basePath, scanState.snapshot.generation) {
+        allLabels = withContext(Dispatchers.IO) {
+            runCatching {
+                UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild).listAllLabels()
+            }.getOrDefault(emptyList())
+        }
+    }
 
     LaunchedEffect(Unit) {
         specialtyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = false)
@@ -169,7 +251,7 @@ fun SpecialtyJobsScreen(
                             boardView = !boardView
                             uiPrefs.setBoardView("specialty", boardView)
                         },
-                        enabled = !sortByName
+                        enabled = !sortByName && !adminMode
                     ) {
                         Icon(
                             imageVector = if (boardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
@@ -190,7 +272,8 @@ fun SpecialtyJobsScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Filter jobs by number or name...") },
                 singleLine = true,
-                shape = MaterialTheme.shapes.medium
+                shape = MaterialTheme.shapes.medium,
+                enabled = !adminMode
             )
             Text(
                 text = if (query.isBlank()) {
@@ -202,11 +285,12 @@ fun SpecialtyJobsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
-            SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
+            SortToggleBar(sortByName = sortByName, onSortChange = { if (!adminMode) sortByName = it })
 
             DeliveryScheduleWidget(
                 schedule = deliverySchedule,
                 onTap = { showScheduleDialog = true },
+                showWhenEmpty = adminMode,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -254,10 +338,9 @@ fun SpecialtyJobsScreen(
                     )
                 }
                 else -> {
-                    val activeCards  = filteredCards.filter { it.boardSection == 0 }
-                    val pendingCards = filteredCards.filter { it.boardSection == 1 }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
+                        state = listState,
                         contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 112.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -339,7 +422,10 @@ fun SpecialtyJobsScreen(
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                             }
                         }
-                        items(activeCards, key = { "active_${it.folderName}" }) { card ->
+                        items(activeOrder, key = { it }) { activeFolderName ->
+                        val card = activeCardsByFolder[activeFolderName]
+                        if (card != null) {
+                        ReorderableItem(reorderState, key = activeFolderName) {
                             val statusCounts = remember(card.totalItems, card.completedItems) {
                                 StatusCounts(
                                     total = card.totalItems.coerceAtLeast(0),
@@ -387,6 +473,21 @@ fun SpecialtyJobsScreen(
                                     }
                                     val isPinned = card.folderName in pinnedFolderNames
                                     PinButton(isPinned = isPinned, onClick = { onTogglePin(card.folderName, isPinned) })
+                                    if (adminMode) {
+                                        IconButton(onClick = {
+                                            editingLabelsFor = if (editingLabelsFor?.folderName == card.folderName) null else card
+                                        }) {
+                                            Icon(Icons.Filled.Sell, contentDescription = "Edit Labels")
+                                        }
+                                        IconButton(
+                                            modifier = Modifier.draggableHandle(
+                                                onDragStopped = { saveActiveOrder() }
+                                            ),
+                                            onClick = {}
+                                        ) {
+                                            Icon(Icons.Filled.DragHandle, contentDescription = "Reorder")
+                                        }
+                                    }
                                 },
                                 inlineContent = {
                                     when {
@@ -413,6 +514,8 @@ fun SpecialtyJobsScreen(
                                     }
                                 }
                             )
+                        }
+                        }
                         }
                         if (pendingCards.isNotEmpty()) {
                             item(key = "pending_header") {
@@ -458,6 +561,13 @@ fun SpecialtyJobsScreen(
                                         }
                                         val isPinned = card.folderName in pinnedFolderNames
                                         PinButton(isPinned = isPinned, onClick = { onTogglePin(card.folderName, isPinned) })
+                                        if (adminMode) {
+                                            IconButton(onClick = {
+                                            editingLabelsFor = if (editingLabelsFor?.folderName == card.folderName) null else card
+                                        }) {
+                                                Icon(Icons.Filled.Sell, contentDescription = "Edit Labels")
+                                            }
+                                        }
                                     }
                                 )
                             }
@@ -472,8 +582,66 @@ fun SpecialtyJobsScreen(
     if (showScheduleDialog) {
         DeliveryScheduleDialog(
             schedule = deliverySchedule,
-            onDismiss = { showScheduleDialog = false }
+            onDismiss = { showScheduleDialog = false },
+            isAdminMode = adminMode,
+            availableJobs = deliveryPickerJobs,
+            onQueueSlotEdit = { slot, jobs ->
+                saveScope.launch {
+                    withContext(Dispatchers.IO) {
+                        deliveryScheduleRequestStore.queueSlotEdit(slot, jobs, tabletId)
+                    }
+                }
+            },
+            onQueueReset = {
+                saveScope.launch {
+                    withContext(Dispatchers.IO) {
+                        deliveryScheduleRequestStore.queueReset(tabletId)
+                    }
+                }
+            }
         )
+    }
+
+    val navBarDeco = LocalNavBarDecoration.current
+    val labelEditJob = editingLabelsFor
+    DisposableEffect(navBarDeco) {
+        onDispose { navBarDeco.extendedControls = null }
+    }
+    SideEffect {
+        navBarDeco.extendedControls = if (labelEditJob != null) {
+            {
+                JobLabelEditorNavBarControls(
+                    jobTitle = listOf(labelEditJob.jobNumber, labelEditJob.jobName)
+                        .filter { it.isNotBlank() }.joinToString(" — ").ifBlank { labelEditJob.folderName },
+                    allLabels = allLabels,
+                    currentLabelIds = labelEditJob.labels.map { it.id }.toSet(),
+                    isPendingDelivery = labelEditJob.boardSection == 1,
+                    onToggleLabel = { label ->
+                        val newIds = if (label.id in labelEditJob.labels.map { it.id }) {
+                            labelEditJob.labels.filterNot { it.id == label.id }.map { it.id }
+                        } else {
+                            labelEditJob.labels.map { it.id } + label.id
+                        }
+                        saveScope.launch {
+                            withContext(Dispatchers.IO) {
+                                jobBoardRequestStore.queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
+                            }
+                        }
+                        editingLabelsFor = labelEditJob.copy(labels = allLabels.filter { it.id in newIds })
+                    },
+                    onSetPendingDelivery = { pending ->
+                        val newSection = if (pending) 1 else 0
+                        saveScope.launch {
+                            withContext(Dispatchers.IO) {
+                                jobBoardRequestStore.queueBoardSectionEdit(labelEditJob.folderName, newSection, tabletId)
+                            }
+                        }
+                        editingLabelsFor = labelEditJob.copy(boardSection = newSection)
+                    },
+                    onDismiss = { editingLabelsFor = null }
+                )
+            }
+        } else null
     }
 }
 

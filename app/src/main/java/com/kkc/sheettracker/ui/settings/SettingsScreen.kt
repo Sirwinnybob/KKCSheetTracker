@@ -20,16 +20,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.BuildConfig
+import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.EmployeeDirectory
 import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
+import com.kkc.sheettracker.ui.components.AdminPasswordDialog
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -67,6 +70,8 @@ fun SettingsScreen(
     onOpenAssemblyViewerDefaults: () -> Unit = {},
     onOpenSpecialtyViewerDefaults: () -> Unit = {},
 ) {
+    val adminMode by AdminModeController.enabled.collectAsState()
+    var showAdminDialog by remember { mutableStateOf(false) }
     var editTabletId by remember { mutableStateOf(tabletId) }
     var editBasePath by remember { mutableStateOf(basePath) }
     var editSyncthingApiKey by remember(syncthingApiKey) { mutableStateOf(syncthingApiKey) }
@@ -74,7 +79,9 @@ fun SettingsScreen(
     var employeeNameDirty by remember { mutableStateOf(false) }
     var employeeNameSaved by remember { mutableStateOf(false) }
     var employeeDropdownExpanded by remember { mutableStateOf(false) }
-    val allEmployees = remember { EmployeeDirectory.records.map { it.pin to it.name } }
+    LaunchedEffect(Unit) { EmployeeDirectory.refresh(File(basePath)) }
+    val employeeRecords by EmployeeDirectory.recordsFlow.collectAsState()
+    val allEmployees = remember(employeeRecords) { employeeRecords.map { it.pin to it.name } }
     val filteredEmployees = remember(editEmployeeName) {
         if (editEmployeeName.isBlank()) emptyList()
         else allEmployees.filter { (id, name) ->
@@ -154,7 +161,8 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                // Extra bottom padding so the last section (Admin) clears the app's bottom nav bar.
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 160.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             SettingsSection(title = "Appearance", accentColor = MaterialTheme.colorScheme.primary) {
@@ -688,7 +696,62 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            SettingsSection(
+                title = "Admin",
+                accentColor = MaterialTheme.colorScheme.tertiary
+            ) {
+                if (!adminMode) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAdminDialog = true }
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Admin", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Unlock advanced controls",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            "Unlock",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                } else {
+                    Text(
+                        "Admin mode is ON",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                    Text(
+                        "The supply \"To Order\" tab is visible, and the Jobs tab shows a reorder control.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    TextButton(onClick = { AdminModeController.setEnabled(false) }) {
+                        Text("Lock admin")
+                    }
+                }
+            }
         }
+    }
+
+    if (showAdminDialog) {
+        AdminPasswordDialog(
+            onUnlocked = {
+                AdminModeController.setEnabled(true)
+                showAdminDialog = false
+            },
+            onDismiss = { showAdminDialog = false }
+        )
     }
 }
 

@@ -394,6 +394,7 @@ private fun MultiBackStackNavigation(
     val timeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
     val timecardStore = remember { TimecardStore(timecardConfig, timecardDiscovery, timeclockMessagesRepo, File(basePath)) }
     DisposableEffect(timecardStore) { onDispose { timecardStore.cancel() } }
+    LaunchedEffect(basePath) { EmployeeDirectory.refresh(File(basePath)) }
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val hardwoodsScanCoordinator = remember(hardwoodsRepository) { HardwoodsScanCoordinator(hardwoodsRepository) }
     val specialtyRepository = remember(basePath, specialtyProgressStore) {
@@ -491,6 +492,19 @@ private fun MultiBackStackNavigation(
     )
     val hazeState = remember { HazeState() }
     val navBarDeco = remember { NavBarDecorationState() }
+
+    // Safety net for leaving a viewer route (e.g. the hardwoods workspace's Classic cut
+    // list, which hosts its pen toolbar via extendedControls): that screen's own
+    // DisposableEffect clears extendedControls when it leaves composition, but that's
+    // driven by NavHost's teardown timing, not by this route classification. If the two
+    // land a frame apart, the nav bar briefly renders "not extended, still minimized" —
+    // the plain icon-only pill — before `minimized` catches up and it grows back out to
+    // the full labeled bar, showing up as a jerky two-step collapse instead of one smooth
+    // shrink. Clearing it here too, off the exact same isInViewer signal that drives
+    // `minimized`, keeps both changes on the same trigger.
+    LaunchedEffect(isInViewer) {
+        if (!isInViewer) navBarDeco.extendedControls = null
+    }
 
     androidx.compose.runtime.LaunchedEffect(selectedTab, jobsBackStack) {
         val route = jobsBackStack?.destination?.route ?: ""
@@ -687,11 +701,14 @@ private fun MultiBackStackNavigation(
                         assemblyStateStore = assemblyStateStore,
                         specialtyStateStore = specialtyStateStore,
                         basePath = basePath,
+                        tabletId = tabletId,
+                        isDebugBuild = isDebugBuild,
                         clockInState = clockInState,
                         deliveryScheduleRepository = deliveryScheduleRepository,
                         assemblyViewerDefaultsStore = assemblyViewerDefaultsStore,
                         specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                         pinnedJobsStore = pinnedJobsStore,
+                        hazeState = hazeState,
                         onClockIn = onClockIn,
                         onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
                         onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) },
@@ -1025,11 +1042,14 @@ private fun JobsTabHost(
     assemblyStateStore: AssemblyStateStore,
     specialtyStateStore: SpecialtyStateStore,
     basePath: String,
+    tabletId: String,
+    isDebugBuild: Boolean,
     clockInState: ClockInState,
     deliveryScheduleRepository: DeliveryScheduleRepository,
     assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore,
     specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
     pinnedJobsStore: PinnedJobsStore,
+    hazeState: HazeState,
     onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
@@ -1057,6 +1077,9 @@ private fun JobsTabHost(
                         progressStore = progressStore,
                         deliveryScheduleRepository = deliveryScheduleRepository,
                         appStateFlags = appStateFlags,
+                        basePath = basePath,
+                        tabletId = tabletId,
+                        isDebugBuild = isDebugBuild,
                         pinnedFolderNames = pinnedFolderNames,
                         onTogglePin = onTogglePin,
                         onJobClick = { job ->
@@ -1101,6 +1124,9 @@ private fun JobsTabHost(
                         progressStore = hardwoodsProgressStore,
                         jobRepository = jobRepository,
                         deliveryScheduleRepository = deliveryScheduleRepository,
+                        basePath = basePath,
+                        tabletId = tabletId,
+                        isDebugBuild = isDebugBuild,
                         pinnedFolderNames = pinnedFolderNames,
                         onTogglePin = onTogglePin,
                         onJobClick = { job ->
@@ -1148,6 +1174,9 @@ private fun JobsTabHost(
                         hardwoodsProgressStore = hardwoodsProgressStore,
                         specialtyStateStore = specialtyStateStore,
                         deliveryScheduleRepository = deliveryScheduleRepository,
+                        basePath = basePath,
+                        tabletId = tabletId,
+                        isDebugBuild = isDebugBuild,
                         specialtyProgressVersionHint = specialtyProgressVersion,
                         pinnedFolderNames = pinnedFolderNames,
                         onTogglePin = onTogglePin,
@@ -1189,6 +1218,9 @@ private fun JobsTabHost(
                         specialtyStateStore = specialtyStateStore,
                         jobRepository = jobRepository,
                         deliveryScheduleRepository = deliveryScheduleRepository,
+                        basePath = basePath,
+                        tabletId = tabletId,
+                        isDebugBuild = isDebugBuild,
                         pinnedFolderNames = pinnedFolderNames,
                         onTogglePin = onTogglePin,
                         onJobClick = { card ->
@@ -1955,6 +1987,7 @@ private fun LegacySingleStackNavigation(
     val legacyTimeclockMessagesRepo = remember { TimeclockMessagesRepository(File(basePath)) }
     val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery, legacyTimeclockMessagesRepo, File(basePath)) }
     DisposableEffect(legacyTimecardStore) { onDispose { legacyTimecardStore.cancel() } }
+    LaunchedEffect(basePath) { EmployeeDirectory.refresh(File(basePath)) }
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
             clockInState.clockIn(jobNumber, jobName, folderName, tabType)
@@ -2065,6 +2098,19 @@ private fun LegacySingleStackNavigation(
     val hazeState = remember { HazeState() }
     val navBarDeco = remember { NavBarDecorationState() }
 
+    // Safety net for leaving a viewer route (e.g. the hardwoods workspace's Classic cut
+    // list, which hosts its pen toolbar via extendedControls): that screen's own
+    // DisposableEffect clears extendedControls when it leaves composition, but that's
+    // driven by NavHost's teardown timing, not by this route classification. If the two
+    // land a frame apart, the nav bar briefly renders "not extended, still minimized" —
+    // the plain icon-only pill — before `minimized` catches up and it grows back out to
+    // the full labeled bar, showing up as a jerky two-step collapse instead of one smooth
+    // shrink. Clearing it here too, off the exact same isInViewer signal that drives
+    // `minimized`, keeps both changes on the same trigger.
+    LaunchedEffect(isInViewer) {
+        if (!isInViewer) navBarDeco.extendedControls = null
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
@@ -2167,6 +2213,9 @@ private fun LegacySingleStackNavigation(
                                 progressStore = progressStore,
                                 deliveryScheduleRepository = deliveryScheduleRepository,
                                 appStateFlags = appStateFlags,
+                                basePath = basePath,
+                                tabletId = tabletId,
+                                isDebugBuild = isDebugBuild,
                                 onJobClick = { job ->
                                     navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}")
                                 },
@@ -2215,6 +2264,9 @@ private fun LegacySingleStackNavigation(
                                 progressStore = hardwoodsProgressStore,
                                 jobRepository = jobRepository,
                                 deliveryScheduleRepository = deliveryScheduleRepository,
+                                basePath = basePath,
+                                tabletId = tabletId,
+                                isDebugBuild = isDebugBuild,
                                 onJobClick = { job ->
                                     navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}")
                                 },
@@ -2266,6 +2318,9 @@ private fun LegacySingleStackNavigation(
                                 hardwoodsProgressStore = hardwoodsProgressStore,
                                 specialtyStateStore = specialtyStateStore,
                                 deliveryScheduleRepository = deliveryScheduleRepository,
+                                basePath = basePath,
+                                tabletId = tabletId,
+                                isDebugBuild = isDebugBuild,
                                 specialtyProgressVersionHint = specialtyProgressVersion,
                                 onJobClick = { card ->
                                     legacyCoroutineScope.launch {
@@ -2315,6 +2370,9 @@ private fun LegacySingleStackNavigation(
                                 specialtyStateStore = specialtyStateStore,
                                 jobRepository = jobRepository,
                                 deliveryScheduleRepository = deliveryScheduleRepository,
+                                basePath = basePath,
+                                tabletId = tabletId,
+                                isDebugBuild = isDebugBuild,
                                 onJobClick = { card ->
                                     navController.navigate(specialtyJobRoute(card.folderName)) {
                                         launchSingleTop = true

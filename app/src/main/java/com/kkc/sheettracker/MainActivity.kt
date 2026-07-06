@@ -94,6 +94,7 @@ class MainActivity : ComponentActivity() {
         requestStoragePermissions()
 
         val prefs = getSharedPreferences("kkc_tracker", MODE_PRIVATE)
+        com.kkc.sheettracker.data.AdminModeController.init(this)
         var tabletId = prefs.getString("tablet_id", null)
         if (tabletId == null) {
             tabletId = "${Build.MODEL}-${System.currentTimeMillis() % 10000}"

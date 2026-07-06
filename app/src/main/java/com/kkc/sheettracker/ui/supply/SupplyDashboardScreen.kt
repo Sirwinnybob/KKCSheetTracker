@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -61,6 +62,16 @@ import com.kkc.sheettracker.data.models.ALL_SUPPLY_STATUSES
 import com.kkc.sheettracker.data.models.SUPPLY_STATUS_PRIORITY
 import com.kkc.sheettracker.data.models.SupplyCategory
 import com.kkc.sheettracker.data.models.SupplyItem
+import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.ToOrderRepository
+import com.kkc.sheettracker.data.ToOrderGroup
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import com.kkc.sheettracker.data.SpecialtyProgressStore
+import com.kkc.sheettracker.data.models.SpecialtyItem
+import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
+import androidx.compose.material3.Surface
+import java.io.File
+import com.kkc.sheettracker.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -69,10 +80,19 @@ import com.kkc.sheettracker.ui.dashboard.DashboardShell
 import com.kkc.sheettracker.ui.dashboard.DashboardAccent
 import com.kkc.sheettracker.ui.dashboard.DashboardSectionHeader
 import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceCard
+import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceDefaults
 import com.kkc.sheettracker.ui.dashboard.DashboardWidgetRenderer
 import com.kkc.sheettracker.ui.dashboard.DashboardInventoryItemModel
 import com.kkc.sheettracker.ui.dashboard.DashboardWidgetModel
 import com.kkc.sheettracker.ui.dashboard.buildSupplyCategoryWidgets
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import com.kkc.sheettracker.ui.components.StatusChip
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -102,8 +122,34 @@ fun SupplyDashboardScreen(
     val notificationCount by subscriptionManager.notificationCount.collectAsState()
     var notifications by remember { mutableStateOf<List<SupplyNotificationItem>>(emptyList()) }
     val categoryMap = remember(categories) { categories.associateBy { it.id } }
-    val tabCount = (categories.size + 2).coerceAtLeast(2)
+
+    // Admin-only "To Order" tab: cross-job aggregation of specialty/checklist TO_ORDER items,
+    // mirroring the Hours Tracker web "To Order" tab. Placed next to the Needs Attention tab.
+    val isAdminMode by AdminModeController.enabled.collectAsState()
+    val toOrderPage = 2
+    val categoriesStartPage = if (isAdminMode) 3 else 2
+    val tabCount = categories.size + 2 + if (isAdminMode) 1 else 0
     val pagerState = rememberPagerState(pageCount = { tabCount })
+
+    val specialtyStore = remember(basePath, tabletId) {
+        SpecialtyProgressStore(File(basePath), tabletId, readOnly = false)
+    }
+    val toOrderRepo = remember(basePath, tabletId) {
+        ToOrderRepository(
+            engine = UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), BuildConfig.DEBUG),
+            specialtyStore = specialtyStore
+        )
+    }
+    var toOrderGroups by remember { mutableStateOf<List<ToOrderGroup>>(emptyList()) }
+    var toOrderLoading by remember { mutableStateOf(false) }
+    var editingToOrderItem by remember { mutableStateOf<Pair<String, SpecialtyResolvedItem>?>(null) }
+    LaunchedEffect(isAdminMode) {
+        if (isAdminMode) {
+            toOrderLoading = true
+            toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
+            toOrderLoading = false
+        }
+    }
 
     // Categories can reload smaller/empty while the pager still points at a former category page.
     // Snap back into range so ScrollableTabRow never reads a tab index past the tab list.
@@ -158,8 +204,8 @@ fun SupplyDashboardScreen(
     LaunchedEffect(basePath) { loadData() }
     LaunchedEffect(items, subscriptionData) { reloadUpdates() }
 
-    val currentCategoryId = if (!isLoading && searchQuery.isBlank() && categories.isNotEmpty() && pagerState.currentPage > 1) {
-        categories.getOrNull(pagerState.currentPage - 2)?.id
+    val currentCategoryId = if (!isLoading && searchQuery.isBlank() && categories.isNotEmpty() && pagerState.currentPage >= categoriesStartPage) {
+        categories.getOrNull(pagerState.currentPage - categoriesStartPage)?.id
     } else null
 
     DashboardShell(
@@ -185,8 +231,8 @@ fun SupplyDashboardScreen(
                             showAddCategoryDialog = true
                         }
                     )
-                    if (pagerState.currentPage > 1) {
-                        val currentCat = categories.getOrNull(pagerState.currentPage - 2)
+                    if (pagerState.currentPage >= categoriesStartPage) {
+                        val currentCat = categories.getOrNull(pagerState.currentPage - categoriesStartPage)
                         if (currentCat != null) {
                             val isSubscribed = subscriptionData.subscribedCategoryIds.contains(currentCat.id)
                             DropdownMenuItem(
@@ -302,11 +348,30 @@ fun SupplyDashboardScreen(
                                 }
                             }
                         )
+                        if (isAdminMode) {
+                            Tab(
+                                selected = pagerState.currentPage == toOrderPage,
+                                onClick = { scope.launch { pagerState.animateScrollToPage(toOrderPage) } },
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text("To Order")
+                                        val count = toOrderGroups.sumOf { it.items.size }
+                                        if (count > 0) {
+                                            Badge { Text(count.toString()) }
+                                        }
+                                    }
+                                }
+                            )
+                        }
                         categories.forEachIndexed { index, category ->
                             val isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id)
+                            val targetPage = index + categoriesStartPage
                             Tab(
-                                selected = pagerState.currentPage == index + 2,
-                                onClick = { scope.launch { pagerState.animateScrollToPage(index + 2) } },
+                                selected = pagerState.currentPage == targetPage,
+                                onClick = { scope.launch { pagerState.animateScrollToPage(targetPage) } },
                                 text = {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -331,68 +396,111 @@ fun SupplyDashboardScreen(
                     state = pagerState,
                     modifier = Modifier.weight(1f)
                 ) { page ->
-                    when (page) {
-                    0 -> UpdatesPage(
-                        notifications = notifications,
-                        categories = categories,
-                        subscriptionManager = subscriptionManager,
-                        onOpenItem = ::openDetailModal,
-                        reloadUpdates = { scope.launch { reloadUpdates() } },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    1 -> NeedsAttentionPage(
-                        items = items,
-                        categories = categories,
-                        onOpenItem = ::openDetailModal,
-                        onLongPress = { item -> statusSheetItem = items.firstOrNull { it.id == item.id } },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    else -> {
-                        val category = categories.getOrNull(page - 2)
-                        if (category == null) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("No category")
-                            }
-                        } else {
-                            val categoryItems = items.filter { it.categoryId == category.id }
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(bottom = 160.dp),
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                CategoryAddHeader(
-                                    category = category,
-                                    onAddItem = { openNewItemModal(category.id) }
-                                )
-                                DashboardWidgetRenderer(
-                                    widgets = buildSupplyCategoryWidgets(
-                                        category = category,
-                                        items = categoryItems,
-                                        isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id),
-                                        notificationCount = notifications.count { it.item.categoryId == category.id }
-                                    ),
-                                    onItemClick = { item ->
-                                        if (item is DashboardInventoryItemModel) {
-                                            openDetailModal(item.id)
+                    when {
+                        page == 0 -> UpdatesPage(
+                            notifications = notifications,
+                            categories = categories,
+                            subscriptionManager = subscriptionManager,
+                            onOpenItem = ::openDetailModal,
+                            reloadUpdates = { scope.launch { reloadUpdates() } },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        page == 1 -> NeedsAttentionPage(
+                            items = items,
+                            categories = categories,
+                            onOpenItem = ::openDetailModal,
+                            onLongPress = { item -> statusSheetItem = items.firstOrNull { it.id == item.id } },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        isAdminMode && page == toOrderPage -> ToOrderPage(
+                            groups = toOrderGroups,
+                            loading = toOrderLoading,
+                            onToggleComplete = { jobFolder, resolvedItem, completed ->
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        specialtyStore.setCompletion(
+                                            jobFolderName = jobFolder,
+                                            itemId = resolvedItem.item.id,
+                                            completionKey = SpecialtyProgressStore.ITEM_COMPLETION_KEY,
+                                            completed = completed,
+                                            completedBy = employeeName.ifBlank { "Floor" },
+                                            completedAt = java.time.Instant.now().toString()
+                                        )
+                                        // Auto-fill orderDate on first check-off
+                                        if (completed && resolvedItem.item.orderDate.isNullOrBlank()) {
+                                            val today = defaultToOrderDate(java.time.LocalDate.now())
+                                            val item = resolvedItem.item
+                                            specialtyStore.updateToOrderItem(
+                                                jobFolderName = jobFolder,
+                                                itemId = item.id,
+                                                name = item.name,
+                                                cabinetNumbers = item.cabinetNumbers,
+                                                supplier = item.supplier,
+                                                model = item.model,
+                                                orderDate = today,
+                                                tracking = item.tracking,
+                                                orderUrl = item.orderUrl,
+                                                notes = item.notes,
+                                                quantity = item.quantity,
+                                                material = item.material,
+                                                dimensions = item.dimensions
+                                            )
                                         }
-                                    },
-                                    onItemLongPress = { item ->
-                                        statusSheetItem = items.firstOrNull { it.id == item.id }
                                     }
-                                )
-                                if (categoryItems.isEmpty()) {
-                                    EmptyCategoryAddCard(
+                                    toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
+                                }
+                            },
+                            onEditItem = { jobFolder, resolvedItem ->
+                                editingToOrderItem = Pair(jobFolder, resolvedItem)
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        else -> {
+                            val category = categories.getOrNull(page - categoriesStartPage)
+                            if (category == null) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("No category")
+                                }
+                            } else {
+                                val categoryItems = items.filter { it.categoryId == category.id }
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(bottom = 160.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    CategoryAddHeader(
                                         category = category,
                                         onAddItem = { openNewItemModal(category.id) }
                                     )
+                                    DashboardWidgetRenderer(
+                                        widgets = buildSupplyCategoryWidgets(
+                                            category = category,
+                                            items = categoryItems,
+                                            isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id),
+                                            notificationCount = notifications.count { it.item.categoryId == category.id }
+                                        ),
+                                        onItemClick = { item ->
+                                            if (item is DashboardInventoryItemModel) {
+                                                openDetailModal(item.id)
+                                            }
+                                        },
+                                        onItemLongPress = { item ->
+                                            statusSheetItem = items.firstOrNull { it.id == item.id }
+                                        }
+                                    )
+                                    if (categoryItems.isEmpty()) {
+                                        EmptyCategoryAddCard(
+                                            category = category,
+                                            onAddItem = { openNewItemModal(category.id) }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
             }
         }
     }
@@ -564,6 +672,41 @@ fun SupplyDashboardScreen(
             }
         }
         null -> Unit
+    }
+
+    editingToOrderItem?.let { (jobFolder, resolvedItem) ->
+        ToOrderEditDialog(
+            item = resolvedItem.item,
+            onDismiss = { editingToOrderItem = null },
+            onSave = { name, cabNums, supplier, model, orderDate, tracking, orderUrl, notes, qty, material, dimensions ->
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            specialtyStore.updateToOrderItem(
+                                jobFolderName = jobFolder,
+                                itemId = resolvedItem.item.id,
+                                name = name,
+                                cabinetNumbers = cabNums,
+                                supplier = supplier,
+                                model = model,
+                                orderDate = orderDate,
+                                tracking = tracking,
+                                orderUrl = orderUrl,
+                                notes = notes,
+                                quantity = qty,
+                                material = material,
+                                dimensions = dimensions
+                            )
+                        }
+                    }
+                    result.onFailure {
+                        Toast.makeText(context, "Failed to save: ${it.message}", Toast.LENGTH_LONG).show()
+                    }
+                    editingToOrderItem = null
+                    toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
+                }
+            }
+        )
     }
 
     statusSheetItem?.let { item ->
@@ -783,10 +926,13 @@ private fun toInventoryItemModel(
 }
 
 fun supplyStatusColor(tier: Int): Color = when (tier) {
-    1, 2 -> Color(0xFFD32F2F)
-    3 -> Color(0xFFEF6C00)
-    4 -> Color(0xFF1565C0)
-    else -> Color(0xFF2E7D32)
+    1, 2 -> Color(0xFFD32F2F)        // red   — OUT / ASAP / NEED
+    3 -> Color(0xFFEF6C00)            // orange — LOW
+    4 -> Color(0xFF1565C0)            // blue  — ORDERED / IN PROCESS
+    5 -> Color(0xFF2E7D32)            // green — IN STOCK / COMPLETE
+    6 -> Color(0xFFF59E0B)            // amber — NOT ORDERED
+    7 -> Color(0xFF388E3C)            // green — ORDERED (To Order)
+    else -> Color(0xFF2E7D32)         // default green
 }
 
 fun supplyStatusHeaderTint(status: String?): Color? {
@@ -891,6 +1037,510 @@ private fun NeedsAttentionPage(
                     if (item is DashboardInventoryItemModel) onLongPress(item)
                 }
             )
+        }
+    }
+}
+
+/**
+ * Admin-only cross-job "To Order" view: one section per job, listing that job's specialty +
+ * checklist items flagged TO_ORDER. Fully editable.
+ */
+@Composable
+private fun ToOrderPage(
+    groups: List<ToOrderGroup>,
+    loading: Boolean,
+    onToggleComplete: (jobFolderName: String, item: SpecialtyResolvedItem, completed: Boolean) -> Unit,
+    onEditItem: (jobFolderName: String, item: SpecialtyResolvedItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var collapsedJobIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    LaunchedEffect(groups) {
+        val visibleJobIds = groups.map { it.folderName }.toSet()
+        collapsedJobIds = collapsedJobIds
+            .filter { it in visibleJobIds }
+            .toSet() + autoCollapsedToOrderJobIds(groups)
+    }
+
+    if (loading) {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+    if (groups.isEmpty()) {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Nothing to order", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "No items are flagged To Order across active jobs",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 160.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        buildToOrderJobSections(groups, collapsedJobIds).forEach { section ->
+            ToOrderJobSectionCard(
+                section = section,
+                onToggleCollapsed = {
+                    collapsedJobIds = toggleToOrderJobCollapse(collapsedJobIds, section.group.folderName)
+                },
+                onToggleComplete = onToggleComplete,
+                onEditItem = onEditItem
+            )
+        }
+    }
+}
+
+internal data class ToOrderJobSection(
+    val group: ToOrderGroup,
+    val completedCount: Int,
+    val totalCount: Int,
+    val isCollapsed: Boolean
+) {
+    val isFullyOrdered: Boolean = totalCount > 0 && completedCount == totalCount
+}
+
+internal fun autoCollapsedToOrderJobIds(groups: List<ToOrderGroup>): Set<String> {
+    return groups
+        .filter { group -> group.items.isNotEmpty() && group.items.all { it.isComplete } }
+        .map { it.folderName }
+        .toSet()
+}
+
+internal fun toggleToOrderJobCollapse(collapsedJobIds: Set<String>, folderName: String): Set<String> {
+    return if (folderName in collapsedJobIds) {
+        collapsedJobIds - folderName
+    } else {
+        collapsedJobIds + folderName
+    }
+}
+
+internal fun buildToOrderJobSections(
+    groups: List<ToOrderGroup>,
+    collapsedJobIds: Set<String>
+): List<ToOrderJobSection> {
+    return groups.map { group ->
+        ToOrderJobSection(
+            group = group,
+            completedCount = group.items.count { it.isComplete },
+            totalCount = group.items.size,
+            isCollapsed = group.folderName in collapsedJobIds
+        )
+    }
+}
+
+@Composable
+private fun ToOrderJobSectionCard(
+    section: ToOrderJobSection,
+    onToggleCollapsed: () -> Unit,
+    onToggleComplete: (jobFolderName: String, item: SpecialtyResolvedItem, completed: Boolean) -> Unit,
+    onEditItem: (jobFolderName: String, item: SpecialtyResolvedItem) -> Unit
+) {
+    val accent = if (section.isFullyOrdered) DashboardAccent.SUCCESS else DashboardAccent.WARNING
+
+    DashboardSurfaceCard(
+        accent = accent,
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggleCollapsed)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                DashboardSectionHeader(
+                    title = section.group.jobName.ifBlank { section.group.folderName },
+                    subtitle = buildString {
+                        append(section.group.jobNumber.ifBlank { section.group.folderName })
+                        append(" • ")
+                        append(section.completedCount)
+                        append(" / ")
+                        append(section.totalCount)
+                        append(" ordered")
+                    }
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StatusChip(
+                    text = if (section.isFullyOrdered) "ORDERED" else "OPEN",
+                    backgroundColor = supplyStatusColor(if (section.isFullyOrdered) 7 else 6),
+                    contentColor = Color.White
+                )
+                Icon(
+                    imageVector = if (section.isCollapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                    contentDescription = if (section.isCollapsed) "Expand job" else "Collapse job"
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = !section.isCollapsed,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            Column(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                section.group.items.forEach { resolvedItem ->
+                    ToOrderItemRow(
+                        jobFolderName = section.group.folderName,
+                        resolvedItem = resolvedItem,
+                        onEditItem = onEditItem,
+                        onToggleComplete = onToggleComplete
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToOrderItemRow(
+    jobFolderName: String,
+    resolvedItem: SpecialtyResolvedItem,
+    onEditItem: (jobFolderName: String, item: SpecialtyResolvedItem) -> Unit,
+    onToggleComplete: (jobFolderName: String, item: SpecialtyResolvedItem, completed: Boolean) -> Unit
+) {
+    val item = resolvedItem.item
+    val status = toOrderStatusLabel(resolvedItem.isComplete)
+    val tier = if (resolvedItem.isComplete) 7 else 6
+    val accent = if (resolvedItem.isComplete) DashboardAccent.SUCCESS else DashboardAccent.WARNING
+    val cardText = toOrderItemCardText(item)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { onEditItem(jobFolderName, resolvedItem) },
+                onLongClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
+            )
+            .background(DashboardSurfaceDefaults.accentWash(accent))
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
+        ) {
+            Icon(
+                imageVector = if (resolvedItem.isComplete) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                contentDescription = if (resolvedItem.isComplete) "Mark not ordered" else "Mark ordered",
+                tint = supplyStatusColor(tier)
+            )
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatusChip(
+                    text = status,
+                    backgroundColor = supplyStatusColor(tier),
+                    contentColor = Color.White
+                )
+                if (resolvedItem.isComplete && !cardText.orderDateLabel.isNullOrBlank()) {
+                    StatusChip(
+                        text = cardText.orderDateLabel,
+                        backgroundColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                cardText.cabinetLabel?.let { cabinetLabel ->
+                    Text(
+                        cabinetLabel,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    cardText.itemName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                cardText.quantityLabel?.let { quantityLabel ->
+                    Text(
+                        quantityLabel,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+            if (cardText.supportingText.isNotBlank()) {
+                Text(
+                    cardText.supportingText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+internal data class ToOrderItemCardText(
+    val cabinetLabel: String?,
+    val itemName: String,
+    val quantityLabel: String?,
+    val orderDateLabel: String?,
+    val supportingText: String
+)
+
+internal fun toOrderStatusLabel(isComplete: Boolean): String {
+    return if (isComplete) "ORDERED" else "NOT ORDERED"
+}
+
+internal fun defaultToOrderDate(date: java.time.LocalDate): String {
+    return date.format(java.time.format.DateTimeFormatter.ofPattern("MM-dd"))
+}
+
+internal fun toOrderItemCardText(item: SpecialtyItem): ToOrderItemCardText {
+    val cabinetLabel = when {
+        !item.cabinetLabel.isNullOrBlank() -> "Cab #${item.cabinetLabel}"
+        item.cabinetNumbers.isNotEmpty() -> "Cab #${item.cabinetNumbers.joinToString(", ")}"
+        else -> null
+    }
+    val quantityLabel = item.quantity?.let { quantity ->
+        val label = if (quantity % 1.0 == 0.0) quantity.toInt().toString() else quantity.toString()
+        "Qty $label"
+    }
+    val supportingText = listOfNotNull(
+        item.dimensions?.takeIf { it.isNotBlank() },
+        item.material?.takeIf { it.isNotBlank() },
+        item.supplier?.takeIf { it.isNotBlank() }?.let { "Supplier: $it" },
+        item.model?.takeIf { it.isNotBlank() }?.let { "Model: $it" }
+    ).joinToString(" • ")
+
+    return ToOrderItemCardText(
+        cabinetLabel = cabinetLabel,
+        itemName = item.name,
+        quantityLabel = quantityLabel,
+        orderDateLabel = item.orderDate?.takeIf { it.isNotBlank() },
+        supportingText = supportingText
+    )
+}
+
+@Composable
+private fun ToOrderEditDialog(
+    item: SpecialtyItem,
+    onDismiss: () -> Unit,
+    onSave: (
+        name: String,
+        cabinetNumbers: List<String>,
+        supplier: String?,
+        model: String?,
+        orderDate: String?,
+        tracking: String?,
+        orderUrl: String?,
+        notes: String?,
+        quantity: Double?,
+        material: String?,
+        dimensions: String?
+    ) -> Unit
+) {
+    var name by remember { mutableStateOf(item.name) }
+    var cabinetNumbersStr by remember { mutableStateOf(item.cabinetNumbers.joinToString(", ")) }
+    var supplier by remember { mutableStateOf(item.supplier.orEmpty()) }
+    var model by remember { mutableStateOf(item.model.orEmpty()) }
+    var orderDate by remember { mutableStateOf(item.orderDate.orEmpty()) }
+    var tracking by remember { mutableStateOf(item.tracking.orEmpty()) }
+    var orderUrl by remember { mutableStateOf(item.orderUrl.orEmpty()) }
+    var notes by remember { mutableStateOf(item.notes.orEmpty()) }
+    var quantityStr by remember { mutableStateOf(item.quantity?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }.orEmpty()) }
+    var material by remember { mutableStateOf(item.material.orEmpty()) }
+    var dimensions by remember { mutableStateOf(item.dimensions.orEmpty()) }
+
+    SupplyModalFrame(
+        title = "Edit To Order Item",
+        onDismiss = onDismiss,
+        modifier = Modifier.fillMaxHeight(0.85f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Item Name") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            OutlinedTextField(
+                value = cabinetNumbersStr,
+                onValueChange = { cabinetNumbersStr = it },
+                label = { Text("Cabinet Numbers (comma separated)") },
+                placeholder = { Text("e.g. 1, 2, 3") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = quantityStr,
+                    onValueChange = { quantityStr = it },
+                    label = { Text("Quantity") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium
+                )
+                OutlinedTextField(
+                    value = dimensions,
+                    onValueChange = { dimensions = it },
+                    label = { Text("Dimensions") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = material,
+                    onValueChange = { material = it },
+                    label = { Text("Material") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium
+                )
+                OutlinedTextField(
+                    value = supplier,
+                    onValueChange = { supplier = it },
+                    label = { Text("Supplier") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = model,
+                    onValueChange = { model = it },
+                    label = { Text("Model Number") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium
+                )
+                OutlinedTextField(
+                    value = orderDate,
+                    onValueChange = { orderDate = it },
+                    label = { Text("Order Date") },
+                    placeholder = { Text("MM-DD or any date") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium
+                )
+            }
+
+            OutlinedTextField(
+                value = tracking,
+                onValueChange = { tracking = it },
+                label = { Text("Tracking Number") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            OutlinedTextField(
+                value = orderUrl,
+                onValueChange = { orderUrl = it },
+                label = { Text("Order URL") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("Notes") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        val cabNums = cabinetNumbersStr.split(",")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                        val qty = quantityStr.toDoubleOrNull()
+                        onSave(
+                            name.trim(),
+                            cabNums,
+                            supplier.trim().ifBlank { null },
+                            model.trim().ifBlank { null },
+                            orderDate.trim().ifBlank { null },
+                            tracking.trim().ifBlank { null },
+                            orderUrl.trim().ifBlank { null },
+                            notes.trim().ifBlank { null },
+                            qty,
+                            material.trim().ifBlank { null },
+                            dimensions.trim().ifBlank { null }
+                        )
+                    },
+                    enabled = name.isNotBlank()
+                ) { Text("Save") }
+            }
         }
     }
 }

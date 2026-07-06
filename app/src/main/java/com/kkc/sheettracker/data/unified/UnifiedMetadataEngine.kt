@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.data.unified
 
+import com.kkc.sheettracker.data.models.JobLabel
+
 interface UnifiedMetadataEngine {
     fun updateBasePath(path: String)
     fun invalidateAll()
@@ -7,6 +9,9 @@ interface UnifiedMetadataEngine {
 
     fun getBoardGridColumns(): Int
     fun listJobs(): List<UnifiedJobInfo>
+
+    /** The full label catalog defined in job_board.json (id/name/color), sorted by name. */
+    fun listAllLabels(): List<JobLabel>
 
     /** Returns cached job info for a single folder, or null if not loaded yet. No I/O. */
     fun getJobInfo(folderName: String): UnifiedJobInfo?

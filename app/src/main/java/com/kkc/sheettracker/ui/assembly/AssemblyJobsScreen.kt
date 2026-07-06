@@ -13,11 +13,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.animation.AnimatedContent
@@ -40,13 +43,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,34 +68,48 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
+import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
+import com.kkc.sheettracker.data.JobBoardRequestStore
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.ProductionOrderRequestStore
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import com.kkc.sheettracker.data.models.AssemblyJobCard
+import com.kkc.sheettracker.data.models.DeliverySchedulePickerJob
+import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import com.kkc.sheettracker.ui.admin.JobLabelEditorNavBarControls
 import com.kkc.sheettracker.ui.components.JobBoardGrid
 import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.TopBarClock
+import com.kkc.sheettracker.ui.components.mergeActiveReorder
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
+import java.io.File
 
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,6 +122,9 @@ fun AssemblyJobsScreen(
     hardwoodsProgressStore: HardwoodsProgressStore,
     specialtyStateStore: SpecialtyStateStore,
     deliveryScheduleRepository: DeliveryScheduleRepository,
+    basePath: String,
+    tabletId: String,
+    isDebugBuild: Boolean,
     specialtyProgressVersionHint: Long = 0L,
     pinnedFolderNames: List<String> = emptyList(),
     onTogglePin: (folderName: String, isCurrentlyPinned: Boolean) -> Unit = { _, _ -> },
@@ -121,6 +145,14 @@ fun AssemblyJobsScreen(
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("assembly")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    val adminMode by AdminModeController.enabled.collectAsState()
+    LaunchedEffect(adminMode) {
+        if (adminMode) {
+            query = ""
+            sortByName = false
+            boardView = false
+        }
+    }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
     val scanState by assemblyScanCoordinator.state.collectAsState()
     val cncProgressVersion by progressStore.progressVersion.collectAsState()
@@ -194,6 +226,56 @@ fun AssemblyJobsScreen(
     val pinnedUiStates = remember(pinnedFolderNames, assemblyUiStates) {
         pinnedFolderNames.mapNotNull { folder -> assemblyUiStates.find { it.card.folderName == folder } }
     }
+    val activeUiStates = remember(assemblyUiStates) { assemblyUiStates.filter { it.card.boardSection == 0 } }
+    val pendingUiStates = remember(assemblyUiStates) { assemblyUiStates.filter { it.card.boardSection == 1 } }
+    val activeUiStatesByFolder = remember(activeUiStates) { activeUiStates.associateBy { it.card.folderName } }
+
+    val activeOrder = remember(scanState.snapshot.generation) {
+        mutableStateListOf(*activeUiStates.map { it.card.folderName }.toTypedArray())
+    }
+    val dragOffset = if (pinnedUiStates.isNotEmpty()) pinnedUiStates.size + 2 else 0
+    val listState = rememberLazyListState()
+    val saveScope = rememberCoroutineScope()
+    val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
+    val jobBoardRequestStore = remember(basePath) { JobBoardRequestStore(File(basePath)) }
+    val deliveryScheduleRequestStore = remember(basePath) { DeliveryScheduleRequestStore(File(basePath)) }
+    val deliveryPickerJobs = remember(filtered) {
+        filtered.map {
+            DeliverySchedulePickerJob(
+                folderName = it.folderName,
+                jobNumber = it.jobNumber,
+                description = it.jobName
+            )
+        }
+    }
+    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+        val f = from.index - dragOffset
+        val t = to.index - dragOffset
+        if (f in activeOrder.indices && t in activeOrder.indices) {
+            activeOrder.add(t, activeOrder.removeAt(f))
+        }
+    }
+    val saveActiveOrder = {
+        val newOrder = mergeActiveReorder(
+            original = filtered,
+            reorderedActiveFolderNames = activeOrder,
+            boardSectionOf = { it.boardSection },
+            folderNameOf = { it.folderName }
+        )
+        saveScope.launch {
+            withContext(Dispatchers.IO) { requestStore.writeRequest(newOrder, tabletId) }
+        }
+    }
+
+    var editingLabelsFor by remember { mutableStateOf<AssemblyJobCard?>(null) }
+    var allLabels by remember { mutableStateOf<List<JobLabel>>(emptyList()) }
+    LaunchedEffect(basePath, scanState.snapshot.generation) {
+        allLabels = withContext(Dispatchers.IO) {
+            runCatching {
+                UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild).listAllLabels()
+            }.getOrDefault(emptyList())
+        }
+    }
 
     LaunchedEffect(Unit) {
         assemblyScanCoordinator.refresh(RefreshReason.APP_FOREGROUND, force = false)
@@ -224,7 +306,7 @@ fun AssemblyJobsScreen(
                             boardView = !boardView
                             uiPrefs.setBoardView("assembly", boardView)
                         },
-                        enabled = !sortByName
+                        enabled = !sortByName && !adminMode
                     ) {
                         Icon(
                             imageVector = if (boardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
@@ -245,7 +327,8 @@ fun AssemblyJobsScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Filter jobs by number or name...") },
                 singleLine = true,
-                shape = MaterialTheme.shapes.medium
+                shape = MaterialTheme.shapes.medium,
+                enabled = !adminMode
             )
             Text(
                 text = if (query.isBlank()) {
@@ -257,7 +340,7 @@ fun AssemblyJobsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
-            SortToggleBar(sortByName = sortByName, onSortChange = { sortByName = it })
+            SortToggleBar(sortByName = sortByName, onSortChange = { if (!adminMode) sortByName = it })
             Text(
                 text = when (specialtyScanState.status) {
                     ScanStatus.LOADING -> "Specialty: scanning..."
@@ -279,6 +362,7 @@ fun AssemblyJobsScreen(
             DeliveryScheduleWidget(
                 schedule = deliverySchedule,
                 onTap = { showScheduleDialog = true },
+                showWhenEmpty = adminMode,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -324,10 +408,9 @@ fun AssemblyJobsScreen(
                     )
                 }
                 else -> {
-                    val activeUiStates  = assemblyUiStates.filter { it.card.boardSection == 0 }
-                    val pendingUiStates = assemblyUiStates.filter { it.card.boardSection == 1 }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
+                        state = listState,
                         contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -387,7 +470,10 @@ fun AssemblyJobsScreen(
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                             }
                         }
-                        items(activeUiStates, key = { "active_${it.card.folderName}" }) { uiState ->
+                        items(activeOrder, key = { it }) { activeFolderName ->
+                        val uiState = activeUiStatesByFolder[activeFolderName]
+                        if (uiState != null) {
+                        ReorderableItem(reorderState, key = activeFolderName) {
                             val card = uiState.card
                             val badge = badgeCache[card.folderName]
                             LaunchedEffect(card.folderName, scanState.snapshot.generation) {
@@ -451,6 +537,21 @@ fun AssemblyJobsScreen(
                                     }
                                     val isPinned = card.folderName in pinnedFolderNames
                                     PinButton(isPinned = isPinned, onClick = { onTogglePin(card.folderName, isPinned) })
+                                    if (adminMode) {
+                                        IconButton(onClick = {
+                                            editingLabelsFor = if (editingLabelsFor?.folderName == card.folderName) null else card
+                                        }) {
+                                            Icon(Icons.Filled.Sell, contentDescription = "Edit Labels")
+                                        }
+                                        IconButton(
+                                            modifier = Modifier.draggableHandle(
+                                                onDragStopped = { saveActiveOrder() }
+                                            ),
+                                            onClick = {}
+                                        ) {
+                                            Icon(Icons.Filled.DragHandle, contentDescription = "Reorder")
+                                        }
+                                    }
                                 },
                                 inlineContent = {
                                     DualModeProgressBars(
@@ -459,6 +560,8 @@ fun AssemblyJobsScreen(
                                     )
                                 }
                             )
+                        }
+                        }
                         }
                         if (pendingUiStates.isNotEmpty()) {
                             item(key = "pending_header") {
@@ -522,6 +625,13 @@ fun AssemblyJobsScreen(
                                         }
                                         val isPinned = card.folderName in pinnedFolderNames
                                         PinButton(isPinned = isPinned, onClick = { onTogglePin(card.folderName, isPinned) })
+                                        if (adminMode) {
+                                            IconButton(onClick = {
+                                            editingLabelsFor = if (editingLabelsFor?.folderName == card.folderName) null else card
+                                        }) {
+                                                Icon(Icons.Filled.Sell, contentDescription = "Edit Labels")
+                                            }
+                                        }
                                     },
                                     inlineContent = {
                                         DualModeProgressBars(
@@ -568,8 +678,66 @@ fun AssemblyJobsScreen(
     if (showScheduleDialog) {
         DeliveryScheduleDialog(
             schedule = deliverySchedule,
-            onDismiss = { showScheduleDialog = false }
+            onDismiss = { showScheduleDialog = false },
+            isAdminMode = adminMode,
+            availableJobs = deliveryPickerJobs,
+            onQueueSlotEdit = { slot, jobs ->
+                saveScope.launch {
+                    withContext(Dispatchers.IO) {
+                        deliveryScheduleRequestStore.queueSlotEdit(slot, jobs, tabletId)
+                    }
+                }
+            },
+            onQueueReset = {
+                saveScope.launch {
+                    withContext(Dispatchers.IO) {
+                        deliveryScheduleRequestStore.queueReset(tabletId)
+                    }
+                }
+            }
         )
+    }
+
+    val navBarDeco = LocalNavBarDecoration.current
+    val labelEditJob = editingLabelsFor
+    DisposableEffect(navBarDeco) {
+        onDispose { navBarDeco.extendedControls = null }
+    }
+    SideEffect {
+        navBarDeco.extendedControls = if (labelEditJob != null) {
+            {
+                JobLabelEditorNavBarControls(
+                    jobTitle = listOf(labelEditJob.jobNumber, labelEditJob.jobName)
+                        .filter { it.isNotBlank() }.joinToString(" — ").ifBlank { labelEditJob.folderName },
+                    allLabels = allLabels,
+                    currentLabelIds = labelEditJob.labels.map { it.id }.toSet(),
+                    isPendingDelivery = labelEditJob.boardSection == 1,
+                    onToggleLabel = { label ->
+                        val newIds = if (label.id in labelEditJob.labels.map { it.id }) {
+                            labelEditJob.labels.filterNot { it.id == label.id }.map { it.id }
+                        } else {
+                            labelEditJob.labels.map { it.id } + label.id
+                        }
+                        saveScope.launch {
+                            withContext(Dispatchers.IO) {
+                                jobBoardRequestStore.queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
+                            }
+                        }
+                        editingLabelsFor = labelEditJob.copy(labels = allLabels.filter { it.id in newIds })
+                    },
+                    onSetPendingDelivery = { pending ->
+                        val newSection = if (pending) 1 else 0
+                        saveScope.launch {
+                            withContext(Dispatchers.IO) {
+                                jobBoardRequestStore.queueBoardSectionEdit(labelEditJob.folderName, newSection, tabletId)
+                            }
+                        }
+                        editingLabelsFor = labelEditJob.copy(boardSection = newSection)
+                    },
+                    onDismiss = { editingLabelsFor = null }
+                )
+            }
+        } else null
     }
 }
 
