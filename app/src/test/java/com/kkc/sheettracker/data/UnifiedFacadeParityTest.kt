@@ -37,6 +37,64 @@ class UnifiedFacadeParityTest {
     }
 
     @Test
+    fun scanCoordinator_targetedDeepRefreshLoadsNewCncMaterial() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        seedInitialStaticCache(baseDir)
+        val repository = JobRepository(baseDir, isDebugBuild = true)
+        val coordinator = ScanCoordinator(baseDir, repository)
+
+        coordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+        waitUntilReady {
+            coordinator.state.value.status == ScanStatus.READY &&
+                coordinator.state.value.snapshot.jobs.isNotEmpty()
+        }
+        assertEquals(1, coordinator.state.value.snapshot.jobs.first().materials.size)
+
+        val cncDir = File(baseDir, "$jobFolder/CNC")
+        File(cncDir, "1234 - Remake Maple.pdf").writeText("pdf-remake")
+        File(cncDir, ".metadata/1234 - Remake Maple.json").writeText(
+            """
+            {
+              "jobNumber": "1234",
+              "jobName": "Test Job",
+              "material": "Remake Maple",
+              "pdfFilename": "1234 - Remake Maple.pdf",
+              "remakeLabel": "Remake",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    {
+                      "number": 7,
+                      "width": 5.0,
+                      "length": 10.0,
+                      "name": "Replacement Shelf",
+                      "cabNumber": 42,
+                      "room": "Kitchen"
+                    }
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+
+        coordinator.refreshJobsDeep(listOf(jobFolder))
+
+        val sawRemake = waitUntil(timeoutMs = 5_000L) {
+            coordinator.state.value.snapshot.jobs.firstOrNull()
+                ?.materials
+                ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
+        }
+        val filenames = coordinator.state.value.snapshot.jobs.firstOrNull()
+            ?.materials
+            ?.map { it.pdfFilename }
+            .orEmpty()
+        assertTrue("Expected targeted deep refresh to load remake material; saw $filenames", sawRemake)
+    }
+
+    @Test
     fun hardwoodsRepository_scanAndBoardStock_matchExpectedData() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)
@@ -93,13 +151,19 @@ class UnifiedFacadeParityTest {
     }
 
     private fun waitUntilReady(timeoutMs: Long = 3_000L, condition: () -> Boolean) {
+        if (waitUntil(timeoutMs, condition)) return
+        throw AssertionError("Timed out waiting for condition")
+    }
+
+    private fun waitUntil(timeoutMs: Long = 3_000L, condition: () -> Boolean): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (!condition()) {
             if (System.currentTimeMillis() > deadline) {
-                throw AssertionError("Timed out waiting for condition")
+                return false
             }
             Thread.sleep(25)
         }
+        return true
     }
 
     private fun seedJob(baseDir: File) {
@@ -216,6 +280,65 @@ class UnifiedFacadeParityTest {
             }
             """.trimIndent()
         )
+    }
+
+    private fun seedInitialStaticCache(baseDir: File) {
+        val cacheFile = File(baseDir, "$jobFolder/.metadata/cache_static.json")
+        cacheFile.parentFile?.mkdirs()
+        cacheFile.writeText(
+            """
+            {
+              "jobInfo": {
+                "folderName": "$jobFolder",
+                "jobNumber": "1234",
+                "jobName": "Test Job",
+                "hiddenFromProduction": false,
+                "lineupPosition": 1
+              },
+              "cncJob": {
+                "folderName": "$jobFolder",
+                "jobNumber": "1234",
+                "jobName": "Test Job",
+                "materials": [
+                  {
+                    "pdfFilename": "1234 - White Melamine.pdf",
+                    "materialName": "White Melamine",
+                    "pageCount": 1,
+                    "fileFingerprint": "initial",
+                    "metadata": {
+                      "jobNumber": "1234",
+                      "jobName": "Test Job",
+                      "material": "White Melamine",
+                      "pdfFilename": "1234 - White Melamine.pdf",
+                      "pages": [
+                        {
+                          "pageNumber": 1,
+                          "parts": [
+                            {
+                              "number": 1,
+                              "width": 12.0,
+                              "length": 24.0,
+                              "name": "Side Panel",
+                              "cabNumber": 42,
+                              "room": "Kitchen"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "hiddenFromProduction": false,
+                "lineupPosition": 1
+              },
+              "cncIssues": [],
+              "pdfCatalog": { "managedDocs": [], "otherDocs": [] },
+              "boardStockRows": [],
+              "hasThreeDAssets": false
+            }
+            """.trimIndent()
+        )
+        cacheFile.setLastModified(System.currentTimeMillis() - 10_000L)
     }
 
     private fun createTempBaseDir(): File = Files.createTempDirectory("unified-facade-parity-test").toFile()

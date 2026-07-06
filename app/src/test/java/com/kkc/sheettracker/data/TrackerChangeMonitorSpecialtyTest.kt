@@ -9,6 +9,50 @@ import java.nio.file.Files
 
 class TrackerChangeMonitorSpecialtyTest {
     @Test
+    fun cncTrackerChangeReportsAffectedJobForTargetedMetadataRefresh() {
+        val baseDir = Files.createTempDirectory("tracker-change-monitor-cnc-target-test").toFile()
+        val jobFolder = "1234 - Test Job"
+        val trackerDir = File(baseDir, "$jobFolder/CNC/.tracker").apply { mkdirs() }
+        val trackerFile = File(trackerDir, "tablet-a.json")
+        trackerFile.writeText("""{"tabletId":"tablet-a","actions":[]}""")
+
+        val progressStore = ProgressStore(baseDir, "tablet-a", File(baseDir, ".local"), readOnly = true)
+        val hardwoodsStore = HardwoodsProgressStore(baseDir, "tablet-a", readOnly = true)
+        val reported = mutableListOf<Set<String>>()
+        val monitor = TrackerChangeMonitor(
+            baseDir = baseDir,
+            progressStore = progressStore,
+            hardwoodsProgressStore = hardwoodsStore,
+            viewerInteraction = MutableStateFlow(false),
+            onCncJobsChanged = { jobs -> reported += jobs },
+            pollingIntervalMs = 100L
+        )
+
+        monitor.start()
+        try {
+            Thread.sleep(1_700L)
+            reported.clear()
+
+            trackerFile.writeText(
+                """
+                    {
+                      "tabletId":"tablet-a",
+                      "actions":[
+                        {"file":"1234 - White Melamine.pdf","page":1,"part":7,"action":"unbad_part","timestamp":"2026-07-06T12:00:00Z","fileFingerprint":"fp-a"}
+                      ]
+                    }
+                """.trimIndent()
+            )
+
+            waitUntil(timeoutMs = 4_000L) {
+                reported.any { jobFolder in it }
+            }
+        } finally {
+            monitor.stop()
+        }
+    }
+
+    @Test
     fun discoverTrackerDirs_includesSpecialtyTrackerDirectory() {
         val baseDir = Files.createTempDirectory("tracker-change-monitor-specialty-test").toFile()
         val jobFolder = "1234 - Test Job"

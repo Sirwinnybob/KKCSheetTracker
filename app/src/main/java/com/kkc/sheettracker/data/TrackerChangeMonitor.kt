@@ -21,6 +21,7 @@ class TrackerChangeMonitor(
     private val viewerInteraction: StateFlow<Boolean> = ViewerInteractionSignal.isViewerInteracting,
     private val activeJobFolderName: StateFlow<String?> = MutableStateFlow(null),
     private val onWatcherRefreshRequested: (() -> Unit)? = null,
+    private val onCncJobsChanged: ((Set<String>) -> Unit)? = null,
     private val pollingIntervalMs: Long = POLLING_INTERVAL_MS
 ) {
     private enum class TrackerKind { CNC, HARDWOODS, SPECIALTY, ORDER }
@@ -387,6 +388,7 @@ class TrackerChangeMonitor(
         } else if (cncJobs.isNotEmpty()) {
             // Batch job invalidation to trigger one progress version bump for this cycle.
             progressStore.invalidateJobIndexes(cncJobs)
+            onCncJobsChanged?.invoke(cncJobs)
         }
 
         if (invalidateAllHardwoods) {

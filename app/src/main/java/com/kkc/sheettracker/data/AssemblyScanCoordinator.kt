@@ -167,37 +167,51 @@ class AssemblyScanCoordinator(
         }
         if (needsDeepLoad.isNotEmpty()) {
             scope.launch {
-                needsDeepLoad.forEach { folderName ->
-                    if (unifiedEngine.refreshJobDeep(folderName)) updateJobInState(folderName)
-                }
+                val changed = needsDeepLoad.filter { unifiedEngine.refreshJobDeep(it) }
+                updateJobsInState(changed)
             }
         }
         return jobs
     }
 
     /** Re-projects one job from the engine's in-memory cache and emits an updated AssemblyScanState. */
-    fun updateJobInState(folderName: String) {
+    fun updateJobInState(folderName: String) = updateJobsInState(listOf(folderName))
+
+    /**
+     * Re-projects a batch of jobs from the engine's in-memory cache in a single state emission.
+     * Batching matters here: calling updateJobInState() once per folder in a loop would have each
+     * call read-modify-write _state.value independently, racing when several jobs resolve around
+     * the same time and silently dropping all but the last writer's update.
+     */
+    fun updateJobsInState(folderNames: List<String>) {
+        if (folderNames.isEmpty()) return
         scope.launch {
-            val info = unifiedEngine.getMergedJobInfo(folderName) ?: return@launch
-            val updatedJob = unifiedEngine.getAssemblySnapshot(folderName)?.job
-                ?.copy(
-                    lineupPosition = info.lineupPosition,
-                    labels = info.labels,
-                    hiddenFromProduction = info.hiddenFromProduction,
-                    isPending = info.isPending,
-                    boardSection = info.boardSection
-                ) ?: return@launch
+            val updates = folderNames.distinct().mapNotNull { folderName ->
+                val info = unifiedEngine.getMergedJobInfo(folderName) ?: return@mapNotNull null
+                val job = unifiedEngine.getAssemblySnapshot(folderName)?.job
+                    ?.copy(
+                        lineupPosition = info.lineupPosition,
+                        labels = info.labels,
+                        hiddenFromProduction = info.hiddenFromProduction,
+                        isPending = info.isPending,
+                        boardSection = info.boardSection
+                    ) ?: return@mapNotNull null
+                folderName to job
+            }
+            if (updates.isEmpty()) return@launch
+
             val current = _state.value
             val existingJobs = current.snapshot.jobs
-            val newJobs = if (existingJobs.any { it.folderName == folderName }) {
-                existingJobs.map { if (it.folderName == folderName) updatedJob else it }
-            } else {
-                existingJobs + updatedJob
-            }
+            val updatedJobByFolder = updates.toMap()
+            val existingFolders = existingJobs.mapTo(HashSet()) { it.folderName }
+            val replacedJobs = existingJobs.map { updatedJobByFolder[it.folderName] ?: it }
+            val appendedJobs = updates.filter { it.first !in existingFolders }.map { it.second }
+            val updatedJobs = replacedJobs + appendedJobs
+
             _state.value = current.copy(
                 snapshot = current.snapshot.copy(
                     generation = generation.incrementAndGet(),
-                    jobs = newJobs
+                    jobs = updatedJobs
                 )
             )
         }

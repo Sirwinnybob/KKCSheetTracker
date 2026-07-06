@@ -239,7 +239,9 @@ class ScanCoordinator(
         if (folderNames.isEmpty()) return
         scope.launch {
             val updates = folderNames.distinct().mapNotNull { folderName ->
-                val info = unifiedEngine.getMergedJobInfo(folderName) ?: return@mapNotNull null
+                val info = unifiedEngine.getJobInfo(folderName)
+                    ?: unifiedEngine.getMergedJobInfo(folderName)
+                    ?: return@mapNotNull null
                 val snapshot = unifiedEngine.getCncSnapshot(folderName) ?: return@mapNotNull null
                 JobReprojection(
                     folderName = folderName,
@@ -285,6 +287,14 @@ class ScanCoordinator(
         scope.launch {
             val changed = unifiedEngine.refreshJobDeep(folderName)
             if (changed) updateJobInState(folderName)
+        }
+    }
+
+    fun refreshJobsDeep(folderNames: Collection<String>) {
+        if (folderNames.isEmpty()) return
+        scope.launch {
+            val changed = folderNames.distinct().filter { unifiedEngine.refreshJobDeep(it) }
+            updateJobsInState(changed)
         }
     }
 

@@ -196,6 +196,7 @@ fun AppNavigation(
     val trackerChangeMonitor = remember(
         basePath,
         progressStore,
+        scanCoordinator,
         sharedHardwoodsProgressStore,
         sharedSpecialtyProgressStore,
         watcherRefreshSignal
@@ -210,6 +211,9 @@ fun AppNavigation(
             activeJobFolderName = activeJobFolderName,
             onWatcherRefreshRequested = {
                 watcherRefreshSignal.value = System.currentTimeMillis()
+            },
+            onCncJobsChanged = { jobFolderNames ->
+                scanCoordinator.refreshJobsDeep(jobFolderNames)
             }
         )
     }

@@ -42,10 +42,23 @@ class AssemblyStateStore(
         return engine().getCabinetSheetIndex(jobFolderName).index
     }
 
-    fun deriveJobCards(): List<AssemblyJobCard> {
+    /**
+     * @param resolveCounts When false, skips the progress-tracker file reads (CNC/hardwoods
+     * counts) and returns cards with zero summaries. Used for an instant placeholder pass so the
+     * job list renders immediately instead of staying empty until the tracker I/O resolves.
+     */
+    fun deriveJobCards(resolveCounts: Boolean = true): List<AssemblyJobCard> {
         val assemblyJobs = getJobs()
-        val cncJobsByFolder = scanCoordinator.state.value.snapshot.jobs.associateBy { it.folderName }
-        val hardwoodJobsByFolder = hardwoodsScanCoordinator.state.value.snapshot.jobs.associateBy { it.folderName }
+        val cncJobsByFolder = if (resolveCounts) {
+            scanCoordinator.state.value.snapshot.jobs.associateBy { it.folderName }
+        } else {
+            emptyMap()
+        }
+        val hardwoodJobsByFolder = if (resolveCounts) {
+            hardwoodsScanCoordinator.state.value.snapshot.jobs.associateBy { it.folderName }
+        } else {
+            emptyMap()
+        }
 
         return assemblyJobs.map { job ->
             val cncJob = cncJobsByFolder[job.folderName]

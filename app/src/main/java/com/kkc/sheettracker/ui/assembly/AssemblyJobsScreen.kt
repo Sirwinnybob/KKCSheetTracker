@@ -165,12 +165,13 @@ fun AssemblyJobsScreen(
     // Cleared on each new scan generation; populated async per-item to avoid blocking composition.
     val badgeCache = remember(scanState.snapshot.generation) { mutableStateMapOf<String, AssemblyJobBadgeState>() }
 
-    // deriveJobCards() builds CNC + hardwood progress indexes from tracker files on a
-    // cache miss, so it must not run synchronously in composition (main thread). Mirror the
-    // dashboard and derive on Dispatchers.IO; the screen already renders an empty-then-
-    // populated flow as the scan completes, so an empty initial value is consistent.
+    // deriveJobCards() builds CNC + hardwood progress indexes from tracker files on a cache miss,
+    // so the real pass must not run synchronously in composition (main thread). The placeholder
+    // pass (resolveCounts = false) only touches the assembly job list already in memory, so the
+    // list renders at its final size immediately instead of sitting empty until tracker I/O
+    // resolves (mirrors JobBrowserScreen/HardwoodsJobsScreen's instant-placeholder pattern).
     val allCards by produceState(
-        initialValue = emptyList<AssemblyJobCard>(),
+        initialValue = assemblyStateStore.deriveJobCards(resolveCounts = false),
         scanState.snapshot.generation, cncProgressVersion, hardwoodProgressVersion
     ) {
         value = withContext(Dispatchers.IO) { assemblyStateStore.deriveJobCards() }
