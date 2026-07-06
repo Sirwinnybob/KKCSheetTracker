@@ -231,7 +231,15 @@ fun AssemblyJobsScreen(
     val pendingUiStates = remember(assemblyUiStates) { assemblyUiStates.filter { it.card.boardSection == 1 } }
     val activeUiStatesByFolder = remember(activeUiStates) { activeUiStates.associateBy { it.card.folderName } }
 
-    val activeOrder = remember(scanState.snapshot.generation) {
+    // Keyed on the active folder-name SET, not scanState.snapshot.generation: allCards merges in
+    // CNC's and Hardwoods' coordinator data (via deriveJobCards), and those coordinators' own
+    // scans can finish resolving well after Assembly's own generation last bumped. Keying on
+    // generation left this frozen at whatever (possibly still-empty) set existed at that moment,
+    // so the active section stayed permanently blank until a manual refresh bumped generation
+    // again. Keying on the set itself reseeds exactly when the resolved job set actually changes,
+    // while staying stable across pure local drag-reorders (which don't change the set).
+    val activeFolderSet = remember(activeUiStates) { activeUiStates.map { it.card.folderName }.toSet() }
+    val activeOrder = remember(activeFolderSet) {
         mutableStateListOf(*activeUiStates.map { it.card.folderName }.toTypedArray())
     }
     val dragOffset = if (pinnedUiStates.isNotEmpty()) pinnedUiStates.size + 2 else 0
