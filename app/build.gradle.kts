@@ -14,12 +14,12 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.kkc.sheettracker"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.kkc.sheettracker"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 6024
         versionName = "6.4.1"
     }
@@ -68,12 +68,10 @@ android {
         // the sole statement of a produceState producer lambda. Every flagged
         // call site does assign `value`; revisit once compose-bom is upgraded.
         disable += "ProduceStateDoesNotAssignValue"
-        // lint's bundled NonNullableMutableLiveDataDetector crashes (Kotlin Analysis API
-        // class/interface mismatch) under AGP 8.7.3's lint engine once Gradle is bumped to
-        // 9.0.0+, regardless of lifecycle-runtime-ktx version. Detector crash, not a real
-        // finding; the app doesn't use MutableLiveData with Compose state. Revisit once AGP
-        // is upgraded past 8.7.3 (migration in progress on this branch).
-        disable += "NullSafeMutableLiveData"
+        // local.properties is gitignored and auto-regenerated per-developer-machine by
+        // Android Studio / sdkmanager with OS-native path separators; it isn't something
+        // to hand-fix since any regeneration recreates the same "issue". New AGP 9.x check.
+        disable += "PropertyEscape"
     }
 
     testOptions {
@@ -85,10 +83,10 @@ android {
 
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2025.06.01"))
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation(platform("androidx.compose:compose-bom:2026.06.01"))
+    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
+    implementation("androidx.activity:activity-compose:1.13.0")
     implementation("dev.chrisbanes.haze:haze:1.5.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -97,8 +95,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material3:material3-window-size-class")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.9.0")
-    implementation("androidx.datastore:datastore-preferences:1.1.2")
+    implementation("androidx.navigation:navigation-compose:2.9.8")
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("com.google.code.gson:gson:2.13.2")
     implementation("sh.calvin.reorderable:reorderable:3.1.0")
     implementation("io.coil-kt:coil-compose:2.7.0")

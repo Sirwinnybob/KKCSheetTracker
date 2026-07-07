@@ -125,8 +125,8 @@ fun CountStatusChip(
     label: String,
     count: Int,
     color: Color,
-    forceFilled: Boolean? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    forceFilled: Boolean? = null
 ) {
     val isFilled = forceFilled ?: (count > 0)
     val containerColor = if (isFilled) color else Color.Transparent

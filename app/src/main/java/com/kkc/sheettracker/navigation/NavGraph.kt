@@ -1,7 +1,7 @@
 package com.kkc.sheettracker.navigation
 
-import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
@@ -409,7 +409,7 @@ private fun MultiBackStackNavigation(
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
-    val activity = LocalContext.current as? Activity
+    val activity = LocalActivity.current
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
     val context = LocalContext.current
@@ -3144,7 +3144,7 @@ internal fun specialtySplitViewRoute(
 @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
 @Composable
 private fun rememberCompactWidthClass(): Boolean {
-    val activity = LocalContext.current as? Activity ?: return false
+    val activity = LocalActivity.current ?: return false
     val windowSizeClass = calculateWindowSizeClass(activity)
     return windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact
 }
