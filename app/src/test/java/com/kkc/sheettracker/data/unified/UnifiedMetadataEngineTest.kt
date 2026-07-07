@@ -94,6 +94,65 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun getCncSnapshotStaysConsistentUnderConcurrentRefresh() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        val engine = FileBackedUnifiedMetadataEngine(
+            basePath = baseDir.absolutePath,
+            isDebugBuild = true,
+            pdfPageCounter = { UnifiedPdfPageCountResult(8) }
+        )
+        val metadataFile = File(baseDir, "$jobFolder/CNC/.metadata/1234 - White Melamine.json")
+        val onePartJson = metadataFile.readText()
+        val twoPartJson = """
+            {
+              "jobNumber": "1234",
+              "jobName": "Test Job",
+              "material": "White Melamine",
+              "pdfFilename": "1234 - White Melamine.pdf",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    { "number": 1, "width": 12.0, "length": 24.0, "name": "Side Panel", "cabNumber": 42, "room": "Kitchen" },
+                    { "number": 2, "width": 6.0, "length": 10.0, "name": "Shelf", "cabNumber": 42, "room": "Kitchen" }
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+
+        // One thread repeatedly flips the raw CNC data between 1-part and 2-part versions and
+        // refreshes the job; another thread repeatedly reads getCncSnapshot(). Every observed
+        // snapshot must have a search index sized to match its own job data — if getCncSnapshot
+        // ever read the static job data and its signature from two different generations, this
+        // invariant would break under this interleaving.
+        val iterations = 200
+        val mismatches = java.util.concurrent.atomic.AtomicInteger(0)
+        val writer = Thread {
+            repeat(iterations) { i ->
+                metadataFile.writeText(if (i % 2 == 0) twoPartJson else onePartJson)
+                engine.refreshJobDeep(jobFolder)
+            }
+        }
+        val reader = Thread {
+            repeat(iterations * 5) {
+                val snapshot = engine.getCncSnapshot(jobFolder) ?: return@repeat
+                val partCount = snapshot.job.materials.sumOf { m -> m.metadata?.pages?.sumOf { it.parts.size } ?: 0 }
+                if (partCount != snapshot.searchIndex.size) {
+                    mismatches.incrementAndGet()
+                }
+            }
+        }
+        writer.start()
+        reader.start()
+        writer.join()
+        reader.join()
+
+        assertEquals(0, mismatches.get())
+    }
+
+    @Test
     fun resolvesReferenceDocsAndCabinetJump() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)

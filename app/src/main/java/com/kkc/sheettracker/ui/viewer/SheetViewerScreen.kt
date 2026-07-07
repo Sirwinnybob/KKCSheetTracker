@@ -392,14 +392,17 @@ fun SheetViewerScreen(
             localMarkupDeletedIds.clear()
             return@LaunchedEffect
         }
-        localMarkupStrokes.clear()
-        localMarkupStrokes.addAll(pdfMarkupStore.getMergedActiveStrokes(jobFolderName, pdfFilename, currentPage))
-        localMarkupDeletedIds.clear()
-        localMarkupDeletedIds.addAll(
-            pdfMarkupStore.loadTabletPageMarkup(jobFolderName, pdfFilename, currentPage)
+        val (mergedStrokes, deletedIds) = withContext(Dispatchers.IO) {
+            val strokes = pdfMarkupStore.getMergedActiveStrokes(jobFolderName, pdfFilename, currentPage)
+            val deleted = pdfMarkupStore.loadTabletPageMarkup(jobFolderName, pdfFilename, currentPage)
                 ?.deletedStrokeIds
                 .orEmpty()
-        )
+            strokes to deleted
+        }
+        localMarkupStrokes.clear()
+        localMarkupStrokes.addAll(mergedStrokes)
+        localMarkupDeletedIds.clear()
+        localMarkupDeletedIds.addAll(deletedIds)
         Log.d(
             "PdfMarkupDebug",
             "SheetViewer reload job=$jobFolderName pdf=$pdfFilename page=$currentPage strokes=${localMarkupStrokes.size} deleted=${localMarkupDeletedIds.size}"

@@ -502,20 +502,21 @@ fun UnifiedReferenceViewer(
             localDeletedIds.clear()
             return@LaunchedEffect
         }
-        localMarkupStrokes.clear()
-        localMarkupStrokes.addAll(
-            pdfMarkupStore.getMergedActiveStrokes(
+        val (mergedStrokes, deletedIds) = withContext(Dispatchers.IO) {
+            val strokes = pdfMarkupStore.getMergedActiveStrokes(
                 jobFolderName = pdfMarkupJobFolderName,
                 pdfFilename = resolvedPdfFilename,
                 page = sourcePage
             )
-        )
-        localDeletedIds.clear()
-        localDeletedIds.addAll(
-            pdfMarkupStore.loadTabletPageMarkup(pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage)
+            val deleted = pdfMarkupStore.loadTabletPageMarkup(pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage)
                 ?.deletedStrokeIds
                 .orEmpty()
-        )
+            strokes to deleted
+        }
+        localMarkupStrokes.clear()
+        localMarkupStrokes.addAll(mergedStrokes)
+        localDeletedIds.clear()
+        localDeletedIds.addAll(deletedIds)
         Log.d(
             "PdfMarkupDebug",
             "UnifiedReferenceViewer reload job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage strokes=${localMarkupStrokes.size} deleted=${localDeletedIds.size}"
