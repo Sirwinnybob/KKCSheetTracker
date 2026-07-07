@@ -584,7 +584,8 @@ enum class SheetStatus {
     IN_PROGRESS,
     COMPLETE,
     SKIPPED,
-    HAS_BAD_PARTS
+    HAS_BAD_PARTS,
+    RE_NESTED
 }
 
 data class TrackerAction(
@@ -593,7 +594,8 @@ data class TrackerAction(
     val part: Int? = null,
     val action: String,
     val timestamp: String,
-    val fileFingerprint: String? = null
+    val fileFingerprint: String? = null,
+    val reNested: Boolean? = null
 )
 
 data class TabletProgress(
