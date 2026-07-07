@@ -1,3 +1,4 @@
+@file:Suppress("ProduceStateDoesNotAssignValue")
 package com.kkc.sheettracker.ui.assembly
 
 import android.content.res.Configuration

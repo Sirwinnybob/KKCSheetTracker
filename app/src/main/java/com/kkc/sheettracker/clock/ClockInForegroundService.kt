@@ -81,6 +81,7 @@ class ClockInForegroundService : Service() {
         super.onDestroy()
     }
 
+    @android.annotation.SuppressLint("MissingPermission")
     private fun publishOrStop() {
         val snapshot = clockInState.snapshot
         val actions = foregroundActionsForSnapshot(snapshot, isForegroundStarted)
@@ -102,6 +103,7 @@ class ClockInForegroundService : Service() {
         if (snapshot.isActive) ensureTickerRunning()
     }
 
+    @android.annotation.SuppressLint("MissingPermission")
     private fun ensureTickerRunning() {
         if (tickerJob?.isActive == true) return
         tickerJob = serviceScope.launch {

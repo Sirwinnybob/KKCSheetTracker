@@ -190,7 +190,7 @@ class SheetViewerScreenTest {
     @Test
     fun resolveCncSidecarFile_keepsAbsolutePath() {
         val pdfFile = File("C:/Ready Jobs/597b - TEST JOB/CNC/597b - Material.pdf")
-        val absolute = File("D:/cache/part.png")
+        val absolute = File("/cache/part.png")
 
         assertEquals(absolute, resolveCncSidecarFile(pdfFile, absolute.path))
     }
