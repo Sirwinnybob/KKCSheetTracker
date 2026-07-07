@@ -317,6 +317,7 @@ class AppStateStore(
         var bad = 0
         var skipped = 0
         var notStarted = 0
+        var reNestedCount = 0
 
         for (page in visiblePages) {
             val status = progressStore.getSheetStatus(
@@ -355,11 +356,12 @@ class AppStateStore(
                 }
                 SheetStatus.SKIPPED -> skipped++
                 SheetStatus.COMPLETE -> complete++
+                SheetStatus.RE_NESTED -> reNestedCount++
                 else -> notStarted++
             }
         }
 
-        val total = visiblePages.size
+        val total = visiblePages.size - reNestedCount
         val counts = StatusCounts(
             total = total,
             complete = complete,
@@ -409,7 +411,7 @@ class AppStateStore(
         return trackablePages.firstOrNull { page ->
             when (pageStatusByNumber[page]?.status ?: SheetStatus.NOT_STARTED) {
                 SheetStatus.NOT_STARTED, SheetStatus.IN_PROGRESS -> true
-                SheetStatus.COMPLETE, SheetStatus.SKIPPED, SheetStatus.HAS_BAD_PARTS -> false
+                SheetStatus.COMPLETE, SheetStatus.SKIPPED, SheetStatus.HAS_BAD_PARTS, SheetStatus.RE_NESTED -> false
             }
         } ?: fallbackPage
     }
