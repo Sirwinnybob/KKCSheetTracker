@@ -41,21 +41,27 @@ class JobBoardRequestStore(private val baseDir: File) {
 
     private fun queueEdit(folderName: String, tabletId: String, apply: (JobBoardEdit) -> JobBoardEdit) {
         val dest = File(baseDir, "job_board_request.json")
-        val existing = readExisting(dest)
-        val existingEdit = existing.find { it.folderName == folderName } ?: JobBoardEdit(folderName)
-        val updatedEdit = apply(existingEdit)
-        val edits = existing.filterNot { it.folderName == folderName } + updatedEdit
+        // Guard the whole read-merge-write against concurrent edits. The lock is keyed by the
+        // request file's absolute path (not the store instance) because separate screens each
+        // build their own JobBoardRequestStore over the same file — a per-instance lock would
+        // let two of them clobber each other's queued edits.
+        synchronized(lockFor(dest)) {
+            val existing = readExisting(dest)
+            val existingEdit = existing.find { it.folderName == folderName } ?: JobBoardEdit(folderName)
+            val updatedEdit = apply(existingEdit)
+            val edits = existing.filterNot { it.folderName == folderName } + updatedEdit
 
-        val payload = JobBoardEditRequest(
-            edits = edits,
-            tabletId = tabletId,
-            requestedAt = Instant.now().toString()
-        )
-        val tmp = File(baseDir, "job_board_request.json.tmp")
-        tmp.writeText(gson.toJson(payload))
-        if (!tmp.renameTo(dest)) {
-            tmp.copyTo(dest, overwrite = true)
-            tmp.delete()
+            val payload = JobBoardEditRequest(
+                edits = edits,
+                tabletId = tabletId,
+                requestedAt = Instant.now().toString()
+            )
+            val tmp = File(baseDir, "job_board_request.json.tmp")
+            tmp.writeText(gson.toJson(payload))
+            if (!tmp.renameTo(dest)) {
+                tmp.copyTo(dest, overwrite = true)
+                tmp.delete()
+            }
         }
     }
 
@@ -66,5 +72,12 @@ class JobBoardRequestStore(private val baseDir: File) {
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    companion object {
+        // Per-request-file monitor shared across all store instances in this process.
+        private val fileLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+        private fun lockFor(file: File): Any = fileLocks.getOrPut(file.absolutePath) { Any() }
     }
 }

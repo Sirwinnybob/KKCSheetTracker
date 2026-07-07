@@ -51,6 +51,49 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun getCncSnapshotPairsJobAndSearchIndexFromSameGeneration() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        val engine = FileBackedUnifiedMetadataEngine(
+            basePath = baseDir.absolutePath,
+            isDebugBuild = true,
+            pdfPageCounter = { UnifiedPdfPageCountResult(8) }
+        )
+
+        val first = engine.getCncSnapshot(jobFolder)
+        assertEquals(1, first?.searchIndex?.size)
+
+        // Change raw CNC metadata to two parts (larger file -> new static signature).
+        File(baseDir, "$jobFolder/CNC/.metadata/1234 - White Melamine.json").writeText(
+            """
+            {
+              "jobNumber": "1234",
+              "jobName": "Test Job",
+              "material": "White Melamine",
+              "pdfFilename": "1234 - White Melamine.pdf",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    { "number": 1, "width": 12.0, "length": 24.0, "name": "Side Panel", "cabNumber": 42, "room": "Kitchen" },
+                    { "number": 2, "width": 6.0, "length": 10.0, "name": "Shelf", "cabNumber": 42, "room": "Kitchen" }
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+        engine.refreshJobDeep(jobFolder)
+
+        val second = engine.getCncSnapshot(jobFolder)
+        val partCount = second?.job?.materials?.sumOf { m -> m.metadata?.pages?.sumOf { it.parts.size } ?: 0 }
+        // The returned cncJob and its memoized search index must be built from one generation,
+        // so the index has exactly one entry per part in the (new) job data.
+        assertEquals(2, partCount)
+        assertEquals(partCount, second?.searchIndex?.size)
+    }
+
+    @Test
     fun resolvesReferenceDocsAndCabinetJump() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)

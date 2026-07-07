@@ -160,9 +160,13 @@ class HardwoodsProgressStore(
         )
         val snapshot = runCatching {
             val cache = ensureJobCache(jobFolderName)
-            cache.localActions.add(next)
-            applyActionToCache(cache, next)
-            cache.localActions.toList()
+            // Guard the cache's mutable maps with the JobCache instance monitor so this write
+            // cannot interleave with a concurrent reader snapshot (getRowProgressMap etc.).
+            synchronized(cache) {
+                cache.localActions.add(next)
+                applyActionToCache(cache, next)
+                cache.localActions.toList()
+            }
         }.getOrElse {
             val current = loadTabletProgress(jobFolderName)
             val merged = current.actions + next
@@ -294,7 +298,8 @@ class HardwoodsProgressStore(
     }
 
     fun getRowProgressMap(jobFolderName: String): Map<Pair<String, String>, HardwoodRowProgress> {
-        return ensureJobCache(jobFolderName).rowProgressMap.toMap()
+        val cache = ensureJobCache(jobFolderName)
+        return synchronized(cache) { cache.rowProgressMap.toMap() }
     }
 
     fun getRowProgress(jobFolderName: String, docType: String, rowId: String): HardwoodRowProgress {
@@ -371,8 +376,8 @@ class HardwoodsProgressStore(
     }
 
     fun getSkippedCabinetMap(jobFolderName: String): Map<Pair<String, String>, Set<String>> {
-        val source = ensureJobCache(jobFolderName).skippedCabinetMap
-        return source.mapValues { it.value.toSet() }
+        val cache = ensureJobCache(jobFolderName)
+        return synchronized(cache) { cache.skippedCabinetMap.mapValues { it.value.toSet() } }
     }
 
     fun makeTotalsRip10LineKey(docType: String, blockIndex: Int, lineIndex: Int): String {
@@ -385,7 +390,8 @@ class HardwoodsProgressStore(
     }
 
     fun getTotalsRip10DoneMap(jobFolderName: String): Map<String, Int> {
-        return ensureJobCache(jobFolderName).totalsRip10Map.toMap()
+        val cache = ensureJobCache(jobFolderName)
+        return synchronized(cache) { cache.totalsRip10Map.toMap() }
     }
 
     fun getBoardStockRipDone(

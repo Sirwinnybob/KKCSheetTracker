@@ -16,6 +16,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class HardwoodsProgressStoreTest {
     private val gson = Gson()
@@ -455,6 +459,50 @@ class HardwoodsProgressStoreTest {
             value = value,
             timestamp = timestamp
         )
+    }
+
+    @Test
+    fun concurrentRowWritesAndReadsDoNotCorruptCache() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val docType = HardwoodDocType.FACE_FRAME_CUT_LIST.name
+
+        val threads = 6
+        val iterations = 300
+        val pool = Executors.newFixedThreadPool(threads)
+        val errors = CopyOnWriteArrayList<Throwable>()
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(threads)
+
+        for (t in 0 until threads) {
+            pool.execute {
+                try {
+                    start.await()
+                    for (i in 0 until iterations) {
+                        if (t % 2 == 0) {
+                            // Writers mutate the JobCache maps via appendAction/applyActionToCache.
+                            store.setDoneCount(jobFolderName, docType, "row-${i % 20}", qty = 5, doneCount = i % 5)
+                        } else {
+                            // Readers snapshot the same maps; without a shared lock this races the
+                            // writers' mutations and throws ConcurrentModificationException.
+                            store.getRowProgressMap(jobFolderName)
+                            store.getSkippedCabinetMap(jobFolderName)
+                            store.getTotalsRip10DoneMap(jobFolderName)
+                        }
+                    }
+                } catch (e: Throwable) {
+                    errors.add(e)
+                } finally {
+                    done.countDown()
+                }
+            }
+        }
+        start.countDown()
+        assertTrue("concurrent access did not finish in time", done.await(30, TimeUnit.SECONDS))
+        pool.shutdown()
+        store.awaitPendingWrites()
+
+        assertTrue("concurrent cache access threw: ${errors.firstOrNull()}", errors.isEmpty())
     }
 
     private fun createTempBaseDir(): File {

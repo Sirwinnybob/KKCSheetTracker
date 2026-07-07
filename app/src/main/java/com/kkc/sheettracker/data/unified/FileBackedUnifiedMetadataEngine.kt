@@ -391,11 +391,18 @@ class FileBackedUnifiedMetadataEngine(
     }
 
     override fun getCncSnapshot(jobFolderName: String): UnifiedCncSnapshot? {
-        val staticData = loadStaticJobData(jobFolderName) ?: return null
+        val loaded = loadStaticJobData(jobFolderName) ?: return null
+        // Read the cached entry once so the static data and its signature come from a single
+        // generation. Re-reading staticByJob separately (as the previous code did) let another
+        // thread's reload swap the signature between the two reads, pairing this generation's
+        // cncJob with a different generation's signature/search index. If the job was invalidated
+        // concurrently (entry == null) fall back to the just-loaded data and skip index caching.
+        val entry = staticByJob[jobFolderName]
+        val staticData = entry?.data ?: loaded
+        val signature = entry?.signature
         val cncJob = staticData.cncJob ?: return null
         // Reuse the memoized search index when the static signature is unchanged; only rebuild
         // (one PartSearchEntry per part across all materials/pages) on a real data change.
-        val signature = staticByJob[jobFolderName]?.signature
         val searchIndex = if (signature != null) {
             val cached = cncSearchByJob[jobFolderName]
             if (cached != null && cached.signature == signature) {

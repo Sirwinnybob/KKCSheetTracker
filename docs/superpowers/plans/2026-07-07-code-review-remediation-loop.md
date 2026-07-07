@@ -140,12 +140,12 @@ Loop agent instructions:
 
 ### #7 - HardwoodsProgressStore JobCache maps are unsynchronized
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: B
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/data/HardwoodsProgressStore.kt`; confirm cache read paths can iterate mutable maps while write paths mutate them without shared lock.
 - `Fix`: Guard reads and writes for each `JobCache` with the same synchronization primitive, or use safe concurrent collections consistently.
 - `Tests`: Add/update `HardwoodsProgressStoreTest` concurrency regression; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.data.HardwoodsProgressStoreTest`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed `JobCache` uses plain `mutableMapOf`/`MutableList`; `appendAction`->`applyActionToCache` mutated `rowProgressMap`/`skippedCabinetMap`/`totalsRip10Map`/`localActions` synchronously on the caller thread while `getRowProgressMap`/`getSkippedCabinetMap`/`getTotalsRip10DoneMap` iterated the same maps unlocked. Guarded every access with the per-job `JobCache` instance monitor (`synchronized(cache)`) on both the write block and the three reader snapshots — same primitive for reads and writes. Added `concurrentRowWritesAndReadsDoNotCorruptCache` (6 threads x 300 iters). Passed `HardwoodsProgressStoreTest`.
 
 ### #8 - savePageMarkup blocks UI thread for pen strokes
 
@@ -158,12 +158,12 @@ Loop agent instructions:
 
 ### #9 - getCncSnapshot can mix data/signature generations
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: B
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/data/unified/FileBackedUnifiedMetadataEngine.kt`; confirm `getCncSnapshot` loads static data then rereads `staticByJob` for signature.
 - `Fix`: Return or capture a single cached entry containing both data and signature, so both come from one generation.
 - `Tests`: Add/update `UnifiedMetadataEngineTest`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.data.unified.UnifiedMetadataEngineTest`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed `getCncSnapshot` called `loadStaticJobData(...)` for the data then separately re-read `staticByJob[jobFolderName]?.signature`, so a concurrent reload could pair this generation's `cncJob` with another generation's signature/search index. Fixed to read the cached entry once (`val entry = staticByJob[jobFolderName]`) and take both `entry.data` and `entry.signature` from it (falling back to the just-loaded data with no index caching if the job was invalidated concurrently). Added `getCncSnapshotPairsJobAndSearchIndexFromSameGeneration` (2 parts -> search index size 2). Passed `UnifiedMetadataEngineTest`.
 
 ### #10 - StylusDrawingCanvas uses raw pixels as dp
 
@@ -259,12 +259,12 @@ Loop agent instructions:
 
 ### #20 - JobBoardRequestStore loses concurrent read-modify-write edits
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: B
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/data/JobBoardRequestStore.kt`; confirm read/merge/atomic-write sequence lacks mutex.
 - `Fix`: Add per-store or per-file `Mutex` around read/merge/write, following existing store patterns.
 - `Tests`: Add/update store concurrency test; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.data.*JobBoard*`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed `queueEdit` read/merge/atomic-write had no lock, so two concurrent calls (including from separate screen-owned store instances over the same file) could drop an edit. Callers are synchronous, so used a `synchronized` block over a per-file monitor keyed by the request file's absolute path (companion `fileLocks` map) rather than a suspend `Mutex`, guarding cross-instance writes too. Added `JobBoardRequestStoreTest.concurrentEditsToDistinctFoldersAreAllRetained` (50 edits / 8 threads / 2 instances). Passed `com.kkc.sheettracker.data.JobBoardRequestStoreTest`.
 
 ### #21 - Hardwoods cabinet-number search is exact and case-sensitive
 
