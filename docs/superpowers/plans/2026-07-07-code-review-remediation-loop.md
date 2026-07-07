@@ -104,21 +104,21 @@ Loop agent instructions:
 
 ### #3 - PdfRenderEngine.close races with in-flight renders
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/components/ReferencePdfPane.kt`; confirm render methods use `mutex.withLock` but `close()` mutates renderer/fd without same mutex.
 - `Fix`: Make close coroutine-safe by acquiring the engine mutex before closing/nulling renderer and fd; call it from dispose through an IO/non-cancelled path that cannot interleave with render.
 - `Tests`: Add/update `ReferencePdfPane` JVM tests if feasible; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.components.ReferencePdfPaneZoomPanTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). All render methods used `mutex.withLock` but `close()` mutated renderer/fd unlocked and was called synchronously from `onDispose`. `close()` is now `suspend` under the same mutex; disposal runs on a process-lifetime IO scope wrapped in `NonCancellable` so it cannot interleave with a render. Verified only other caller (JobBoardGrid) already calls it in an IO context. No JVM test seam (PdfRenderer/ParcelFileDescriptor SDK stubs); verified by full `testDebugUnitTest` + `assembleDebug`. Commit 353b4af.
 
 ### #4 - mergeActiveReorder can overrun when active order and filtered jobs desync
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: D
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/components/JobDragReorder.kt`; confirm `reorderedActiveFolderNames[i++]` has no fallback when active item count differs from original.
 - `Fix`: Make merge defensive with fallback to original item folder name, and/or reset active order when filtered active membership changes.
 - `Tests`: Add/update component logic test; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.components.*`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `reorderedActiveFolderNames[i++]` had no bounds fallback when the active-item count desynced from the filtered list (IndexOutOfBounds). Added an upfront size-mismatch reset to original order plus a `getOrElse(i){ folderNameOf(item) }` per-item fallback. Added `JobDragReorderTest` (normal / fewer / more / empty-active cases). Passed `testDebugUnitTest`. Commit 353b4af.
 
 ### #5 - TrackerChangeMonitor drops throttled invalidations permanently
 
@@ -130,12 +130,12 @@ Loop agent instructions:
 
 ### #6 - ProgressStore calls block main thread from SheetViewerScreen
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/viewer/SheetViewerScreen.kt`; confirm skip/complete/bad-part/viewed handlers call `ProgressStore` synchronous file I/O from Compose handlers or default `LaunchedEffect`.
 - `Fix`: Wrap store work in `scope.launch(Dispatchers.IO)` or equivalent, and marshal UI state/snackbar updates back to main.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.data.ProgressStoreTest --tests com.kkc.sheettracker.ui.viewer.SheetViewerScreenTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). skip/complete/bad-part/viewed handlers called ProgressStore `appendAction` (synchronous readText/writeText) directly from Compose callbacks and a lifecycle ON_STOP observer. Each now runs in `scope.launch { withContext(Dispatchers.IO) { … } }` with UI-state/snackbar updates marshaled back to Main; `persistViewTouch` became `suspend`. No JVM UI-test seam (no Robolectric/Compose-test infra in this module); verified by full `testDebugUnitTest` + `assembleDebug`. Commit 353b4af.
 
 ### #7 - HardwoodsProgressStore JobCache maps are unsynchronized
 
@@ -148,12 +148,12 @@ Loop agent instructions:
 
 ### #8 - savePageMarkup blocks UI thread for pen strokes
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/data/PdfMarkupStore.kt`, `SheetViewerScreen.kt`, and `UnifiedReferenceViewer.kt`; confirm markup saves/loads are synchronous at UI call sites.
 - `Fix`: Move markup save/load calls to `Dispatchers.IO`; keep public API stable unless converting to suspend is cleaner and all tests/callers are updated.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.data.PdfMarkupStoreTest --tests com.kkc.sheettracker.ui.markup.PdfMarkupSupportTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `PdfMarkupStore.savePageMarkup` does synchronous readText/writeText under a lock; call sites in SheetViewerScreen (`persistCurrentPageMarkup`, undo load) and UnifiedReferenceViewer (`persistMarkupState` + two inlined duplicate calls) were synchronous on the UI thread. Moved all save/load to `scope.launch(Dispatchers.IO)`; deduped the two inline calls through `persistMarkupState`; public API unchanged. No JVM seam; verified by full `testDebugUnitTest` + `assembleDebug`. Commit 353b4af.
 
 ### #9 - getCncSnapshot can mix data/signature generations
 
@@ -166,34 +166,34 @@ Loop agent instructions:
 
 ### #10 - StylusDrawingCanvas uses raw pixels as dp
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: D
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/hardwoods/ClassicCutListTable.kt`; confirm `Modifier.size()` receives raw pixel dimensions as dp.
 - `Fix`: Convert table pixel width/height to dp using `LocalDensity.current`; remove useless touch-slop divide/multiply if present.
 - `Tests`: Add/update `ClassicCutListInputTest` if helper extract is needed; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.hardwoods.ClassicCutListInputTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `Modifier.size(width=(tableSize.width/touchSlop*touchSlop).dp, …)` — the touchSlop divide/multiply cancelled to a no-op, leaving raw pixels appended with `.dp`. Now `with(density){ tableSize.width.toDp() }` / `.toDp()` using the in-scope density; removed the dead `LocalViewConfiguration` import. No JVM seam (Compose layout); verified by compile + suite. Commit 353b4af.
 
 ### #11 - Legacy nav stack skips employee login gate on clock-in
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: A
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/navigation/NavGraph.kt`; confirm `LegacySingleStackNavigation` persists clock-in without the blank-employee pending login gate used by multi-stack.
 - `Fix`: Hoist shared clock-in login/pending flow or route legacy `onClockIn` through same gate; preserve employee name appended to persisted job name.
 - `Tests`: Add/update navigation logic test if seam exists; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.navigation.*`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `LegacySingleStackNavigation` persisted clock-in directly with no blank-employee pending-login gate and no employee-name suffix (Multi gates via `pendingClockIn`). Hoisted shared `resolveClockInGate(...)` (sealed Ready/NeedsLogin) and `formattedClockInJobName(...)`; both nav hosts now route through them, and Legacy gained the `pendingClockIn` state + `HoursLoginDialog` block mirroring Multi. Added `ClockInGateTest`. Passed `navigation.*` + `assembleDebug`. Commit 353b4af.
 
 ### #12 - Compact specialty checkbox overwrites all multi-station CUSTOM keys
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: D
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/specialty/CompactSpecialtySection.kt`; confirm compact checkbox writes all completion keys for multi-station CUSTOM items.
 - `Fix`: Toggle only the key matching current `SpecialtySurfaceMode`; if no single matching key exists, disable or hide compact checkbox for multi-key items.
 - `Tests`: Update `CompactSpecialtySectionLogicTest`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.specialty.CompactSpecialtySectionLogicTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). The compact checkbox called `setItemCompletion`, which writes ALL station keys for a multi-station CUSTOM item. Added `compactCompletionKeyForMode(item, mode)` resolving a single key (shared ITEM for non-split; the mode-relevant station key for CUSTOM, else null); the checkbox is disabled when null and writes only that key via `setItemCompletionKey`. Updated `CompactSpecialtySectionLogicTest` (+5 cases). Passed. Commit 353b4af.
 
 ### #13 - Theme JSON cannot set distinct status bg/border shades
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: E
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/theme/KKCThemeRepository.kt`; confirm derived status fields all read same base JSON key.
 - `Fix`: Read dedicated keys such as `completeBg`, `completeBorder`, `badBg`, `skipBg`, `skipBorder`, and `inProgressBorder`, with existing base-key fallback.
@@ -202,36 +202,36 @@ Loop agent instructions:
 
 ### #14 - SheetViewerScreen scans tracker directory every second on main thread
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/viewer/SheetViewerScreen.kt`; confirm periodic `trackerContentVersion` call runs in `LaunchedEffect` without IO dispatcher.
 - `Fix`: Wrap tracker version call in `withContext(Dispatchers.IO)`.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.viewer.SheetViewerScreenTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `while(isActive){ markupContentVersion = pdfMarkupStore.trackerContentVersion(job); delay(1000) }` folded lastModified/length over the tracker dir on Main every second. Wrapped the call in `withContext(Dispatchers.IO)`. No JVM seam; verified by full `testDebugUnitTest` + `assembleDebug`. Commit 353b4af.
 
 ### #15 - UnifiedReferenceViewer has same main-thread tracker scan
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/viewer/UnifiedReferenceViewer.kt`; confirm periodic `trackerContentVersion` call runs without IO dispatcher.
 - `Fix`: Wrap tracker version call in `withContext(Dispatchers.IO)`.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewerTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). Identical every-second main-thread `trackerContentVersion` poll in UnifiedReferenceViewer. Wrapped in `withContext(Dispatchers.IO)` (added `rememberCoroutineScope`/`launch` imports, also used by #8's markup fix). No JVM seam; verified by full `testDebugUnitTest` + `assembleDebug`. Commit 353b4af.
 
 ### #16 - ReferencePdfViewerScreen does file-backed lookup in remember
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/viewer/ReferencePdfViewerScreen.kt`; confirm sheet index and reference filename fallback calls execute inside `remember`.
 - `Fix`: Move file-backed lookups to `produceState` with `withContext(Dispatchers.IO)`, and drive dependent state from result.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.viewer.*`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `sheetIndex`, the assembly-virtual fallback, and `defaultPdfFilename` each called `jobRepository` engine() I/O inside `remember{}` on the composition thread. Converted all three to `produceState` hopping to `Dispatchers.IO`, with downstream `remember{}` keyed on the produced value. No JVM seam; verified by full `testDebugUnitTest` + `assembleDebug`. Commit 353b4af.
 
 ## Medium
 
 ### #17 - Calculator formatNumber emits binary double garbage
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: B
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/components/CalculatorEngine.kt`; confirm formatting uses `BigDecimal(value)`.
 - `Fix`: Use `BigDecimal.valueOf(value)` or `BigDecimal(value.toString())`.
@@ -240,16 +240,16 @@ Loop agent instructions:
 
 ### #18 - CoverPageOverlay gets PDF catalog on main thread
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/components/CoverPageOverlay.kt`; confirm `jobRepository.getJobPdfCatalog()` executes before existing IO block.
 - `Fix`: Move catalog lookup inside `withContext(Dispatchers.IO)`.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.components.*`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `jobRepository.getJobPdfCatalog(...)` ran on the LaunchedEffect's Main dispatcher before the existing IO block. Moved the catalog lookup inside `withContext(Dispatchers.IO)`. No JVM seam; verified by full `testDebugUnitTest` + `assembleDebug`. Commit 353b4af.
 
 ### #19 - Blank material mapping nulls auto-complete matching
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: B
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/data/MaterialMappings.kt`; confirm `canonical()` can return blank mapped value.
 - `Fix`: Use mapped value only if normalized mapped value is non-blank; otherwise return normalized input.
@@ -267,7 +267,7 @@ Loop agent instructions:
 
 ### #21 - Hardwoods cabinet-number search is exact and case-sensitive
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: D
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/hardwoods/HardwoodsSearchScreen.kt`; confirm cabinet number search uses exact/case-sensitive match while other fields use case-insensitive substring.
 - `Fix`: Use `entry.cabinetNumbers.any { it.contains(query, ignoreCase = true) }`.
@@ -276,12 +276,12 @@ Loop agent instructions:
 
 ### #22 - Classic width normalizer diverges from grouping normalizer
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: D
 - `Verify`: Reopen `ClassicCutListTable.kt` and `HardwoodsWorkspaceScreen.kt`; confirm private normalize function differs from grouping lookup/builder.
 - `Fix`: Extract/use one shared width normalizer for both map construction and lookup.
 - `Tests`: Update `HardwoodsRowHelpersTest` or `ClassicCutListInputTest`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.hardwoods.HardwoodsRowHelpersTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). ClassicCutListTable had a private `normalizeWidth` handling only space-separated mixed fractions, while HardwoodsWorkspaceScreen's `normalizeWidthForGrouping` (via `parseDimensionForSort`) also handled plain (`1/2`) and dash (`3-1/2`) forms — so band lookups missed and fell back to transparent. Made `normalizeWidthForGrouping` `internal` and used it for both the lookup and the map build; deleted the divergent local copy + its unused regex. Added `HardwoodsRowHelpersTest` cases for the previously-divergent formats. Passed. Commit 353b4af.
 
 ### #23 - CNC-to-hardwoods sync listener only wired in multi-stack nav
 
@@ -303,7 +303,7 @@ Loop agent instructions:
 
 ### #25 - Theme header containment uses raw startsWith
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: E
 - `Verify`: Reopen `KKCThemeRepository.kt`; confirm header background containment compares raw path prefix without separator boundary or `Path.startsWith`.
 - `Fix`: Use canonical/normalized `Path.startsWith`, or separator-aware `file.path == root.path || file.path.startsWith(root.path + File.separator)`.
@@ -312,68 +312,68 @@ Loop agent instructions:
 
 ### #26 - Old timeclock background media files are orphaned
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: A
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/timecard/BgPickerSheet.kt` and `TimecardBgStore`; confirm replace/clear overwrites config without deleting previous media file.
 - `Fix`: After successful save/clear, delete previous `currentConfig.mediaPath` if it points inside timecard background directory and is no longer selected.
 - `Tests`: Add/update store/helper test if deletion logic is extracted; run `.\gradlew.bat testDebugUnitTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `TimecardBgStore.save()` wrote config to DataStore but never deleted the previous copied media file, so every replace/clear (all funnel through `save()`) orphaned the old file in `filesDir/timeclock_bg/`. `save()` now reads the prior mediaPath and calls new `deleteOrphanedMedia(mediaDir, previous, new)`, which deletes only when the path differs and is a direct child of the bg dir (guards a still-selected file and anything outside the dir). Added pure-function `TimecardBgStoreTest`. Passed. Commit 353b4af.
 
 ### #27 - Part graphic ZIP decode runs synchronously in dialog remember
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `SheetViewerScreen.kt`; confirm `loadPartGraphicBitmap()` with `ZipFile`/`BitmapFactory` runs inside dialog `remember`.
 - `Fix`: Load through `produceState` keyed on selected graphic/archive/pdf and run decode in `withContext(Dispatchers.IO)`.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.viewer.SheetViewerScreenTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `remember(...) { loadPartGraphicBitmap(pdf, archive, graphicPath) }` ran `ZipFile` + `BitmapFactory.decodeStream` during dialog composition. Converted to `produceState` keyed on graphicPath/archive/pdf, decoding in `withContext(Dispatchers.IO)`. Integration fix (main thread): consume the delegated `produceState` value via a local val before the null-check `Image(...)` to satisfy smart-cast. No JVM seam; verified by full `testDebugUnitTest` + `assembleDebug`. Commit 353b4af.
 
 ### #28 - Render cache evicts page bitmaps without recycling
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `SheetViewerScreen.kt`; confirm `cacheRenderedPage` removes evicted page from cache without recycling `pageBitmap`.
 - `Fix`: Recycle evicted cached page bitmap unless it is currently displayed or otherwise still referenced; do not recycle `diagramBitmap`.
 - `Tests`: Add helper test if cache logic can be extracted; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.viewer.SheetViewerScreenTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). `cacheRenderedPage` eviction did `renderCache.remove(stalePage)` without recycling the bitmap. Extracted `shouldRecycleEvictedPageBitmap(evicted, currentlyDisplayed)` (non-null, not already recycled, and not identity-equal to the currently displayed `pageBitmap`) and recycle only when it returns true; `diagramBitmap` is never touched. Added 5 `SheetViewerScreenTest` cases (mockito Bitmap mocks). Passed. Commit 353b4af.
 
 ## Low
 
 ### #29 - Dashboard thumbnail produceState slots are unkeyed
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: D
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/dashboard/UnifiedModeDashboardScreen.kt`; confirm repeated recent/remake items use `forEach` with unkeyed `produceState`.
 - `Fix`: Wrap each repeated item in `key(item.jobFolderName, item.pdfFilename)`.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.dashboard.UnifiedDashboardFactoriesTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (haiku). recent/remake `forEach` items used unkeyed `produceState`, so thumbnail load state could mismatch slots on list change. Wrapped each item in `key(item.jobFolderName, item.pdfFilename){ … }`. Integration fix (main thread): added the missing `androidx.compose.runtime.key` import. Verified by compile + `UnifiedDashboardFactoriesTest`. Commit 353b4af.
 
 ### #30 - HardwoodsJobBrowserScreen is dead code with fabricated zero progress
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: E
 - `Verify`: Search for call sites of `HardwoodsJobBrowserScreen`; confirm none exist outside its own declaration and nav uses `HardwoodsJobsScreen`.
 - `Fix`: Delete unreachable file unless current repo has gained a real caller; if caller exists, wire real progress instead.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.hardwoods.*` and `.\gradlew.bat assembleDebug`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed (deleted) via parallel subagent (haiku). Grep across `app/src` found zero references to `HardwoodsJobBrowserScreen` outside its own declaration; navigation uses `HardwoodsJobsScreen`. Deleted the file. Passed `hardwoods.*` + `assembleDebug`. Commit 353b4af.
 
 ### #31 - ViewerServer binds wildcard instead of loopback
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/viewer3d/ViewerServer.kt`; confirm server extends `NanoHTTPD(0)` or otherwise binds all interfaces while WebView uses `127.0.0.1`.
 - `Fix`: Construct server with loopback hostname, e.g. `NanoHTTPD("127.0.0.1", 0)`.
 - `Tests`: Add/update ViewerServer test if JVM-feasible; otherwise run `.\gradlew.bat assembleDebug` and document constructor evidence.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). Server extended `NanoHTTPD(0)` (all interfaces) while the WebView (Model3DPane) connects to `127.0.0.1`. Now `NanoHTTPD("127.0.0.1", 0)`. Added `ViewerServerTest.bindsToLoopbackHostname_notWildcard`. Passed. Commit 353b4af.
 
 ### #31b - ViewerServer path traversal / arbitrary file read note
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `ViewerServer.kt`; confirm decoded `folderName`, room, or GLB relative path can escape intended `baseDir` or room directory through canonicalization gaps.
 - `Fix`: Canonicalize resolved job/3D/room/file paths and require they remain under canonical `baseDir` and intended room directory using path-aware containment; reject escapes with 400/403.
 - `Tests`: Add ViewerServer path-containment unit tests if possible; otherwise document manual evidence and run `.\gradlew.bat assembleDebug`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet) — was a real exploitable gap, not already fixed. `findRoomDir`/`scanRooms` resolved request-controlled `room`/`folderName` into `File` objects with no containment check, so `room="../../../outside"` redirected the very root that `serveGlbFile` later trusts → arbitrary file read outside `baseDir`. Added `@VisibleForTesting isPathContainedIn(candidate, root)` (canonicalize both + separator-aware `startsWith`) and applied it to threeDDir/room/GLB resolution; escapes now return 400/403/404. Added `ViewerServerTest` containment-helper cases (incl. sibling-prefix false-positive) plus room- and folderName-traversal escape tests. Passed. Commit 353b4af.
 
 ### #32 - tabletIdDirty comparison omits trim
 
@@ -404,12 +404,12 @@ Loop agent instructions:
 
 ### #35 - Supply status reload race can transiently stale UI
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: D
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/supply/SupplyDashboardScreen.kt`; confirm each status change launches write then full reload and assigns result without monotonic guard.
 - `Fix`: Prefer monotonic request id so only newest reload updates state, or patch known item status in memory after successful write.
 - `Tests`: Add/update supply dashboard logic test if helper extracted; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.supply.*`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed via parallel subagent (sonnet). Each status change did `setStatus` then unconditionally reassigned `items = getItems()`, so an older reload could stomp a newer one. Extracted `performSupplyStatusChange(...)` guarded by a monotonic `AtomicLong itemsReloadRequestId` — only the newest request applies its reload result (Toast on setStatus failure and current-items fallback preserved). Added `SupplyStatusReloadRaceTest` (real concurrency). Passed. Commit 353b4af.
 
 # Lane Gates
 
@@ -463,3 +463,28 @@ Use this section for durable progress notes. Each entry should include:
 - Verification note: Two open PR branches (`fix/issue-23-sync-cnc-to-hardwoods-...` and `jules-...-86fa4ab4`) attempted the identical fix on the same lines of `NavGraph.kt` with different local variable names, so neither was merged directly. Re-implemented the hoist by hand instead, and left both branches unmerged/un-deleted on the remote for the user to close out.
 - Commit hash: this entry is included in the commit that fixes #23.
 - Follow-up: none for #23. The `jules-...` branch also carried unrelated `@file:Suppress("ProduceStateDoesNotAssignValue")` lint annotations and a `ClockInForegroundService.kt` `@SuppressLint("MissingPermission")` annotation that were intentionally not pulled in, since the working tree already has a real runtime permission check for posting notifications that supersedes the suppress-only approach.
+
+## 2026-07-07 - Serial batch (Claude main thread): #5, #7, #9, #13, #17, #19, #20, #21, #24, #25, #32, #33, #34
+
+- Agent/lane: Claude (Opus), main thread, Lanes A/B/D/E.
+- Findings completed: #13, #17, #19, #21, #24, #25, #32, #33, #34 (commit 678966f); #7, #9, #20 (commit 3597cb3); #5 (commit a606c90).
+- Each: reopened cited file, proved defect against current code, smallest safe fix, focused regression test, targeted `testDebugUnitTest` + `assembleDebug`.
+- New/updated tests: CalculatorEngineTest, MaterialMappingsTest, HardwoodsSearchScreenTest, KKCThemeRepositoryTest, UnifiedMetadataEngineTest, JobBoardRequestStoreTest (new), HardwoodsProgressStoreTest, TrackerChangeMonitorSpecialtyTest.
+- Result: all passed.
+
+## 2026-07-07 - Parallel subagent batch: #3, #4, #6, #8, #10, #11, #12, #14, #15, #16, #18, #22, #26, #27, #28, #29, #30, #31, #31b, #35
+
+- Agent/lane: Claude dispatched 6 parallel general-purpose subagents (5 sonnet, 1 haiku by complexity) over disjoint file sets; integration/verify/commit by Claude main thread.
+- Lane split (disjoint files, no cross-lane edits):
+  - A (sonnet): SheetViewerScreen, UnifiedReferenceViewer, PdfMarkupStore → #6, #8, #14, #15, #27, #28.
+  - B (sonnet): ReferencePdfPane, ReferencePdfViewerScreen, CoverPageOverlay → #3, #16, #18.
+  - C (sonnet): ViewerServer → #31, #31b.
+  - D (sonnet): JobDragReorder, ClassicCutListTable, HardwoodsWorkspaceScreen, CompactSpecialtySection → #4, #10, #12, #22.
+  - E (haiku): UnifiedModeDashboardScreen, HardwoodsJobBrowserScreen(delete) → #29, #30.
+  - F (sonnet): NavGraph, BgPickerSheet, TimecardBgStore, SupplyDashboardScreen → #11, #26, #35.
+- Subagents were forbidden from running gradle/git or editing this doc (shared working tree); they edited only their assigned files and reported evidence. Main thread ran the single central build.
+- Integration fixes by main thread: added `androidx.compose.runtime.key` import (#29) and consumed the delegated `produceState` value via a local val for smart-cast (#27) — both were compile errors surfaced only by the central build.
+- New/updated tests: JobDragReorderTest (new), HardwoodsRowHelpersTest, CompactSpecialtySectionLogicTest, SheetViewerScreenTest (bitmap-recycle), ViewerServerTest (new), ClockInGateTest (new), TimecardBgStoreTest (new), SupplyStatusReloadRaceTest (new).
+- Verify: `.\gradlew.bat :app:testDebugUnitTest` (full suite) and `.\gradlew.bat :app:assembleDebug` both BUILD SUCCESSFUL. Commit 353b4af (code); doc update in a follow-up commit.
+- Note: `DoorCutSheetFilterTest.kt` gained a `testMarkSheetCompleteSyncsToHardwoodsViaListener` test (an off-scope leftover, related to already-committed #23) — kept because it compiles and passes and the plan says not to revert other agents' changes.
+- Status: all 36 checklist items (including #31b) now `fixed`. Remaining work before `::potter(exit)`: a fresh-context verification pass.
