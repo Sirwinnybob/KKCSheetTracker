@@ -104,12 +104,12 @@ Loop agent instructions:
 
 ### #3 - PdfRenderEngine.close races with in-flight renders
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: C
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/components/ReferencePdfPane.kt`; confirm render methods use `mutex.withLock` but `close()` mutates renderer/fd without same mutex.
 - `Fix`: Make close coroutine-safe by acquiring the engine mutex before closing/nulling renderer and fd; call it from dispose through an IO/non-cancelled path that cannot interleave with render.
 - `Tests`: Add/update `ReferencePdfPane` JVM tests if feasible; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.components.ReferencePdfPaneZoomPanTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed #3 by making `PdfRenderEngine.close()` coroutine-safe with `mutex.withLock` and `Dispatchers.IO`, and calling it via `GlobalScope.launch` in `DisposableEffect.onDispose` so it doesn't get cancelled before completing. Passed `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.components.ReferencePdfPaneZoomPanTest`.
 
 ### #4 - mergeActiveReorder can overrun when active order and filtered jobs desync
 
@@ -453,3 +453,12 @@ Use this section for durable progress notes. Each entry should include:
 - Result: passed.
 - Verification note: exact dashboard `getCabinetSheetIndex()` pattern is assembly-only after the fix; active unified Hardwoods dashboard had a related `summarizeJob()` file-backed composition pattern and was moved to IO too.
 - Commit hash: this entry is included in the commit that fixes #2.
+
+## 2026-07-07 - High #3 PdfRenderEngine.close races with in-flight renders
+
+- Agent/lane: Jules, Lane C.
+- Findings completed: #3.
+- Files changed: `app/src/main/java/com/kkc/sheettracker/ui/components/ReferencePdfPane.kt`, `docs/superpowers/plans/2026-07-07-code-review-remediation-loop.md`.
+- Test command: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.components.ReferencePdfPaneZoomPanTest`.
+- Result: passed.
+- Commit hash: this entry is included in the commit that fixes #3.
