@@ -1,13 +1,1 @@
-⚡ Bolt: [performance improvement]
-
-💡 What:
-Replaced eager evaluation `.filter { ... }.take(N)` with a custom single-pass function (`computeSearchMatches` and `computeAssemblySearchMatches`) in `SearchScreen` and `AssemblySearchScreen`. This new function loops over the in-memory array once and collects results up to a maximum size without creating unbounded intermediate collections.
-
-🎯 Why:
-Eager evaluation like `.filter { ... }.take(N)` will allocate an intermediate list containing all search matches in memory, then iterate that list again to take the required slice. For large search indexes or unconstrained searches, this incurs unnecessary garbage collection overhead and cpu cycles, causing stutter during keystrokes as the text field inputs change.
-
-📊 Impact:
-Reduces search-related object allocations and avoids an extra pass over the match array, which ensures smoother typing performance on large jobs.
-
-🔬 Measurement:
-Start typing query strings in `AssemblySearchScreen` and `SearchScreen` - there should be fewer allocation janks visible in the profiler compared to before the patch.
+Fix #23 - CNC-to-hardwoods sync listener only wired in multi-stack nav
