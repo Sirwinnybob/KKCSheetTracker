@@ -125,6 +125,7 @@ fun AppBottomNavBar(
     onCalculatorClick: () -> Unit,
     isCalculatorOpen: Boolean,
     minimized: Boolean,
+    modifier: Modifier = Modifier,
     destinations: List<NavDestination> = NavDestination.entries,
     supplyNotificationCount: Int = 0,
     hazeState: HazeState? = null,
@@ -132,8 +133,7 @@ fun AppBottomNavBar(
     cncDecoration: NavBarCncDecoration? = null,
     specialtyDecoration: NavBarSpecialtyDecoration? = null,
     penDecoration: NavBarPenDecoration? = null,
-    extendedControls: (@Composable RowScope.() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    extendedControls: (@Composable RowScope.() -> Unit)? = null
 ) {
     var showBgPicker by remember { mutableStateOf(false) }
     if (showBgPicker) {

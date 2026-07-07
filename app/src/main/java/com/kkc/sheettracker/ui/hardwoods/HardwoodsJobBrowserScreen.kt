@@ -54,6 +54,7 @@ import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Suppress("UnusedContentLambdaTargetStateParameter") // AnimatedContent used only for the slide transition; content is derived from filteredJobs/isLoading, not the sort flag itself
 @Composable
 fun HardwoodsJobBrowserScreen(
     scanCoordinator: ScanCoordinator,

@@ -48,8 +48,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -73,11 +72,8 @@ fun CoverPageOverlay(
     var highResBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isLoadingHighRes by remember { mutableStateOf(false) }
 
-    val configuration = LocalConfiguration.current
-    val density = LocalDensity.current
-    val screenWidthPx = remember(configuration, density) {
-        with(density) { configuration.screenWidthDp.dp.roundToPx() }
-    }
+    val windowSize = LocalWindowInfo.current.containerSize
+    val screenWidthPx = remember(windowSize) { windowSize.width }
 
     LaunchedEffect(item.folderName) {
         val filename = jobRepository.getJobPdfCatalog(item.folderName)

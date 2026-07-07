@@ -28,8 +28,8 @@ import com.kkc.sheettracker.ui.theme.KKCSpacing
 fun DeliveryScheduleWidget(
     schedule: DeliverySchedule,
     onTap: () -> Unit,
-    showWhenEmpty: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showWhenEmpty: Boolean = false
 ) {
     if (!shouldShowDeliveryScheduleWidget(schedule, showWhenEmpty)) return
 

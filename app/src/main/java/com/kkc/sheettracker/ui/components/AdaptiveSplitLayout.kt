@@ -22,8 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
@@ -42,8 +42,8 @@ fun AdaptiveSplitLayout(
     firstContent: @Composable (Modifier) -> Unit,
     secondContent: @Composable (Modifier) -> Unit
 ) {
-    val config = LocalConfiguration.current
-    val isLandscape = config.screenWidthDp > config.screenHeightDp
+    val containerSize = LocalWindowInfo.current.containerSize
+    val isLandscape = containerSize.width > containerSize.height
     if (isLandscape) {
         HorizontalSplitLayout(
             modifier = modifier,

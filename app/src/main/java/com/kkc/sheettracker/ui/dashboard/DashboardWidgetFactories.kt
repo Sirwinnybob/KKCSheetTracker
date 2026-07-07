@@ -551,7 +551,7 @@ fun DashboardWidgetRenderer(
 
                 is DashboardWidgetModel.RecentItemsBlock -> DashboardSurfaceCard {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DashboardSectionHeader(widget.title)
+                        DashboardSectionHeader(title = widget.title)
                         if (widget.items.isEmpty()) {
                             Text(widget.emptyMessage, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
@@ -581,7 +581,7 @@ fun DashboardWidgetRenderer(
 
                 is DashboardWidgetModel.JobsBlock -> DashboardSurfaceCard {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DashboardSectionHeader(widget.title, widget.summary)
+                        DashboardSectionHeader(title = widget.title, subtitle = widget.summary)
                         if (widget.items.isEmpty()) {
                             Text(widget.emptyMessage, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
@@ -623,7 +623,7 @@ fun DashboardWidgetRenderer(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                DashboardSectionHeader(widget.title, widget.subtitle)
+                                DashboardSectionHeader(title = widget.title, subtitle = widget.subtitle)
                                 widget.summary?.let {
                                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }

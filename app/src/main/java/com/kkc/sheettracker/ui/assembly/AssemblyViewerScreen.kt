@@ -82,7 +82,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -681,7 +681,8 @@ fun AssemblyViewerScreen(
                 )
         }
     ) { padding ->
-        val isLandscape = LocalConfiguration.current.screenWidthDp > LocalConfiguration.current.screenHeightDp
+        val containerSize = LocalWindowInfo.current.containerSize
+        val isLandscape = containerSize.width > containerSize.height
         val animatedTopPad by animateDpAsState(
             targetValue = if (showUi) padding.calculateTopPadding() else 0.dp,
             animationSpec = tween(220),

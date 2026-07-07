@@ -85,7 +85,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontStyle
@@ -198,8 +198,8 @@ fun HardwoodsWorkspaceScreen(
     clockInState: ClockInState? = null
 ) {
     val context = LocalContext.current
-    val config = LocalConfiguration.current
-    val isLandscape = config.screenWidthDp > config.screenHeightDp
+    val containerSize = LocalWindowInfo.current.containerSize
+    val isLandscape = containerSize.width > containerSize.height
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
     val scanState by scanCoordinator.state.collectAsState()
@@ -1818,13 +1818,13 @@ private fun MaterialSkipPill(
 @OptIn(ExperimentalFoundationApi::class)
 private fun HardwoodsBoardStockList(
     sections: List<BoardStockSourceSection>,
-    adminItems: List<AdminBoardStockItem> = emptyList(),
     jobFolderName: String,
     progressStore: HardwoodsProgressStore,
     totalsDoneMap: Map<String, Int>,
+    modifier: Modifier = Modifier,
+    adminItems: List<AdminBoardStockItem> = emptyList(),
     hideSections: Boolean = false,
-    sectionTitle: String = "Board Stock",
-    modifier: Modifier = Modifier
+    sectionTitle: String = "Board Stock"
 ) {
     val statusColors = KKCThemeColors.statusColors
     if (sections.isEmpty() && adminItems.isEmpty()) {

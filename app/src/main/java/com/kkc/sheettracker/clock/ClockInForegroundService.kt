@@ -1,12 +1,15 @@
 package com.kkc.sheettracker.clock
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.kkc.sheettracker.R
@@ -93,7 +96,7 @@ class ClockInForegroundService : Service() {
                     isForegroundStarted = true
                 }
                 ForegroundAction.Notify -> {
-                    NotificationManagerCompat.from(this).notify(ClockInNotificationContract.NOTIFICATION_ID, notification)
+                    postNotification(notification)
                 }
                 ForegroundAction.StopSelf -> stopForegroundAndSelf()
             }
@@ -112,12 +115,19 @@ class ClockInForegroundService : Service() {
                     stopForegroundAndSelf()
                     break
                 }
-                NotificationManagerCompat.from(this@ClockInForegroundService).notify(
-                    ClockInNotificationContract.NOTIFICATION_ID,
-                    buildNotification(snapshot)
-                )
+                postNotification(buildNotification(snapshot))
             }
         }
+    }
+
+    private fun postNotification(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        NotificationManagerCompat.from(this).notify(ClockInNotificationContract.NOTIFICATION_ID, notification)
     }
 
     private fun stopForegroundAndSelf() {
@@ -160,7 +170,6 @@ class ClockInForegroundService : Service() {
     }
 
     private fun ensureNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             ClockInNotificationContract.CHANNEL_ID,
             ClockInNotificationContract.CHANNEL_NAME,

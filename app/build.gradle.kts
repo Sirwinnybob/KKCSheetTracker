@@ -63,6 +63,11 @@ android {
 
     lint {
         checkReleaseBuilds = false
+        // False positive with Kotlin 2.4.0 + compose-bom 2025.06.01: the bundled
+        // compose-runtime lint check misparses `value = withContext(...) { }` as
+        // the sole statement of a produceState producer lambda. Every flagged
+        // call site does assign `value`; revisit once compose-bom is upgraded.
+        disable += "ProduceStateDoesNotAssignValue"
     }
 
     testOptions {
@@ -86,9 +91,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material3:material3-window-size-class")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.8.5")
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
-    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("androidx.navigation:navigation-compose:2.9.0")
+    implementation("androidx.datastore:datastore-preferences:1.1.2")
+    implementation("com.google.code.gson:gson:2.13.2")
     implementation("sh.calvin.reorderable:reorderable:3.1.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-gif:2.7.0")
@@ -100,5 +105,5 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.1.0")
-    testImplementation("org.mockito:mockito-core:5.2.0")
+    testImplementation("org.mockito:mockito-core:5.3.1")
 }

@@ -653,6 +653,7 @@ private data class JobBadgeState(
     val revisionCount: Int?,
 )
 
+@Suppress("ModifierParameter") // dragHandleModifier is a secondary, nullable modifier that gates whether the drag handle renders (see usage below), not the row's primary modifier
 @Composable
 private fun JobBrowserRow(
     uiState: JobBrowserItemUiState,

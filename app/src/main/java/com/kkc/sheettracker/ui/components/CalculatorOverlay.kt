@@ -326,8 +326,8 @@ fun rememberCalculatorOverlayState(): CalculatorOverlayState {
 fun CalculatorOverlayHost(
     state: CalculatorOverlayState,
     compactWidth: Boolean,
-    hazeState: HazeState? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hazeState: HazeState? = null
 ) {
     val snapshot = state.snapshot
     if (!snapshot.isOpen) return
@@ -716,7 +716,7 @@ private fun buildHistorySections(history: List<CalculatorHistoryEntry>): List<Hi
             val title = when (date) {
                 today -> "Today"
                 today.minusDays(1) -> "Yesterday"
-                else -> date.format(HISTORY_DATE_FORMATTER)
+                else -> date.format(historyDateFormatter())
             }
             HistorySection(
                 title = title,
@@ -729,13 +729,13 @@ private fun formatHistoryTime(timestampMs: Long): String {
     return Instant.ofEpochMilli(timestampMs)
         .atZone(ZoneId.systemDefault())
         .toLocalTime()
-        .format(HISTORY_TIME_FORMATTER)
+        .format(historyTimeFormatter())
 }
 
-private val HISTORY_DATE_FORMATTER: DateTimeFormatter =
+private fun historyDateFormatter(): DateTimeFormatter =
     DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault())
 
-private val HISTORY_TIME_FORMATTER: DateTimeFormatter =
+private fun historyTimeFormatter(): DateTimeFormatter =
     DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
 
 @Composable

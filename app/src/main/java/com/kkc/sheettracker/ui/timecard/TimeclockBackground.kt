@@ -26,7 +26,7 @@ import java.io.File
 @Composable
 fun TimeclockBackground(
     config: TimecardBgConfig,
-    modifier: Modifier = Modifier.fillMaxSize()
+    modifier: Modifier = Modifier
 ) {
     when (config.type) {
         TimecardBgType.NONE ->

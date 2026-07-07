@@ -91,10 +91,10 @@ fun ClockInOverlay(
     clockInState: ClockInState,
     onClockOut: () -> Unit,
     onReturnToJob: () -> Unit,
+    modifier: Modifier = Modifier,
     isCurrentPageActiveClockIn: Boolean = false,
     edgePrefs: SharedPreferences? = null,
-    hazeState: HazeState? = null,
-    modifier: Modifier = Modifier
+    hazeState: HazeState? = null
 ) {
     val snapshot = clockInState.snapshot
     if (!snapshot.isActive && !snapshot.pendingPrompt) return

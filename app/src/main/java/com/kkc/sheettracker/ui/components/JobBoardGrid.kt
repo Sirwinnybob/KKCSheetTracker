@@ -93,10 +93,10 @@ private fun SectionHeader(title: String) {
 @Composable
 fun JobBoardGrid(
     items: List<JobBoardItem>,
-    pendingItems: List<JobBoardItem> = emptyList(),
     jobRepository: JobRepository,
     onItemClick: (JobBoardItem) -> Unit,
     modifier: Modifier = Modifier,
+    pendingItems: List<JobBoardItem> = emptyList(),
     columns: Int = 3,
     scanGeneration: Long = 0L
 ) {

@@ -130,9 +130,9 @@ fun ClassicCutListTable(
     isDarkTheme: Boolean,
     widthColorBands: Map<String, Color>,
     toolState: PdfMarkupToolState,
+    modifier: Modifier = Modifier,
     showMarkupToolbar: Boolean = true,
-    hostMarkupToolbarInNavBar: Boolean = false,
-    modifier: Modifier = Modifier
+    hostMarkupToolbarInNavBar: Boolean = false
 ) {
     val haptic = LocalHapticFeedback.current
     var classicPage by rememberSaveable(docType.name) { mutableIntStateOf(1) }

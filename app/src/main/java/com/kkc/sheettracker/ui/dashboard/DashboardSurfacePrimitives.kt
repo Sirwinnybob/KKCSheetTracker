@@ -133,8 +133,8 @@ fun DashboardHeroSurface(
 @Composable
 fun DashboardSectionHeader(
     title: String,
-    subtitle: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    subtitle: String? = null
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),

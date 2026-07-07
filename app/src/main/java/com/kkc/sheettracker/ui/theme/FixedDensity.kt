@@ -2,8 +2,8 @@ package com.kkc.sheettracker.ui.theme
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Density
 
 const val TIMECARD_DESIGN_WIDTH_DP: Int = 1054
@@ -19,11 +19,10 @@ fun FixedDensityWrapper(
     designWidthDp: Int = TIMECARD_DESIGN_WIDTH_DP,
     content: @Composable () -> Unit
 ) {
-    val configuration = LocalConfiguration.current
+    val containerSize = LocalWindowInfo.current.containerSize
     val current = LocalDensity.current
-    val referenceDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
-    val referencePx = referenceDp * current.density
-    val scaledDensity = referencePx / designWidthDp
+    val referencePx = minOf(containerSize.width, containerSize.height)
+    val scaledDensity = referencePx / designWidthDp.toFloat()
     CompositionLocalProvider(
         LocalDensity provides Density(
             density = scaledDensity,

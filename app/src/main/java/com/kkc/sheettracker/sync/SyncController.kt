@@ -165,6 +165,10 @@ class SyncthingManager(
         }
     }
 
+    // Trust-all is scoped to 127.0.0.1 loopback only (hostnameVerifier below pins the host),
+    // gated behind config.network.allowInsecureLocalTls, and used solely to reach a local
+    // daemon's self-signed cert on the same device. Not a general network trust bypass.
+    @Suppress("CustomX509TrustManager")
     private fun configureInsecureLoopbackTls(connection: HttpsURLConnection) {
         val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = Unit

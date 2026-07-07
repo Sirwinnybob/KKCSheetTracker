@@ -3013,10 +3013,10 @@ private fun DiagramView(
     selectedPartNumber: Int?,
     diagramBboxes: Map<Int, List<Rect>>,
     resetZoomTrigger: Int,
-    markupStrokes: List<PdfInkStroke> = emptyList(),
-    modifier: Modifier = Modifier,
     onTapPart: (Int) -> Unit,
     onLongPressPart: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    markupStrokes: List<PdfInkStroke> = emptyList(),
     onTapEmpty: (() -> Unit)? = null
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }

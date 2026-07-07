@@ -193,6 +193,7 @@ private fun BgOptionCard(
 private fun copyToInternal(context: Context, uri: Uri, filename: String): String? {
     return try {
         val dest = TimecardBgStore.bgDir(context).resolve(filename)
+        //noinspection Recycle -- already closed via .use{}; known lint false positive (issuetracker.google.com/issues/248675800)
         context.contentResolver.openInputStream(uri)?.use { input ->
             dest.outputStream().use { output -> input.copyTo(output) }
         }

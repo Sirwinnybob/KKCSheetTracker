@@ -181,6 +181,7 @@ fun ProgressCard(
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     showBottomProgressBar: Boolean = false,
     segmentedStatusCounts: StatusCounts? = null,
     materialSegments: List<MaterialSegmentData>? = null,
@@ -189,7 +190,6 @@ fun ProgressCard(
     headerLeading: (@Composable ColumnScope.() -> Unit)? = null,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
     inlineContent: (@Composable ColumnScope.() -> Unit)? = null,
-    modifier: Modifier = Modifier,
     expandedContent: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     val colors = KKCThemeColors.statusColors
@@ -298,13 +298,13 @@ fun SectionProgressHeader(
     itemCount: Int,
     done: Int,
     total: Int,
+    modifier: Modifier = Modifier,
     dimmed: Boolean = false,
     skipped: Boolean = false,
     expanded: Boolean = true,
     onToggleExpanded: (() -> Unit)? = null,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
-    isSubHeader: Boolean = false,
-    modifier: Modifier = Modifier
+    isSubHeader: Boolean = false
 ) {
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)

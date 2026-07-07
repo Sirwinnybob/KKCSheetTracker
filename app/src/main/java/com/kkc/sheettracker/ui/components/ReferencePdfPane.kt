@@ -791,10 +791,10 @@ private fun ZoomablePdfImage(
     onInteractionChanged: (Boolean) -> Unit,
     pageAspectRatio: Float?,
     onGutterTapStep: ((Int) -> Unit)?,
+    modifier: Modifier = Modifier,
     onSingleTap: (() -> Unit)? = null,
     allowStylusGestures: Boolean = true,
-    allowFingerGestures: Boolean = true,
-    modifier: Modifier = Modifier
+    allowFingerGestures: Boolean = true
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
     var zoom by remember(pageKey) { mutableFloatStateOf(1f) }
