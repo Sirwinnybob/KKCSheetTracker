@@ -117,6 +117,11 @@ fun SupplyDashboardScreen(
     var statusSheetItem by remember { mutableStateOf<SupplyItem?>(null) }
     var activeModal by remember { mutableStateOf<SupplyDashboardModal?>(null) }
     var editChromeState by remember { mutableStateOf<SupplyItemEditorChromeState?>(null) }
+    // Monotonic guard for the status-change write-then-reload sequence below: each status pick
+    // launches its own write+reload coroutine, and two picks in quick succession can have the
+    // older reload's getItems() result land after the newer one, stomping fresher state. Only
+    // the reload that's still the most-recently-issued one when it completes is applied.
+    val itemsReloadRequestId = remember { java.util.concurrent.atomic.AtomicLong(0L) }
 
     val subscriptionData by subscriptionManager.subscriptionData.collectAsState()
     val notificationCount by subscriptionManager.notificationCount.collectAsState()
@@ -720,11 +725,14 @@ fun SupplyDashboardScreen(
                     onClick = {
                         scope.launch {
                             statusSheetItem = null
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching { repository.setStatus(item.id, status, employeeName.ifBlank { "Floor" }, tabletId) }
-                            }
-                            result.onFailure { Toast.makeText(context, "Failed to change status: ${it.message}", Toast.LENGTH_LONG).show() }
-                            items = withContext(Dispatchers.IO) { runCatching { repository.getItems() }.getOrDefault(items) }
+                            performSupplyStatusChange(
+                                setStatus = { withContext(Dispatchers.IO) { repository.setStatus(item.id, status, employeeName.ifBlank { "Floor" }, tabletId) } },
+                                reloadItems = { withContext(Dispatchers.IO) { repository.getItems() } },
+                                currentItems = { items },
+                                requestIdCounter = itemsReloadRequestId,
+                                onItemsReloaded = { items = it },
+                                onFailure = { Toast.makeText(context, "Failed to change status: ${it.message}", Toast.LENGTH_LONG).show() }
+                            )
                         }
                     },
                     icon = {
@@ -742,6 +750,34 @@ private sealed interface SupplyDashboardModal {
     data class Detail(val itemId: String) : SupplyDashboardModal
     data class EditItem(val itemId: String) : SupplyDashboardModal
     data class NewItem(val categoryId: String) : SupplyDashboardModal
+}
+
+/**
+ * Writes a status change then reloads the full item list, applying the reload to state only if
+ * no newer status change was issued while this reload was in flight. Without this guard, two
+ * status changes issued in quick succession (e.g. two rapid taps in the status picker) can have
+ * the older write's reload land after the newer one's, silently reverting the UI to stale data
+ * even though the newer write already succeeded on disk.
+ *
+ * [requestIdCounter] must be shared across all callers whose results should be mutually
+ * ordered (i.e. one counter per `items` state). Extracted from the Composable body so the
+ * ordering guard is unit-testable without Compose/Android.
+ */
+internal suspend fun performSupplyStatusChange(
+    setStatus: suspend () -> Unit,
+    reloadItems: suspend () -> List<SupplyItem>,
+    currentItems: () -> List<SupplyItem>,
+    requestIdCounter: java.util.concurrent.atomic.AtomicLong,
+    onItemsReloaded: (List<SupplyItem>) -> Unit,
+    onFailure: (Throwable) -> Unit = {}
+) {
+    val statusResult = runCatching { setStatus() }
+    statusResult.onFailure(onFailure)
+    val requestId = requestIdCounter.incrementAndGet()
+    val reloaded = runCatching { reloadItems() }.getOrDefault(currentItems())
+    if (requestId == requestIdCounter.get()) {
+        onItemsReloaded(reloaded)
+    }
 }
 
 @Composable

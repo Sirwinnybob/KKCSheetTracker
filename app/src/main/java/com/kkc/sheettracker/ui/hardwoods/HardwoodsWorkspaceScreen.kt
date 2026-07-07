@@ -2438,7 +2438,10 @@ private fun HardwoodsBoardStockList(
     }
 }
 
-private fun normalizeWidthForGrouping(width: String): String {
+// Shared with ClassicCutListTable.kt so the width-color-band map (built here) and the classic
+// table's per-row lookup use the exact same normalization — a divergent normalizer would cause
+// lookups to silently miss the map and fall back to no color band.
+internal fun normalizeWidthForGrouping(width: String): String {
     val parsed = parseDimensionForSort(width)
     if (parsed != null) return "%.4f".format(parsed)
     return width.trim().lowercase()

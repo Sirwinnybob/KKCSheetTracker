@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.viewer
 
+import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import org.junit.Assert.assertEquals
@@ -8,6 +9,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
 import java.io.File
 import kotlin.math.abs
 
@@ -193,5 +196,48 @@ class SheetViewerScreenTest {
         val absolute = File("D:/cache/part.png")
 
         assertEquals(absolute, resolveCncSidecarFile(pdfFile, absolute.path))
+    }
+
+    @Test
+    fun shouldRecycleEvictedPageBitmap_falseWhenEvictedIsNull() {
+        val displayed = mock<Bitmap>()
+
+        assertFalse(shouldRecycleEvictedPageBitmap(evicted = null, currentlyDisplayed = displayed))
+    }
+
+    @Test
+    fun shouldRecycleEvictedPageBitmap_falseWhenEvictedIsStillOnScreen() {
+        // The LRU cache can hand back the same bitmap instance under a stale page key while it
+        // is still bound to the visible pageBitmap state -- recycling it would crash the next draw.
+        val displayed = mock<Bitmap>()
+        whenever(displayed.isRecycled).thenReturn(false)
+
+        assertFalse(shouldRecycleEvictedPageBitmap(evicted = displayed, currentlyDisplayed = displayed))
+    }
+
+    @Test
+    fun shouldRecycleEvictedPageBitmap_falseWhenAlreadyRecycled() {
+        val evicted = mock<Bitmap>()
+        whenever(evicted.isRecycled).thenReturn(true)
+        val displayed = mock<Bitmap>()
+
+        assertFalse(shouldRecycleEvictedPageBitmap(evicted = evicted, currentlyDisplayed = displayed))
+    }
+
+    @Test
+    fun shouldRecycleEvictedPageBitmap_trueWhenEvictedIsUnreferencedAndNotRecycled() {
+        val evicted = mock<Bitmap>()
+        whenever(evicted.isRecycled).thenReturn(false)
+        val displayed = mock<Bitmap>()
+
+        assertTrue(shouldRecycleEvictedPageBitmap(evicted = evicted, currentlyDisplayed = displayed))
+    }
+
+    @Test
+    fun shouldRecycleEvictedPageBitmap_trueWhenNothingIsCurrentlyDisplayed() {
+        val evicted = mock<Bitmap>()
+        whenever(evicted.isRecycled).thenReturn(false)
+
+        assertTrue(shouldRecycleEvictedPageBitmap(evicted = evicted, currentlyDisplayed = null))
     }
 }

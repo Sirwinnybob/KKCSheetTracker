@@ -76,8 +76,9 @@ fun CoverPageOverlay(
     val screenWidthPx = remember(windowSize) { windowSize.width }
 
     LaunchedEffect(item.folderName) {
-        val filename = jobRepository.getJobPdfCatalog(item.folderName)
-            .deliverySheet?.pdfFilename
+        val filename = withContext(Dispatchers.IO) {
+            jobRepository.getJobPdfCatalog(item.folderName).deliverySheet?.pdfFilename
+        }
         if (!filename.isNullOrBlank()) {
             isLoadingHighRes = true
             val bitmap = withContext(Dispatchers.IO) {

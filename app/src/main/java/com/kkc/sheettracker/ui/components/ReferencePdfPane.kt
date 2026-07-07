@@ -79,8 +79,11 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.ui.markup.PdfMarkupOverlay
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -308,13 +311,21 @@ class PdfRenderEngine(private val pdfFile: File) {
         }
     }
 
-    fun close() {
+    suspend fun close() = mutex.withLock {
         runCatching { renderer?.close() }
         runCatching { fd?.close() }
         renderer = null
         fd = null
     }
 }
+
+// Dedicated, non-composition-scoped coroutine scope for closing [PdfRenderEngine] instances.
+// DisposableEffect's onDispose runs synchronously and cannot suspend, and rememberCoroutineScope's
+// scope is cancelled during the same disposal pass (its underlying Job may already be gone by the
+// time onDispose(engine) runs, depending on composition order). This scope lives for the process
+// lifetime so a queued close() always gets to run mutex-guarded to completion, serializing against
+// any in-flight render on the same engine instead of racing it.
+private val pdfRenderEngineDisposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 @OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
@@ -359,8 +370,15 @@ fun ReferencePdfPane(
     val basePageCache = remember(pdfIdentityKey) { LruCache<Int, Bitmap>(6) }
     DisposableEffect(engine) {
         onDispose {
-            engine?.close()
             basePageCache.evictAll()
+            val closingEngine = engine
+            if (closingEngine != null) {
+                pdfRenderEngineDisposalScope.launch {
+                    withContext(NonCancellable) {
+                        closingEngine.close()
+                    }
+                }
+            }
         }
     }
 

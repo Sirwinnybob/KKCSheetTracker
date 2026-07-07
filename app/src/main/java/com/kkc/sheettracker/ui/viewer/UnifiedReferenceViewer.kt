@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +60,7 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
@@ -456,6 +458,7 @@ fun UnifiedReferenceViewer(
     // minimized nav bar instead of swapping the whole bar to the full extendedControls layout.
     markupControlsAsSlidingTab: Boolean = false
 ) {
+    val scope = rememberCoroutineScope()
     var sourceTotalPages by remember(defaultPdfFilename, virtualMapping) { mutableIntStateOf(0) }
     val effectiveTotalPages = if (virtualMapping != null) {
         virtualMapping.totalDisplayPages
@@ -486,7 +489,9 @@ fun UnifiedReferenceViewer(
             return@LaunchedEffect
         }
         while (isActive) {
-            markupContentVersion = pdfMarkupStore.trackerContentVersion(pdfMarkupJobFolderName)
+            markupContentVersion = withContext(Dispatchers.IO) {
+                pdfMarkupStore.trackerContentVersion(pdfMarkupJobFolderName)
+            }
             delay(1000)
         }
     }
@@ -542,13 +547,19 @@ fun UnifiedReferenceViewer(
         visibleMarkupStrokes.isNotEmpty()
     }
     fun persistMarkupState() {
-        pdfMarkupStore?.takeIf { pdfMarkupJobFolderName.isNotBlank() && resolvedPdfFilename.isNotBlank() && sourcePage > 0 }?.savePageMarkup(
-            jobFolderName = pdfMarkupJobFolderName,
-            pdfFilename = resolvedPdfFilename,
-            page = sourcePage,
-            strokes = localMarkupStrokes.filter { it.id !in localDeletedIds },
-            deletedStrokeIds = localDeletedIds.toList()
-        )
+        val store = pdfMarkupStore ?: return
+        if (pdfMarkupJobFolderName.isBlank() || resolvedPdfFilename.isBlank() || sourcePage <= 0) return
+        val strokesToSave = localMarkupStrokes.filter { it.id !in localDeletedIds }
+        val deletedToSave = localDeletedIds.toList()
+        scope.launch(Dispatchers.IO) {
+            store.savePageMarkup(
+                jobFolderName = pdfMarkupJobFolderName,
+                pdfFilename = resolvedPdfFilename,
+                page = sourcePage,
+                strokes = strokesToSave,
+                deletedStrokeIds = deletedToSave
+            )
+        }
     }
     val navBarDeco = LocalNavBarDecoration.current
     SideEffect {
@@ -560,13 +571,22 @@ fun UnifiedReferenceViewer(
                             state = markupToolState,
                             hasUndo = hasMarkupHistory,
                             onUndo = {
-                                val latestVisible = pdfMarkupStore
-                                    ?.loadTabletPageMarkup(pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage)
-                                    ?.strokes
-                                    ?.lastOrNull { it.id !in localDeletedIds }
-                                if (latestVisible != null) {
-                                    localDeletedIds.add(latestVisible.id)
-                                    persistMarkupState()
+                                val store = pdfMarkupStore
+                                val jobFolder = pdfMarkupJobFolderName
+                                val pdfName = resolvedPdfFilename
+                                val page = sourcePage
+                                val deletedSnapshot = localDeletedIds.toSet()
+                                scope.launch {
+                                    val latestVisible = withContext(Dispatchers.IO) {
+                                        store
+                                            ?.loadTabletPageMarkup(jobFolder, pdfName, page)
+                                            ?.strokes
+                                            ?.lastOrNull { it.id !in deletedSnapshot }
+                                    }
+                                    if (latestVisible != null) {
+                                        localDeletedIds.add(latestVisible.id)
+                                        persistMarkupState()
+                                    }
                                 }
                             },
                             strokesVisible = markupStrokesVisible,
@@ -650,25 +670,13 @@ fun UnifiedReferenceViewer(
                 "PdfMarkupDebug",
                 "UnifiedReferenceViewer addStroke job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage local=${localMarkupStrokes.size}"
             )
-            pdfMarkupStore?.takeIf { pdfMarkupJobFolderName.isNotBlank() && resolvedPdfFilename.isNotBlank() && sourcePage > 0 }?.savePageMarkup(
-                jobFolderName = pdfMarkupJobFolderName,
-                pdfFilename = resolvedPdfFilename,
-                page = sourcePage,
-                strokes = localMarkupStrokes.filter { it.id !in localDeletedIds },
-                deletedStrokeIds = localDeletedIds.toList()
-            )
+            persistMarkupState()
         },
         onMarkupStrokeErased = { strokeId ->
             if (strokeId !in localDeletedIds) {
                 localDeletedIds.add(strokeId)
             }
-            pdfMarkupStore?.takeIf { pdfMarkupJobFolderName.isNotBlank() && resolvedPdfFilename.isNotBlank() && sourcePage > 0 }?.savePageMarkup(
-                jobFolderName = pdfMarkupJobFolderName,
-                pdfFilename = resolvedPdfFilename,
-                page = sourcePage,
-                strokes = localMarkupStrokes.filter { it.id !in localDeletedIds },
-                deletedStrokeIds = localDeletedIds.toList()
-            )
+            persistMarkupState()
         }
     )
 

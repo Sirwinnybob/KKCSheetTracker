@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.specialty
 
+import com.kkc.sheettracker.data.SpecialtyProgressStore
 import com.kkc.sheettracker.data.models.SpecialtyCompletionState
 import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
@@ -7,6 +8,7 @@ import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -67,6 +69,64 @@ class CompactSpecialtySectionLogicTest {
         // SPECIALTY Mode: CNC (2), ASSEMBLY (3), and HARDWOODS (4) relevant (not DELIVERY)
         val specialtyRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.SPECIALTY)
         assertEquals(listOf("2", "3", "4"), specialtyRows.map { it.resolved.item.id })
+    }
+
+    @Test
+    fun compactCompletionKeyForMode_singleStationItemAlwaysUsesTheSharedItemKey() {
+        // Not a multi-station CUSTOM item (only one station) -> always the shared ITEM key,
+        // regardless of mode.
+        val item = SpecialtyItem(id = "1", name = "Single", stations = listOf(SpecialtyStation.CNC), category = SpecialtyItemCategory.CUSTOM)
+        assertEquals(SpecialtyProgressStore.ITEM_COMPLETION_KEY, compactCompletionKeyForMode(item, SpecialtySurfaceMode.CNC))
+        assertEquals(SpecialtyProgressStore.ITEM_COMPLETION_KEY, compactCompletionKeyForMode(item, SpecialtySurfaceMode.SPECIALTY))
+    }
+
+    @Test
+    fun compactCompletionKeyForMode_toOrderItemAlwaysUsesTheSharedItemKey() {
+        // TO_ORDER items never split by station even with multiple stations listed.
+        val item = SpecialtyItem(
+            id = "2",
+            name = "Ordered",
+            stations = listOf(SpecialtyStation.CNC, SpecialtyStation.ASSEMBLY),
+            category = SpecialtyItemCategory.TO_ORDER
+        )
+        assertEquals(SpecialtyProgressStore.ITEM_COMPLETION_KEY, compactCompletionKeyForMode(item, SpecialtySurfaceMode.ASSEMBLY))
+    }
+
+    @Test
+    fun compactCompletionKeyForMode_multiStationCustomItemResolvesToTheSingleMatchingStationKey() {
+        // CUSTOM item split across CNC and ASSEMBLY: in CNC mode, only the CNC key is relevant.
+        val item = SpecialtyItem(
+            id = "3",
+            name = "Split",
+            stations = listOf(SpecialtyStation.CNC, SpecialtyStation.ASSEMBLY),
+            category = SpecialtyItemCategory.CUSTOM
+        )
+        assertEquals(SpecialtyStation.CNC.name, compactCompletionKeyForMode(item, SpecialtySurfaceMode.CNC))
+        assertEquals(SpecialtyStation.ASSEMBLY.name, compactCompletionKeyForMode(item, SpecialtySurfaceMode.ASSEMBLY))
+    }
+
+    @Test
+    fun compactCompletionKeyForMode_returnsNullWhenModeMatchesMoreThanOneStationKey() {
+        // CUSTOM item split across CNC and ASSEMBLY: SPECIALTY mode matches both (neither is
+        // DELIVERY) -> ambiguous, must not resolve to a single writable key.
+        val item = SpecialtyItem(
+            id = "4",
+            name = "Ambiguous",
+            stations = listOf(SpecialtyStation.CNC, SpecialtyStation.ASSEMBLY),
+            category = SpecialtyItemCategory.CUSTOM
+        )
+        assertNull(compactCompletionKeyForMode(item, SpecialtySurfaceMode.SPECIALTY))
+    }
+
+    @Test
+    fun compactCompletionKeyForMode_returnsNullWhenModeMatchesNoStationKey() {
+        val item = SpecialtyItem(
+            id = "5",
+            name = "NoMatch",
+            stations = listOf(SpecialtyStation.CNC, SpecialtyStation.HARDWOODS),
+            category = SpecialtyItemCategory.CUSTOM
+        )
+        assertNull(compactCompletionKeyForMode(item, SpecialtySurfaceMode.ASSEMBLY))
     }
 
     private fun resolvedItem(

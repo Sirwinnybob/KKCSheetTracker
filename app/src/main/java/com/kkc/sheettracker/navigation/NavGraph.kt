@@ -561,15 +561,14 @@ private fun MultiBackStackNavigation(
 
     val onClockInNow: (jobNumber: String, jobName: String, folderName: String, tabType: String, employee: String) -> Unit =
         { jobNumber, jobName, folderName, tabType, employee ->
-            clockInState.clockIn(jobNumber, "$jobName ($employee)", folderName, tabType)
+            clockInState.clockIn(jobNumber, formattedClockInJobName(jobName, employee), folderName, tabType)
             ClockInNotificationContract.startOrUpdateService(context)
         }
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
-            if (employeeName.isBlank()) {
-                pendingClockIn = PendingClockIn(jobNumber, jobName, folderName, tabType)
-            } else {
-                onClockInNow(jobNumber, jobName, folderName, tabType, employeeName)
+            when (val gate = resolveClockInGate(employeeName, jobNumber, jobName, folderName, tabType)) {
+                is ClockInGateResult.NeedsLogin -> pendingClockIn = gate.pending
+                is ClockInGateResult.Ready -> onClockInNow(gate.jobNumber, gate.jobName, gate.folderName, gate.tabType, gate.employee)
             }
         }
     val onClockOut: () -> Unit = {
@@ -1964,6 +1963,7 @@ private fun LegacySingleStackNavigation(
     val currentRoute = backStackEntry?.destination?.route
     val startRoute = if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) "jobs" else "dashboard"
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
+    var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
     val visibleDestinations = remember(workMode) {
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
@@ -1994,10 +1994,17 @@ private fun LegacySingleStackNavigation(
     val legacyTimecardStore = remember { TimecardStore(legacyTimecardConfig, legacyTimecardDiscovery, legacyTimeclockMessagesRepo, File(basePath)) }
     DisposableEffect(legacyTimecardStore) { onDispose { legacyTimecardStore.cancel() } }
     LaunchedEffect(basePath) { EmployeeDirectory.refresh(File(basePath)) }
+    val onClockInNow: (jobNumber: String, jobName: String, folderName: String, tabType: String, employee: String) -> Unit =
+        { jobNumber, jobName, folderName, tabType, employee ->
+            clockInState.clockIn(jobNumber, formattedClockInJobName(jobName, employee), folderName, tabType)
+            ClockInNotificationContract.startOrUpdateService(legacyContext)
+        }
     val onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit =
         { jobNumber, jobName, folderName, tabType ->
-            clockInState.clockIn(jobNumber, jobName, folderName, tabType)
-            ClockInNotificationContract.startOrUpdateService(legacyContext)
+            when (val gate = resolveClockInGate(employeeName, jobNumber, jobName, folderName, tabType)) {
+                is ClockInGateResult.NeedsLogin -> pendingClockIn = gate.pending
+                is ClockInGateResult.Ready -> onClockInNow(gate.jobNumber, gate.jobName, gate.folderName, gate.tabType, gate.employee)
+            }
         }
     val onClockOut: () -> Unit = {
         val snap = clockInState.snapshot
@@ -3016,6 +3023,20 @@ private fun LegacySingleStackNavigation(
                         onDismiss = { showHoursLoginDialog = false }
                     )
                 }
+                pendingClockIn?.let { pending ->
+                    val selected = employeeName.takeIf { it.isNotBlank() }.orEmpty()
+                    HoursLoginDialog(
+                        initialInput = selected,
+                        suggestions = EmployeeDirectory.suggestions(selected).map { "${it.name} (${it.pin})" },
+                        onLogin = { raw ->
+                            val resolved = EmployeeDirectory.resolveNameOrPin(raw)
+                            onEmployeeNameChanged(resolved)
+                            pendingClockIn = null
+                            onClockInNow(pending.jobNumber, pending.jobName, pending.folderName, pending.tabType, resolved)
+                        },
+                        onDismiss = { pendingClockIn = null }
+                    )
+                }
                 pendingClockOut?.let { pending ->
                     ClockOutEditDialog(
                         jobName = pending.jobName,
@@ -3260,12 +3281,51 @@ private data class PendingClockOut(
     val actualElapsedMs: Long
 )
 
-private data class PendingClockIn(
+internal data class PendingClockIn(
     val jobNumber: String,
     val jobName: String,
     val folderName: String,
     val tabType: String
 )
+
+/**
+ * Result of [resolveClockInGate]: either the punch is ready to persist immediately (employee is
+ * known), or it must wait behind the employee-login prompt (queued as a [PendingClockIn]).
+ */
+internal sealed interface ClockInGateResult {
+    data class Ready(
+        val jobNumber: String,
+        val jobName: String,
+        val folderName: String,
+        val tabType: String,
+        val employee: String
+    ) : ClockInGateResult
+
+    data class NeedsLogin(val pending: PendingClockIn) : ClockInGateResult
+}
+
+/**
+ * Single source of truth for whether a clock-in can be persisted immediately or must be gated
+ * behind the employee-login prompt first. Both MultiBackStackNavigation and
+ * LegacySingleStackNavigation route their onClockIn handler through this so the two nav hosts
+ * cannot silently diverge again -- legacy previously persisted clock-ins with a blank employee
+ * name instead of prompting for login, unlike the multi-back-stack host.
+ */
+internal fun resolveClockInGate(
+    employeeName: String,
+    jobNumber: String,
+    jobName: String,
+    folderName: String,
+    tabType: String
+): ClockInGateResult =
+    if (employeeName.isBlank()) {
+        ClockInGateResult.NeedsLogin(PendingClockIn(jobNumber, jobName, folderName, tabType))
+    } else {
+        ClockInGateResult.Ready(jobNumber, jobName, folderName, tabType, employeeName)
+    }
+
+/** Formats the persisted job name for an active clock-in punch: "<jobName> (<employee>)". */
+internal fun formattedClockInJobName(jobName: String, employee: String): String = "$jobName ($employee)"
 
 @Composable
 private fun ClockOutEditDialog(

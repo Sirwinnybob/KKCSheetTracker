@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -307,24 +308,26 @@ private fun CncRecentMaterialsSection(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items.forEach { item ->
-                            val thumbnail by produceState<Bitmap?>(
-                                initialValue = null,
-                                item.jobFolderName,
-                                item.pdfFilename,
-                                item.thumbnailPath,
-                                item.nextIncompletePage
-                            ) {
-                                value = withContext(Dispatchers.IO) {
-                                    loadRecentMaterialThumbnail(jobRepository, item)
+                            key(item.jobFolderName, item.pdfFilename) {
+                                val thumbnail by produceState<Bitmap?>(
+                                    initialValue = null,
+                                    item.jobFolderName,
+                                    item.pdfFilename,
+                                    item.thumbnailPath,
+                                    item.nextIncompletePage
+                                ) {
+                                    value = withContext(Dispatchers.IO) {
+                                        loadRecentMaterialThumbnail(jobRepository, item)
+                                    }
                                 }
+                                CncRecentMaterialCard(
+                                    item = item,
+                                    thumbnail = thumbnail,
+                                    onClick = {
+                                        onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage)
+                                    }
+                                )
                             }
-                            CncRecentMaterialCard(
-                                item = item,
-                                thumbnail = thumbnail,
-                                onClick = {
-                                    onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage)
-                                }
-                            )
                         }
                     }
                 }
@@ -364,23 +367,25 @@ private fun CncRemakesSection(
                 CncRemakeMaterialCard(item = null, remakeColor = remakeColor, thumbnail = null, onClick = {})
             } else {
                 items.forEach { item ->
-                    val thumbnail by produceState<Bitmap?>(
-                        initialValue = null,
-                        item.jobFolderName,
-                        item.pdfFilename,
-                        item.thumbnailPath,
-                        item.nextIncompletePage
-                    ) {
-                        value = withContext(Dispatchers.IO) {
-                            loadRecentMaterialThumbnail(jobRepository, item)
+                    key(item.jobFolderName, item.pdfFilename) {
+                        val thumbnail by produceState<Bitmap?>(
+                            initialValue = null,
+                            item.jobFolderName,
+                            item.pdfFilename,
+                            item.thumbnailPath,
+                            item.nextIncompletePage
+                        ) {
+                            value = withContext(Dispatchers.IO) {
+                                loadRecentMaterialThumbnail(jobRepository, item)
+                            }
                         }
+                        CncRemakeMaterialCard(
+                            item = item,
+                            remakeColor = remakeColor,
+                            thumbnail = thumbnail,
+                            onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
+                        )
                     }
-                    CncRemakeMaterialCard(
-                        item = item,
-                        remakeColor = remakeColor,
-                        thumbnail = thumbnail,
-                        onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
-                    )
                 }
             }
         }

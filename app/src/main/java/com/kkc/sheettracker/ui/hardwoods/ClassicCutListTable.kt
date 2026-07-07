@@ -41,7 +41,6 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,8 +66,6 @@ import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.max
 import kotlin.math.sqrt
-
-private val NORMALIZE_WIDTH_MIXED_FRACTION = Regex("""^(-?\d+)\s+(\d+)\s*/\s*(\d+)$""")
 
 private data class TallyHitTarget(
     val boundsInRoot: Rect,
@@ -609,7 +606,7 @@ fun ClassicCutListTable(
 
                                 // Status wash styling per design guidelines
                                 val statusColors = KKCThemeColors.statusColors
-                                val widthColor = widthColorBands[normalizeWidth(row.width)] ?: Color.Transparent
+                                val widthColor = widthColorBands[normalizeWidthForGrouping(row.width)] ?: Color.Transparent
                                 val (washColor, borderWashColor) = when {
                                     skipped -> statusColors.skipBg.copy(alpha = 0.08f) to statusColors.skipBorder
                                     qty > 0 && done == qty -> statusColors.completeBg.copy(alpha = 0.08f) to statusColors.completeBorder
@@ -658,8 +655,8 @@ fun ClassicCutListTable(
                     if (tableSize != IntSize.Zero) {
                         StylusDrawingCanvas(
                             modifier = Modifier.size(
-                                width = (tableSize.width / LocalViewConfiguration.current.touchSlop * LocalViewConfiguration.current.touchSlop).dp, 
-                                height = (tableSize.height / LocalViewConfiguration.current.touchSlop * LocalViewConfiguration.current.touchSlop).dp
+                                width = with(density) { tableSize.width.toDp() },
+                                height = with(density) { tableSize.height.toDp() }
                             ),
                             canvasSize = tableSize,
                             docType = docType.name,
@@ -1262,22 +1259,4 @@ private fun StylusDrawingCanvas(
             )
         }
     }
-}
-
-private fun normalizeWidth(width: String): String {
-    val text = width.trim().replace("\"", "")
-    val parsed = text.toDoubleOrNull() ?: run {
-        val mixedMatch = NORMALIZE_WIDTH_MIXED_FRACTION.matchEntire(text)
-        if (mixedMatch != null) {
-            val whole = mixedMatch.groupValues[1].toDoubleOrNull() ?: return@run null
-            val num = mixedMatch.groupValues[2].toDoubleOrNull() ?: return@run null
-            val den = mixedMatch.groupValues[3].toDoubleOrNull()?.takeIf { it != 0.0 } ?: return@run null
-            val frac = num / den
-            if (whole >= 0) whole + frac else whole - frac
-        } else {
-            null
-        }
-    }
-    if (parsed != null) return "%.4f".format(parsed)
-    return width.trim().lowercase()
 }

@@ -30,11 +30,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.KKCSpacing
+import com.kkc.sheettracker.data.SpecialtyProgressStore
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
+import com.kkc.sheettracker.data.requiresStationSplit
 import kotlinx.coroutines.launch
 
 enum class SpecialtySurfaceMode {
@@ -77,6 +80,41 @@ internal fun buildSpecialtySectionRows(
     return resolvedItems
         .filter { isItemRelevantToMode(it, mode) }
         .map { SpecialtySectionRowModel(it, true) }
+}
+
+/**
+ * Whether [station] is the one this compact surface cares about for [mode]. Mirrors the
+ * item-level relevance used by [isItemRelevantToMode], but at per-station granularity so a
+ * multi-station CUSTOM item can be matched to exactly one of its completion keys.
+ */
+internal fun isStationRelevantToMode(
+    station: SpecialtyStation,
+    mode: SpecialtySurfaceMode
+): Boolean = when (mode) {
+    SpecialtySurfaceMode.CNC -> station == SpecialtyStation.CNC
+    SpecialtySurfaceMode.HARDWOODS -> station == SpecialtyStation.HARDWOODS || station == SpecialtyStation.DELIVERY
+    SpecialtySurfaceMode.ASSEMBLY -> station == SpecialtyStation.ASSEMBLY || station == SpecialtyStation.DELIVERY
+    SpecialtySurfaceMode.SPECIALTY -> station != SpecialtyStation.DELIVERY
+}
+
+/**
+ * The single completion key the compact checkbox is allowed to write for [item] in [mode].
+ *
+ * Multi-station CUSTOM items store one completion key per station (see
+ * [com.kkc.sheettracker.data.completionKeysForItem]); a single checkbox must never write all of
+ * them at once (that would silently mark stations complete that the user never touched). Returns
+ * null when the item doesn't resolve to exactly one relevant key for this mode, so the caller can
+ * disable the checkbox instead of guessing.
+ */
+internal fun compactCompletionKeyForMode(
+    item: SpecialtyItem,
+    mode: SpecialtySurfaceMode
+): String? {
+    if (!requiresStationSplit(item)) return SpecialtyProgressStore.ITEM_COMPLETION_KEY
+    return item.stations
+        .filter { station -> isStationRelevantToMode(station, mode) }
+        .singleOrNull()
+        ?.name
 }
 
 @Composable
@@ -142,8 +180,16 @@ fun CompactSpecialtySection(
                 items(rowModels, key = { rowModel -> rowModel.resolved.item.id }) { rowModel ->
                     val item = rowModel.resolved.item
                     val itemId = item.id
-                    val checked = completionOverrides[itemId] ?: rowModel.resolved.isComplete
-                    val itemEnabled = inFlight[itemId] != true
+                    val completionKey = compactCompletionKeyForMode(item, mode)
+                    val checked = completionOverrides[itemId] ?: if (completionKey != null) {
+                        rowModel.resolved.completionByKey[completionKey]?.completed == true
+                    } else {
+                        rowModel.resolved.isComplete
+                    }
+                    // Multi-station CUSTOM items with more than one key relevant to this mode
+                    // have no single unambiguous key to toggle from a compact checkbox — disable
+                    // it rather than writing (and silently completing) every station's key.
+                    val itemEnabled = completionKey != null && inFlight[itemId] != true
                     val stationText = item.stations.joinToString(" • ") { station ->
                         station.name.replace('_', ' ')
                     }
@@ -156,15 +202,17 @@ fun CompactSpecialtySection(
                         Checkbox(
                             checked = checked,
                             enabled = itemEnabled,
-                            onCheckedChange = { next ->
+                            onCheckedChange = onChange@{ next ->
+                                val key = completionKey ?: return@onChange
                                 val previous = completionOverrides[itemId] ?: checked
                                 completionOverrides[itemId] = next
                                 inFlight[itemId] = true
                                 coroutineScope.launch {
                                     try {
-                                        specialtyStateStore.setItemCompletion(
+                                        specialtyStateStore.setItemCompletionKey(
                                             jobFolderName = jobFolderName,
                                             itemId = itemId,
+                                            completionKey = key,
                                             completed = next
                                         )
                                         completionOverrides.remove(itemId)

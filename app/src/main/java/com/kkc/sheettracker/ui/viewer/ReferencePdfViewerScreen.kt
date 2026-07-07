@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -34,10 +35,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,7 +59,16 @@ fun ReferencePdfViewerScreen(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
     val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
-    val sheetIndex = remember(jobFolderName, refreshGeneration) { jobRepository.getCabinetSheetIndex(jobFolderName) }
+    // File-backed lookup (goes through JobRepository's engine() I/O). Must not run
+    // synchronously in remember{} on the composition/main thread — produceState
+    // hops to Dispatchers.IO and drives dependent state from the async result.
+    val sheetIndex by produceState<CabinetSheetIndex?>(
+        initialValue = null,
+        key1 = jobFolderName,
+        key2 = refreshGeneration
+    ) {
+        value = withContext(Dispatchers.IO) { jobRepository.getCabinetSheetIndex(jobFolderName) }
+    }
     val documentIndex = remember(sheetIndex, docType) {
         when (docType) {
             ReferenceDocType.ASSEMBLY -> sheetIndex?.documents?.assembly
@@ -82,16 +95,28 @@ fun ReferencePdfViewerScreen(
     val assemblyVirtualTotalPages = remember(sheetIndex) {
         (sheetIndex?.documents?.assembly?.virtualCombined?.totalVirtualPages ?: 0).coerceAtLeast(0)
     }
+    // File-backed fallback lookup — only hit when documentIndex has no pdfFilename yet
+    // (e.g. sheetIndex still loading). Runs off the main thread via produceState.
+    val assemblyFallbackPdfFilename by produceState(
+        initialValue = "",
+        key1 = documentIndex,
+        key2 = jobFolderName
+    ) {
+        value = documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }
+            ?: withContext(Dispatchers.IO) {
+                jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY)
+            }.orEmpty()
+    }
     val assemblyVirtualSanitized = remember(
         assemblyVirtualTotalPages,
         assemblyVirtualRawMap,
         documentIndex,
-        sheetIndex
+        sheetIndex,
+        assemblyFallbackPdfFilename
     ) {
         sanitizeVirtualAssemblyData(
             totalVirtualPages = assemblyVirtualTotalPages,
-            defaultPdfFilename = documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }
-                ?: jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY).orEmpty(),
+            defaultPdfFilename = assemblyFallbackPdfFilename,
             sourceByDisplayPage = assemblyVirtualRawMap,
             cabinetToPages = sheetIndex?.documents?.assembly?.virtualCombined?.cabinetToPages.orEmpty()
         )
@@ -158,10 +183,20 @@ fun ReferencePdfViewerScreen(
         }
     }
 
-    val defaultPdfFilename = remember(documentIndex, docType, jobFolderName, refreshGeneration) {
-        documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }
-            ?: jobRepository.findReferencePdfFilename(jobFolderName, docType)
-            ?: ""
+    // File-backed fallback lookup — off the main thread via produceState (see sheetIndex above).
+    // produceState's key1/key2/key3 overload only covers 3 keys; 4 keys resolves to the
+    // vararg `keys` overload, which requires positional (not named) arguments.
+    val defaultPdfFilename by produceState(
+        documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }.orEmpty(),
+        documentIndex,
+        docType,
+        jobFolderName,
+        refreshGeneration
+    ) {
+        value = documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }
+            ?: withContext(Dispatchers.IO) {
+                jobRepository.findReferencePdfFilename(jobFolderName, docType)
+            }.orEmpty()
     }
 
     val topBarAlpha by animateFloatAsState(if (showUi) 1f else 0f, tween(220), label = "topBarAlpha")

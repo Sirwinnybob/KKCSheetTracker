@@ -223,6 +223,15 @@ internal fun shouldShowPenMarkupOverlay(
     penModeEnabled: Boolean
 ): Boolean = penModeEnabled
 
+/**
+ * Whether a page bitmap evicted from the render LRU cache is safe to recycle. It must exist,
+ * not already be recycled, and must not be the bitmap currently bound to the on-screen page
+ * (which the UI is still drawing from) -- recycling that would crash the next draw call.
+ */
+internal fun shouldRecycleEvictedPageBitmap(evicted: Bitmap?, currentlyDisplayed: Bitmap?): Boolean {
+    return evicted != null && evicted !== currentlyDisplayed && !evicted.isRecycled
+}
+
 internal fun resolveSheetViewerMarkupStoreConfig(
     basePath: String?,
     tabletId: String?
@@ -370,7 +379,9 @@ fun SheetViewerScreen(
             return@LaunchedEffect
         }
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-            markupContentVersion = pdfMarkupStore.trackerContentVersion(jobFolderName)
+            markupContentVersion = withContext(Dispatchers.IO) {
+                pdfMarkupStore.trackerContentVersion(jobFolderName)
+            }
             delay(1000)
         }
     }
@@ -400,17 +411,24 @@ fun SheetViewerScreen(
     }
 
     fun persistCurrentPageMarkup() {
+        val store = pdfMarkupStore ?: return
+        val page = currentPage
+        if (page <= 0) return
+        val strokesToSave = localMarkupStrokes.filter { it.id !in localMarkupDeletedIds }
+        val deletedToSave = localMarkupDeletedIds.toList()
         Log.d(
             "PdfMarkupDebug",
-            "SheetViewer persist job=$jobFolderName pdf=$pdfFilename page=$currentPage strokes=${localMarkupStrokes.count { it.id !in localMarkupDeletedIds }} deleted=${localMarkupDeletedIds.size}"
+            "SheetViewer persist job=$jobFolderName pdf=$pdfFilename page=$page strokes=${strokesToSave.size} deleted=${deletedToSave.size}"
         )
-        pdfMarkupStore?.takeIf { currentPage > 0 }?.savePageMarkup(
-            jobFolderName = jobFolderName,
-            pdfFilename = pdfFilename,
-            page = currentPage,
-            strokes = localMarkupStrokes.filter { it.id !in localMarkupDeletedIds },
-            deletedStrokeIds = localMarkupDeletedIds.toList()
-        )
+        scope.launch(Dispatchers.IO) {
+            store.savePageMarkup(
+                jobFolderName = jobFolderName,
+                pdfFilename = pdfFilename,
+                page = page,
+                strokes = strokesToSave,
+                deletedStrokeIds = deletedToSave
+            )
+        }
     }
 
     fun normalizeRoomFolder(roomText: String?): String? {
@@ -475,7 +493,13 @@ fun SheetViewerScreen(
         while (renderCacheOrder.size > RENDER_CACHE_MAX_PAGES) {
             val stalePage = renderCacheOrder.removeFirst()
             if (stalePage != page) {
-                renderCache.remove(stalePage)
+                val evicted = renderCache.remove(stalePage)
+                // Never recycle diagramBitmap: it is owned/evicted by ProgressStore's own
+                // prepared-page cache. Only the page render's own pageBitmap belongs to us.
+                val evictedPageBitmap = evicted?.pageBitmap
+                if (shouldRecycleEvictedPageBitmap(evictedPageBitmap, pageBitmap)) {
+                    evictedPageBitmap?.recycle()
+                }
             }
         }
     }
@@ -564,13 +588,16 @@ fun SheetViewerScreen(
         )
     }
 
-    fun persistViewTouch(force: Boolean = false) {
+    suspend fun persistViewTouch(force: Boolean = false) {
         val material = currentMaterial ?: return
         if (material.fileFingerprint.isBlank()) return
         val now = System.currentTimeMillis()
         if (!force && currentPage == lastPersistedViewPage && now - lastPersistedViewAtMs < 1200L) return
-        progressStore.markSheetViewed(jobFolderName, pdfFilename, currentPage, material.fileFingerprint)
-        lastPersistedViewPage = currentPage
+        val page = currentPage
+        withContext(Dispatchers.IO) {
+            progressStore.markSheetViewed(jobFolderName, pdfFilename, page, material.fileFingerprint)
+        }
+        lastPersistedViewPage = page
         lastPersistedViewAtMs = now
     }
 
@@ -665,7 +692,7 @@ fun SheetViewerScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                persistViewTouch(force = true)
+                scope.launch { persistViewTouch(force = true) }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -1040,35 +1067,49 @@ fun SheetViewerScreen(
                 onOpenToc = { showSheetToc = true },
                 onToggleSkip = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val page = currentPage
+                    val fp = fileFingerprint
                     val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                    val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                    if (skipped) progressStore.unmarkSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                    else progressStore.markSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                    if (BuildConfig.DEBUG) {
-                        val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                        check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during skip toggle" }
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, page, fp)
+                            if (skipped) progressStore.unmarkSheetSkipped(jobFolderName, pdfFilename, page, fp)
+                            else progressStore.markSheetSkipped(jobFolderName, pdfFilename, page, fp)
+                        }
+                        if (BuildConfig.DEBUG) {
+                            val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                            check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during skip toggle" }
+                        }
                     }
                 },
                 onToggleComplete = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val page = currentPage
+                    val fp = fileFingerprint
+                    val remakeParts = currentPageRemakeParts
                     val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                    val wasComplete = progressStore.isSheetComplete(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                    if (wasComplete) {
-                        progressStore.unmarkSheetComplete(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Sheet $displayPageNumber marked incomplete")
+                    scope.launch {
+                        val wasComplete = withContext(Dispatchers.IO) {
+                            progressStore.isSheetComplete(jobFolderName, pdfFilename, page, fp)
                         }
-                    } else {
-                        val wasSkipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                        progressStore.markSheetComplete(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-                        val resolvedRemakeCount = progressStore.resolveSpecificBadParts(
-                            jobFolderName = jobFolderName,
-                            pdfFilename = pdfFilename,
-                            page = currentPage,
-                            fileFingerprint = fileFingerprint,
-                            partNumbers = currentPageRemakeParts
-                        )
-                        scope.launch {
+                        if (wasComplete) {
+                            withContext(Dispatchers.IO) {
+                                progressStore.unmarkSheetComplete(jobFolderName, pdfFilename, page, fp)
+                            }
+                            snackbarHostState.showSnackbar("Sheet $displayPageNumber marked incomplete")
+                        } else {
+                            val (wasSkipped, resolvedRemakeCount) = withContext(Dispatchers.IO) {
+                                val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, page, fp)
+                                progressStore.markSheetComplete(jobFolderName, pdfFilename, page, fp)
+                                val resolved = progressStore.resolveSpecificBadParts(
+                                    jobFolderName = jobFolderName,
+                                    pdfFilename = pdfFilename,
+                                    page = page,
+                                    fileFingerprint = fp,
+                                    partNumbers = remakeParts
+                                )
+                                skipped to resolved
+                            }
                             val baseMessage =
                                 if (wasSkipped) "Sheet $displayPageNumber marked complete (skip removed)"
                                 else "Sheet $displayPageNumber marked complete"
@@ -1079,16 +1120,16 @@ fun SheetViewerScreen(
                                     baseMessage
                                 }
                             )
+                            if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
+                                currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
+                                selectedPartNumber = null
+                                selectedCabinetNumber = null
+                            }
                         }
-                        if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
-                            currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
-                            selectedPartNumber = null
-                            selectedCabinetNumber = null
+                        if (BuildConfig.DEBUG) {
+                            val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                            check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during complete toggle" }
                         }
-                    }
-                    if (BuildConfig.DEBUG) {
-                        val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                        check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during complete toggle" }
                     }
                 },
                 onOpenSearch = { showCncSearch = true }
@@ -1102,13 +1143,20 @@ fun SheetViewerScreen(
                     state = markupToolState,
                     hasUndo = hasMarkupHistory,
                     onUndo = {
-                        val latestVisible = pdfMarkupStore
-                            ?.loadTabletPageMarkup(jobFolderName, pdfFilename, currentPage)
-                            ?.strokes
-                            ?.lastOrNull { it.id !in localMarkupDeletedIds }
-                        if (latestVisible != null) {
-                            localMarkupDeletedIds.add(latestVisible.id)
-                            persistCurrentPageMarkup()
+                        val store = pdfMarkupStore
+                        val page = currentPage
+                        val deletedSnapshot = localMarkupDeletedIds.toSet()
+                        scope.launch {
+                            val latestVisible = withContext(Dispatchers.IO) {
+                                store
+                                    ?.loadTabletPageMarkup(jobFolderName, pdfFilename, page)
+                                    ?.strokes
+                                    ?.lastOrNull { it.id !in deletedSnapshot }
+                            }
+                            if (latestVisible != null) {
+                                localMarkupDeletedIds.add(latestVisible.id)
+                                persistCurrentPageMarkup()
+                            }
                         }
                     },
                     strokesVisible = markupStrokesVisible,
@@ -1156,7 +1204,10 @@ fun SheetViewerScreen(
                     if (pendingBadPartCount > 0) {
                         TextButton(
                             onClick = {
-                                progressStore.submitPendingBadParts(jobFolderName, pdfFilename, fileFingerprint)
+                                val fp = fileFingerprint
+                                scope.launch(Dispatchers.IO) {
+                                    progressStore.submitPendingBadParts(jobFolderName, pdfFilename, fp)
+                                }
                             },
                             colors = ButtonDefaults.textButtonColors(
                                 contentColor = KKCThemeColors.statusColors.bad
@@ -1552,11 +1603,17 @@ fun SheetViewerScreen(
                         showReferenceDocDialog = true
                     },
                     onToggleBadPart = { part ->
+                        val page = currentPage
+                        val fp = fileFingerprint
                         val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                        progressStore.toggleBadPart(jobFolderName, pdfFilename, currentPage, fileFingerprint, part.number)
-                        if (BuildConfig.DEBUG) {
-                            val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                            check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during bad-part toggle" }
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                progressStore.toggleBadPart(jobFolderName, pdfFilename, page, fp, part.number)
+                            }
+                            if (BuildConfig.DEBUG) {
+                                val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                                check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during bad-part toggle" }
+                            }
                         }
                     }
                 )
@@ -1588,8 +1645,16 @@ fun SheetViewerScreen(
             null
         }
         val partGraphicsArchive = currentMaterial?.metadata?.partGraphicsArchive
-        val partGraphicBitmap = remember(selectedPart?.graphicPath, partGraphicsArchive, pdfFile) {
-            loadPartGraphicBitmap(pdfFile, partGraphicsArchive, selectedPart?.graphicPath)
+        val selectedGraphicPath = selectedPart?.graphicPath
+        val partGraphicBitmap by produceState<Bitmap?>(
+            initialValue = null,
+            key1 = selectedGraphicPath,
+            key2 = partGraphicsArchive,
+            key3 = pdfFile
+        ) {
+            value = withContext(Dispatchers.IO) {
+                loadPartGraphicBitmap(pdfFile, partGraphicsArchive, selectedGraphicPath)
+            }
         }
         val bandingCode = selectedPart?.banding?.trim()?.takeIf { it.isNotEmpty() }
         val hasPartDetail = partGraphicBitmap != null || bandingCode != null
@@ -1618,9 +1683,10 @@ fun SheetViewerScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (partGraphicBitmap != null) {
+                            val loadedPartGraphic = partGraphicBitmap
+                            if (loadedPartGraphic != null) {
                                 Image(
-                                    bitmap = partGraphicBitmap.asImageBitmap(),
+                                    bitmap = loadedPartGraphic.asImageBitmap(),
                                     contentDescription = "Part graphic",
                                     contentScale = ContentScale.Fit,
                                     modifier = Modifier

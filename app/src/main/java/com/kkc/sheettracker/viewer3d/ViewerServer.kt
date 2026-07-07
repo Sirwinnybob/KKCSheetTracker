@@ -2,6 +2,7 @@ package com.kkc.sheettracker.viewer3d
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONArray
 import org.json.JSONObject
@@ -13,7 +14,7 @@ import java.net.URLEncoder
 class ViewerServer(
     private val context: Context,
     private val baseDir: File
-) : NanoHTTPD(0) {
+) : NanoHTTPD("127.0.0.1", 0) {
 
     data class StartResult(
         val port: Int,
@@ -80,12 +81,32 @@ class ViewerServer(
             .trim()
             .uppercase()
 
+    /**
+     * True if [candidate]'s canonical path is [root] itself or a descendant of it. Used to
+     * reject request-derived paths (folder name, room name, relative GLB path) that attempt to
+     * escape their intended directory via "../" segments, symlinks, or other canonicalization
+     * gaps — canonicalizing only the leaf (e.g. the final GLB target) is not sufficient if an
+     * earlier path segment (e.g. the room directory) was itself allowed to escape.
+     */
+    @VisibleForTesting
+    internal fun isPathContainedIn(candidate: File, root: File): Boolean {
+        val rootCanonical = root.canonicalFile
+        val candidateCanonical = candidate.canonicalFile
+        return candidateCanonical.path == rootCanonical.path ||
+            candidateCanonical.path.startsWith(rootCanonical.path + File.separator)
+    }
+
     private fun findRoomDir(folderName: String, room: String): File? {
         val threeDDir = File(baseDir, "$folderName/3D")
-        if (!threeDDir.isDirectory) return null
-        // Exact match first (common case, fast)
-        File(threeDDir, room).takeIf { it.isDirectory }?.let { return it }
-        // Normalized match — handles rooms with / or other chars invalid in folder names
+        if (!threeDDir.isDirectory || !isPathContainedIn(threeDDir, baseDir)) return null
+        // Exact match first (common case, fast) — must stay within threeDDir; "room" is
+        // attacker-controlled and can contain "../" to otherwise escape it.
+        val exactMatch = File(threeDDir, room)
+        if (exactMatch.isDirectory && isPathContainedIn(exactMatch, threeDDir)) {
+            return exactMatch
+        }
+        // Normalized match — handles rooms with / or other chars invalid in folder names.
+        // Safe by construction: only ever returns direct children from listFiles().
         val normalizedRoom = normalizeRoomName(room)
         return threeDDir.listFiles()
             ?.firstOrNull { it.isDirectory && normalizeRoomName(it.name) == normalizedRoom }
@@ -131,13 +152,12 @@ class ViewerServer(
             ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Room not found")
 
         val target = File(roomDir, relativePath)
-        val roomCanonical = roomDir.canonicalFile
         val targetCanonical = try {
             target.canonicalFile
         } catch (_: Exception) {
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid path")
         }
-        if (!targetCanonical.path.startsWith(roomCanonical.path + File.separator)) {
+        if (!isPathContainedIn(targetCanonical, roomDir)) {
             return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Blocked path")
         }
 
@@ -155,7 +175,7 @@ class ViewerServer(
 
     private fun scanRooms(folderName: String): List<String> {
         val threeDDir = File(baseDir, "$folderName/3D")
-        if (!threeDDir.isDirectory) return emptyList()
+        if (!threeDDir.isDirectory || !isPathContainedIn(threeDDir, baseDir)) return emptyList()
         return threeDDir.listFiles()
             ?.filter { it.isDirectory && File(it, "3d_medium.glb").exists() }
             ?.map { it.name }
