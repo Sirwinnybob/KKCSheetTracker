@@ -122,12 +122,11 @@ Loop agent instructions:
 
 ### #5 - TrackerChangeMonitor drops throttled invalidations permanently
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: B
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/data/TrackerChangeMonitor.kt`; confirm `signaturesByPath` advances before `queueInvalidations` throttle acceptance.
 - `Fix`: Advance signatures only after invalidation is accepted, or track observed vs successfully flushed signatures so poll retries throttled changes.
-- `Tests`: Add/update `TrackerChangeMonitorSpecialtyTest`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.data.TrackerChangeMonitorSpecialtyTest`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed `pollSignaturesLocked` and the `FileObserver.onEvent` handler set `signaturesByPath[path] = next` at detection time, while `queueInvalidations` could drop that invalidation via the `MIN_INVALIDATION_GAP_MS` (750ms) throttle — the advanced signature then made every later poll see `previous == next`, so the change was lost permanently. Fix: `Invalidation` now carries the observed `path` + `signature`; the detection sites no longer advance the signature, and `queueInvalidations` commits the signature only for *accepted* invalidations. Throttled changes keep the stale signature and are re-detected/retried on the next poll. Added `throttledTrackerChangeIsRetriedOnLaterPollInsteadOfLostPermanently`. Passed `TrackerChangeMonitorSpecialtyTest`.
 
 ### #6 - ProgressStore calls block main thread from SheetViewerScreen
 

@@ -34,7 +34,12 @@ class TrackerChangeMonitor(
 
     private data class Invalidation(
         val kind: TrackerKind,
-        val jobFolderName: String?
+        val jobFolderName: String?,
+        // When set, the observed tracker-dir path and its new signature. The signature is only
+        // committed into signaturesByPath once queueInvalidations *accepts* the invalidation, so a
+        // throttled/dropped change leaves the old signature in place and is retried on a later poll.
+        val path: String? = null,
+        val signature: Long? = null
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -152,8 +157,14 @@ class TrackerChangeMonitor(
                 return@forEach
             }
             if (previous != next) {
-                signaturesByPath[path] = next
-                invalidations += Invalidation(kind = tracked.kind, jobFolderName = tracked.jobFolderName)
+                // Do not advance the signature here — it is committed only when queueInvalidations
+                // accepts this invalidation, so a throttled change is re-detected on the next poll.
+                invalidations += Invalidation(
+                    kind = tracked.kind,
+                    jobFolderName = tracked.jobFolderName,
+                    path = path,
+                    signature = next
+                )
             }
         }
         return invalidations
@@ -170,8 +181,14 @@ class TrackerChangeMonitor(
                     val previousSig = signaturesByPath[trackedPath]
                     val nextSig = trackerSignature(tracked.dir)
                     if (previousSig == nextSig) return@synchronized null
-                    signaturesByPath[trackedPath] = nextSig
-                    Invalidation(kind = tracked.kind, jobFolderName = tracked.jobFolderName)
+                    // Signature committed on acceptance (see queueInvalidations), not here, so a
+                    // throttled change stays pending for the next poll instead of being lost.
+                    Invalidation(
+                        kind = tracked.kind,
+                        jobFolderName = tracked.jobFolderName,
+                        path = trackedPath,
+                        signature = nextSig
+                    )
                 }
                 if (invalidation != null) {
                     queueInvalidations(listOf(invalidation))
@@ -277,6 +294,12 @@ class TrackerChangeMonitor(
                 }
             if (deduped.isEmpty()) return
             deduped.forEach { invalidation ->
+                // Commit the observed signature only now that the invalidation is accepted. A
+                // change that was throttled/dropped above never reaches here, so its signature
+                // stays stale and the next poll re-detects and retries it.
+                if (invalidation.path != null && invalidation.signature != null) {
+                    signaturesByPath[invalidation.path] = invalidation.signature
+                }
                 val key = "${invalidation.kind}|${invalidation.jobFolderName.orEmpty()}"
                 pendingByKey[key] = invalidation
             }

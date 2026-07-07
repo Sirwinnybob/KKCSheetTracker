@@ -119,6 +119,52 @@ class TrackerChangeMonitorSpecialtyTest {
         }
     }
 
+    @Test
+    fun throttledTrackerChangeIsRetriedOnLaterPollInsteadOfLostPermanently() {
+        val baseDir = Files.createTempDirectory("tracker-change-monitor-throttle-test").toFile()
+        val jobFolder = "1234 - Test Job"
+        val trackerDir = File(baseDir, "$jobFolder/CNC/.tracker").apply { mkdirs() }
+        val trackerFile = File(trackerDir, "tablet-a.json")
+        trackerFile.writeText("""{"tabletId":"tablet-a","actions":[]}""")
+
+        val progressStore = ProgressStore(baseDir, "tablet-a", File(baseDir, ".local"), readOnly = true)
+        val hardwoodsStore = HardwoodsProgressStore(baseDir, "tablet-a", readOnly = true)
+        val reported = java.util.concurrent.CopyOnWriteArrayList<Set<String>>()
+        val monitor = TrackerChangeMonitor(
+            baseDir = baseDir,
+            progressStore = progressStore,
+            hardwoodsProgressStore = hardwoodsStore,
+            viewerInteraction = MutableStateFlow(false),
+            onCncJobsChanged = { jobs -> reported += jobs },
+            pollingIntervalMs = 100L
+        )
+
+        monitor.start()
+        try {
+            Thread.sleep(1_700L) // clear the startup warmup window
+
+            // Change A: accepted and reported (establishes lastInvalidationAt for this key).
+            trackerFile.writeText(
+                """{"tabletId":"tablet-a","actions":[{"file":"a.pdf","page":1,"part":1,"action":"bad_part","timestamp":"2026-07-06T12:00:00Z"}]}"""
+            )
+            waitUntil(timeoutMs = 3_000L) { reported.any { jobFolder in it } }
+            reported.clear()
+
+            // Change B written inside the throttle gap and with a different signature (2 actions ->
+            // different file length). Before the fix, B's signature was committed at detection while
+            // queueInvalidations dropped the invalidation, so B was never re-detected and the cache
+            // stayed stale forever. After the fix the signature is only committed on acceptance, so a
+            // later poll re-detects B and reports the job again.
+            trackerFile.writeText(
+                """{"tabletId":"tablet-a","actions":[{"file":"b.pdf","page":2,"part":2,"action":"bad_part","timestamp":"2026-07-06T12:00:01Z"},{"file":"c.pdf","page":3,"part":3,"action":"bad_part","timestamp":"2026-07-06T12:00:02Z"}]}"""
+            )
+
+            waitUntil(timeoutMs = 5_000L) { reported.any { jobFolder in it } }
+        } finally {
+            monitor.stop()
+        }
+    }
+
     private fun waitUntil(timeoutMs: Long, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
