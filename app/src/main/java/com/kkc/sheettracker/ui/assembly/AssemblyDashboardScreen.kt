@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
+import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.SpecialtyStateStore
@@ -51,6 +53,8 @@ import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.KKCSpacing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,8 +73,15 @@ fun AssemblyDashboardScreen(
     val specialtyScanState by specialtyStateStore.scanState.collectAsState()
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
 
-    val cards = remember(scanState.snapshot.generation, cncProgressVersion, hardwoodProgressVersion) {
-        assemblyStateStore.deriveJobCards()
+    val cards by produceState(
+        initialValue = assemblyStateStore.deriveJobCards(resolveCounts = false),
+        scanState.snapshot.generation,
+        cncProgressVersion,
+        hardwoodProgressVersion
+    ) {
+        value = withContext(Dispatchers.IO) {
+            assemblyStateStore.deriveJobCards()
+        }
     }
     val specialtyCards = remember(specialtyScanState.snapshot.generation, specialtyProgressVersion, specialtyProgressVersionHint) {
         specialtyStateStore.deriveJobCards()
@@ -130,14 +141,11 @@ fun AssemblyDashboardScreen(
                     .padding(padding)
             ) {
             val totalJobs = cards.size
-            val totalCabinets = remember(cards) {
-                cards.sumOf { card ->
-                    val index = assemblyStateStore.getCabinetSheetIndex(card.folderName)
-                    val cabinets = index?.documents?.assembly?.virtualCombined?.cabinetToPages
-                        ?.takeIf { it.isNotEmpty() }
-                        ?: index?.documents?.assembly?.cabinetToPages
-                        ?: emptyMap()
-                    cabinets.keys.size
+            val totalCabinets by produceState(initialValue = 0, cards) {
+                value = withContext(Dispatchers.IO) {
+                    calculateAssemblyDashboardCabinetCount(cards) { folderName ->
+                        assemblyStateStore.getCabinetSheetIndex(folderName)
+                    }
                 }
             }
 
@@ -220,6 +228,20 @@ fun AssemblyDashboardScreen(
             }
             }
         }
+    }
+}
+
+internal fun calculateAssemblyDashboardCabinetCount(
+    cards: List<AssemblyJobCard>,
+    indexProvider: (String) -> CabinetSheetIndex?
+): Int {
+    return cards.sumOf { card ->
+        val index = indexProvider(card.folderName)
+        val cabinets = index?.documents?.assembly?.virtualCombined?.cabinetToPages
+            ?.takeIf { it.isNotEmpty() }
+            ?: index?.documents?.assembly?.cabinetToPages
+            ?: emptyMap()
+        cabinets.keys.size
     }
 }
 

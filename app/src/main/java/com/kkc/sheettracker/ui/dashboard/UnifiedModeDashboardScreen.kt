@@ -694,8 +694,14 @@ private fun HardwoodsDashboardContent(
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val jobs = scanState.snapshot.jobs
-    val summaries = remember(jobs, progressStore) {
-        jobs.map { job -> progressStore.summarizeJob(job) }
+    val summaries by produceState(
+        initialValue = emptyList<HardwoodJobSummary>(),
+        key1 = jobs,
+        key2 = progressStore
+    ) {
+        value = withContext(Dispatchers.IO) {
+            jobs.map { job -> progressStore.summarizeJob(job) }
+        }
     }
     val totalCounts = remember(summaries) {
         summaries.fold(HardwoodStatusCounts()) { acc, entry ->

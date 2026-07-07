@@ -95,12 +95,12 @@ Loop agent instructions:
 
 ### #2 - Assembly dashboard does synchronous per-card disk I/O in composition
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: D
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/assembly/AssemblyDashboardScreen.kt`; confirm cabinet-count aggregation calls `AssemblyStateStore.getCabinetSheetIndex()` inside `remember {}` on composition thread.
 - `Fix`: Move aggregation to `produceState` with `withContext(Dispatchers.IO)` or precompute in job-card derivation.
 - `Tests`: Run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.dashboard.UnifiedDashboardFactoriesTest` and add focused test if aggregation helper is extracted.
-- `Done evidence`: not done
+- `Done evidence`: Fixed legacy `AssemblyDashboardScreen` by moving `deriveJobCards()` and cabinet-count aggregation to `produceState + Dispatchers.IO`, with aggregation covered by `AssemblyDashboardScreenTest`. Also verified current navigation uses `UnifiedModeDashboardSpec.Assembly`, not the legacy screen, and moved active unified Hardwoods dashboard `summarizeJob()` work to `produceState + Dispatchers.IO` after verifying it was a similar file-backed dashboard pattern. Static scan shows dashboard `getCabinetSheetIndex()` only in the assembly dashboard IO block. Passed `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.assembly.AssemblyDashboardScreenTest`, `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.dashboard.UnifiedDashboardFactoriesTest`, and `.\gradlew.bat :app:assembleDebug`.
 
 ### #3 - PdfRenderEngine.close races with in-flight renders
 
@@ -443,3 +443,13 @@ Use this section for durable progress notes. Each entry should include:
 - Result: passed.
 - Commit hash: this entry is included in the commit that fixes #1.
 - Follow-up: run wider lane/final gates before closing the full remediation objective.
+
+## 2026-07-07 - High #2 dashboard main-thread metadata I/O
+
+- Agent/lane: Codex, Lane D.
+- Findings completed: #2.
+- Files changed: `app/src/main/java/com/kkc/sheettracker/ui/assembly/AssemblyDashboardScreen.kt`, `app/src/test/java/com/kkc/sheettracker/ui/assembly/AssemblyDashboardScreenTest.kt`, `app/src/main/java/com/kkc/sheettracker/ui/dashboard/UnifiedModeDashboardScreen.kt`, `docs/superpowers/plans/2026-07-07-code-review-remediation-loop.md`.
+- Test commands: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.assembly.AssemblyDashboardScreenTest`; `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.dashboard.UnifiedDashboardFactoriesTest`; `.\gradlew.bat :app:assembleDebug`.
+- Result: passed.
+- Verification note: exact dashboard `getCabinetSheetIndex()` pattern is assembly-only after the fix; active unified Hardwoods dashboard had a related `summarizeJob()` file-backed composition pattern and was moved to IO too.
+- Commit hash: this entry is included in the commit that fixes #2.
