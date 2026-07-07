@@ -27,6 +27,12 @@ class ClockInForegroundService : Service() {
     private var tickerJob: Job? = null
     private var isForegroundStarted = false
 
+    enum class ForegroundAction {
+        StartForeground,
+        Notify,
+        StopSelf
+    }
+
     override fun onCreate() {
         super.onCreate()
         clockInState = ClockInState.create(this)
@@ -77,19 +83,23 @@ class ClockInForegroundService : Service() {
 
     private fun publishOrStop() {
         val snapshot = clockInState.snapshot
-        if (!snapshot.isActive) {
-            stopForegroundAndSelf()
-            return
+        val actions = foregroundActionsForSnapshot(snapshot, isForegroundStarted)
+        val notification by lazy { buildNotification(snapshot) }
+
+        actions.forEach { action ->
+            when (action) {
+                ForegroundAction.StartForeground -> {
+                    startForeground(ClockInNotificationContract.NOTIFICATION_ID, notification)
+                    isForegroundStarted = true
+                }
+                ForegroundAction.Notify -> {
+                    NotificationManagerCompat.from(this).notify(ClockInNotificationContract.NOTIFICATION_ID, notification)
+                }
+                ForegroundAction.StopSelf -> stopForegroundAndSelf()
+            }
         }
 
-        val notification = buildNotification(snapshot)
-        if (!isForegroundStarted) {
-            startForeground(ClockInNotificationContract.NOTIFICATION_ID, notification)
-            isForegroundStarted = true
-        } else {
-            NotificationManagerCompat.from(this).notify(ClockInNotificationContract.NOTIFICATION_ID, notification)
-        }
-        ensureTickerRunning()
+        if (snapshot.isActive) ensureTickerRunning()
     }
 
     private fun ensureTickerRunning() {
@@ -165,6 +175,25 @@ class ClockInForegroundService : Service() {
     }
 
     companion object {
+        fun foregroundActionsForSnapshot(
+            snapshot: ClockInSnapshot,
+            isForegroundStarted: Boolean
+        ): List<ForegroundAction> {
+            if (!snapshot.isActive) {
+                return if (isForegroundStarted) {
+                    listOf(ForegroundAction.StopSelf)
+                } else {
+                    listOf(ForegroundAction.StartForeground, ForegroundAction.StopSelf)
+                }
+            }
+
+            return if (isForegroundStarted) {
+                listOf(ForegroundAction.Notify)
+            } else {
+                listOf(ForegroundAction.StartForeground)
+            }
+        }
+
         fun formatElapsed(elapsedMs: Long): String {
             val totalSeconds = (elapsedMs / 1000L).coerceAtLeast(0L)
             val hours = totalSeconds / 3600L

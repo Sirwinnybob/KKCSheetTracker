@@ -86,12 +86,12 @@ Loop agent instructions:
 
 ### #1 - Foreground service can stop before startForeground
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: A
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/clock/ClockInForegroundService.kt`; confirm `onStartCommand` can call `publishOrStop()` and `stopForegroundAndSelf()` before `startForeground()` for inactive snapshots or stale notification actions.
 - `Fix`: Ensure `startForeground()` is called with a valid notification before any inactive-stop path, then immediately stop if inactive.
 - `Tests`: Add/update `app/src/test/java/com/kkc/sheettracker/clock/ClockInForegroundServiceTest.kt`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.clock.ClockInForegroundServiceTest`.
-- `Done evidence`: not done
+- `Done evidence`: Fixed in `ClockInForegroundService.publishOrStop()` by routing snapshot state through `foregroundActionsForSnapshot()`, which emits `StartForeground` before `StopSelf` for inactive snapshots when foreground has not started. Regression test added in `ClockInForegroundServiceTest`. Passed `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.clock.ClockInForegroundServiceTest`.
 
 ### #2 - Assembly dashboard does synchronous per-card disk I/O in composition
 
@@ -434,3 +434,12 @@ Use this section for durable progress notes. Each entry should include:
 - Commit hash.
 - Any follow-up needed.
 
+## 2026-07-07 - Critical #1 foreground-service crash
+
+- Agent/lane: Codex, Lane A.
+- Findings completed: #1.
+- Files changed: `app/src/main/java/com/kkc/sheettracker/clock/ClockInForegroundService.kt`, `app/src/test/java/com/kkc/sheettracker/clock/ClockInForegroundServiceTest.kt`, `docs/superpowers/plans/2026-07-07-code-review-remediation-loop.md`.
+- Test command: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.clock.ClockInForegroundServiceTest`.
+- Result: passed.
+- Commit hash: this entry is included in the commit that fixes #1.
+- Follow-up: run wider lane/final gates before closing the full remediation objective.
