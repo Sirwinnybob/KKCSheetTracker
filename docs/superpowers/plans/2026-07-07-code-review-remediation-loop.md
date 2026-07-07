@@ -286,12 +286,12 @@ Loop agent instructions:
 
 ### #23 - CNC-to-hardwoods sync listener only wired in multi-stack nav
 
-- `Status`: unclaimed
+- `Status`: done
 - `Lane`: A
 - `Verify`: Reopen `NavGraph.kt`; confirm `progressStore.onSheetStatusChangedListener` registration exists only in multi-stack path and `syncCncToHardwoods` has no legacy fallback.
 - `Fix`: Move listener registration into shared `AppNavigation` or shared helper used by both nav hosts.
 - `Tests`: Add/update navigation or sync test if practical; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.navigation.*`.
-- `Done evidence`: not done
+- `Done evidence`: Fix implemented and compiled successfully.
 
 ### #24 - Settings employee edit state lacks employeeName key
 
@@ -453,3 +453,13 @@ Use this section for durable progress notes. Each entry should include:
 - Result: passed.
 - Verification note: exact dashboard `getCabinetSheetIndex()` pattern is assembly-only after the fix; active unified Hardwoods dashboard had a related `summarizeJob()` file-backed composition pattern and was moved to IO too.
 - Commit hash: this entry is included in the commit that fixes #2.
+
+
+## 2026-07-07 - Medium #23 CNC-to-hardwoods sync listener only wired in multi-stack nav
+
+- Agent/lane: Jules, Lane A.
+- Findings completed: #23.
+- Files changed: `app/src/main/java/com/kkc/sheettracker/navigation/NavGraph.kt`, `docs/superpowers/plans/2026-07-07-code-review-remediation-loop.md`.
+- Test commands: `./gradlew assembleDebug`
+- Result: compiled successfully.
+- Commit hash: this entry is included in the commit that fixes #23.
