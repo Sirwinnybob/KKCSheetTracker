@@ -57,7 +57,10 @@ private data class SheetIndexEntry(
     var skippedHasFingerprint: Boolean = false,
     val badPartsByFingerprint: MutableMap<String, MutableMap<Int, Boolean>> = mutableMapOf(),
     val badPartsLegacy: MutableMap<Int, Boolean> = mutableMapOf(),
-    var badPartsHasFingerprint: Boolean = false
+    var badPartsHasFingerprint: Boolean = false,
+    val renestedByFingerprint: MutableMap<String, Boolean> = mutableMapOf(),
+    var renestedLegacy: Boolean = false,
+    var renestedHasFingerprint: Boolean = false
 )
 
 private data class MaterialTouchEntry(
@@ -422,18 +425,30 @@ class ProgressStore(
                 val value = action.action == "complete"
                 if (fp == null) {
                     entry.completeLegacy = value
+                    if (value) {
+                        entry.skippedLegacy = false
+                        entry.renestedLegacy = false
+                    }
                 } else {
                     entry.completeHasFingerprint = true
                     entry.completeByFingerprint[fp] = value
+                    if (value) {
+                        entry.skippedByFingerprint[fp] = false
+                        entry.renestedByFingerprint[fp] = false
+                    }
                 }
             }
             "skip", "unskip" -> {
                 val value = action.action == "skip"
+                val renestedValue = value && (action.reNested == true)
                 if (fp == null) {
                     entry.skippedLegacy = value
+                    entry.renestedLegacy = renestedValue
                 } else {
                     entry.skippedHasFingerprint = true
                     entry.skippedByFingerprint[fp] = value
+                    entry.renestedHasFingerprint = true
+                    entry.renestedByFingerprint[fp] = renestedValue
                 }
             }
             "bad_part", "unbad_part" -> {
@@ -478,6 +493,15 @@ class ProgressStore(
         }
     }
 
+    private fun resolveRenested(entry: SheetIndexEntry?, fileFingerprint: String): Boolean {
+        if (entry == null) return false
+        return if (entry.renestedHasFingerprint) {
+            entry.renestedByFingerprint[fileFingerprint] ?: false
+        } else {
+            entry.renestedLegacy
+        }
+    }
+
     private fun resolveCommittedBadParts(entry: SheetIndexEntry?, fileFingerprint: String): Set<Int> {
         if (entry == null) return emptySet()
         val raw = if (entry.badPartsHasFingerprint) {
@@ -518,6 +542,45 @@ class ProgressStore(
     fun unmarkSheetSkipped(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
         if (readOnly) return
         appendAction(jobFolderName, pdfFilename, page, "unskip", fileFingerprint)
+    }
+
+    fun markSheetRenested(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
+        if (readOnly) return
+        appendActions(
+            jobFolderName,
+            listOf(
+                TrackerAction(
+                    file = pdfFilename,
+                    page = page,
+                    action = "skip",
+                    timestamp = Instant.now().toString(),
+                    fileFingerprint = fileFingerprint,
+                    reNested = true
+                )
+            )
+        )
+    }
+
+    fun unmarkSheetRenested(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
+        if (readOnly) return
+        appendActions(
+            jobFolderName,
+            listOf(
+                TrackerAction(
+                    file = pdfFilename,
+                    page = page,
+                    action = "unskip",
+                    timestamp = Instant.now().toString(),
+                    fileFingerprint = fileFingerprint,
+                    reNested = false
+                )
+            )
+        )
+    }
+
+    fun isSheetRenested(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String): Boolean {
+        val entry = resolveSheetEntry(jobFolderName, pdfFilename, page)
+        return resolveRenested(entry, fileFingerprint)
     }
 
     fun markSheetViewed(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
@@ -758,12 +821,14 @@ class ProgressStore(
         val entry = resolveSheetEntry(jobFolderName, pdfFilename, page)
         val isComplete = resolveComplete(entry, fileFingerprint)
         val isSkipped = resolveSkipped(entry, fileFingerprint)
+        val isRenested = resolveRenested(entry, fileFingerprint)
         val hasCommittedBadParts = isComplete && resolveCommittedBadParts(entry, fileFingerprint).isNotEmpty()
 
         return when {
             hasCommittedBadParts -> SheetStatus.HAS_BAD_PARTS
-            isSkipped -> SheetStatus.SKIPPED
             isComplete -> SheetStatus.COMPLETE
+            isRenested -> SheetStatus.RE_NESTED
+            isSkipped -> SheetStatus.SKIPPED
             else -> SheetStatus.NOT_STARTED
         }
     }
@@ -786,6 +851,7 @@ class ProgressStore(
         var bad = 0
         var skipped = 0
         var notStarted = 0
+        var reNested = 0
 
         val index = ensureJobIndex(jobFolderName)
         val visiblePages = getMaterialTrackablePages(material)
@@ -793,6 +859,7 @@ class ProgressStore(
             val entry = index.sheets[SheetKey(material.pdfFilename, page)]
             val isComplete = resolveComplete(entry, material.fileFingerprint)
             val isSkipped = resolveSkipped(entry, material.fileFingerprint)
+            val isRenested = resolveRenested(entry, material.fileFingerprint)
             val hasBad = isComplete && resolveCommittedBadParts(entry, material.fileFingerprint).isNotEmpty()
 
             when {
@@ -800,14 +867,15 @@ class ProgressStore(
                     complete++
                     bad++
                 }
-                isSkipped -> skipped++
                 isComplete -> complete++
+                isRenested -> reNested++
+                isSkipped -> skipped++
                 else -> notStarted++
             }
         }
 
         return StatusCounts(
-            total = visiblePages.size,
+            total = visiblePages.size - reNested,
             complete = complete,
             bad = bad,
             skipped = skipped,
@@ -825,19 +893,22 @@ class ProgressStore(
         val index = ensureJobIndex(jobFolderName)
         materials.forEach { material ->
             for (page in getMaterialTrackablePages(material)) {
-                total++
                 val entry = index.sheets[SheetKey(material.pdfFilename, page)]
                 val isComplete = resolveComplete(entry, material.fileFingerprint)
                 val isSkipped = resolveSkipped(entry, material.fileFingerprint)
+                val isRenested = resolveRenested(entry, material.fileFingerprint)
                 val hasBad = isComplete && resolveCommittedBadParts(entry, material.fileFingerprint).isNotEmpty()
 
+                if (isRenested) continue
+
+                total++
                 when {
                     hasBad -> {
                         complete++
                         bad++
                     }
-                    isSkipped -> skipped++
                     isComplete -> complete++
+                    isSkipped -> skipped++
                     else -> notStarted++
                 }
             }
