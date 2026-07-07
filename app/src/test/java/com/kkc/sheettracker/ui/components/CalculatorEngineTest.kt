@@ -129,6 +129,15 @@ class CalculatorEngineTest {
         assertEquals("0", loaded.display)
     }
 
+    @Test
+    fun smallResult_inScientificRange_formatsWithoutBinaryGarbage() {
+        // 1 / 10_000_000 = 1e-7, whose Double.toString uses 'E' notation and hits the
+        // BigDecimal formatting branch. BigDecimal(double) would emit the exact binary
+        // expansion ("0.000000100000000000000004792..."); BigDecimal.valueOf(double) is clean.
+        val state = runKeys("1", "÷", "1", "0", "0", "0", "0", "0", "0", "0", "=")
+        assertEquals("0.0000001", state.display)
+    }
+
     private fun runKeys(vararg keys: String): CalculatorEngineState {
         return runKeysFrom(CalculatorEngineState(), *keys)
     }

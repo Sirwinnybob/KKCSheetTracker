@@ -56,6 +56,20 @@ class HardwoodsSearchScreenTest {
         assertEquals(1, output.totalMatches)
     }
 
+    @Test
+    fun computeHardwoodsSearchMatches_matchesCabinetNumberCaseInsensitiveSubstring() {
+        val output = computeHardwoodsSearchMatches(
+            allEntries = listOf(
+                sampleEntry(rowId = "a", cabinetNumbers = listOf("CAB-10"), description = "Alpha"),
+                sampleEntry(rowId = "b", cabinetNumbers = listOf("SHELF-1"), description = "Beta")
+            ),
+            rawQuery = "cab-1"
+        )
+
+        assertEquals(listOf("a"), output.results.map { it.rowId })
+        assertEquals(1, output.totalMatches)
+    }
+
     private fun sampleEntry(
         rowId: String = "row",
         description: String = "desc",

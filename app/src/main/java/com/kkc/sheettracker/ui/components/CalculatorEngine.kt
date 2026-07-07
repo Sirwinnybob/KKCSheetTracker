@@ -334,7 +334,7 @@ object CalculatorEngine {
         if (abs(value - roundedInt.toDouble()) < EPSILON) return roundedInt.toString()
         var text = value.toString()
         if (text.contains('E') || text.contains('e')) {
-            text = java.math.BigDecimal(value).stripTrailingZeros().toPlainString()
+            text = java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
         } else if (text.contains('.')) {
             text = text.trimEnd('0').trimEnd('.')
         }

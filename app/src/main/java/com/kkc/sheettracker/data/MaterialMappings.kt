@@ -14,7 +14,10 @@ class MaterialMappings private constructor(private val realToSanitized: Map<Stri
             normalize(realName) == normalized
         }?.value
 
-        return normalize(sanitized ?: name)
+        // A mapping may point at a blank sanitized value; if so, fall back to the
+        // normalized input rather than collapsing everything to "" (which would null
+        // out auto-complete matching against other materials).
+        return normalize(sanitized).ifEmpty { normalized }
     }
 
     companion object {

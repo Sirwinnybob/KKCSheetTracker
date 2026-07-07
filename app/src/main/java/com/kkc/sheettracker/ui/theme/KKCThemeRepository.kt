@@ -126,29 +126,33 @@ class KKCThemeRepository(
             val light = palette(root, "light")
             val dark = palette(root, "dark")
             val statusObj = root.getAsJsonObject("status")
+            // Each derived bg/border reads its own dedicated key first, then falls back to
+            // the base status key, then to the built-in default. This lets a theme JSON set
+            // distinct shades (e.g. a soft completeBg with a darker completeBorder) instead of
+            // forcing all three to the single base color.
             val lightStatus = LightStatusColors.copy(
                 complete = color(statusObj, "complete") ?: LightStatusColors.complete,
-                completeBg = color(statusObj, "complete") ?: LightStatusColors.completeBg,
-                completeBorder = color(statusObj, "complete") ?: LightStatusColors.completeBorder,
+                completeBg = color(statusObj, "completeBg") ?: color(statusObj, "complete") ?: LightStatusColors.completeBg,
+                completeBorder = color(statusObj, "completeBorder") ?: color(statusObj, "complete") ?: LightStatusColors.completeBorder,
                 bad = color(statusObj, "bad") ?: LightStatusColors.bad,
-                badBg = color(statusObj, "bad") ?: LightStatusColors.badBg,
+                badBg = color(statusObj, "badBg") ?: color(statusObj, "bad") ?: LightStatusColors.badBg,
                 skip = color(statusObj, "skip") ?: LightStatusColors.skip,
-                skipBg = color(statusObj, "skip") ?: LightStatusColors.skipBg,
-                skipBorder = color(statusObj, "skip") ?: LightStatusColors.skipBorder,
+                skipBg = color(statusObj, "skipBg") ?: color(statusObj, "skip") ?: LightStatusColors.skipBg,
+                skipBorder = color(statusObj, "skipBorder") ?: color(statusObj, "skip") ?: LightStatusColors.skipBorder,
                 inProgress = color(statusObj, "inProgress") ?: LightStatusColors.inProgress,
-                inProgressBorder = color(statusObj, "inProgress") ?: LightStatusColors.inProgressBorder
+                inProgressBorder = color(statusObj, "inProgressBorder") ?: color(statusObj, "inProgress") ?: LightStatusColors.inProgressBorder
             )
             val darkStatus = DarkStatusColors.copy(
                 complete = color(statusObj, "complete") ?: DarkStatusColors.complete,
-                completeBg = color(statusObj, "complete") ?: DarkStatusColors.completeBg,
-                completeBorder = color(statusObj, "complete") ?: DarkStatusColors.completeBorder,
+                completeBg = color(statusObj, "completeBg") ?: color(statusObj, "complete") ?: DarkStatusColors.completeBg,
+                completeBorder = color(statusObj, "completeBorder") ?: color(statusObj, "complete") ?: DarkStatusColors.completeBorder,
                 bad = color(statusObj, "bad") ?: DarkStatusColors.bad,
-                badBg = color(statusObj, "bad") ?: DarkStatusColors.badBg,
+                badBg = color(statusObj, "badBg") ?: color(statusObj, "bad") ?: DarkStatusColors.badBg,
                 skip = color(statusObj, "skip") ?: DarkStatusColors.skip,
-                skipBg = color(statusObj, "skip") ?: DarkStatusColors.skipBg,
-                skipBorder = color(statusObj, "skip") ?: DarkStatusColors.skipBorder,
+                skipBg = color(statusObj, "skipBg") ?: color(statusObj, "skip") ?: DarkStatusColors.skipBg,
+                skipBorder = color(statusObj, "skipBorder") ?: color(statusObj, "skip") ?: DarkStatusColors.skipBorder,
                 inProgress = color(statusObj, "inProgress") ?: DarkStatusColors.inProgress,
-                inProgressBorder = color(statusObj, "inProgress") ?: DarkStatusColors.inProgressBorder
+                inProgressBorder = color(statusObj, "inProgressBorder") ?: color(statusObj, "inProgress") ?: DarkStatusColors.inProgressBorder
             )
             val surfaceObj = root.getAsJsonObject("surface")
             val headerObj = root.getAsJsonObject("header")
@@ -214,7 +218,9 @@ class KKCThemeRepository(
         }
         val root = themeDir.canonicalFile
         val file = File(root, relativePath).canonicalFile
-        if (!file.path.startsWith(root.path)) {
+        // Separator-aware containment: a raw startsWith would let a sibling like
+        // "<root>-evil/x.svg" pass because its path shares the "<root>" prefix.
+        if (file.path != root.path && !file.path.startsWith(root.path + File.separator)) {
             loadMessages += "Header background '$relativePath' points outside the theme folder. Using header gradient fallback."
             return null
         }

@@ -1,7 +1,9 @@
 package com.kkc.sheettracker.ui.theme
 
+import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -210,6 +212,77 @@ class KKCThemeRepositoryTest {
         assertEquals("does-not-exist", catalog.syncedDefaultThemeId)
         assertEquals(KKCThemeRepository.BUILT_IN_THEME_ID, catalog.activeTheme.id)
         assertFalse(catalog.loadMessages.isEmpty())
+    }
+
+    @Test
+    fun statusColorsSupportDedicatedBgAndBorderShades() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "shades.json",
+            body = validThemeJson(id = "kkc-shades").replace(
+                """"inProgress": "#1565C0"""",
+                """"inProgress": "#1565C0", "completeBg": "#102010", "completeBorder": "#204020", """ +
+                    """"badBg": "#301010", "skipBg": "#302010", "skipBorder": "#403010", "inProgressBorder": "#0A2A50""""
+            )
+        )
+
+        val status = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shades" }.tokens.lightStatus
+
+        assertEquals(Color(0xFF388E3C), status.complete)
+        assertEquals(Color(0xFF102010), status.completeBg)
+        assertEquals(Color(0xFF204020), status.completeBorder)
+        assertEquals(Color(0xFF301010), status.badBg)
+        assertEquals(Color(0xFF302010), status.skipBg)
+        assertEquals(Color(0xFF403010), status.skipBorder)
+        assertEquals(Color(0xFF0A2A50), status.inProgressBorder)
+        // Distinct from the base so we know the dedicated keys were actually honored.
+        assertNotEquals(status.complete, status.completeBg)
+        assertNotEquals(status.completeBg, status.completeBorder)
+    }
+
+    @Test
+    fun statusBgAndBorderFallBackToBaseKeyWhenNoDedicatedKeyGiven() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(baseDir, "shop-blue.json", validThemeJson(id = "kkc-shop-blue"))
+
+        val status = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shop-blue" }.tokens.lightStatus
+
+        // No completeBg key present -> falls back to the base "complete" color.
+        assertEquals(status.complete, status.completeBg)
+        assertEquals(status.complete, status.completeBorder)
+    }
+
+    @Test
+    fun themeHeaderSvgSiblingPrefixDirectoryIsRejected() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        // Sibling directory sharing the theme dir's name prefix (".metadata/themes-evil").
+        // A raw startsWith containment check would incorrectly accept this.
+        val evilDir = File(baseDir, ".metadata/themes-evil").apply { mkdirs() }
+        File(evilDir, "header.svg").writeText(
+            """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>"""
+        )
+        writeTheme(
+            baseDir = baseDir,
+            filename = "shop-blue.json",
+            body = validThemeJson(
+                id = "kkc-shop-blue",
+                header = """
+                  ,"header": {
+                    "background": "../themes-evil/header.svg",
+                    "alpha": 0.24
+                  }
+                """
+            )
+        )
+
+        val catalog = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+        val theme = catalog.themes.first { it.id == "kkc-shop-blue" }
+
+        assertEquals(null, theme.tokens.header.backgroundPath)
+        assertTrue(catalog.loadMessages.any { it.contains("outside the theme folder") })
     }
 
     private fun writeTheme(baseDir: File, filename: String, body: String) {

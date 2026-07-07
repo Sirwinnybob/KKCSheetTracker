@@ -199,7 +199,7 @@ Loop agent instructions:
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/theme/KKCThemeRepository.kt`; confirm derived status fields all read same base JSON key.
 - `Fix`: Read dedicated keys such as `completeBg`, `completeBorder`, `badBg`, `skipBg`, `skipBorder`, and `inProgressBorder`, with existing base-key fallback.
 - `Tests`: Update `KKCThemeRepositoryTest`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.theme.KKCThemeRepositoryTest`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed `parseThemeFile` derived `completeBg`/`completeBorder` from `color(statusObj, "complete")`, `badBg` from "bad", `skipBg`/`skipBorder` from "skip", `inProgressBorder` from "inProgress" — so distinct shades were impossible. Fixed both light and dark status blocks to read dedicated keys (`completeBg`, `completeBorder`, `badBg`, `skipBg`, `skipBorder`, `inProgressBorder`) with fallback chain: dedicated key -> base key -> built-in default. Added `statusColorsSupportDedicatedBgAndBorderShades` and `statusBgAndBorderFallBackToBaseKeyWhenNoDedicatedKeyGiven`. Verified via `KKCThemeRepositoryTest`.
 
 ### #14 - SheetViewerScreen scans tracker directory every second on main thread
 
@@ -237,7 +237,7 @@ Loop agent instructions:
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/components/CalculatorEngine.kt`; confirm formatting uses `BigDecimal(value)`.
 - `Fix`: Use `BigDecimal.valueOf(value)` or `BigDecimal(value.toString())`.
 - `Tests`: Update `CalculatorEngineTest`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.components.CalculatorEngineTest`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed `formatNumber()` line 337 used `java.math.BigDecimal(value)` in the scientific-notation (`contains('E')`) branch, which expands the exact binary double into garbage digits. Fixed to `java.math.BigDecimal.valueOf(value)`. Added regression `smallResult_inScientificRange_formatsWithoutBinaryGarbage` (1 ÷ 10000000 → "0.0000001"). Verified via `CalculatorEngineTest`.
 
 ### #18 - CoverPageOverlay gets PDF catalog on main thread
 
@@ -255,7 +255,7 @@ Loop agent instructions:
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/data/MaterialMappings.kt`; confirm `canonical()` can return blank mapped value.
 - `Fix`: Use mapped value only if normalized mapped value is non-blank; otherwise return normalized input.
 - `Tests`: Update `MaterialMappingsTest`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.data.MaterialMappingsTest`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed `canonical()` returned `normalize(sanitized ?: name)`; a mapping whose value is a blank string made `sanitized` a non-null blank, so it returned `""`. Fixed to `normalize(sanitized).ifEmpty { normalized }`. Added regression `blankMappedValueFallsBackToNormalizedInput`. Verified via `MaterialMappingsTest`.
 
 ### #20 - JobBoardRequestStore loses concurrent read-modify-write edits
 
@@ -273,7 +273,7 @@ Loop agent instructions:
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/hardwoods/HardwoodsSearchScreen.kt`; confirm cabinet number search uses exact/case-sensitive match while other fields use case-insensitive substring.
 - `Fix`: Use `entry.cabinetNumbers.any { it.contains(query, ignoreCase = true) }`.
 - `Tests`: Update `HardwoodsSearchScreenTest`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.hardwoods.HardwoodsSearchScreenTest`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed line 77 used `cabinetNumbers.any { it == query }` (exact, case-sensitive) while all other fields used `contains(query, ignoreCase = true)`. Fixed to `it.contains(query, ignoreCase = true)`. Existing exact-match test still holds (CAB-210 !contains CAB-10); added `matchesCabinetNumberCaseInsensitiveSubstring`. Verified via `HardwoodsSearchScreenTest`.
 
 ### #22 - Classic width normalizer diverges from grouping normalizer
 
@@ -295,12 +295,12 @@ Loop agent instructions:
 
 ### #24 - Settings employee edit state lacks employeeName key
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: A
 - `Verify`: Reopen `app/src/main/java/com/kkc/sheettracker/ui/settings/SettingsScreen.kt`; confirm `editEmployeeName` uses unkeyed `remember`.
 - `Fix`: Use `remember(employeeName) { mutableStateOf(employeeName) }`.
 - `Tests`: Add/update settings logic test if present; otherwise run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.theme.*` plus full compile.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed line 78 used unkeyed `remember { mutableStateOf(employeeName) }` so the field never resync'd when the `employeeName` prop changed (e.g. after auto-login/directory refresh). Fixed to `remember(employeeName) { mutableStateOf(employeeName) }`. No settings unit-test module exists and the logic is inline in a composable; gate is `assembleDebug` per the finding's fallback. Verified via `.\gradlew.bat :app:assembleDebug`.
 
 ### #25 - Theme header containment uses raw startsWith
 
@@ -309,7 +309,7 @@ Loop agent instructions:
 - `Verify`: Reopen `KKCThemeRepository.kt`; confirm header background containment compares raw path prefix without separator boundary or `Path.startsWith`.
 - `Fix`: Use canonical/normalized `Path.startsWith`, or separator-aware `file.path == root.path || file.path.startsWith(root.path + File.separator)`.
 - `Tests`: Update `KKCThemeRepositoryTest`; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.ui.theme.KKCThemeRepositoryTest`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed `resolveHeaderBackground` used `!file.path.startsWith(root.path)` (canonical files but raw prefix), so a sibling like `.metadata/themes-evil/x.svg` passed containment for root `.metadata/themes`. Fixed to separator-aware `file.path != root.path && !file.path.startsWith(root.path + File.separator)`. Added `themeHeaderSvgSiblingPrefixDirectoryIsRejected`. Verified via `KKCThemeRepositoryTest`.
 
 ### #26 - Old timeclock background media files are orphaned
 
@@ -378,30 +378,30 @@ Loop agent instructions:
 
 ### #32 - tabletIdDirty comparison omits trim
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: A
 - `Verify`: Reopen `SettingsScreen.kt`; confirm tablet ID dirty flag compares raw text while save trims.
 - `Fix`: Compare `it.trim() != tabletId.trim()`.
 - `Tests`: Add/update settings helper test if available; run `.\gradlew.bat assembleDebug`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed dirty flag was `it != tabletId` while save used `editTabletId.trim()`, so trailing/leading whitespace flagged a spurious diff. Fixed to `it.trim() != tabletId.trim()`. Verified via `.\gradlew.bat :app:assembleDebug`.
 
 ### #33 - basePathDirty comparison omits trim
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: A
 - `Verify`: Reopen `SettingsScreen.kt`; confirm base path dirty flag compares raw text while save trims.
 - `Fix`: Compare `it.trim() != basePath.trim()`.
 - `Tests`: Add/update settings helper test if available; run `.\gradlew.bat assembleDebug`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed dirty flag was `it != basePath` while save used `editBasePath.trim()`. Fixed to `it.trim() != basePath.trim()`. Verified via `.\gradlew.bat :app:assembleDebug`.
 
 ### #34 - employeeNameDirty comparison omits trim
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: A
 - `Verify`: Reopen `SettingsScreen.kt`; confirm employee name dirty checks compare raw text while save trims, including dropdown-select path.
 - `Fix`: Compare `edit/input.trim() != employeeName.trim()` in text and dropdown paths.
 - `Tests`: Add/update settings helper test if available; run `.\gradlew.bat assembleDebug`.
-- `Done evidence`: not done
+- `Done evidence`: Confirmed both the text-field path (`it != employeeName`) and the dropdown-select path (`name != employeeName`) compared raw text while save used `editEmployeeName.trim()`. Fixed both to `.trim() != employeeName.trim()`. Verified via `.\gradlew.bat :app:assembleDebug`.
 
 ### #35 - Supply status reload race can transiently stale UI
 

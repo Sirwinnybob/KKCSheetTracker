@@ -55,6 +55,17 @@ class MaterialMappingsTest {
         )
     }
 
+    @Test
+    fun blankMappedValueFallsBackToNormalizedInput() {
+        val mappings = MaterialMappings.of(
+            mapOf("3/4 Prefinished Maple" to "   ")
+        )
+
+        // A blank mapped value must not collapse the material to "", which would make
+        // it match every other blank-mapped material during auto-complete.
+        assertEquals("3/4 prefinished maple", mappings.canonical("3/4 Prefinished Maple"))
+    }
+
     private fun createTempDir(): File =
         kotlin.io.path.createTempDirectory("material-mappings-test").toFile()
 

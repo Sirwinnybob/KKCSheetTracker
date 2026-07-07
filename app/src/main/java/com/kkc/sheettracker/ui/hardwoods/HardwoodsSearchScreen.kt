@@ -74,7 +74,7 @@ internal fun computeHardwoodsSearchMatches(
             entry.jobNumber.contains(query, ignoreCase = true) ||
             entry.width.contains(query, ignoreCase = true) ||
             entry.length.contains(query, ignoreCase = true) ||
-            entry.cabinetNumbers.any { it == query }
+            entry.cabinetNumbers.any { it.contains(query, ignoreCase = true) }
         if (!isMatch) continue
         totalMatches += 1
         if (visibleResults.size < maxResults) visibleResults.add(entry)

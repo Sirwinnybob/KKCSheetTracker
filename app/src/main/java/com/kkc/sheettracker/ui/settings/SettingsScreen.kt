@@ -75,7 +75,7 @@ fun SettingsScreen(
     var editTabletId by remember { mutableStateOf(tabletId) }
     var editBasePath by remember { mutableStateOf(basePath) }
     var editSyncthingApiKey by remember(syncthingApiKey) { mutableStateOf(syncthingApiKey) }
-    var editEmployeeName by remember { mutableStateOf(employeeName) }
+    var editEmployeeName by remember(employeeName) { mutableStateOf(employeeName) }
     var employeeNameDirty by remember { mutableStateOf(false) }
     var employeeNameSaved by remember { mutableStateOf(false) }
     var employeeDropdownExpanded by remember { mutableStateOf(false) }
@@ -398,7 +398,7 @@ fun SettingsScreen(
                         value = editEmployeeName,
                         onValueChange = {
                             editEmployeeName = it
-                            employeeNameDirty = it != employeeName
+                            employeeNameDirty = it.trim() != employeeName.trim()
                             employeeDropdownExpanded = it.isNotBlank()
                         },
                         label = { Text("Your Name / PIN") },
@@ -417,7 +417,7 @@ fun SettingsScreen(
                                     text = { Text(name) },
                                     onClick = {
                                         editEmployeeName = name
-                                        employeeNameDirty = name != employeeName
+                                        employeeNameDirty = name.trim() != employeeName.trim()
                                         employeeDropdownExpanded = false
                                     }
                                 )
@@ -458,7 +458,7 @@ fun SettingsScreen(
                     value = editTabletId,
                     onValueChange = {
                         editTabletId = it
-                        tabletIdDirty = it != tabletId
+                        tabletIdDirty = it.trim() != tabletId.trim()
                     },
                     label = { Text("Tablet ID") },
                     supportingText = { Text("Used for progress file naming. Must be unique per tablet.") },
@@ -505,7 +505,7 @@ fun SettingsScreen(
                     value = editBasePath,
                     onValueChange = {
                         editBasePath = it
-                        basePathDirty = it != basePath
+                        basePathDirty = it.trim() != basePath.trim()
                     },
                     label = { Text("Ready Jobs Folder Path") },
                     supportingText = { Text("Path to the synced Ready Jobs folder on this tablet.") },
