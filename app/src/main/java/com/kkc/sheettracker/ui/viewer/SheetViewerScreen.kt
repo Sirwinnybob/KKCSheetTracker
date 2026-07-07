@@ -945,10 +945,11 @@ fun SheetViewerScreen(
         SheetStatus.COMPLETE -> KKCThemeColors.statusColors.complete
         SheetStatus.SKIPPED -> KKCThemeColors.statusColors.skip
         SheetStatus.HAS_BAD_PARTS -> KKCThemeColors.statusColors.bad
+        SheetStatus.RE_NESTED -> KKCThemeColors.statusColors.complete.copy(alpha = 0.35f)
         else -> MaterialTheme.colorScheme.surface
     }
     val topBarTextColor = when (sheetStatus) {
-        SheetStatus.SKIPPED, SheetStatus.NOT_STARTED, SheetStatus.IN_PROGRESS -> MaterialTheme.colorScheme.onSurface
+        SheetStatus.SKIPPED, SheetStatus.NOT_STARTED, SheetStatus.IN_PROGRESS, SheetStatus.RE_NESTED -> MaterialTheme.colorScheme.onSurface
         SheetStatus.COMPLETE, SheetStatus.HAS_BAD_PARTS -> Color.White
     }
     val currentPageRemake = remember(currentMaterial, currentPage) {
@@ -1135,7 +1136,19 @@ fun SheetViewerScreen(
                         }
                     }
                 },
-                onOpenSearch = { showCncSearch = true }
+                onOpenSearch = { showCncSearch = true },
+                onToggleRenested = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val page = currentPage
+                    val fp = fileFingerprint
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            val renested = progressStore.isSheetRenested(jobFolderName, pdfFilename, page, fp)
+                            if (renested) progressStore.unmarkSheetRenested(jobFolderName, pdfFilename, page, fp)
+                            else progressStore.markSheetRenested(jobFolderName, pdfFilename, page, fp)
+                        }
+                    }
+                }
             )
         } else {
             null

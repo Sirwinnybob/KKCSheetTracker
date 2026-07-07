@@ -27,7 +27,8 @@ data class NavBarCncDecoration(
     val onOpenToc: () -> Unit,
     val onToggleSkip: () -> Unit,
     val onToggleComplete: () -> Unit,
-    val onOpenSearch: () -> Unit
+    val onOpenSearch: () -> Unit,
+    val onToggleRenested: () -> Unit
 )
 
 data class NavBarSpecialtyDecoration(
