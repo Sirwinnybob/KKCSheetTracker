@@ -90,6 +90,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.GlobalScope
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
@@ -308,11 +309,13 @@ class PdfRenderEngine(private val pdfFile: File) {
         }
     }
 
-    fun close() {
-        runCatching { renderer?.close() }
-        runCatching { fd?.close() }
-        renderer = null
-        fd = null
+    suspend fun close() = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            runCatching { renderer?.close() }
+            runCatching { fd?.close() }
+            renderer = null
+            fd = null
+        }
     }
 }
 
@@ -359,7 +362,8 @@ fun ReferencePdfPane(
     val basePageCache = remember(pdfIdentityKey) { LruCache<Int, Bitmap>(6) }
     DisposableEffect(engine) {
         onDispose {
-            engine?.close()
+            @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+            engine?.let { e -> GlobalScope.launch { e.close() } }
             basePageCache.evictAll()
         }
     }

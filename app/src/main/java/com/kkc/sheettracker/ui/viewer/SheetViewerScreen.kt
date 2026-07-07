@@ -2541,7 +2541,10 @@ internal fun resolveCncSidecarFile(
     val trimmed = relativeOrAbsolute?.trim().orEmpty()
     if (trimmed.isBlank()) return null
     val candidate = File(trimmed)
-    return if (candidate.isAbsolute) candidate else File(pdfFile.parentFile, trimmed)
+    // In Unix environments (like in CI or this sandbox) File("D:/...").isAbsolute returns false.
+    // We explicitly check for Windows-style absolute paths.
+    val isWindowsAbsolute = trimmed.matches(Regex("^[a-zA-Z]:[/\\\\].*"))
+    return if (candidate.isAbsolute || isWindowsAbsolute) candidate else File(pdfFile.parentFile, trimmed)
 }
 
 private fun loadSheetThumbnailForToc(
