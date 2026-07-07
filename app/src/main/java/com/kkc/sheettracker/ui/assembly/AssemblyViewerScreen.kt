@@ -1435,7 +1435,7 @@ private fun BomPartRow(entry: AssemblyBomEntry) {
         entry.part.isPurchased -> Triple("Purchased", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
         entry.cncParts.isNotEmpty() -> {
             val anyBad = entry.cncParts.any { it.isBadPart || it.sheetStatus == SheetStatus.HAS_BAD_PARTS }
-            val allComplete = entry.cncParts.all { it.sheetStatus == SheetStatus.COMPLETE }
+            val allComplete = entry.cncParts.all { it.sheetStatus == SheetStatus.COMPLETE || it.sheetStatus == SheetStatus.RE_NESTED }
             val anySkipped = entry.cncParts.any { it.sheetStatus == SheetStatus.SKIPPED }
             when {
                 anyBad -> Triple("CNC - Bad Part", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
@@ -1494,6 +1494,8 @@ private fun CncPartRow(part: AssemblyCncPart) {
             Triple("CNC - Bad", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
         part.sheetStatus == SheetStatus.COMPLETE ->
             Triple("CNC - Done", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        part.sheetStatus == SheetStatus.RE_NESTED ->
+            Triple("CNC - Re-Nested", MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f), MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
         part.sheetStatus == SheetStatus.SKIPPED ->
             Triple("CNC - Skipped", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
         else ->

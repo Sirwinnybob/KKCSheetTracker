@@ -54,6 +54,10 @@ fun StatusBorderedCard(
             borderColor = colors.bad,
             backgroundTint = colors.badBg.copy(alpha = 0.12f)
         )
+        SheetStatus.RE_NESTED -> StatusCardColors(
+            borderColor = colors.completeBorder.copy(alpha = 0.5f),
+            backgroundTint = colors.completeBgRow.copy(alpha = 0.5f)
+        )
     }
     val appliedContainerColor = if (statusCardColors.backgroundTint.alpha > 0f) {
         statusCardColors.backgroundTint.compositeOver(containerColor)

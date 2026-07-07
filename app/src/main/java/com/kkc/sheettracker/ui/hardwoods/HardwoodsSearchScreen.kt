@@ -270,6 +270,7 @@ private fun hardwoodsSearchStatusColor(status: SheetStatus): Color {
         SheetStatus.NOT_STARTED -> colors.notStarted
         SheetStatus.SKIPPED -> colors.skipBorder
         SheetStatus.HAS_BAD_PARTS -> colors.bad
+        SheetStatus.RE_NESTED -> colors.completeBorder.copy(alpha = 0.5f)
     }
 }
 

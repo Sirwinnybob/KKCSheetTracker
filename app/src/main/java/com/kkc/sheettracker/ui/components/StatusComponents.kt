@@ -157,6 +157,7 @@ fun SheetStatusBadge(status: SheetStatus, modifier: Modifier = Modifier) {
         SheetStatus.SKIPPED -> "Skipped" to colors.skip
         SheetStatus.IN_PROGRESS -> "In Progress" to colors.inProgress
         SheetStatus.NOT_STARTED -> "Not Started" to colors.notStarted
+        SheetStatus.RE_NESTED -> "Re-Nested" to colors.complete.copy(alpha = 0.5f)
     }
     Surface(
         color = color.copy(alpha = KKCAlpha.statusBadgeBg),
@@ -693,6 +694,7 @@ fun PageStatusBar(
                     SheetStatus.SKIPPED -> colors.skipBg
                     SheetStatus.IN_PROGRESS -> colors.inProgress
                     SheetStatus.NOT_STARTED -> MaterialTheme.colorScheme.outlineVariant
+                    SheetStatus.RE_NESTED -> colors.completeBg.copy(alpha = 0.35f)
                 },
                 shape = KKCShapeTokens.pill
             ) {}

@@ -453,6 +453,7 @@ private fun HardwoodsQualityAlertCard(
         SheetStatus.COMPLETE -> KKCThemeColors.statusColors.completeBorder
         SheetStatus.NOT_STARTED -> KKCThemeColors.statusColors.notStarted
         SheetStatus.IN_PROGRESS -> KKCThemeColors.statusColors.inProgressBorder
+        SheetStatus.RE_NESTED -> KKCThemeColors.statusColors.completeBorder.copy(alpha = 0.5f)
     }
     StatusBorderedCard(
         status = status,
@@ -576,6 +577,7 @@ private fun HardwoodsJobCard(
         SheetStatus.COMPLETE -> colors.completeBorder
         SheetStatus.IN_PROGRESS -> colors.inProgressBorder
         SheetStatus.NOT_STARTED -> colors.notStarted
+        SheetStatus.RE_NESTED -> colors.completeBorder.copy(alpha = 0.5f)
     }
 
     StatusBorderedCard(
