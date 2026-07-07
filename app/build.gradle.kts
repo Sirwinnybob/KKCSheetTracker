@@ -68,6 +68,12 @@ android {
         // the sole statement of a produceState producer lambda. Every flagged
         // call site does assign `value`; revisit once compose-bom is upgraded.
         disable += "ProduceStateDoesNotAssignValue"
+        // lint's bundled NonNullableMutableLiveDataDetector crashes (Kotlin Analysis API
+        // class/interface mismatch) under AGP 8.7.3's lint engine once Gradle is bumped to
+        // 9.0.0+, regardless of lifecycle-runtime-ktx version. Detector crash, not a real
+        // finding; the app doesn't use MutableLiveData with Compose state. Revisit once AGP
+        // is upgraded past 8.7.3 (migration in progress on this branch).
+        disable += "NullSafeMutableLiveData"
     }
 
     testOptions {
