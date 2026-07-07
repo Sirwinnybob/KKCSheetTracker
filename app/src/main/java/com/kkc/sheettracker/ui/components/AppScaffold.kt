@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Dashboard
@@ -583,11 +584,12 @@ private fun MorphingNavBar(
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                             }
+                                            val isRenested = dec.sheetStatus == SheetStatus.RE_NESTED
                                             val isSkipped = dec.sheetStatus == SheetStatus.SKIPPED
                                             Button(
                                                 onClick = dec.onToggleSkip,
                                                 colors = ButtonDefaults.buttonColors(
-                                                    containerColor = if (isSkipped) KKCThemeColors.statusColors.skipBorder
+                                                    containerColor = if (isSkipped) KKCThemeColors.statusColors.skipBg
                                                                      else MaterialTheme.colorScheme.surfaceVariant,
                                                     contentColor   = if (isSkipped) Color.White
                                                                      else MaterialTheme.colorScheme.onSurface
@@ -603,6 +605,29 @@ private fun MorphingNavBar(
                                                 Spacer(Modifier.width(3.dp))
                                                 Text(
                                                     if (isSkipped) "Unskip" else "Skip",
+                                                    style = MaterialTheme.typography.labelMedium
+                                                )
+                                            }
+                                            Spacer(Modifier.width(6.dp))
+                                            Button(
+                                                onClick = dec.onToggleRenested,
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (isRenested) KKCThemeColors.statusColors.remakeBg
+                                                                     else MaterialTheme.colorScheme.surfaceVariant,
+                                                    contentColor   = if (isRenested) Color.White
+                                                                     else MaterialTheme.colorScheme.onSurface
+                                                ),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                shape = MaterialTheme.shapes.extraLarge
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Cached,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(Modifier.width(3.dp))
+                                                Text(
+                                                    if (isRenested) "Re-Nested" else "Re-Nest",
                                                     style = MaterialTheme.typography.labelMedium
                                                 )
                                             }
