@@ -259,6 +259,29 @@ fun AppNavigation(
         }
     }
 
+    val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
+    val coroutineScope = rememberCoroutineScope()
+    DisposableEffect(progressStore, hardwoodsRepository, sharedHardwoodsProgressStore, jobRepository) {
+        val listener = { jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String, isComplete: Boolean ->
+            coroutineScope.launch(Dispatchers.IO) {
+                com.kkc.sheettracker.data.syncCncToHardwoods(
+                    jobFolderName = jobFolderName,
+                    jobRepository = jobRepository,
+                    progressStore = progressStore,
+                    hardwoodsRepository = hardwoodsRepository,
+                    hardwoodsProgressStore = sharedHardwoodsProgressStore
+                )
+            }
+            Unit
+        }
+        progressStore.onSheetStatusChangedListener = listener
+        onDispose {
+            if (progressStore.onSheetStatusChangedListener === listener) {
+                progressStore.onSheetStatusChangedListener = null
+            }
+        }
+    }
+
     val flags = remember(appStateFlags) { appStateFlags.snapshot() }
     key(workMode) {
         if (flags.navMultiStackEnabled) {
@@ -435,27 +458,6 @@ private fun MultiBackStackNavigation(
         )
     }
 
-    val coroutineScope = rememberCoroutineScope()
-    DisposableEffect(progressStore, hardwoodsRepository, hardwoodsProgressStore, jobRepository) {
-        val listener = { jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String, isComplete: Boolean ->
-            coroutineScope.launch(Dispatchers.IO) {
-                com.kkc.sheettracker.data.syncCncToHardwoods(
-                    jobFolderName = jobFolderName,
-                    jobRepository = jobRepository,
-                    progressStore = progressStore,
-                    hardwoodsRepository = hardwoodsRepository,
-                    hardwoodsProgressStore = hardwoodsProgressStore
-                )
-            }
-            Unit
-        }
-        progressStore.onSheetStatusChangedListener = listener
-        onDispose {
-            if (progressStore.onSheetStatusChangedListener === listener) {
-                progressStore.onSheetStatusChangedListener = null
-            }
-        }
-    }
     val dashboardNavController = rememberNavController()
     val jobsNavController = rememberNavController()
     val searchNavController = rememberNavController()

@@ -286,12 +286,12 @@ Loop agent instructions:
 
 ### #23 - CNC-to-hardwoods sync listener only wired in multi-stack nav
 
-- `Status`: unclaimed
+- `Status`: fixed
 - `Lane`: A
 - `Verify`: Reopen `NavGraph.kt`; confirm `progressStore.onSheetStatusChangedListener` registration exists only in multi-stack path and `syncCncToHardwoods` has no legacy fallback.
 - `Fix`: Move listener registration into shared `AppNavigation` or shared helper used by both nav hosts.
 - `Tests`: Add/update navigation or sync test if practical; run `.\gradlew.bat testDebugUnitTest --tests com.kkc.sheettracker.navigation.*`.
-- `Done evidence`: not done
+- `Done evidence`: Reconciled two competing PR branches (`fix/issue-23-sync-cnc-to-hardwoods-...` and `jules-...-86fa4ab4`) that both hoisted the fix to the same lines of `NavGraph.kt` in slightly different, conflicting ways. Manually hoisted the `hardwoodsRepository` instantiation, `coroutineScope`, and `progressStore.onSheetStatusChangedListener` `DisposableEffect` from `MultiBackStackNavigation` (previously lines ~438-458) up into the shared `AppNavigation` function (now before `val flags = remember(appStateFlags) { ... }`), using the already-shared `sharedHardwoodsProgressStore`. This registers the CNC->hardwoods sync listener once for both `MultiBackStackNavigation` and `LegacySingleStackNavigation` paths. Confirmed `coroutineScope` and the removed `hardwoodsRepository`-based listener block were not referenced elsewhere in `MultiBackStackNavigation` before deleting. Passed `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.navigation.*` (HomeTabRoutingTest, SpecialtyRouteTest, WorkModeTest all 0 failures) and `.\gradlew.bat :app:assembleDebug`.
 
 ### #24 - Settings employee edit state lacks employeeName key
 
@@ -453,3 +453,14 @@ Use this section for durable progress notes. Each entry should include:
 - Result: passed.
 - Verification note: exact dashboard `getCabinetSheetIndex()` pattern is assembly-only after the fix; active unified Hardwoods dashboard had a related `summarizeJob()` file-backed composition pattern and was moved to IO too.
 - Commit hash: this entry is included in the commit that fixes #2.
+
+## 2026-07-07 - Medium #23 CNC-to-hardwoods sync listener only wired in multi-stack nav
+
+- Agent/lane: Claude, Lane A.
+- Findings completed: #23.
+- Files changed: `app/src/main/java/com/kkc/sheettracker/navigation/NavGraph.kt`, `docs/superpowers/plans/2026-07-07-code-review-remediation-loop.md`.
+- Test commands: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.navigation.*`; `.\gradlew.bat :app:assembleDebug`.
+- Result: passed.
+- Verification note: Two open PR branches (`fix/issue-23-sync-cnc-to-hardwoods-...` and `jules-...-86fa4ab4`) attempted the identical fix on the same lines of `NavGraph.kt` with different local variable names, so neither was merged directly. Re-implemented the hoist by hand instead, and left both branches unmerged/un-deleted on the remote for the user to close out.
+- Commit hash: this entry is included in the commit that fixes #23.
+- Follow-up: none for #23. The `jules-...` branch also carried unrelated `@file:Suppress("ProduceStateDoesNotAssignValue")` lint annotations and a `ClockInForegroundService.kt` `@SuppressLint("MissingPermission")` annotation that were intentionally not pulled in, since the working tree already has a real runtime permission check for posting notifications that supersedes the suppress-only approach.
