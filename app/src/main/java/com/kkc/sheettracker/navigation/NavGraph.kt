@@ -189,6 +189,29 @@ fun AppNavigation(
     val sharedSpecialtyProgressStore = specialtyProgressStore ?: remember(basePath, tabletId, isViewOnlyMode) {
         SpecialtyProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
     }
+        val sharedHardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
+
+    val coroutineScope = rememberCoroutineScope()
+    DisposableEffect(progressStore, sharedHardwoodsRepository, sharedHardwoodsProgressStore, jobRepository) {
+        val listener = { jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String, isComplete: Boolean ->
+            coroutineScope.launch(Dispatchers.IO) {
+                com.kkc.sheettracker.data.syncCncToHardwoods(
+                    jobFolderName = jobFolderName,
+                    jobRepository = jobRepository,
+                    progressStore = progressStore,
+                    hardwoodsRepository = sharedHardwoodsRepository,
+                    hardwoodsProgressStore = sharedHardwoodsProgressStore
+                )
+            }
+            Unit
+        }
+        progressStore.onSheetStatusChangedListener = listener
+        onDispose {
+            if (progressStore.onSheetStatusChangedListener === listener) {
+                progressStore.onSheetStatusChangedListener = null
+            }
+        }
+    }
     val watcherRefreshSignal = remember(basePath) { MutableStateFlow(0L) }
     val watcherRefreshEpoch by watcherRefreshSignal.collectAsState()
     val activeJobFolderName = remember { MutableStateFlow<String?>(null) }
@@ -435,27 +458,7 @@ private fun MultiBackStackNavigation(
         )
     }
 
-    val coroutineScope = rememberCoroutineScope()
-    DisposableEffect(progressStore, hardwoodsRepository, hardwoodsProgressStore, jobRepository) {
-        val listener = { jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String, isComplete: Boolean ->
-            coroutineScope.launch(Dispatchers.IO) {
-                com.kkc.sheettracker.data.syncCncToHardwoods(
-                    jobFolderName = jobFolderName,
-                    jobRepository = jobRepository,
-                    progressStore = progressStore,
-                    hardwoodsRepository = hardwoodsRepository,
-                    hardwoodsProgressStore = hardwoodsProgressStore
-                )
-            }
-            Unit
-        }
-        progressStore.onSheetStatusChangedListener = listener
-        onDispose {
-            if (progressStore.onSheetStatusChangedListener === listener) {
-                progressStore.onSheetStatusChangedListener = null
-            }
-        }
-    }
+
     val dashboardNavController = rememberNavController()
     val jobsNavController = rememberNavController()
     val searchNavController = rememberNavController()

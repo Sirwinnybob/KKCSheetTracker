@@ -1,3 +1,4 @@
+@file:Suppress("ProduceStateDoesNotAssignValue")
 package com.kkc.sheettracker.ui.assembly
 
 import androidx.compose.foundation.layout.Arrangement

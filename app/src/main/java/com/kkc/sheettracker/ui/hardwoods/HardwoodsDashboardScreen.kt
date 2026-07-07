@@ -1,3 +1,4 @@
+@file:Suppress("ProduceStateDoesNotAssignValue")
 package com.kkc.sheettracker.ui.hardwoods
 
 import androidx.compose.foundation.background
