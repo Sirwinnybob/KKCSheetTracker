@@ -338,7 +338,8 @@ class ProgressStore(
             part = action.part,
             action = safeAction,
             timestamp = safeTimestamp,
-            fileFingerprint = action.fileFingerprint?.trim()
+            fileFingerprint = action.fileFingerprint?.trim(),
+            reNested = action.reNested
         )
     }
 
@@ -875,11 +876,12 @@ class ProgressStore(
         }
 
         return StatusCounts(
-            total = visiblePages.size - reNested,
+            total = visiblePages.size,
             complete = complete,
             bad = bad,
             skipped = skipped,
-            notStarted = notStarted
+            notStarted = notStarted,
+            reNested = reNested
         )
     }
 
@@ -890,6 +892,7 @@ class ProgressStore(
         var skipped = 0
         var notStarted = 0
 
+        var reNested = 0
         val index = ensureJobIndex(jobFolderName)
         materials.forEach { material ->
             for (page in getMaterialTrackablePages(material)) {
@@ -899,7 +902,10 @@ class ProgressStore(
                 val isRenested = resolveRenested(entry, material.fileFingerprint)
                 val hasBad = isComplete && resolveCommittedBadParts(entry, material.fileFingerprint).isNotEmpty()
 
-                if (isRenested) continue
+                if (isRenested) {
+                    reNested++
+                    continue
+                }
 
                 total++
                 when {
@@ -914,7 +920,7 @@ class ProgressStore(
             }
         }
 
-        return StatusCounts(total, complete, bad, skipped, notStarted)
+        return StatusCounts(total, complete, bad, skipped, notStarted, reNested)
     }
 
     fun getMaterialLastTouches(jobFolderName: String): Map<String, MaterialLastTouch> {

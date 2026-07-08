@@ -537,124 +537,137 @@ private fun MorphingNavBar(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            IconButton(
-                                                onClick  = dec.onPrevPage,
-                                                enabled  = dec.currentPage > 1,
-                                                modifier = Modifier.size(36.dp)
+                                            // ── Left: navigation + search ──────────────────
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(0.dp)
                                             ) {
-                                                Icon(
-                                                    Icons.AutoMirrored.Filled.ArrowBack,
-                                                    contentDescription = "Previous sheet",
-                                                    modifier = Modifier.size(18.dp)
-                                                )
+                                                FilledTonalIconButton(
+                                                    onClick  = dec.onPrevPage,
+                                                    enabled  = dec.currentPage > 1,
+                                                    modifier = Modifier.size(44.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.AutoMirrored.Filled.ArrowBack,
+                                                        contentDescription = "Previous sheet",
+                                                        modifier = Modifier.size(26.dp)
+                                                    )
+                                                }
+                                                TextButton(
+                                                    onClick = dec.onOpenToc,
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                                                ) {
+                                                    Text(
+                                                        "Sheet ${dec.currentPage} of ${dec.totalPages}",
+                                                        style = MaterialTheme.typography.labelMedium
+                                                    )
+                                                    Spacer(Modifier.width(2.dp))
+                                                    Icon(
+                                                        Icons.Default.UnfoldMore,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                                FilledTonalIconButton(
+                                                    onClick  = dec.onNextPage,
+                                                    enabled  = dec.currentPage < dec.totalPages,
+                                                    modifier = Modifier.size(44.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.AutoMirrored.Filled.ArrowForward,
+                                                        contentDescription = "Next sheet",
+                                                        modifier = Modifier.size(26.dp)
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick  = dec.onOpenSearch,
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Search,
+                                                        contentDescription = "Search parts",
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
                                             }
-                                            TextButton(
-                                                onClick = dec.onOpenToc,
-                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
-                                            ) {
-                                                Text(
-                                                    "Sheet ${dec.currentPage} of ${dec.totalPages}",
-                                                    style = MaterialTheme.typography.labelMedium
-                                                )
-                                                Spacer(Modifier.width(2.dp))
-                                                Icon(
-                                                    Icons.Default.UnfoldMore,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                            }
-                                            IconButton(
-                                                onClick  = dec.onNextPage,
-                                                enabled  = dec.currentPage < dec.totalPages,
-                                                modifier = Modifier.size(36.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.AutoMirrored.Filled.ArrowForward,
-                                                    contentDescription = "Next sheet",
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                            IconButton(
-                                                onClick  = dec.onOpenSearch,
-                                                modifier = Modifier.size(36.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Search,
-                                                    contentDescription = "Search parts",
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
+
+                                            // ── Right: action buttons ───────────────────────
                                             val isRenested = dec.sheetStatus == SheetStatus.RE_NESTED
-                                            val isSkipped = dec.sheetStatus == SheetStatus.SKIPPED
-                                            Button(
-                                                onClick = dec.onToggleSkip,
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = if (isSkipped) KKCThemeColors.statusColors.skipBg
-                                                                     else MaterialTheme.colorScheme.surfaceVariant,
-                                                    contentColor   = if (isSkipped) Color.White
-                                                                     else MaterialTheme.colorScheme.onSurface
-                                                ),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                                shape = MaterialTheme.shapes.extraLarge
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Flag,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Spacer(Modifier.width(3.dp))
-                                                Text(
-                                                    if (isSkipped) "Unskip" else "Skip",
-                                                    style = MaterialTheme.typography.labelMedium
-                                                )
-                                            }
-                                            Spacer(Modifier.width(6.dp))
-                                            Button(
-                                                onClick = dec.onToggleRenested,
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = if (isRenested) KKCThemeColors.statusColors.remakeBg
-                                                                     else MaterialTheme.colorScheme.surfaceVariant,
-                                                    contentColor   = if (isRenested) Color.White
-                                                                     else MaterialTheme.colorScheme.onSurface
-                                                ),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                                shape = MaterialTheme.shapes.extraLarge
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Cached,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Spacer(Modifier.width(3.dp))
-                                                Text(
-                                                    if (isRenested) "Re-Nested" else "Re-Nest",
-                                                    style = MaterialTheme.typography.labelMedium
-                                                )
-                                            }
+                                            val isSkipped  = dec.sheetStatus == SheetStatus.SKIPPED
                                             val isComplete = dec.sheetStatus == SheetStatus.COMPLETE ||
                                                              dec.sheetStatus == SheetStatus.HAS_BAD_PARTS
-                                            Button(
-                                                onClick = dec.onToggleComplete,
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = if (isComplete) KKCThemeColors.statusColors.complete
-                                                                     else MaterialTheme.colorScheme.primary
-                                                ),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                                shape = MaterialTheme.shapes.extraLarge
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Icon(
-                                                    Icons.Default.Check,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Spacer(Modifier.width(3.dp))
-                                                Text(
-                                                    if (isComplete) "Done" else "Complete",
-                                                    style = MaterialTheme.typography.labelMedium
-                                                )
+                                                Button(
+                                                    onClick = dec.onToggleRenested,
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = if (isRenested) KKCThemeColors.statusColors.remakeBg
+                                                                         else MaterialTheme.colorScheme.surfaceVariant,
+                                                        contentColor   = if (isRenested) Color.White
+                                                                         else MaterialTheme.colorScheme.onSurface
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    shape = MaterialTheme.shapes.extraLarge
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Cached,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(Modifier.width(3.dp))
+                                                    Text(
+                                                        "Re-Nested",
+                                                        style = MaterialTheme.typography.labelMedium
+                                                    )
+                                                }
+                                                Button(
+                                                    onClick = dec.onToggleSkip,
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = if (isSkipped) KKCThemeColors.statusColors.skipBg
+                                                                         else MaterialTheme.colorScheme.surfaceVariant,
+                                                        contentColor   = if (isSkipped) Color.White
+                                                                         else MaterialTheme.colorScheme.onSurface
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    shape = MaterialTheme.shapes.extraLarge
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Flag,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(Modifier.width(3.dp))
+                                                    Text(
+                                                        if (isSkipped) "Unskip" else "Skip",
+                                                        style = MaterialTheme.typography.labelMedium
+                                                    )
+                                                }
+                                                Button(
+                                                    onClick = dec.onToggleComplete,
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = if (isComplete) KKCThemeColors.statusColors.complete
+                                                                         else MaterialTheme.colorScheme.primary
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    shape = MaterialTheme.shapes.extraLarge
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(Modifier.width(3.dp))
+                                                    Text(
+                                                        if (isComplete) "Done" else "Complete",
+                                                        style = MaterialTheme.typography.labelMedium
+                                                    )
+                                                }
                                             }
                                         }
                                     }
+
                                     "specialty" -> lastSpecialty?.let { dec ->
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),

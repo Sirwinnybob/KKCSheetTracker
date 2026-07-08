@@ -522,8 +522,9 @@ private fun StatusCountsProgressBar(
     val total = counts.total.coerceAtLeast(0)
     val bad = counts.bad.coerceAtLeast(0)
     val skipped = counts.skipped.coerceAtLeast(0)
+    val reNested = counts.reNested.coerceAtLeast(0)
     val completeClean = (counts.complete - bad).coerceAtLeast(0)
-    val remaining = (total - (completeClean + bad + skipped)).coerceAtLeast(0)
+    val remaining = (total - (completeClean + bad + skipped + reNested)).coerceAtLeast(0)
 
     if (total <= 0) {
         Surface(
@@ -553,6 +554,14 @@ private fun StatusCountsProgressBar(
                     .fillMaxHeight()
                     .weight(bad.toFloat())
                     .background(colors.badBg)
+            )
+        }
+        if (reNested > 0) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .weight(reNested.toFloat())
+                    .background(colors.completeBg.copy(alpha = 0.35f))
             )
         }
         if (skipped > 0) {

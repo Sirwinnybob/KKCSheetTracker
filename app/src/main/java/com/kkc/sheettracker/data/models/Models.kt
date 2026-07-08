@@ -608,7 +608,8 @@ data class StatusCounts(
     val complete: Int = 0,
     val bad: Int = 0,
     val skipped: Int = 0,
-    val notStarted: Int = 0
+    val notStarted: Int = 0,
+    val reNested: Int = 0
 )
 
 data class PartSearchEntry(

@@ -866,7 +866,9 @@ fun SheetViewerScreen(
 
         val appSnapshot = sheetSnapshotForPage(currentPage)
         val legacyStatus = progressStore.getSheetStatus(jobFolderName, pdfFilename, currentPage, fileFingerprint)
-        val resolvedStatus = if (useAppStateStatus) {
+        // RE_NESTED is always a local tablet write — AppState snapshots can lag a derivation
+        // cycle and return a stale SKIPPED status. Always trust the ProgressStore for RE_NESTED.
+        val resolvedStatus = if (useAppStateStatus && legacyStatus != SheetStatus.RE_NESTED) {
             appSnapshot?.status ?: legacyStatus
         } else {
             legacyStatus
