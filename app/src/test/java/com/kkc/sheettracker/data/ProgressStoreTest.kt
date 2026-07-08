@@ -1,9 +1,12 @@
 package com.kkc.sheettracker.data
 
 import com.google.gson.Gson
+import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.TabletProgress
 import com.kkc.sheettracker.data.models.TrackerAction
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -68,6 +71,33 @@ class ProgressStoreTest {
     private fun readTabletProgress(baseDir: File, jobFolderName: String, tabletId: String): TabletProgress {
         val trackerFile = File(baseDir, "$jobFolderName/CNC/.tracker/$tabletId.json")
         return gson.fromJson(trackerFile.readText(), TabletProgress::class.java)
+    }
+
+    @Test
+    fun renestedSheetStatusAndSkippedStatus() {
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+        val pdfFilename = "A.pdf"
+        val page = 1
+        val fileFingerprint = "fp1"
+
+        // Initially NOT_STARTED
+        assertEquals(SheetStatus.NOT_STARTED, store.getSheetStatus(jobFolderName, pdfFilename, page, fileFingerprint))
+        assertFalse(store.isSheetSkipped(jobFolderName, pdfFilename, page, fileFingerprint))
+
+        // Mark as re-nested
+        store.markSheetRenested(jobFolderName, pdfFilename, page, fileFingerprint)
+
+        // Status should be RE_NESTED and isSheetSkipped should be true
+        assertEquals(SheetStatus.RE_NESTED, store.getSheetStatus(jobFolderName, pdfFilename, page, fileFingerprint))
+        assertTrue(store.isSheetSkipped(jobFolderName, pdfFilename, page, fileFingerprint))
+
+        // Unmark re-nested
+        store.unmarkSheetRenested(jobFolderName, pdfFilename, page, fileFingerprint)
+
+        // Status should return to NOT_STARTED and isSheetSkipped to false
+        assertEquals(SheetStatus.NOT_STARTED, store.getSheetStatus(jobFolderName, pdfFilename, page, fileFingerprint))
+        assertFalse(store.isSheetSkipped(jobFolderName, pdfFilename, page, fileFingerprint))
     }
 
     private fun trackerAction(file: String, page: Int, action: String, timestamp: String): TrackerAction {
