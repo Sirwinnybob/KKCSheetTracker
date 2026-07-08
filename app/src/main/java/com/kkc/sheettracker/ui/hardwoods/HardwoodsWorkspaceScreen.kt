@@ -2392,7 +2392,13 @@ private fun HardwoodsBoardStockList(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         }
-                                        Button(
+                                        val canDecrementRip = !lineSkipped && done > 0
+                                        val canIncrementRip = !lineSkipped && done < line.neededRips
+                                        TallyStepButton(
+                                            icon = Icons.Default.Remove,
+                                            contentDescription = "Rip done -",
+                                            containerColor = statusColors.bad,
+                                            enabled = true,
                                             onClick = {
                                                 progressStore.decrementBoardStockRipDone(
                                                     jobFolderName = jobFolderName,
@@ -2402,22 +2408,29 @@ private fun HardwoodsBoardStockList(
                                                     maxCount = line.neededRips
                                                 )
                                             },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = statusColors.bad,
-                                                contentColor = Color.White
-                                            ),
-                                            contentPadding = PaddingValues(0.dp),
-                                            modifier = Modifier
-                                                .heightIn(min = 32.dp)
-                                                .widthIn(min = 32.dp)
-                                        ) { Icon(Icons.Default.Remove, contentDescription = "Rip done -", modifier = Modifier.size(14.dp)) }
+                                            onLongClick = {
+                                                if (canDecrementRip) {
+                                                    progressStore.setBoardStockRipDone(
+                                                        jobFolderName = jobFolderName,
+                                                        material = line.material,
+                                                        normalizedWidth = line.normalizedWidth,
+                                                        source = line.source.name,
+                                                        doneCount = 0
+                                                    )
+                                                }
+                                            }
+                                        )
                                         ProgressPill(
                                             done = done,
                                             total = line.neededRips,
                                             state = rowState,
                                             skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f)
                                         )
-                                        Button(
+                                        TallyStepButton(
+                                            icon = Icons.Default.Add,
+                                            contentDescription = "Rip done +",
+                                            containerColor = statusColors.completeBorder,
+                                            enabled = true,
                                             onClick = {
                                                 progressStore.incrementBoardStockRipDone(
                                                     jobFolderName = jobFolderName,
@@ -2427,15 +2440,18 @@ private fun HardwoodsBoardStockList(
                                                     maxCount = line.neededRips
                                                 )
                                             },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = statusColors.completeBorder,
-                                                contentColor = Color.White
-                                            ),
-                                            contentPadding = PaddingValues(0.dp),
-                                            modifier = Modifier
-                                                .heightIn(min = 32.dp)
-                                                .widthIn(min = 32.dp)
-                                        ) { Icon(Icons.Default.Add, contentDescription = "Rip done +", modifier = Modifier.size(14.dp)) }
+                                            onLongClick = {
+                                                if (canIncrementRip) {
+                                                    progressStore.setBoardStockRipDone(
+                                                        jobFolderName = jobFolderName,
+                                                        material = line.material,
+                                                        normalizedWidth = line.normalizedWidth,
+                                                        source = line.source.name,
+                                                        doneCount = line.neededRips
+                                                    )
+                                                }
+                                            }
+                                        )
                                         if (lineSkipped) {
                                             Button(
                                                 onClick = {
