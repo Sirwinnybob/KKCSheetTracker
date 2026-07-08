@@ -987,21 +987,19 @@ fun HardwoodsWorkspaceScreen(
                         rows = rows,
                         rowProgressMap = rowProgressMap,
                         onIncrementProgress = { rowId, currentDone, maxQty ->
-                            hardwoodsProgressStore.setDoneCount(
+                            hardwoodsProgressStore.incrementDoneCount(
                                 jobFolderName = jobFolderName,
                                 docType = selectedDoc.docType.name,
                                 rowId = rowId,
-                                qty = maxQty,
-                                doneCount = currentDone + 1
+                                qty = maxQty
                             )
                         },
                         onDecrementProgress = { rowId, currentDone, maxQty ->
-                            hardwoodsProgressStore.setDoneCount(
+                            hardwoodsProgressStore.decrementDoneCount(
                                 jobFolderName = jobFolderName,
                                 docType = selectedDoc.docType.name,
                                 rowId = rowId,
-                                qty = maxQty,
-                                doneCount = currentDone - 1
+                                qty = maxQty
                             )
                         },
                         onToggleSkip = { rowId, currentSkipped ->
@@ -1019,6 +1017,24 @@ fun HardwoodsWorkspaceScreen(
                                     skipped = !currentSkipped
                                 )
                             }
+                        },
+                        onCompleteProgress = { rowId, qty ->
+                            hardwoodsProgressStore.setDoneCount(
+                                jobFolderName = jobFolderName,
+                                docType = selectedDoc.docType.name,
+                                rowId = rowId,
+                                qty = qty,
+                                doneCount = qty
+                            )
+                        },
+                        onZeroProgress = { rowId, qty ->
+                            hardwoodsProgressStore.setDoneCount(
+                                jobFolderName = jobFolderName,
+                                docType = selectedDoc.docType.name,
+                                rowId = rowId,
+                                qty = qty,
+                                doneCount = 0
+                            )
                         },
                         activeStrokes = activeStrokes,
                         onSaveStrokes = { strokes, deletedIds ->
@@ -1136,23 +1152,21 @@ fun HardwoodsWorkspaceScreen(
                                     val widthBand = widthColorBands[rowUi.widthKey] ?: statusColors.notStarted
                                     val onIncrement = remember(row.rowId, qty, progress.doneCount, selectedDoc.docType.name, jobFolderName) {
                                         {
-                                            hardwoodsProgressStore.setDoneCount(
+                                            hardwoodsProgressStore.incrementDoneCount(
                                                 jobFolderName = jobFolderName,
                                                 docType = selectedDoc.docType.name,
                                                 rowId = row.rowId,
-                                                qty = qty,
-                                                doneCount = progress.doneCount + 1
+                                                qty = qty
                                             )
                                         }
                                     }
                                     val onDecrement = remember(row.rowId, qty, progress.doneCount, selectedDoc.docType.name, jobFolderName) {
                                         {
-                                            hardwoodsProgressStore.setDoneCount(
+                                            hardwoodsProgressStore.decrementDoneCount(
                                                 jobFolderName = jobFolderName,
                                                 docType = selectedDoc.docType.name,
                                                 rowId = row.rowId,
-                                                qty = qty,
-                                                doneCount = progress.doneCount - 1
+                                                qty = qty
                                             )
                                         }
                                     }
@@ -2070,8 +2084,8 @@ private fun HardwoodsBoardStockList(
                                         } else {
                                             Button(
                                                 onClick = {
-                                                    progressStore.setAdminBoardStockDone(
-                                                        jobFolderName, material, item.id, done - 1
+                                                    progressStore.decrementAdminBoardStockDone(
+                                                        jobFolderName, material, item.id, maxCount = boards
                                                     )
                                                 },
                                                 enabled = !itemSkipped && done > 0,
@@ -2090,8 +2104,8 @@ private fun HardwoodsBoardStockList(
                                             )
                                             Button(
                                                 onClick = {
-                                                    progressStore.setAdminBoardStockDone(
-                                                        jobFolderName, material, item.id, done + 1
+                                                    progressStore.incrementAdminBoardStockDone(
+                                                        jobFolderName, material, item.id, maxCount = boards
                                                     )
                                                 },
                                                 enabled = !itemSkipped && done < boards,
@@ -2339,12 +2353,12 @@ private fun HardwoodsBoardStockList(
                                         }
                                         Button(
                                             onClick = {
-                                                progressStore.setBoardStockRipDone(
+                                                progressStore.decrementBoardStockRipDone(
                                                     jobFolderName = jobFolderName,
                                                     material = line.material,
                                                     normalizedWidth = line.normalizedWidth,
                                                     source = line.source.name,
-                                                    doneCount = done - 1
+                                                    maxCount = line.neededRips
                                                 )
                                             },
                                             colors = ButtonDefaults.buttonColors(
@@ -2364,12 +2378,12 @@ private fun HardwoodsBoardStockList(
                                         )
                                         Button(
                                             onClick = {
-                                                progressStore.setBoardStockRipDone(
+                                                progressStore.incrementBoardStockRipDone(
                                                     jobFolderName = jobFolderName,
                                                     material = line.material,
                                                     normalizedWidth = line.normalizedWidth,
                                                     source = line.source.name,
-                                                    doneCount = done + 1
+                                                    maxCount = line.neededRips
                                                 )
                                             },
                                             colors = ButtonDefaults.buttonColors(
