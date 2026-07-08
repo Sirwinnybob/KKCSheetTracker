@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -66,6 +67,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -1830,6 +1832,41 @@ private fun MaterialSkipPill(
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
+private fun TallyStepButton(
+    icon: ImageVector,
+    contentDescription: String,
+    containerColor: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val backgroundColor = if (enabled) containerColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    val iconTint = if (enabled) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    Surface(
+        shape = CircleShape,
+        color = backgroundColor,
+        modifier = modifier
+            .heightIn(min = 32.dp)
+            .widthIn(min = 32.dp)
+            .combinedClickable(
+                enabled = enabled,
+                onClick = onClick,
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                }
+            )
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = contentDescription, tint = iconTint, modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun HardwoodsBoardStockList(
     sections: List<BoardStockSourceSection>,
     jobFolderName: String,
@@ -2082,40 +2119,44 @@ private fun HardwoodsBoardStockList(
                                                 )
                                             }
                                         } else {
-                                            Button(
+                                            TallyStepButton(
+                                                icon = Icons.Default.Remove,
+                                                contentDescription = "Done -",
+                                                containerColor = statusColors.bad,
+                                                enabled = !itemSkipped && done > 0,
                                                 onClick = {
                                                     progressStore.decrementAdminBoardStockDone(
                                                         jobFolderName, material, item.id, maxCount = boards
                                                     )
                                                 },
-                                                enabled = !itemSkipped && done > 0,
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = statusColors.bad,
-                                                    contentColor = Color.White
-                                                ),
-                                                contentPadding = PaddingValues(0.dp),
-                                                modifier = Modifier.heightIn(min = 32.dp).widthIn(min = 32.dp)
-                                            ) { Icon(Icons.Default.Remove, contentDescription = "Done -", modifier = Modifier.size(14.dp)) }
+                                                onLongClick = {
+                                                    progressStore.setAdminBoardStockDone(
+                                                        jobFolderName, material, item.id, doneCount = 0
+                                                    )
+                                                }
+                                            )
                                             ProgressPill(
                                                 done = done,
                                                 total = boards,
                                                 state = rowState,
                                                 skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f)
                                             )
-                                            Button(
+                                            TallyStepButton(
+                                                icon = Icons.Default.Add,
+                                                contentDescription = "Done +",
+                                                containerColor = statusColors.completeBorder,
+                                                enabled = !itemSkipped && done < boards,
                                                 onClick = {
                                                     progressStore.incrementAdminBoardStockDone(
                                                         jobFolderName, material, item.id, maxCount = boards
                                                     )
                                                 },
-                                                enabled = !itemSkipped && done < boards,
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = statusColors.completeBorder,
-                                                    contentColor = Color.White
-                                                ),
-                                                contentPadding = PaddingValues(0.dp),
-                                                modifier = Modifier.heightIn(min = 32.dp).widthIn(min = 32.dp)
-                                            ) { Icon(Icons.Default.Add, contentDescription = "Done +", modifier = Modifier.size(14.dp)) }
+                                                onLongClick = {
+                                                    progressStore.setAdminBoardStockDone(
+                                                        jobFolderName, material, item.id, doneCount = boards
+                                                    )
+                                                }
+                                            )
                                             if (!matSkipped) {
                                                 if (itemSkipped) {
                                                     Button(
