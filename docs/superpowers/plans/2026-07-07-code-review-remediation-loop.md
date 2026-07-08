@@ -504,3 +504,12 @@ Use this section for durable progress notes. Each entry should include:
 - Test commands: targeted run (`UnifiedMetadataEngineTest`, `NavGraphCncSyncWiringTest`, `CncToHardwoodsSyncTest`) passed; full `.\gradlew.bat :app:testDebugUnitTest` passed; full `.\gradlew.bat :app:assembleDebug` passed. All BUILD SUCCESSFUL.
 - Result: all 36 items now have implementation and test evidence that survive independent fresh-context scrutiny.
 - Follow-up: per `$loop` reconciliation rules, since project files changed this round, `::potter(exit)` cannot be appended yet — one more fresh-context verification round with zero required changes is needed to confirm closure.
+
+## 2026-07-07 - Fresh-context verification round 2 (final confirming round): 0 gaps found
+
+- Agent/lane: Claude (fresh-context loop verifier), main thread.
+- Method: ran both gates first (`.\gradlew.bat :app:testDebugUnitTest`, `.\gradlew.bat :app:assembleDebug`) — both BUILD SUCCESSFUL against the round-1 fixes (commit 85efc2a). Then dispatched two independent read-only subagents (fresh context, no memory of round 1) to re-verify all 36 findings against current code, with explicit extra scrutiny instructions on #8, #9 (agent A, findings #1-18) and #23 (agent B, findings #19-35+#31b) — the three items fixed in round 1.
+- Result: **36/36 PASS.** Agent A independently re-derived the #8 fix (load-path IO wrap in both `SheetViewerScreen.kt` and `UnifiedReferenceViewer.kt`, including the undo-handler call sites) and the #9 fix (confirmed `getCncSnapshotStaysConsistentUnderConcurrentRefresh` runs two real `Thread` objects, not sequential fake concurrency, and that the test itself has no race). Agent B independently re-derived every line number in `NavGraphCncSyncWiringTest.kt`'s assumptions against the actual current `NavGraph.kt` and confirmed the arithmetic is not vacuous (no off-by-one that would make it pass trivially).
+- No project-file edits were needed this round (only this handoff doc, which is explicitly exempted by the `$loop` reconciliation rules).
+- Note: two of the four subagents dispatched this round hit a session API rate limit mid-run (`You've hit your session limit`) and were retried once; the retries completed cleanly. No content implications — the failures were infrastructure-level, not related to the findings.
+- Follow-up: none. All 36 checklist items are proven complete by two independent fresh-context verification rounds, both full gates pass, and no further project-file changes are required.
