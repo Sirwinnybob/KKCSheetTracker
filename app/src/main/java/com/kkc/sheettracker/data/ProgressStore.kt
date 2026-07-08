@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
@@ -117,6 +120,8 @@ class ProgressStore(
     private val preparedPageInFlight = mutableMapOf<PreparedPageKey, CompletableDeferred<Bitmap?>>()
     private val preparedPageLock = Any()
     private val indexLock = Any()
+    private val indexOperationLock = Any()
+    private val writeLockByJob = ConcurrentHashMap<String, Any>()
     private val jobIndexes = mutableMapOf<String, JobProgressIndex>()
     private val draftStateCache = mutableMapOf<String, Pair<Long, DraftBadPartState>>()
     private val _progressVersion = MutableStateFlow(0L)
@@ -138,23 +143,29 @@ class ProgressStore(
     }
 
     fun invalidateJobIndex(jobFolderName: String) {
-        synchronized(indexLock) {
-            jobIndexes.remove(jobFolderName)
+        synchronized(indexOperationLock) {
+            synchronized(indexLock) {
+                jobIndexes.remove(jobFolderName)
+            }
         }
         bumpProgressVersion()
     }
 
     fun invalidateJobIndexes(jobFolderNames: Collection<String>) {
         if (jobFolderNames.isEmpty()) return
-        synchronized(indexLock) {
-            jobFolderNames.forEach { jobIndexes.remove(it) }
+        synchronized(indexOperationLock) {
+            synchronized(indexLock) {
+                jobFolderNames.forEach { jobIndexes.remove(it) }
+            }
         }
         bumpProgressVersion()
     }
 
     fun invalidateAllIndexes() {
-        synchronized(indexLock) {
-            jobIndexes.clear()
+        synchronized(indexOperationLock) {
+            synchronized(indexLock) {
+                jobIndexes.clear()
+            }
         }
         bumpProgressVersion()
     }
@@ -222,7 +233,28 @@ class ProgressStore(
     private fun saveTabletProgress(jobFolderName: String, progress: TabletProgress) {
         val dir = trackerDir(jobFolderName)
         dir.mkdirs()
-        tabletFile(jobFolderName).writeText(gson.toJson(progress))
+        atomicWrite(tabletFile(jobFolderName), gson.toJson(progress))
+    }
+
+    private fun atomicWrite(target: File, body: String) {
+        target.parentFile?.mkdirs()
+        val temp = File(target.parentFile, "${target.name}.tmp-${System.nanoTime()}")
+        temp.writeText(body)
+
+        try {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        }
     }
 
     private fun loadDraftState(jobFolderName: String): DraftBadPartState {
@@ -289,9 +321,14 @@ class ProgressStore(
      */
     private fun appendActions(jobFolderName: String, entries: List<TrackerAction>) {
         if (readOnly || entries.isEmpty()) return
-        val progress = loadTabletProgress(jobFolderName)
-        saveTabletProgress(jobFolderName, progress.copy(actions = progress.actions + entries))
-        entries.forEach { applyActionToIndex(jobFolderName, it) }
+        val writeLock = writeLockByJob.getOrPut(jobFolderName) { Any() }
+        synchronized(indexOperationLock) {
+            synchronized(writeLock) {
+                val progress = loadTabletProgress(jobFolderName)
+                saveTabletProgress(jobFolderName, progress.copy(actions = progress.actions + entries))
+                entries.forEach { applyActionToIndex(jobFolderName, it) }
+            }
+        }
         bumpProgressVersion()
     }
 
@@ -348,19 +385,21 @@ class ProgressStore(
     // re-validating against disk on every read — re-listing the tracker dir on every page lookup
     // was the dominant cost in dashboard/job-browser derivation on networked job boards.
     private fun ensureJobIndex(jobFolderName: String): JobProgressIndex {
-        synchronized(indexLock) {
-            jobIndexes[jobFolderName]?.let { return it }
-        }
-
-        val built = buildJobIndex(jobFolderName)
-        synchronized(indexLock) {
-            val current = jobIndexes[jobFolderName]
-            if (current == null) {
-                jobIndexes[jobFolderName] = built
-                bumpProgressVersion()
-                return built
+        synchronized(indexOperationLock) {
+            synchronized(indexLock) {
+                jobIndexes[jobFolderName]?.let { return it }
             }
-            return current
+
+            val built = buildJobIndex(jobFolderName)
+            synchronized(indexLock) {
+                val current = jobIndexes[jobFolderName]
+                if (current == null) {
+                    jobIndexes[jobFolderName] = built
+                    bumpProgressVersion()
+                    return built
+                }
+                return current
+            }
         }
     }
 
@@ -726,7 +765,8 @@ class ProgressStore(
         // Committed pending: bad_part actions with no corresponding bad_part_submitted.
         // Reuses the cached job index's action list instead of re-reading/re-parsing the
         // tracker directory from scratch for every material.
-        val allActions = synchronized(indexLock) { ensureJobIndex(jobFolderName).allActions.toList() }
+        val index = ensureJobIndex(jobFolderName)
+        val allActions = synchronized(indexLock) { index.allActions.toList() }
             .filter { it.file == pdfFilename && (it.fileFingerprint ?: "") == fileFingerprint }
             .sortedBy { it.timestamp }
         val pending = mutableSetOf<Pair<Int, Int>>() // (page, partNumber)
@@ -756,7 +796,8 @@ class ProgressStore(
         fileFingerprint: String
     ) {
         if (readOnly) return
-        val allActions = synchronized(indexLock) { ensureJobIndex(jobFolderName).allActions.toList() }
+        val index = ensureJobIndex(jobFolderName)
+        val allActions = synchronized(indexLock) { index.allActions.toList() }
             .filter { it.file == pdfFilename && (it.fileFingerprint ?: "") == fileFingerprint }
             .sortedBy { it.timestamp }
         val pending = mutableSetOf<Pair<Int, Int>>() // (page, partNumber)
@@ -1222,16 +1263,18 @@ class ProgressStore(
         }
     }
 
+    private fun <T> gsonNullable(value: T): T? = value
+
     private fun sanitizeDraftBadPartState(state: DraftBadPartState?, defaultTabletId: String): DraftBadPartState {
         if (state == null) return DraftBadPartState(defaultTabletId)
         return DraftBadPartState(
-            tabletId = state.tabletId ?: defaultTabletId,
-            entries = (state.entries ?: emptyList()).map { entry ->
+            tabletId = gsonNullable(state.tabletId) ?: defaultTabletId,
+            entries = (gsonNullable(state.entries) ?: emptyList()).map { entry ->
                 DraftBadPartEntry(
-                    file = entry.file ?: "",
+                    file = gsonNullable(entry.file) ?: "",
                     page = entry.page,
-                    fileFingerprint = entry.fileFingerprint ?: "",
-                    parts = entry.parts ?: emptyList()
+                    fileFingerprint = gsonNullable(entry.fileFingerprint) ?: "",
+                    parts = gsonNullable(entry.parts) ?: emptyList()
                 )
             }
         )
@@ -1240,12 +1283,12 @@ class ProgressStore(
     private fun sanitizeOcrPageCache(cache: OcrPageCache?): OcrPageCache {
         if (cache == null) return OcrPageCache()
         return OcrPageCache(
-            boxes = (cache.boxes ?: emptyMap()).mapValues { (_, list) ->
-                (list ?: emptyList()).mapNotNull { box ->
-                    if (box == null) null else OcrBox(box.left, box.top, box.right, box.bottom)
+            boxes = (gsonNullable(cache.boxes) ?: emptyMap()).mapValues { (_, list) ->
+                (gsonNullable(list) ?: emptyList()).mapNotNull { box ->
+                    gsonNullable(box)?.let { OcrBox(it.left, it.top, it.right, it.bottom) }
                 }
             },
-            savedAt = cache.savedAt ?: ""
+            savedAt = gsonNullable(cache.savedAt) ?: ""
         )
     }
 }

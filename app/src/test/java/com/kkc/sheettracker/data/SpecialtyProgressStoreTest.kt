@@ -606,7 +606,7 @@ class SpecialtyProgressStoreTest {
     }
 
     @Test
-    fun includesChecklistSpecialtyItemsWhenModesContainSpecialtyOrAreMissing() {
+    fun includesChecklistSpecialtyItemsWhenModesContainProductionModesOrAreMissing() {
         val baseDir = createTempBaseDir()
         writeChecklistItems(
             baseDir = baseDir,
@@ -623,14 +623,47 @@ class SpecialtyProgressStoreTest {
                     },
                     {
                       "id": "c2",
-                      "text": "Legacy no modes task",
-                      "cabinetNumbers": [202]
+                      "text": "Legacy no modes specialty task",
+                      "cabinetNumbers": [202],
+                      "category": "CUSTOM",
+                      "stations": ["SPECIALTY"]
                     },
                     {
                       "id": "c3",
-                      "text": "CNC only task",
+                      "text": "CNC task",
                       "modes": ["CNC"],
                       "cabinetNumbers": [203]
+                    },
+                    {
+                      "id": "c4",
+                      "text": "Delivery only task",
+                      "modes": ["DELIVERY"],
+                      "stations": ["DELIVERY"],
+                      "cabinetNumbers": [204]
+                    },
+                    {
+                      "id": "c5",
+                      "text": "Delivery hardwoods task",
+                      "modes": ["DELIVERY", "HARDWOODS"],
+                      "stations": ["DELIVERY", "HARDWOODS"],
+                      "cabinetNumbers": [205]
+                    },
+                    {
+                      "id": "c6",
+                      "text": "Assembly task",
+                      "modes": ["ASSEMBLY"],
+                      "cabinetNumbers": [206]
+                    },
+                    {
+                      "id": "c7",
+                      "text": "Hardwoods task",
+                      "modes": ["HARDWOODS"],
+                      "cabinetNumbers": [207]
+                    },
+                    {
+                      "id": "c8",
+                      "text": "Plain checklist task",
+                      "cabinetNumbers": [208]
                     }
                   ]
                 }
@@ -643,7 +676,16 @@ class SpecialtyProgressStoreTest {
 
         assertTrue(byId.containsKey("checklist:c1"))
         assertTrue(byId.containsKey("checklist:c2"))
-        assertFalse(byId.containsKey("checklist:c3"))
+        assertTrue(byId.containsKey("checklist:c3"))
+        assertTrue(byId.containsKey("checklist:c4"))
+        assertTrue(byId.containsKey("checklist:c5"))
+        assertTrue(byId.containsKey("checklist:c6"))
+        assertTrue(byId.containsKey("checklist:c7"))
+        assertFalse(byId.containsKey("checklist:c8"))
+        assertEquals(listOf(SpecialtyStation.SPECIALTY), byId.getValue("checklist:c2").item.stations)
+        assertEquals(listOf(SpecialtyStation.CNC), byId.getValue("checklist:c3").item.stations)
+        assertEquals(listOf(SpecialtyStation.ASSEMBLY), byId.getValue("checklist:c6").item.stations)
+        assertEquals(listOf(SpecialtyStation.HARDWOODS), byId.getValue("checklist:c7").item.stations)
     }
 
     @Test
@@ -981,6 +1023,35 @@ class SpecialtyProgressStoreTest {
     }
 
     @Test
+    fun checklistCompletionSeedAcceptsExplicitCompletedBooleanWithoutTimestamp() {
+        val baseDir = createTempBaseDir()
+        writeChecklistItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id": "c1",
+                      "text": "Completed checklist item",
+                      "modes": ["SPECIALTY"],
+                      "completed": true,
+                      "completedBy": "admin"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        val resolved = SpecialtyProgressStore(baseDir = baseDir, tabletId = tabletId)
+            .loadResolvedItems(jobFolderName)
+            .first { it.item.id == "checklist:c1" }
+
+        assertTrue(resolved.isComplete)
+        assertTrue(resolved.completionByKey.getValue(SpecialtyProgressStore.ITEM_COMPLETION_KEY).completed)
+    }
+
+    @Test
     fun checklistModesDriveDivisionCheckboxCount() {
         val baseDir = createTempBaseDir()
         writeChecklistItems(
@@ -1009,6 +1080,91 @@ class SpecialtyProgressStoreTest {
         assertTrue(keys.contains("SPECIALTY"))
         assertTrue(keys.contains("CNC"))
         assertTrue(keys.contains("ASSEMBLY"))
+    }
+
+    @Test
+    fun updateSpecialtyItemFieldsUpdatesChecklistBackedItems() = runBlocking {
+        val baseDir = createTempBaseDir()
+        writeChecklistItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id": "c1",
+                      "text": "Checklist item",
+                      "modes": ["SPECIALTY"],
+                      "category": "CUSTOM"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        SpecialtyProgressStore(baseDir = baseDir, tabletId = tabletId)
+            .updateSpecialtyItemFields(
+                jobFolderName = jobFolderName,
+                itemId = "checklist:c1",
+                dimensions = "12 x 24",
+                quantity = 3.0,
+                material = "Maple"
+            )
+
+        val updated = checklistItemsFile(baseDir, jobFolderName).readText()
+        assertTrue(updated.contains("\"dimensions\": \"12 x 24\""))
+        assertTrue(updated.contains("\"quantity\": 3.0"))
+        assertTrue(updated.contains("\"material\": \"Maple\""))
+    }
+
+    @Test
+    fun updateToOrderItemUpdatesChecklistBackedItemsWithHoursTrackerAliases() = runBlocking {
+        val baseDir = createTempBaseDir()
+        writeChecklistItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id": "c1",
+                      "text": "Old name",
+                      "modes": ["DELIVERY"],
+                      "stations": ["DELIVERY"],
+                      "category": "TO_ORDER",
+                      "cabinetNumbers": [1]
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        SpecialtyProgressStore(baseDir = baseDir, tabletId = tabletId)
+            .updateToOrderItem(
+                jobFolderName = jobFolderName,
+                itemId = "checklist:c1",
+                name = "New name",
+                cabinetNumbers = listOf("10", "11"),
+                supplier = "Supplier A",
+                model = "MODEL-1",
+                orderDate = "07-08",
+                tracking = "TRACK-1",
+                orderUrl = "https://example.test/order",
+                notes = "Bring to delivery",
+                quantity = 12.0,
+                material = "Brass",
+                dimensions = "1 x 2"
+            )
+
+        val updated = checklistItemsFile(baseDir, jobFolderName).readText()
+        assertTrue(updated.contains("\"text\": \"New name\""))
+        assertFalse(updated.contains("\"name\": \"New name\""))
+        assertTrue(updated.contains("\"modelNumber\": \"MODEL-1\""))
+        assertTrue(updated.contains("\"trackingNumber\": \"TRACK-1\""))
+        assertTrue(updated.contains("\"orderDate\": \"07-08\""))
+        assertTrue(updated.contains("\"quantity\": 12.0"))
+        assertTrue(updated.contains("\"material\": \"Brass\""))
+        assertTrue(updated.contains("\"dimensions\": \"1 x 2\""))
     }
 
     private fun createTempBaseDir(): File = Files.createTempDirectory("specialty-progress-store-test").toFile()

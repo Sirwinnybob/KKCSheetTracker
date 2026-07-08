@@ -1,5 +1,12 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.data.models.RefreshReason
+import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.data.models.SpecialtyCompletionState
+import com.kkc.sheettracker.data.models.SpecialtyItem
+import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
+import com.kkc.sheettracker.data.models.SpecialtyStation
+import com.kkc.sheettracker.data.models.SpecialtyJob
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -7,6 +14,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class SpecialtyStateStoreTest {
     private val jobFolderName = "1234 - Test Job"
@@ -190,6 +199,66 @@ class SpecialtyStateStoreTest {
 
         assertTrue(stateStore.progressVersion.value > versionBefore)
         assertEquals(2, stateStore.getResolvedItems(jobFolderName).size)
+    }
+
+    @Test
+    fun deriveJobCards_countsDeliveryBackedChecklistItems() {
+        val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
+        val ready = CountDownLatch(1)
+        val deliveryItem = SpecialtyResolvedItem(
+            item = SpecialtyItem(
+                id = "checklist:delivery",
+                name = "Delivery item",
+                stations = listOf(SpecialtyStation.DELIVERY)
+            ),
+            completionByKey = mapOf(
+                SpecialtyProgressStore.ITEM_COMPLETION_KEY to SpecialtyCompletionState(completed = true)
+            ),
+            isComplete = true
+        )
+        val specialtyItem = SpecialtyResolvedItem(
+            item = SpecialtyItem(
+                id = "specialty",
+                name = "Specialty item",
+                stations = listOf(SpecialtyStation.SPECIALTY)
+            )
+        )
+        val repository = SpecialtyRepository(
+            baseDir = baseDir,
+            progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        )
+        val scanCoordinator = SpecialtyScanCoordinator(
+            repository = repository,
+            scanJobsProvider = {
+                listOf(
+                    SpecialtyJob(
+                        folderName = jobFolderName,
+                        jobNumber = "1234",
+                        jobName = "Test Job",
+                        resolvedItems = listOf(deliveryItem, specialtyItem)
+                    )
+                )
+            },
+            onBeforeIdleTransition = { ready.countDown() }
+        )
+        val stateStore = SpecialtyStateStore(
+            specialtyScanCoordinator = scanCoordinator,
+            specialtyProgressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local"),
+            hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local"),
+            sheetRipProgressStore = SheetRipProgressStore(baseDir = baseDir),
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
+        )
+
+        scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+
+        assertTrue(ready.await(3, TimeUnit.SECONDS))
+        assertEquals(ScanStatus.READY, scanCoordinator.state.value.status)
+        val card = stateStore.deriveJobCards().single()
+        assertEquals(2, card.totalItems)
+        assertEquals(1, card.completedItems)
+        assertEquals(1, card.remainingItems)
+        assertTrue(card.stationProgress.any { it.station == SpecialtyStation.DELIVERY.name && it.completed == 1 && it.total == 1 })
     }
 
     private fun writeSpecialtyItems(baseDir: File, jobFolderName: String, body: String) {

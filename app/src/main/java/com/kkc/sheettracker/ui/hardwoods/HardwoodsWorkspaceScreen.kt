@@ -168,6 +168,31 @@ private enum class HardwoodsJumpTarget {
     THREE_D
 }
 
+internal enum class HardwoodsTallyHoldTarget {
+    NONE,
+    ZERO,
+    COMPLETE
+}
+
+internal fun hardwoodsTallyHoldTarget(
+    isSkipped: Boolean,
+    done: Int,
+    total: Int,
+    isIncrement: Boolean
+): HardwoodsTallyHoldTarget {
+    if (isSkipped || total <= 0) return HardwoodsTallyHoldTarget.NONE
+    val safeDone = done.coerceIn(0, total)
+    return if (isIncrement) {
+        if (safeDone < total) HardwoodsTallyHoldTarget.COMPLETE else HardwoodsTallyHoldTarget.NONE
+    } else {
+        if (safeDone > 0) HardwoodsTallyHoldTarget.ZERO else HardwoodsTallyHoldTarget.NONE
+    }
+}
+
+internal fun hardwoodsListBottomScrollPadding() = 200.dp
+
+internal fun hardwoodsTallyButtonSize() = 32.dp
+
 private data class HardwoodsProgressBundle(
     val rowProgressMap: Map<Pair<String, String>, HardwoodRowProgress> = emptyMap(),
     val rowRevisionStateMap: Map<Pair<String, String>, HardwoodRowRevisionState> = emptyMap(),
@@ -1065,7 +1090,7 @@ fun HardwoodsWorkspaceScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 100.dp),
+                        contentPadding = PaddingValues(bottom = hardwoodsListBottomScrollPadding()),
                         verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         partSections.forEach { section ->
@@ -1143,13 +1168,9 @@ fun HardwoodsWorkspaceScreen(
                             if (!isCollapsed) {
                                 items(sectionRows, key = { it.rowId }) { row ->
                                     val rowUi = rowDisplayMap[row.rowId] ?: return@items
-                                    val progress = remember(progressVersion, selectedDoc.docType.name, row.rowId) {
-                                        rowProgressMap[selectedDoc.docType.name to row.rowId] ?: HardwoodRowProgress()
-                                    }
+                                    val progress = rowProgressMap[selectedDoc.docType.name to row.rowId] ?: HardwoodRowProgress()
                                     val qty = row.qty.coerceAtLeast(0)
-                                    val skippedCabs = remember(progressVersion, selectedDoc.docType.name, row.rowId) {
-                                        skippedCabinetMap[selectedDoc.docType.name to row.rowId].orEmpty()
-                                    }
+                                    val skippedCabs = skippedCabinetMap[selectedDoc.docType.name to row.rowId].orEmpty()
                                     val isHighlighted = highlightedRowId == row.rowId
                                     val widthBand = widthColorBands[rowUi.widthKey] ?: statusColors.notStarted
                                     val onIncrement = remember(row.rowId, qty, progress.doneCount, selectedDoc.docType.name, jobFolderName) {
@@ -1169,6 +1190,28 @@ fun HardwoodsWorkspaceScreen(
                                                 docType = selectedDoc.docType.name,
                                                 rowId = row.rowId,
                                                 qty = qty
+                                            )
+                                        }
+                                    }
+                                    val onComplete = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
+                                        {
+                                            hardwoodsProgressStore.setDoneCount(
+                                                jobFolderName = jobFolderName,
+                                                docType = selectedDoc.docType.name,
+                                                rowId = row.rowId,
+                                                qty = qty,
+                                                doneCount = qty
+                                            )
+                                        }
+                                    }
+                                    val onZero = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
+                                        {
+                                            hardwoodsProgressStore.setDoneCount(
+                                                jobFolderName = jobFolderName,
+                                                docType = selectedDoc.docType.name,
+                                                rowId = row.rowId,
+                                                qty = qty,
+                                                doneCount = 0
                                             )
                                         }
                                     }
@@ -1197,6 +1240,8 @@ fun HardwoodsWorkspaceScreen(
                                         isDoorListDoc = isDoorListDoc,
                                         onIncrement = onIncrement,
                                         onDecrement = onDecrement,
+                                        onComplete = onComplete,
+                                        onZero = onZero,
                                         onSkipToggle = onSkipToggle,
                                         onJump = { startRowJump(row) }
                                     )
@@ -1313,6 +1358,8 @@ private fun HardwoodsPartRow(
     isDoorListDoc: Boolean,
     onIncrement: () -> Unit,
     onDecrement: () -> Unit,
+    onComplete: () -> Unit,
+    onZero: () -> Unit,
     onSkipToggle: () -> Unit,
     onJump: () -> Unit
 ) {
@@ -1491,17 +1538,26 @@ private fun HardwoodsPartRow(
                         modifier = Modifier.heightIn(min = 32.dp)
                     ) { Text("Open Ref", style = MaterialTheme.typography.labelSmall) }
                 } else {
-                    Button(
+                    TallyStepButton(
+                        icon = Icons.Default.Remove,
+                        contentDescription = "Done -",
+                        containerColor = statusColors.bad,
+                        enabled = true,
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onDecrement()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = statusColors.bad, contentColor = Color.White),
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier
-                            .heightIn(min = 32.dp)
-                            .widthIn(min = 32.dp)
-                    ) { Icon(Icons.Default.Remove, contentDescription = "Done -", modifier = Modifier.size(14.dp)) }
+                        onLongClick = {
+                            when (hardwoodsTallyHoldTarget(visuals.skipOn, done, qty, isIncrement = false)) {
+                                HardwoodsTallyHoldTarget.ZERO -> {
+                                    onZero()
+                                    true
+                                }
+                                HardwoodsTallyHoldTarget.COMPLETE,
+                                HardwoodsTallyHoldTarget.NONE -> false
+                            }
+                        }
+                    )
                     ProgressPill(
                         done = done,
                         total = qty,
@@ -1509,17 +1565,26 @@ private fun HardwoodsPartRow(
                         skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f),
                         modifier = Modifier
                     )
-                    Button(
+                    TallyStepButton(
+                        icon = Icons.Default.Add,
+                        contentDescription = "Done +",
+                        containerColor = statusColors.completeBorder,
+                        enabled = true,
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onIncrement()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = statusColors.completeBorder, contentColor = Color.White),
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier
-                            .heightIn(min = 32.dp)
-                            .widthIn(min = 32.dp)
-                    ) { Icon(Icons.Default.Add, contentDescription = "Done +", modifier = Modifier.size(14.dp)) }
+                        onLongClick = {
+                            when (hardwoodsTallyHoldTarget(visuals.skipOn, done, qty, isIncrement = true)) {
+                                HardwoodsTallyHoldTarget.COMPLETE -> {
+                                    onComplete()
+                                    true
+                                }
+                                HardwoodsTallyHoldTarget.ZERO,
+                                HardwoodsTallyHoldTarget.NONE -> false
+                            }
+                        }
+                    )
                     Button(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1838,7 +1903,7 @@ private fun TallyStepButton(
     containerColor: Color,
     enabled: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    onLongClick: () -> Boolean,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -1848,14 +1913,14 @@ private fun TallyStepButton(
         shape = CircleShape,
         color = backgroundColor,
         modifier = modifier
-            .heightIn(min = 32.dp)
-            .widthIn(min = 32.dp)
+            .size(hardwoodsTallyButtonSize())
             .combinedClickable(
                 enabled = enabled,
                 onClick = onClick,
                 onLongClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongClick()
+                    if (onLongClick()) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
                 }
             )
     ) {
@@ -1912,7 +1977,7 @@ private fun HardwoodsBoardStockList(
 
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(bottom = 100.dp),
+        contentPadding = PaddingValues(bottom = hardwoodsListBottomScrollPadding()),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         // ── Admin board stock section (server-entered items) ──────────────────
@@ -2133,6 +2198,7 @@ private fun HardwoodsBoardStockList(
                                                     progressStore.setAdminBoardStockDone(
                                                         jobFolderName, material, item.id, doneCount = 0
                                                     )
+                                                    true
                                                 }
                                             )
                                             ProgressPill(
@@ -2155,6 +2221,7 @@ private fun HardwoodsBoardStockList(
                                                     progressStore.setAdminBoardStockDone(
                                                         jobFolderName, material, item.id, doneCount = boards
                                                     )
+                                                    true
                                                 }
                                             )
                                             if (!matSkipped) {
@@ -2417,6 +2484,9 @@ private fun HardwoodsBoardStockList(
                                                         source = line.source.name,
                                                         doneCount = 0
                                                     )
+                                                    true
+                                                } else {
+                                                    false
                                                 }
                                             }
                                         )
@@ -2449,6 +2519,9 @@ private fun HardwoodsBoardStockList(
                                                         source = line.source.name,
                                                         doneCount = line.neededRips
                                                     )
+                                                    true
+                                                } else {
+                                                    false
                                                 }
                                             }
                                         )

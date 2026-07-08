@@ -10,6 +10,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class ProgressStoreTest {
     private val gson = Gson()
@@ -59,6 +63,41 @@ class ProgressStoreTest {
 
         assertEquals(6, touches["A.pdf"]?.page)
         assertEquals(4, touches["B.pdf"]?.page)
+    }
+
+    @Test
+    fun concurrentViewActionsPreserveEveryAppendedAction() {
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+        val writerCount = 8
+        val actionsPerWriter = 40
+        val totalActions = writerCount * actionsPerWriter
+        val startGate = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(writerCount)
+
+        try {
+            val futures = (0 until writerCount).map { writer ->
+                pool.submit(Callable {
+                    startGate.await(5, TimeUnit.SECONDS)
+                    repeat(actionsPerWriter) { offset ->
+                        val page = writer * actionsPerWriter + offset + 1
+                        store.markSheetViewed(jobFolderName, "A.pdf", page, "fp1")
+                    }
+                })
+            }
+
+            startGate.countDown()
+            futures.forEach { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            pool.shutdownNow()
+        }
+
+        val progress = readTabletProgress(baseDir, jobFolderName, tabletId)
+        val pages = progress.actions.map { it.page }
+
+        assertEquals(totalActions, progress.actions.size)
+        assertEquals((1..totalActions).toSet(), pages.toSet())
+        assertTrue(progress.actions.all { it.action == "view" })
     }
 
     private fun createTempBaseDir(): File = Files.createTempDirectory("progress-store-test").toFile()

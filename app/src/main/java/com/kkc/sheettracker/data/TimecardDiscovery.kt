@@ -35,7 +35,9 @@ class TimecardDiscovery(private val context: Context) {
                     }
 
                     override fun onServiceResolved(info: NsdServiceInfo) {
-                        val host = info.host?.hostAddress ?: run {
+                        @Suppress("DEPRECATION")
+                        val hostAddress = info.host?.hostAddress
+                        val host = hostAddress ?: run {
                             if (cont.isActive) cont.resume(null)
                             return
                         }
@@ -77,6 +79,7 @@ class TimecardDiscovery(private val context: Context) {
                     override fun onServiceFound(info: NsdServiceInfo) {
                         if (!resolving.compareAndSet(false, true)) return
                         Log.d(TAG, "Found service: ${info.serviceName}")
+                        @Suppress("DEPRECATION")
                         nsdManager.resolveService(info, resolveListener)
                     }
 

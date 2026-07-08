@@ -4,6 +4,7 @@ import com.kkc.sheettracker.ui.markup.DrawingTool
 import com.kkc.sheettracker.ui.markup.resolveEffectiveDrawingTool
 import com.kkc.sheettracker.ui.markup.shouldAppendStrokePoint
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -130,6 +131,11 @@ class ClassicCutListInputTest {
                 allowFingerDrawing = false
             )
         )
+    }
+
+    @Test
+    fun `classic bottom scroll padding clears floating app scaffold`() {
+        assertEquals(200.dp, classicCutListBottomScrollPadding())
     }
 
     @Test

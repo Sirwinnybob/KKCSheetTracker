@@ -95,6 +95,8 @@ internal fun classicPointerCanDraw(
     allowFingerDrawing: Boolean
 ): Boolean = pointerType == PointerType.Stylus || pointerType == PointerType.Eraser || allowFingerDrawing
 
+internal fun classicCutListBottomScrollPadding() = 200.dp
+
 /**
  * The table's graphicsLayer scales from its top-left corner (transformOrigin = 0,0), so a
  * pinch centroid is already expressed in the same scaled, scroll-content-local coordinate
@@ -583,6 +585,7 @@ fun ClassicCutListTable(
                                 placeable.placeRelative(0, 0)
                             }
                         }
+                        .padding(bottom = classicCutListBottomScrollPadding())
                 ) {
                     // Main Table Columns Layout
                     Column(

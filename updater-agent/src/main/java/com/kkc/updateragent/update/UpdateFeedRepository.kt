@@ -8,7 +8,7 @@ class UpdateFeedRepository {
         val policyFile = paths.policyFile
         if (!policyFile.isFile) return null
         return try {
-            policyFile.reader().use { Json.gson.fromJson(it, DevicePolicyConfig::class.java) }?.let { sanitizePolicy(it) }
+            policyFile.reader().use { Json.gson.fromJson(it, RawDevicePolicyConfig::class.java) }?.let { sanitizePolicy(it) }
         } catch (_: Exception) {
             null
         }
@@ -18,7 +18,7 @@ class UpdateFeedRepository {
         val manifestFile = paths.manifestFile
         if (!manifestFile.isFile) return null
         return try {
-            manifestFile.reader().use { Json.gson.fromJson(it, UpdateFeedManifest::class.java) }?.let { sanitizeManifest(it) }
+            manifestFile.reader().use { Json.gson.fromJson(it, RawUpdateFeedManifest::class.java) }?.let { sanitizeManifest(it) }
         } catch (_: Exception) {
             null
         }
@@ -28,8 +28,7 @@ class UpdateFeedRepository {
         return File(paths.appArtifactsDir(entry.packageName), entry.apkFile)
     }
 
-    private fun sanitizePolicy(config: DevicePolicyConfig?): DevicePolicyConfig {
-        if (config == null) return DevicePolicyConfig()
+    private fun sanitizePolicy(config: RawDevicePolicyConfig): DevicePolicyConfig {
         return DevicePolicyConfig(
             schemaVersion = config.schemaVersion ?: "v1",
             basePath = config.basePath,
@@ -56,8 +55,7 @@ class UpdateFeedRepository {
         )
     }
 
-    private fun sanitizeManifest(manifest: UpdateFeedManifest?): UpdateFeedManifest {
-        if (manifest == null) return UpdateFeedManifest()
+    private fun sanitizeManifest(manifest: RawUpdateFeedManifest): UpdateFeedManifest {
         return UpdateFeedManifest(
             schemaVersion = manifest.schemaVersion ?: "v1",
             generatedAt = manifest.generatedAt,
@@ -76,4 +74,47 @@ class UpdateFeedRepository {
             }
         )
     }
+
+    private data class RawUpdateFeedManifest(
+        val schemaVersion: String? = null,
+        val generatedAt: String? = null,
+        val apps: List<RawAppUpdateEntry>? = null
+    )
+
+    private data class RawAppUpdateEntry(
+        val packageName: String? = null,
+        val versionCode: Long = 0,
+        val versionName: String? = null,
+        val apkFile: String? = null,
+        val sha256: String? = null,
+        val minRequiredVersionCode: Long = 0,
+        val rolloutChannel: String? = null,
+        val publishedAt: String? = null,
+        val allowDowngrade: Boolean = false
+    )
+
+    private data class RawDevicePolicyConfig(
+        val schemaVersion: String? = null,
+        val basePath: String? = null,
+        val updaterAgentPackage: String? = null,
+        val silentInstallEnabled: Boolean = true,
+        val pollIntervalMinutes: Long = 15,
+        val maintenanceWindow: MaintenanceWindow? = null,
+        val retryPolicy: RawRetryPolicy? = null,
+        val managedPackages: List<RawManagedPackagePolicy>? = null
+    )
+
+    private data class RawManagedPackagePolicy(
+        val packageName: String? = null,
+        val rolloutChannel: String? = null,
+        val installMode: String? = null,
+        val minRequiredVersionCode: Long = 0,
+        val allowDowngrade: Boolean = false,
+        val expectedSignerSha256: List<String>? = null
+    )
+
+    private data class RawRetryPolicy(
+        val maxAttempts: Int = 3,
+        val retryBackoffMinutes: Long = 10
+    )
 }

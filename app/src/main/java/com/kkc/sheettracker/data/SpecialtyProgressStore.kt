@@ -53,6 +53,14 @@ class SpecialtyProgressStore(
     companion object {
         const val ITEM_COMPLETION_KEY = "ITEM"
         private const val TRACKER_SCHEMA_V2 = 2
+        private val CHECKLIST_MODE_STATIONS = mapOf(
+            "CNC" to SpecialtyStation.CNC,
+            "HARDWOODS" to SpecialtyStation.HARDWOODS,
+            "ASSEMBLY" to SpecialtyStation.ASSEMBLY,
+            "SPECIALTY" to SpecialtyStation.SPECIALTY,
+            "DELIVERY" to SpecialtyStation.DELIVERY,
+        )
+        private val CHECKLIST_SPECIALTY_COMPAT_MODES = CHECKLIST_MODE_STATIONS.keys
     }
 
     fun loadSpecialtyItems(jobFolderName: String): List<SpecialtyItem> {
@@ -148,9 +156,11 @@ class SpecialtyProgressStore(
     ) {
         if (readOnly) return
         if (itemId.isBlank()) return
+        val isChecklist = itemId.startsWith("checklist:")
+        val rawItemId = if (isChecklist) itemId.removePrefix("checklist:") else itemId
         val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         mutex.withLock {
-            val file = specialtyItemsFile(jobFolderName)
+            val file = if (isChecklist) checklistFile(jobFolderName) else specialtyItemsFile(jobFolderName)
             if (!file.exists() || !file.isFile) return@withLock
             val raw = runCatching { file.readText() }.getOrNull() ?: return@withLock
             val root = runCatching { JsonParser.parseString(raw) }.getOrNull() ?: return@withLock
@@ -163,7 +173,7 @@ class SpecialtyProgressStore(
             var modified = false
             itemsArray.forEach { element ->
                 val obj = element as? JsonObject ?: return@forEach
-                if (obj.getString("id") != itemId) return@forEach
+                if (obj.getString("id") != rawItemId) return@forEach
                 if (dimensions != null) obj.addProperty("dimensions", dimensions) else obj.remove("dimensions")
                 if (quantity != null) obj.addProperty("quantity", quantity) else obj.remove("quantity")
                 if (material != null) obj.addProperty("material", material) else obj.remove("material")
@@ -853,7 +863,7 @@ class SpecialtyProgressStore(
             val checklistId = obj.getString("id")
             val name = obj.getFirstNonBlankString("text", "name")
             if (checklistId.isBlank() || name.isBlank()) return@mapNotNull null
-            if (!isChecklistIncludedForSpecialty(obj.get("modes"))) return@mapNotNull null
+            if (!isChecklistIncludedForSpecialty(obj)) return@mapNotNull null
 
             val category = parseCategory(obj.getFirstNonBlankString("category"))
             // Prefer explicit stations field (SAW, EDGE_BANDER, ASSEMBLY set by admin);
@@ -886,13 +896,34 @@ class SpecialtyProgressStore(
         }
     }
 
-    private fun isChecklistIncludedForSpecialty(modesElement: JsonElement?): Boolean {
-        if (modesElement == null || modesElement.isJsonNull) return true
-        if (!modesElement.isJsonArray) return true
+    private fun isChecklistIncludedForSpecialty(obj: JsonObject): Boolean {
+        val modesElement = obj.get("modes")
+        if (modesElement == null || modesElement.isJsonNull) return hasSpecialtyChecklistFields(obj)
+        if (!modesElement.isJsonArray) return hasSpecialtyChecklistFields(obj)
         val modes = modesElement.asJsonArray
             .mapNotNull { it.asStringOrNull()?.trim()?.uppercase(Locale.US) }
-        if (modes.isEmpty()) return true
-        return "SPECIALTY" in modes
+        return if (modes.isEmpty()) {
+            hasSpecialtyChecklistFields(obj)
+        } else {
+            modes.any { it in CHECKLIST_SPECIALTY_COMPAT_MODES } || hasSpecialtyChecklistFields(obj)
+        }
+    }
+
+    private fun hasSpecialtyChecklistFields(obj: JsonObject): Boolean {
+        val category = obj.getNullableString("category")
+            ?.trim()
+            ?.uppercase(Locale.US)
+            .orEmpty()
+        if (category == SpecialtyItemCategory.CUSTOM.name || category == SpecialtyItemCategory.TO_ORDER.name) return true
+        if (parseStations(obj.get("stations")).isNotEmpty()) return true
+        if (!obj.getNullableString("supplier").isNullOrBlank()) return true
+        if (obj.getFirstNonBlankString("modelNumber", "model").isNotBlank()) return true
+        if (!obj.getNullableString("orderDate").isNullOrBlank()) return true
+        if (obj.getFirstNonBlankString("trackingNumber", "tracking").isNotBlank()) return true
+        if (!obj.getNullableString("dimensions").isNullOrBlank()) return true
+        if (obj.getQuantityOrNull("quantity") != null) return true
+        if (!obj.getNullableString("material").isNullOrBlank()) return true
+        return obj.get("attachments")?.takeIf { it.isJsonArray }?.asJsonArray?.size()?.let { it > 0 } == true
     }
 
     private fun parseModeStations(modesElement: JsonElement?): List<SpecialtyStation> {
@@ -900,13 +931,7 @@ class SpecialtyProgressStore(
         val out = mutableListOf<SpecialtyStation>()
         modesElement.asJsonArray.forEach { modeElement ->
             val key = modeElement.asStringOrNull()?.trim()?.uppercase(Locale.US).orEmpty()
-            val station = when (key) {
-                "CNC" -> SpecialtyStation.CNC
-                "HARDWOODS" -> SpecialtyStation.HARDWOODS
-                "ASSEMBLY" -> SpecialtyStation.ASSEMBLY
-                "SPECIALTY" -> SpecialtyStation.SPECIALTY
-                else -> null
-            } ?: return@forEach
+            val station = CHECKLIST_MODE_STATIONS[key] ?: return@forEach
             if (station !in out) out += station
         }
         return out
@@ -933,13 +958,14 @@ class SpecialtyProgressStore(
             val obj = element as? JsonObject ?: return@mapIndexedNotNull null
             val checklistId = obj.getString("id")
             if (checklistId.isBlank()) return@mapIndexedNotNull null
-            if (!isChecklistIncludedForSpecialty(obj.get("modes"))) return@mapIndexedNotNull null
+            if (!isChecklistIncludedForSpecialty(obj)) return@mapIndexedNotNull null
             val mapped = specialtyByChecklistId[checklistId] ?: return@mapIndexedNotNull null
 
             val completedAt = obj.getNullableString("completedAt")
             val completedBy = obj.getNullableString("completedBy")
+            val explicitCompleted = obj.get("completed")?.asBooleanOrNull()
             val completion = SpecialtyCompletionState(
-                completed = !completedAt.isNullOrBlank(),
+                completed = explicitCompleted ?: !completedAt.isNullOrBlank(),
                 completedAt = completedAt,
                 completedBy = completedBy
             )

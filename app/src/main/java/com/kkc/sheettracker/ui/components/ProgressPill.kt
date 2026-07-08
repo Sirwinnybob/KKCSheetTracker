@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -80,7 +80,7 @@ fun ProgressPill(
     Box(
         modifier = modifier
             .height(22.dp)
-            .widthIn(min = 52.dp, max = 80.dp)
+            .width(80.dp)
             .shadow(elevation = 2.dp, shape = shape, clip = false)
             .clip(shape)
             .background(trackColor)

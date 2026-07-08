@@ -38,12 +38,14 @@ class TimeclockMessagesRepository(private val baseDir: File) {
     private fun sanitizeMessagesData(data: MessagesData?): MessagesData {
         if (data == null) return MessagesData()
         return MessagesData(
-            clock_in_morning = data.clock_in_morning ?: emptyList(),
-            clock_in_lunch = data.clock_in_lunch ?: emptyList(),
-            clock_out_lunch = data.clock_out_lunch ?: emptyList(),
-            clock_out_evening = data.clock_out_evening ?: emptyList()
+            clock_in_morning = gsonNullable(data.clock_in_morning) ?: emptyList(),
+            clock_in_lunch = gsonNullable(data.clock_in_lunch) ?: emptyList(),
+            clock_out_lunch = gsonNullable(data.clock_out_lunch) ?: emptyList(),
+            clock_out_evening = gsonNullable(data.clock_out_evening) ?: emptyList()
         )
     }
+
+    private fun <T> gsonNullable(value: T): T? = value
 
     private data class MessagesData(
         val clock_in_morning: List<String> = emptyList(),

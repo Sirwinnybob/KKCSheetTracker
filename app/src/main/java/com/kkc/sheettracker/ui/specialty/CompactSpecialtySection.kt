@@ -69,7 +69,7 @@ internal fun isItemRelevantToMode(
             stations.contains(SpecialtyStation.DELIVERY) ||
             category == SpecialtyItemCategory.TO_ORDER
         SpecialtySurfaceMode.SPECIALTY ->
-            !stations.contains(SpecialtyStation.DELIVERY)
+            true
     }
 }
 
@@ -94,7 +94,7 @@ internal fun isStationRelevantToMode(
     SpecialtySurfaceMode.CNC -> station == SpecialtyStation.CNC
     SpecialtySurfaceMode.HARDWOODS -> station == SpecialtyStation.HARDWOODS || station == SpecialtyStation.DELIVERY
     SpecialtySurfaceMode.ASSEMBLY -> station == SpecialtyStation.ASSEMBLY || station == SpecialtyStation.DELIVERY
-    SpecialtySurfaceMode.SPECIALTY -> station != SpecialtyStation.DELIVERY
+    SpecialtySurfaceMode.SPECIALTY -> true
 }
 
 /**

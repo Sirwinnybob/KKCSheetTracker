@@ -2982,16 +2982,6 @@ private fun MarkupPdfPageView(
         return x.coerceIn(-maxPanX, maxPanX) to y.coerceIn(-maxPanY, maxPanY)
     }
 
-    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-        val nextZoom = (zoom * zoomChange).coerceIn(1f, 5f)
-        val nextPanX = panX + panChange.x
-        val nextPanY = panY + panChange.y
-        val (clampedX, clampedY) = clampPan(nextZoom, nextPanX, nextPanY)
-        zoom = nextZoom
-        panX = clampedX
-        panY = clampedY
-    }
-
     LaunchedEffect(resetZoomTrigger) {
         zoom = 1f
         panX = 0f
@@ -3107,12 +3097,6 @@ private fun DiagramView(
     var zoom by remember { mutableFloatStateOf(1f) }
     var panX by remember { mutableFloatStateOf(0f) }
     var panY by remember { mutableFloatStateOf(0f) }
-    // Tracked passively (PointerEventPass.Initial) on every pointer event so the
-    // transformable() gesture below knows where the pinch is actually centered;
-    // TransformableState's onTransformation callback only receives zoom/pan deltas,
-    // never the centroid, so it can't tell where the fingers are on its own.
-    val pinchCentroid = remember { mutableStateOf(Offset.Zero) }
-
     val viewportState = remember(zoom, panX, panY, viewSize) {
         PdfViewportState(zoom = zoom, panX = panX, panY = panY, viewSize = viewSize)
     }
@@ -3124,9 +3108,9 @@ private fun DiagramView(
         return x.coerceIn(-maxPanX, maxPanX) to y.coerceIn(-maxPanY, maxPanY)
     }
 
-    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+    val transformState = rememberTransformableState { centroid, zoomChange, panChange, _ ->
         val anchored = computeAnchoredZoomPan(
-            zoom, panX, panY, zoomChange, panChange, pinchCentroid.value, viewSize, 1f, 5f
+            zoom, panX, panY, zoomChange, panChange, centroid, viewSize, 1f, 5f
         )
         val (clampedX, clampedY) = clampPan(anchored.zoom, anchored.panX, anchored.panY)
         zoom = anchored.zoom
@@ -3205,16 +3189,6 @@ private fun DiagramView(
                         if (hit != null) onLongPressPart(hit)
                     }
                 )
-            }
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        if (event.changes.any { it.pressed }) {
-                            pinchCentroid.value = event.calculateCentroid(useCurrent = true)
-                        }
-                    }
-                }
             }
             .transformable(state = transformState)
     ) {

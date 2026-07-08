@@ -8,6 +8,7 @@ import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodTabletProgress
 import com.kkc.sheettracker.data.models.HardwoodTrackerAction
 import com.kkc.sheettracker.data.models.HardwoodTrackerActions
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -15,6 +16,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -76,6 +78,38 @@ class HardwoodsProgressStoreTest {
         assertEquals(1, persistedRowActions.size)
         assertEquals("row-keep", persistedRowActions.first().rowId)
         assertEquals(3, store.getBoardStockRipDone(jobFolderName, "red oak", 2.5, "frame"))
+    }
+
+    @Test
+    fun preservesLocalRowActionsWhenCutlistLookupIsEmpty() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex(documents = emptyList())
+        )
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = tabletId,
+            progress = HardwoodTabletProgress(
+                tabletId = tabletId,
+                actions = listOf(
+                    trackerAction("FACE_FRAME_CUT_LIST", "row-keep", HardwoodTrackerActions.SET_DONE_COUNT, 4, timestamp = "2026-05-01T00:00:01Z"),
+                    trackerAction("FACE_FRAME_CUT_LIST", "row-other", HardwoodTrackerActions.SET_DONE_COUNT, 2, timestamp = "2026-05-01T00:00:02Z")
+                )
+            )
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val rowMap = store.getRowProgressMap(jobFolderName)
+
+        assertEquals(4, rowMap["FACE_FRAME_CUT_LIST" to "row-keep"]?.doneCount)
+        assertEquals(2, rowMap["FACE_FRAME_CUT_LIST" to "row-other"]?.doneCount)
+
+        val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
+        val persistedRowIds = persisted.actions.map { it.rowId }
+        assertEquals(listOf("row-keep", "row-other"), persistedRowIds)
     }
 
     @Test
@@ -505,6 +539,239 @@ class HardwoodsProgressStoreTest {
         assertTrue("concurrent cache access threw: ${errors.firstOrNull()}", errors.isEmpty())
     }
 
+    @Test
+    fun setDoneCountThenImmediateInvalidateDoesNotReloadZeroProgress() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex(
+                documents = listOf(
+                    HardwoodDocumentIndex(
+                        docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+                        rows = listOf(HardwoodCutlistRow(rowId = "row-keep", qty = 6))
+                    )
+                )
+            )
+        )
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val docType = HardwoodDocType.FACE_FRAME_CUT_LIST.name
+
+        store.setDoneCount(jobFolderName, docType, "row-keep", qty = 6, doneCount = 4)
+        store.invalidateJobCache(jobFolderName)
+
+        val rowMap = store.getRowProgressMap(jobFolderName)
+
+        assertEquals(4, rowMap[docType to "row-keep"]?.doneCount)
+    }
+
+    @Test
+    fun compactionDuringPendingAsyncSaveDoesNotRestorePrunedActions() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex(
+                documents = listOf(
+                    HardwoodDocumentIndex(
+                        docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+                        rows = listOf(HardwoodCutlistRow(rowId = "row-keep", qty = 6))
+                    )
+                )
+            )
+        )
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val docType = HardwoodDocType.FACE_FRAME_CUT_LIST.name
+
+        store.setDoneCount(jobFolderName, docType, "row-stale", qty = 6, doneCount = 2)
+        store.setDoneCount(jobFolderName, docType, "row-keep", qty = 6, doneCount = 4)
+        store.invalidateJobCache(jobFolderName)
+
+        val rowMap = store.getRowProgressMap(jobFolderName)
+        store.awaitPendingWrites()
+        val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
+
+        assertNull(rowMap[docType to "row-stale"])
+        assertEquals(4, rowMap[docType to "row-keep"]?.doneCount)
+        assertEquals(listOf("row-keep"), persisted.actions.map { it.rowId })
+    }
+
+    @Test
+    fun concurrentIncrementInvalidateAndReloadDoesNotLoseProgress() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex(
+                documents = listOf(
+                    HardwoodDocumentIndex(
+                        docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+                        rows = listOf(HardwoodCutlistRow(rowId = "row-keep", qty = 500))
+                    )
+                )
+            )
+        )
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val docType = HardwoodDocType.FACE_FRAME_CUT_LIST.name
+        val increments = 180
+        val invalidations = 360
+        val errors = CopyOnWriteArrayList<Throwable>()
+        val start = CountDownLatch(1)
+        val writersDone = CountDownLatch(1)
+        val invalidatorsDone = CountDownLatch(1)
+
+        val writer = Thread {
+            try {
+                start.await()
+                repeat(increments) {
+                    store.incrementDoneCount(jobFolderName, docType, "row-keep", qty = 500)
+                    Thread.yield()
+                }
+            } catch (e: Throwable) {
+                errors.add(e)
+            } finally {
+                writersDone.countDown()
+            }
+        }
+        val invalidator = Thread {
+            try {
+                start.await()
+                repeat(invalidations) {
+                    store.invalidateJobCache(jobFolderName)
+                    store.getRowProgressMap(jobFolderName)
+                    Thread.yield()
+                }
+            } catch (e: Throwable) {
+                errors.add(e)
+            } finally {
+                invalidatorsDone.countDown()
+            }
+        }
+
+        writer.start()
+        invalidator.start()
+        start.countDown()
+
+        assertTrue("writer did not finish", writersDone.await(30, TimeUnit.SECONDS))
+        assertTrue("invalidator did not finish", invalidatorsDone.await(30, TimeUnit.SECONDS))
+        store.awaitPendingWrites()
+
+        val finalDone = store.getRowProgressMap(jobFolderName)[docType to "row-keep"]?.doneCount
+        assertTrue("concurrent workers threw: ${errors.firstOrNull()}", errors.isEmpty())
+        assertEquals(increments, finalDone)
+    }
+
+    @Test
+    fun incrementDoneCountUsesCurrentStoreProgressInsteadOfStaleCallerValue() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val docType = HardwoodDocType.FACE_FRAME_CUT_LIST.name
+
+        store.setDoneCount(jobFolderName, docType, "row-keep", qty = 6, doneCount = 4)
+        store.incrementDoneCount(jobFolderName, docType, "row-keep", qty = 6)
+
+        val rowMap = store.getRowProgressMap(jobFolderName)
+
+        assertEquals(5, rowMap[docType to "row-keep"]?.doneCount)
+    }
+
+    @Test
+    fun incrementDoneCountFallsBackToDiskWhenMetadataCacheRebuildFails() {
+        val baseDir = createTempBaseDir()
+        val docType = HardwoodDocType.FACE_FRAME_CUT_LIST.name
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = tabletId,
+            progress = HardwoodTabletProgress(
+                tabletId = tabletId,
+                actions = listOf(
+                    trackerAction(docType, "row-keep", HardwoodTrackerActions.SET_DONE_COUNT, 4, timestamp = "2026-05-01T00:00:01Z")
+                )
+            )
+        )
+        val store = HardwoodsProgressStore(
+            baseDir = baseDir,
+            tabletId = tabletId,
+            unifiedEngine = throwingHardwoodsSnapshotEngine()
+        )
+
+        store.incrementDoneCount(jobFolderName, docType, "row-keep", qty = 6)
+        store.awaitPendingWrites()
+
+        val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
+        assertEquals(5, persisted.actions.last().value)
+    }
+
+    @Test
+    fun concurrentFallbackIncrementsPreserveEveryTapWhenMetadataCacheRebuildFails() {
+        val baseDir = createTempBaseDir()
+        val docType = HardwoodDocType.FACE_FRAME_CUT_LIST.name
+        val store = HardwoodsProgressStore(
+            baseDir = baseDir,
+            tabletId = tabletId,
+            unifiedEngine = throwingHardwoodsSnapshotEngine()
+        )
+        val taps = 80
+        val start = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(8)
+
+        try {
+            val futures = (0 until taps).map {
+                pool.submit {
+                    start.await(5, TimeUnit.SECONDS)
+                    store.incrementDoneCount(jobFolderName, docType, "row-keep", qty = taps + 5)
+                }
+            }
+            start.countDown()
+            futures.forEach { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            pool.shutdownNow()
+        }
+        store.awaitPendingWrites()
+
+        val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
+        assertEquals(taps, persisted.actions.size)
+        assertEquals(taps, persisted.actions.last().value)
+    }
+
+    @Test
+    fun decrementDoneCountUsesCurrentStoreProgressInsteadOfStaleCallerValue() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val docType = HardwoodDocType.FACE_FRAME_CUT_LIST.name
+
+        store.setDoneCount(jobFolderName, docType, "row-keep", qty = 6, doneCount = 4)
+        store.decrementDoneCount(jobFolderName, docType, "row-keep", qty = 6)
+
+        val rowMap = store.getRowProgressMap(jobFolderName)
+
+        assertEquals(3, rowMap[docType to "row-keep"]?.doneCount)
+    }
+
+    @Test
+    fun incrementBoardStockRipDoneUsesCurrentStoreTotalInsteadOfStaleCallerValue() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+
+        store.setBoardStockRipDone(jobFolderName, "Maple", 2.5, "frame", doneCount = 4)
+        store.incrementBoardStockRipDone(jobFolderName, "Maple", 2.5, "frame", maxCount = 6)
+
+        assertEquals(5, store.getBoardStockRipDone(jobFolderName, "Maple", 2.5, "frame"))
+    }
+
+    @Test
+    fun incrementAdminBoardStockDoneUsesCurrentStoreTotalInsteadOfStaleCallerValue() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val key = store.makeAdminBoardStockTallyKey("Walnut", "item-1")
+
+        store.setAdminBoardStockDone(jobFolderName, "Walnut", "item-1", doneCount = 2)
+        store.incrementAdminBoardStockDone(jobFolderName, "Walnut", "item-1", maxCount = 4)
+
+        assertEquals(3, store.getTotalsRip10DoneMap(jobFolderName)[key])
+    }
+
     private fun createTempBaseDir(): File {
         return Files.createTempDirectory("hardwoods-progress-store-test").toFile()
     }
@@ -529,6 +796,29 @@ class HardwoodsProgressStoreTest {
     private fun readTabletProgress(baseDir: File, jobFolderName: String, tabletId: String): HardwoodTabletProgress {
         val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/$tabletId.json")
         return gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
+    }
+
+    private fun throwingHardwoodsSnapshotEngine(): UnifiedMetadataEngine {
+        return Proxy.newProxyInstance(
+            UnifiedMetadataEngine::class.java.classLoader,
+            arrayOf(UnifiedMetadataEngine::class.java)
+        ) { _, method, _ ->
+            if (method.name == "getHardwoodsSnapshot") {
+                throw IllegalStateException("metadata unavailable")
+            }
+            defaultReturnValue(method.returnType)
+        } as UnifiedMetadataEngine
+    }
+
+    private fun defaultReturnValue(type: Class<*>): Any? {
+        return when {
+            type == Boolean::class.javaPrimitiveType -> false
+            type == Int::class.javaPrimitiveType -> 0
+            type == Long::class.javaPrimitiveType -> 0L
+            type == Void.TYPE -> null
+            List::class.java.isAssignableFrom(type) -> emptyList<Any>()
+            else -> null
+        }
     }
 
     private fun encodeCabinetSkipRowId(rowId: String, cabinet: String): String {

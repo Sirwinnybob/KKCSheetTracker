@@ -30,10 +30,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -157,7 +156,7 @@ fun SupplyDashboardScreen(
     }
 
     // Categories can reload smaller/empty while the pager still points at a former category page.
-    // Snap back into range so ScrollableTabRow never reads a tab index past the tab list.
+    // Snap back into range so the tab row never reads an index past the tab list.
     LaunchedEffect(tabCount) {
         if (pagerState.currentPage > tabCount - 1) {
             pagerState.scrollToPage(tabCount - 1)
@@ -307,19 +306,16 @@ fun SupplyDashboardScreen(
 
             else -> {
                 DashboardSurfaceCard(contentPadding = PaddingValues(vertical = 6.dp)) {
-                    ScrollableTabRow(
-                        selectedTabIndex = pagerState.currentPage.coerceIn(0, tabCount - 1),
+                    val selectedTabIndex = pagerState.currentPage.coerceIn(0, tabCount - 1)
+                    SecondaryScrollableTabRow(
+                        selectedTabIndex = selectedTabIndex,
+                        containerColor = TabRowDefaults.primaryContainerColor,
+                        contentColor = TabRowDefaults.primaryContentColor,
                         edgePadding = 12.dp,
-                        indicator = { tabPositions ->
-                            // Material3's default indicator indexes tabPositions[selectedTabIndex]
-                            // with no bounds check. The subcomposed tab count can briefly lag one
-                            // frame behind tabCount when categories reload, so guard here too.
-                            val safeIndex = pagerState.currentPage.coerceIn(0, tabCount - 1)
-                            tabPositions.getOrNull(safeIndex)?.let { position ->
-                                TabRowDefaults.SecondaryIndicator(
-                                    Modifier.tabIndicatorOffset(position)
-                                )
-                            }
+                        indicator = {
+                            TabRowDefaults.SecondaryIndicator(
+                                Modifier.tabIndicatorOffset(selectedTabIndex, matchContentSize = false)
+                            )
                         }
                     ) {
                         Tab(
@@ -872,6 +868,7 @@ private fun UpdatesPage(
             }
         }
         items(notifications, key = { it.item.id }) { notification ->
+            @Suppress("DEPRECATION")
             val dismissState = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
                 if (value == SwipeToDismissBoxValue.EndToStart || value == SwipeToDismissBoxValue.StartToEnd) {
                     scope.launch {

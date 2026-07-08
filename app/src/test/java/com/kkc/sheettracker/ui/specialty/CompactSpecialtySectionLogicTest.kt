@@ -39,10 +39,10 @@ class CompactSpecialtySectionLogicTest {
         ))
         assertFalse(isItemRelevantToMode(resolvedItem("11", listOf(SpecialtyStation.CNC)), SpecialtySurfaceMode.ASSEMBLY))
 
-        // SPECIALTY Mode: everything EXCEPT DELIVERY is relevant
+        // SPECIALTY Mode: all tablet checklist items are relevant, including DELIVERY-only
         assertTrue(isItemRelevantToMode(resolvedItem("12", listOf(SpecialtyStation.CNC)), SpecialtySurfaceMode.SPECIALTY))
         assertTrue(isItemRelevantToMode(resolvedItem("13", listOf(SpecialtyStation.ASSEMBLY)), SpecialtySurfaceMode.SPECIALTY))
-        assertFalse(isItemRelevantToMode(resolvedItem("14", listOf(SpecialtyStation.DELIVERY)), SpecialtySurfaceMode.SPECIALTY))
+        assertTrue(isItemRelevantToMode(resolvedItem("14", listOf(SpecialtyStation.DELIVERY)), SpecialtySurfaceMode.SPECIALTY))
     }
 
     @Test
@@ -66,9 +66,9 @@ class CompactSpecialtySectionLogicTest {
         val assemblyRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.ASSEMBLY)
         assertEquals(listOf("1", "3"), assemblyRows.map { it.resolved.item.id })
 
-        // SPECIALTY Mode: CNC (2), ASSEMBLY (3), and HARDWOODS (4) relevant (not DELIVERY)
+        // SPECIALTY Mode: all checklist items remain visible, including DELIVERY
         val specialtyRows = buildSpecialtySectionRows(items, SpecialtySurfaceMode.SPECIALTY)
-        assertEquals(listOf("2", "3", "4"), specialtyRows.map { it.resolved.item.id })
+        assertEquals(listOf("1", "2", "3", "4"), specialtyRows.map { it.resolved.item.id })
     }
 
     @Test

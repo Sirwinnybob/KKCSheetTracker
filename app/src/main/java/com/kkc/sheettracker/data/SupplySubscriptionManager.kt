@@ -204,17 +204,19 @@ class SupplySubscriptionManager(
         notifications
     }
 
+    private fun <T> gsonNullable(value: T): T? = value
+
     private fun sanitizeSubscriptionData(data: SupplySubscriptionData?): SupplySubscriptionData {
         if (data == null) return SupplySubscriptionData()
         return SupplySubscriptionData(
-            subscribedCategoryIds = data.subscribedCategoryIds ?: emptySet(),
-            subscribedItemIds = data.subscribedItemIds ?: emptySet(),
-            itemSnapshots = (data.itemSnapshots ?: emptyMap()).mapValues { (_, snapshot) ->
+            subscribedCategoryIds = gsonNullable(data.subscribedCategoryIds) ?: emptySet(),
+            subscribedItemIds = gsonNullable(data.subscribedItemIds) ?: emptySet(),
+            itemSnapshots = (gsonNullable(data.itemSnapshots) ?: emptyMap()).mapValues { (_, snapshot) ->
                 SupplyItemSnapshot(
-                    lastSeenUpdatedAt = snapshot.lastSeenUpdatedAt ?: "",
-                    lastSeenStatusAt = snapshot.lastSeenStatusAt ?: "",
-                    lastSeenCommentIds = snapshot.lastSeenCommentIds ?: emptyList(),
-                    lastSeenAttachmentIds = snapshot.lastSeenAttachmentIds ?: emptyList()
+                    lastSeenUpdatedAt = gsonNullable(snapshot.lastSeenUpdatedAt) ?: "",
+                    lastSeenStatusAt = gsonNullable(snapshot.lastSeenStatusAt) ?: "",
+                    lastSeenCommentIds = gsonNullable(snapshot.lastSeenCommentIds) ?: emptyList(),
+                    lastSeenAttachmentIds = gsonNullable(snapshot.lastSeenAttachmentIds) ?: emptyList()
                 )
             }
         )

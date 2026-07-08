@@ -254,7 +254,7 @@ fun SettingsScreen(
                         supportingText = {
                             Text(if (selectedId == null) "Using fleet default" else "Applies only to this tablet")
                         },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                         readOnly = true,
                         shape = MaterialTheme.shapes.medium
                     )
@@ -403,7 +403,7 @@ fun SettingsScreen(
                         },
                         label = { Text("Your Name / PIN") },
                         supportingText = { Text("Used for auto-login to the Hours Tracker. Leave blank to be prompted each time.") },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable),
+                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
                         singleLine = true,
                         shape = MaterialTheme.shapes.medium
                     )

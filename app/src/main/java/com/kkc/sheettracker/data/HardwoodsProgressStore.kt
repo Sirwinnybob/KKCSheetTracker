@@ -64,7 +64,9 @@ class HardwoodsProgressStore(
     val progressVersion: StateFlow<Long> = _progressVersion.asStateFlow()
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeMutexByJob = ConcurrentHashMap<String, Mutex>()
+    private val cacheOperationLock = Any()
     private val cacheByJob = ConcurrentHashMap<String, JobCache>()
+    private val pendingLocalActionsByJob = ConcurrentHashMap<String, List<HardwoodTrackerAction>>()
 
     private fun engine(): UnifiedMetadataEngine {
         val existing = unifiedEngine
@@ -89,18 +91,26 @@ class HardwoodsProgressStore(
     }
 
     fun invalidateJobCache(jobFolderName: String) {
-        cacheByJob.remove(jobFolderName)
+        synchronized(cacheOperationLockFor(jobFolderName)) {
+            cacheByJob.remove(jobFolderName)
+        }
         bumpProgressVersion()
     }
 
     fun invalidateJobCaches(jobFolderNames: Collection<String>) {
         if (jobFolderNames.isEmpty()) return
-        jobFolderNames.forEach { cacheByJob.remove(it) }
+        jobFolderNames.forEach { jobFolderName ->
+            synchronized(cacheOperationLockFor(jobFolderName)) {
+                cacheByJob.remove(jobFolderName)
+            }
+        }
         bumpProgressVersion()
     }
 
     fun invalidateAllCaches() {
-        cacheByJob.clear()
+        synchronized(cacheOperationLock) {
+            cacheByJob.clear()
+        }
         bumpProgressVersion()
     }
 
@@ -159,22 +169,26 @@ class HardwoodsProgressStore(
             timestamp = Instant.now().toString()
         )
         val snapshot = runCatching {
-            val cache = ensureJobCache(jobFolderName)
-            // Guard the cache's mutable maps with the JobCache instance monitor so this write
-            // cannot interleave with a concurrent reader snapshot (getRowProgressMap etc.).
-            synchronized(cache) {
-                cache.localActions.add(next)
-                applyActionToCache(cache, next)
-                cache.localActions.toList()
+            synchronized(cacheOperationLockFor(jobFolderName)) {
+                val cache = ensureJobCache(jobFolderName)
+                // Guard the cache's mutable maps with the JobCache instance monitor so this write
+                // cannot interleave with a concurrent reader snapshot (getRowProgressMap etc.).
+                synchronized(cache) {
+                    cache.localActions.add(next)
+                    applyActionToCache(cache, next)
+                    cache.localActions.toList()
+                }.also { pendingLocalActionsByJob[jobFolderName] = it }
             }
         }.getOrElse {
-            val current = loadTabletProgress(jobFolderName)
-            val merged = current.actions + next
-            saveTabletProgress(jobFolderName, current.copy(actions = merged))
+            val merged = synchronized(cacheOperationLockFor(jobFolderName)) {
+                val localActions = pendingLocalActionsByJob[jobFolderName] ?: loadTabletProgress(jobFolderName).actions
+                (localActions + next).also { pendingLocalActionsByJob[jobFolderName] = it }
+            }
+            saveLocalActionsSync(jobFolderName, merged)
             bumpProgressVersion()
             return
         }
-        persistLocalActionsAsync(jobFolderName, snapshot)
+        persistLocalActionsAsync(jobFolderName, snapshot, publishPending = false)
         bumpProgressVersion()
     }
 
@@ -343,6 +357,28 @@ class HardwoodsProgressStore(
         )
     }
 
+    fun incrementDoneCount(jobFolderName: String, docType: String, rowId: String, qty: Int) {
+        changeDoneCount(jobFolderName, docType, rowId, qty, delta = 1)
+    }
+
+    fun decrementDoneCount(jobFolderName: String, docType: String, rowId: String, qty: Int) {
+        changeDoneCount(jobFolderName, docType, rowId, qty, delta = -1)
+    }
+
+    private fun changeDoneCount(jobFolderName: String, docType: String, rowId: String, qty: Int, delta: Int) {
+        appendComputedAction(
+            jobFolderName = jobFolderName,
+            docType = docType,
+            rowId = rowId,
+            action = HardwoodTrackerActions.SET_DONE_COUNT
+        ) { cache ->
+            val key = docType to rowId
+            val current = cache.rowProgressMap[key] ?: HardwoodRowProgress()
+            val next = normalized(qty, current, proposedDone = current.doneCount + delta)
+            next.doneCount.takeIf { it != current.doneCount }
+        }
+    }
+
     fun setBadCount(jobFolderName: String, docType: String, rowId: String, qty: Int, badCount: Int) {
         val current = getRowProgress(jobFolderName, docType, rowId)
         val next = normalized(qty, current, proposedBad = badCount)
@@ -506,6 +542,44 @@ class HardwoodsProgressStore(
         )
     }
 
+    fun incrementBoardStockRipDone(
+        jobFolderName: String,
+        material: String,
+        normalizedWidth: Double,
+        source: String,
+        maxCount: Int
+    ) {
+        changeBoardStockRipDone(jobFolderName, material, normalizedWidth, source, maxCount, delta = 1)
+    }
+
+    fun decrementBoardStockRipDone(
+        jobFolderName: String,
+        material: String,
+        normalizedWidth: Double,
+        source: String,
+        maxCount: Int
+    ) {
+        changeBoardStockRipDone(jobFolderName, material, normalizedWidth, source, maxCount, delta = -1)
+    }
+
+    private fun changeBoardStockRipDone(
+        jobFolderName: String,
+        material: String,
+        normalizedWidth: Double,
+        source: String,
+        maxCount: Int,
+        delta: Int
+    ) {
+        val key = makeBoardStockTallyKey(material, normalizedWidth, source)
+        changeTotalsDone(
+            jobFolderName = jobFolderName,
+            docType = "BOARD_STOCK",
+            totalsKey = key,
+            maxCount = maxCount,
+            delta = delta
+        )
+    }
+
     fun getTotalsRip10Done(
         jobFolderName: String,
         docType: String,
@@ -622,17 +696,23 @@ class HardwoodsProgressStore(
 
     private fun ensureJobCache(jobFolderName: String): JobCache {
         cacheByJob[jobFolderName]?.let { return it }
-        return synchronized(cacheByJob) {
+        return synchronized(cacheOperationLockFor(jobFolderName)) {
             cacheByJob[jobFolderName] ?: buildJobCache(jobFolderName).also { cacheByJob[jobFolderName] = it }
         }
     }
+
+    private fun cacheOperationLockFor(jobFolderName: String): Any = cacheOperationLock
 
     private fun buildJobCache(jobFolderName: String): JobCache {
         if (!readOnly) {
             migrateLegacyTotalsKeysIfNeeded(jobFolderName)
             migrateBoardStockKeysToCanonicalIfNeeded(jobFolderName)
         }
-        val allProgress = loadAllProgress(jobFolderName)
+        val pendingLocalActions = pendingLocalActionsByJob[jobFolderName]
+        val allProgress = mergePendingLocalActions(
+            progress = loadAllProgress(jobFolderName),
+            pendingLocalActions = pendingLocalActions
+        )
         val lookup = loadCutlistLookup(jobFolderName)
         val allActions = allProgress
             .flatMap { it.actions.orEmpty() }
@@ -645,7 +725,7 @@ class HardwoodsProgressStore(
             .sortedBy { it.timestamp }
             .toMutableList()
         if (localActions != localProgress.actions) {
-            saveTabletProgress(jobFolderName, localProgress.copy(actions = localActions))
+            saveLocalActionsSync(jobFolderName, localActions)
         }
 
         val cache = JobCache(
@@ -656,6 +736,24 @@ class HardwoodsProgressStore(
         )
         allActions.forEach { applyActionToCache(cache, it) }
         return cache
+    }
+
+    private fun mergePendingLocalActions(
+        progress: List<HardwoodTabletProgress>,
+        pendingLocalActions: List<HardwoodTrackerAction>?
+    ): List<HardwoodTabletProgress> {
+        if (pendingLocalActions == null) return progress
+        val local = HardwoodTabletProgress(tabletId = tabletId, actions = pendingLocalActions)
+        var replaced = false
+        val merged = progress.map {
+            if (it.tabletId == tabletId) {
+                replaced = true
+                local
+            } else {
+                it
+            }
+        }
+        return if (replaced) merged else merged + local
     }
 
     private fun loadCutlistLookup(jobFolderName: String): CutlistLookup? {
@@ -673,6 +771,8 @@ class HardwoodsProgressStore(
                 cabinetsByRow[rowKey] = cabinets
             }
         }
+        if (rows.isEmpty()) return null
+
         return CutlistLookup(
             rows = rows,
             cabinetsByRow = cabinetsByRow
@@ -720,7 +820,7 @@ class HardwoodsProgressStore(
             action.copy(totalsKey = boardKey)
         }
         val changed = migratedActions.zip(current.actions).count { (next, prev) -> next.totalsKey != prev.totalsKey }
-        if (changed > 0) saveTabletProgress(jobFolderName, current.copy(actions = migratedActions))
+        if (changed > 0) saveLocalActionsSync(jobFolderName, migratedActions)
         writeMigrationMarker(jobFolderName, migratedCount = changed)
     }
 
@@ -738,7 +838,7 @@ class HardwoodsProgressStore(
             if (canonical == key) action else action.copy(totalsKey = canonical)
         }
         val changed = migratedActions.zip(current.actions).count { (next, prev) -> next.totalsKey != prev.totalsKey }
-        if (changed > 0) saveTabletProgress(jobFolderName, current.copy(actions = migratedActions))
+        if (changed > 0) saveLocalActionsSync(jobFolderName, migratedActions)
         writeCanonicalMigrationMarker(jobFolderName, migratedCount = changed)
     }
 
@@ -874,6 +974,31 @@ class HardwoodsProgressStore(
         )
     }
 
+    fun incrementAdminBoardStockDone(jobFolderName: String, material: String, itemId: String, maxCount: Int) {
+        changeAdminBoardStockDone(jobFolderName, material, itemId, maxCount, delta = 1)
+    }
+
+    fun decrementAdminBoardStockDone(jobFolderName: String, material: String, itemId: String, maxCount: Int) {
+        changeAdminBoardStockDone(jobFolderName, material, itemId, maxCount, delta = -1)
+    }
+
+    private fun changeAdminBoardStockDone(
+        jobFolderName: String,
+        material: String,
+        itemId: String,
+        maxCount: Int,
+        delta: Int
+    ) {
+        val key = makeAdminBoardStockTallyKey(material, itemId)
+        changeTotalsDone(
+            jobFolderName = jobFolderName,
+            docType = "BOARD_STOCK",
+            totalsKey = key,
+            maxCount = maxCount,
+            delta = delta
+        )
+    }
+
     fun setAdminBoardStockSkipped(jobFolderName: String, material: String, itemId: String, skipped: Boolean) {
         appendAction(
             jobFolderName = jobFolderName,
@@ -883,6 +1008,100 @@ class HardwoodsProgressStore(
             action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
             value = if (skipped) 1 else 0
         )
+    }
+
+    private fun changeTotalsDone(
+        jobFolderName: String,
+        docType: String,
+        totalsKey: String,
+        maxCount: Int,
+        delta: Int
+    ) {
+        val clampedMax = maxCount.coerceAtLeast(0)
+        appendComputedAction(
+            jobFolderName = jobFolderName,
+            docType = docType,
+            rowId = "",
+            totalsKey = totalsKey,
+            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT
+        ) { cache ->
+            val current = cache.totalsRip10Map[totalsKey] ?: 0
+            val next = (current + delta).coerceIn(0, clampedMax)
+            next.takeIf { it != current }
+        }
+    }
+
+    private fun appendComputedAction(
+        jobFolderName: String,
+        docType: String,
+        rowId: String,
+        action: String,
+        totalsKey: String? = null,
+        computeValue: (JobCache) -> Int?
+    ) {
+        if (readOnly) return
+        val snapshot = runCatching {
+            synchronized(cacheOperationLockFor(jobFolderName)) {
+                val cache = ensureJobCache(jobFolderName)
+                synchronized(cache) {
+                    val value = computeValue(cache) ?: return
+                    val next = HardwoodTrackerAction(
+                        docType = docType,
+                        rowId = rowId,
+                        totalsKey = totalsKey,
+                        action = action,
+                        value = value,
+                        timestamp = Instant.now().toString()
+                    )
+                    cache.localActions.add(next)
+                    applyActionToCache(cache, next)
+                    cache.localActions.toList()
+                }.also { pendingLocalActionsByJob[jobFolderName] = it }
+            }
+        }.getOrElse {
+            appendComputedActionFromDisk(jobFolderName, docType, rowId, totalsKey, action, computeValue)
+                ?: return
+        }
+        persistLocalActionsAsync(jobFolderName, snapshot, publishPending = false)
+        bumpProgressVersion()
+    }
+
+    private fun appendComputedActionFromDisk(
+        jobFolderName: String,
+        docType: String,
+        rowId: String,
+        totalsKey: String?,
+        action: String,
+        computeValue: (JobCache) -> Int?
+    ): List<HardwoodTrackerAction>? {
+        return synchronized(cacheOperationLockFor(jobFolderName)) {
+            val pendingLocalActions = pendingLocalActionsByJob[jobFolderName]
+            val progress = mergePendingLocalActions(
+                progress = loadAllProgress(jobFolderName),
+                pendingLocalActions = pendingLocalActions
+            )
+            val fallbackCache = JobCache(
+                localActions = mutableListOf(),
+                rowProgressMap = mutableMapOf(),
+                skippedCabinetMap = mutableMapOf(),
+                totalsRip10Map = mutableMapOf()
+            )
+            progress
+                .flatMap { it.actions.orEmpty() }
+                .sortedBy { it.timestamp }
+                .forEach { applyActionToCache(fallbackCache, it) }
+            val value = computeValue(fallbackCache) ?: return@synchronized null
+            val next = HardwoodTrackerAction(
+                docType = docType,
+                rowId = rowId,
+                totalsKey = totalsKey,
+                action = action,
+                value = value,
+                timestamp = Instant.now().toString()
+            )
+            val localActions = pendingLocalActions ?: loadTabletProgress(jobFolderName).actions
+            (localActions + next).also { pendingLocalActionsByJob[jobFolderName] = it }
+        }
     }
 
     private fun applyActionToCache(cache: JobCache, action: HardwoodTrackerAction) {
@@ -925,10 +1144,16 @@ class HardwoodsProgressStore(
         }
     }
 
-    private fun persistLocalActionsAsync(jobFolderName: String, actions: List<HardwoodTrackerAction>) {
+    private fun persistLocalActionsAsync(
+        jobFolderName: String,
+        actions: List<HardwoodTrackerAction>,
+        publishPending: Boolean = true
+    ) {
+        if (publishPending) pendingLocalActionsByJob[jobFolderName] = actions
         val writeMutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         ioScope.launch {
             writeMutex.withLock {
+                if (pendingLocalActionsByJob[jobFolderName] != actions) return@withLock
                 saveTabletProgress(
                     jobFolderName,
                     HardwoodTabletProgress(
@@ -936,6 +1161,25 @@ class HardwoodsProgressStore(
                         actions = actions
                     )
                 )
+                pendingLocalActionsByJob.remove(jobFolderName, actions)
+            }
+        }
+    }
+
+    private fun saveLocalActionsSync(jobFolderName: String, actions: List<HardwoodTrackerAction>) {
+        pendingLocalActionsByJob[jobFolderName] = actions
+        val writeMutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
+        runBlocking {
+            writeMutex.withLock {
+                if (pendingLocalActionsByJob[jobFolderName] != actions) return@withLock
+                saveTabletProgress(
+                    jobFolderName,
+                    HardwoodTabletProgress(
+                        tabletId = tabletId,
+                        actions = actions
+                    )
+                )
+                pendingLocalActionsByJob.remove(jobFolderName, actions)
             }
         }
     }

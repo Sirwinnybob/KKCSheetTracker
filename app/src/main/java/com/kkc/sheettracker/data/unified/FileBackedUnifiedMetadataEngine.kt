@@ -66,6 +66,8 @@ class FileBackedUnifiedMetadataEngine(
     @Volatile
     private var baseDir: File = File(basePath)
 
+    private fun <T> gsonNullable(value: T): T? = value
+
     private data class StaticJobData(
         val jobInfo: UnifiedJobInfo,
         val cncJob: Job?,
@@ -280,9 +282,9 @@ class FileBackedUnifiedMetadataEngine(
         // but reads job_board.json once for one job instead of scanning every job dir.
         val config = readJobBoardConfig()[folderName]
         return UnifiedJobInfo(
-            folderName = rawInfo.folderName ?: folderName,
-            jobNumber = rawInfo.jobNumber ?: "",
-            jobName = rawInfo.jobName ?: "",
+            folderName = gsonNullable(rawInfo.folderName) ?: folderName,
+            jobNumber = gsonNullable(rawInfo.jobNumber) ?: "",
+            jobName = gsonNullable(rawInfo.jobName) ?: "",
             hiddenFromProduction = rawInfo.hiddenFromProduction,
             lineupPosition = rawInfo.lineupPosition,
             labels = config?.labels ?: emptyList(),
@@ -328,9 +330,9 @@ class FileBackedUnifiedMetadataEngine(
                 val config = boardConfigs[dir.name]
                 loaded.add(
                     UnifiedJobInfo(
-                        folderName = rawInfo.folderName ?: dir.name,
-                        jobNumber = rawInfo.jobNumber ?: "",
-                        jobName = rawInfo.jobName ?: "",
+                        folderName = gsonNullable(rawInfo.folderName) ?: dir.name,
+                        jobNumber = gsonNullable(rawInfo.jobNumber) ?: "",
+                        jobName = gsonNullable(rawInfo.jobName) ?: "",
                         hiddenFromProduction = rawInfo.hiddenFromProduction,
                         lineupPosition = rawInfo.lineupPosition,
                         labels = config?.labels ?: emptyList(),
@@ -1256,12 +1258,12 @@ class FileBackedUnifiedMetadataEngine(
     private fun sanitizeStaticJobData(data: StaticJobData): StaticJobData {
         val rawInfo = data.jobInfo
         val sanitizedJobInfo = UnifiedJobInfo(
-            folderName = rawInfo.folderName ?: "",
-            jobNumber = rawInfo.jobNumber ?: "",
-            jobName = rawInfo.jobName ?: "",
+            folderName = gsonNullable(rawInfo.folderName) ?: "",
+            jobNumber = gsonNullable(rawInfo.jobNumber) ?: "",
+            jobName = gsonNullable(rawInfo.jobName) ?: "",
             hiddenFromProduction = rawInfo.hiddenFromProduction,
             lineupPosition = rawInfo.lineupPosition,
-            labels = rawInfo.labels ?: emptyList(),
+            labels = gsonNullable(rawInfo.labels) ?: emptyList(),
             isPending = rawInfo.isPending,
             boardSection = rawInfo.boardSection
         )
@@ -1269,13 +1271,13 @@ class FileBackedUnifiedMetadataEngine(
         val cnc = data.cncJob
         val sanitizedCncJob = if (cnc != null) {
             Job(
-                folderName = cnc.folderName ?: "",
-                jobNumber = cnc.jobNumber ?: "",
-                jobName = cnc.jobName ?: "",
-                materials = cnc.materials ?: emptyList(),
+                folderName = gsonNullable(cnc.folderName) ?: "",
+                jobNumber = gsonNullable(cnc.jobNumber) ?: "",
+                jobName = gsonNullable(cnc.jobName) ?: "",
+                materials = gsonNullable(cnc.materials) ?: emptyList(),
                 hiddenFromProduction = cnc.hiddenFromProduction,
                 lineupPosition = cnc.lineupPosition,
-                labels = cnc.labels ?: emptyList(),
+                labels = gsonNullable(cnc.labels) ?: emptyList(),
                 isPending = cnc.isPending,
                 boardSection = cnc.boardSection
             )
@@ -1284,13 +1286,13 @@ class FileBackedUnifiedMetadataEngine(
         val hardwood = data.hardwoodJob
         val sanitizedHardwoodJob = if (hardwood != null) {
             HardwoodJob(
-                folderName = hardwood.folderName ?: "",
-                jobNumber = hardwood.jobNumber ?: "",
-                jobName = hardwood.jobName ?: "",
+                folderName = gsonNullable(hardwood.folderName) ?: "",
+                jobNumber = gsonNullable(hardwood.jobNumber) ?: "",
+                jobName = gsonNullable(hardwood.jobName) ?: "",
                 index = hardwood.index,
                 hiddenFromProduction = hardwood.hiddenFromProduction,
                 lineupPosition = hardwood.lineupPosition,
-                labels = hardwood.labels ?: emptyList(),
+                labels = gsonNullable(hardwood.labels) ?: emptyList(),
                 isPending = hardwood.isPending,
                 boardSection = hardwood.boardSection
             )
@@ -1299,21 +1301,21 @@ class FileBackedUnifiedMetadataEngine(
         val assembly = data.assemblyJob
         val sanitizedAssemblyJob = if (assembly != null) {
             AssemblyJob(
-                folderName = assembly.folderName ?: "",
-                jobNumber = assembly.jobNumber ?: "",
-                jobName = assembly.jobName ?: "",
+                folderName = gsonNullable(assembly.folderName) ?: "",
+                jobNumber = gsonNullable(assembly.jobNumber) ?: "",
+                jobName = gsonNullable(assembly.jobName) ?: "",
                 cabinetSheetIndex = assembly.cabinetSheetIndex,
                 cncSummary = assembly.cncSummary,
                 hardwoodsSummary = assembly.hardwoodsSummary,
                 hiddenFromProduction = assembly.hiddenFromProduction,
                 lineupPosition = assembly.lineupPosition,
-                labels = assembly.labels ?: emptyList(),
+                labels = gsonNullable(assembly.labels) ?: emptyList(),
                 isPending = assembly.isPending,
                 boardSection = assembly.boardSection
             )
         } else null
 
-        val catalog = data.pdfCatalog
+        val catalog = gsonNullable(data.pdfCatalog)
         val sanitizedPdfCatalog = JobPdfCatalog(
             deliverySheet = catalog?.deliverySheet,
             managedDocs = catalog?.managedDocs ?: emptyList(),
@@ -1323,11 +1325,11 @@ class FileBackedUnifiedMetadataEngine(
         return data.copy(
             jobInfo = sanitizedJobInfo,
             cncJob = sanitizedCncJob,
-            cncIssues = data.cncIssues ?: emptyList(),
+            cncIssues = gsonNullable(data.cncIssues) ?: emptyList(),
             hardwoodJob = sanitizedHardwoodJob,
             assemblyJob = sanitizedAssemblyJob,
             pdfCatalog = sanitizedPdfCatalog,
-            boardStockRows = data.boardStockRows ?: emptyList()
+            boardStockRows = gsonNullable(data.boardStockRows) ?: emptyList()
         )
     }
 
@@ -1359,35 +1361,35 @@ class FileBackedUnifiedMetadataEngine(
     private fun sanitizeReferenceDocumentIndex(ref: ReferenceDocumentIndex?): ReferenceDocumentIndex {
         if (ref == null) return ReferenceDocumentIndex()
         return ReferenceDocumentIndex(
-            pdfFilename = ref.pdfFilename ?: "",
-            cabinetToPages = ref.cabinetToPages ?: emptyMap(),
-            pageDetails = (ref.pageDetails ?: emptyMap()).mapValues { (_, detail) -> sanitizeCabinetPageDetail(detail) },
+            pdfFilename = gsonNullable(ref.pdfFilename) ?: "",
+            cabinetToPages = gsonNullable(ref.cabinetToPages) ?: emptyMap(),
+            pageDetails = (gsonNullable(ref.pageDetails) ?: emptyMap()).mapValues { (_, detail) -> sanitizeCabinetPageDetail(detail) },
             mode = ref.mode,
             modeSource = ref.modeSource,
-            sources = (ref.sources ?: emptyList()).map { sanitizeAssemblySourceDocumentIndex(it) },
+            sources = (gsonNullable(ref.sources) ?: emptyList()).map { sanitizeAssemblySourceDocumentIndex(it) },
             virtualCombined = ref.virtualCombined?.let { vc ->
                 AssemblyVirtualCombinedIndex(
-                    cabinetOrder = vc.cabinetOrder ?: emptyList(),
-                    entriesByCabinet = (vc.entriesByCabinet ?: emptyMap()).mapValues { (_, list) ->
-                        (list ?: emptyList()).map { ent ->
+                    cabinetOrder = gsonNullable(vc.cabinetOrder) ?: emptyList(),
+                    entriesByCabinet = (gsonNullable(vc.entriesByCabinet) ?: emptyMap()).mapValues { (_, list) ->
+                        (gsonNullable(list) ?: emptyList()).map { ent ->
                             AssemblyVirtualEntry(
-                                variant = ent.variant ?: "",
-                                pdfFilename = ent.pdfFilename ?: "",
+                                variant = gsonNullable(ent.variant) ?: "",
+                                pdfFilename = gsonNullable(ent.pdfFilename) ?: "",
                                 page = ent.page,
                                 virtualPage = ent.virtualPage
                             )
                         }
                     },
-                    cabinetToPages = vc.cabinetToPages ?: emptyMap(),
-                    virtualPageToSource = (vc.virtualPageToSource ?: emptyMap()).mapValues { (_, sr) ->
+                    cabinetToPages = gsonNullable(vc.cabinetToPages) ?: emptyMap(),
+                    virtualPageToSource = (gsonNullable(vc.virtualPageToSource) ?: emptyMap()).mapValues { (_, sr) ->
                         AssemblyVirtualSourceRef(
-                            variant = sr.variant ?: "",
-                            pdfFilename = sr.pdfFilename ?: "",
+                            variant = gsonNullable(sr.variant) ?: "",
+                            pdfFilename = gsonNullable(sr.pdfFilename) ?: "",
                             page = sr.page,
                             cabinet = sr.cabinet
                         )
                     },
-                    pageDetails = (vc.pageDetails ?: emptyMap()).mapValues { (_, detail) -> sanitizeCabinetPageDetail(detail) },
+                    pageDetails = (gsonNullable(vc.pageDetails) ?: emptyMap()).mapValues { (_, detail) -> sanitizeCabinetPageDetail(detail) },
                     totalVirtualPages = vc.totalVirtualPages
                 )
             }
@@ -1397,7 +1399,7 @@ class FileBackedUnifiedMetadataEngine(
     private fun sanitizeDeliveryDocumentIndex(del: DeliveryDocumentIndex?): DeliveryDocumentIndex {
         if (del == null) return DeliveryDocumentIndex()
         return DeliveryDocumentIndex(
-            pdfFilename = del.pdfFilename ?: "",
+            pdfFilename = gsonNullable(del.pdfFilename) ?: "",
             mode = del.mode,
             modeSource = del.modeSource
         )
@@ -1406,27 +1408,27 @@ class FileBackedUnifiedMetadataEngine(
     private fun sanitizeAssemblySourceDocumentIndex(src: AssemblySourceDocumentIndex?): AssemblySourceDocumentIndex {
         if (src == null) return AssemblySourceDocumentIndex()
         return AssemblySourceDocumentIndex(
-            variant = src.variant ?: "",
-            pdfFilename = src.pdfFilename ?: "",
-            cabinetToPages = src.cabinetToPages ?: emptyMap(),
-            pageDetails = (src.pageDetails ?: emptyMap()).mapValues { (_, v) -> sanitizeCabinetPageDetail(v) }
+            variant = gsonNullable(src.variant) ?: "",
+            pdfFilename = gsonNullable(src.pdfFilename) ?: "",
+            cabinetToPages = gsonNullable(src.cabinetToPages) ?: emptyMap(),
+            pageDetails = (gsonNullable(src.pageDetails) ?: emptyMap()).mapValues { (_, v) -> sanitizeCabinetPageDetail(v) }
         )
     }
 
     private fun sanitizeCabinetPageDetail(detail: CabinetPageDetail?): CabinetPageDetail {
         if (detail == null) return CabinetPageDetail()
         return CabinetPageDetail(
-            cabinets = detail.cabinets ?: emptyList(),
+            cabinets = gsonNullable(detail.cabinets) ?: emptyList(),
             room = detail.room,
             wall = detail.wall,
-            parts = (detail.parts ?: emptyList()).map { part ->
+            parts = (gsonNullable(detail.parts) ?: emptyList()).map { part ->
                 AssemblySheetPart(
                     qty = part.qty,
                     width = part.width,
                     length = part.length,
-                    description = part.description ?: "",
-                    material = part.material ?: "",
-                    sectionType = part.sectionType ?: "",
+                    description = gsonNullable(part.description) ?: "",
+                    material = gsonNullable(part.material) ?: "",
+                    sectionType = gsonNullable(part.sectionType) ?: "",
                     isPurchased = part.isPurchased
                 )
             },
@@ -1440,35 +1442,35 @@ class FileBackedUnifiedMetadataEngine(
         if (index == null) return HardwoodCutlistIndex()
         return HardwoodCutlistIndex(
             generatedAt = index.generatedAt,
-            documents = (index.documents ?: emptyList()).map { doc ->
+            documents = (gsonNullable(index.documents) ?: emptyList()).map { doc ->
                 HardwoodDocumentIndex(
-                    docType = doc.docType ?: HardwoodDocType.FACE_FRAME_CUT_LIST,
-                    pdfFilename = doc.pdfFilename ?: "",
+                    docType = gsonNullable(doc.docType) ?: HardwoodDocType.FACE_FRAME_CUT_LIST,
+                    pdfFilename = gsonNullable(doc.pdfFilename) ?: "",
                     pageCount = doc.pageCount,
-                    rows = (doc.rows ?: emptyList()).map { row ->
+                    rows = (gsonNullable(doc.rows) ?: emptyList()).map { row ->
                         HardwoodCutlistRow(
-                            rowId = row.rowId ?: "",
+                            rowId = gsonNullable(row.rowId) ?: "",
                             page = row.page,
                             rowOrdinal = row.rowOrdinal,
                             qty = row.qty,
                             material = row.material,
-                            description = row.description ?: "",
-                            width = row.width ?: "",
-                            length = row.length ?: "",
-                            unitType = row.unitType ?: "",
-                            cabinets = row.cabinets ?: emptyList(),
-                            rawCabinetText = row.rawCabinetText ?: ""
+                            description = gsonNullable(row.description) ?: "",
+                            width = gsonNullable(row.width) ?: "",
+                            length = gsonNullable(row.length) ?: "",
+                            unitType = gsonNullable(row.unitType) ?: "",
+                            cabinets = gsonNullable(row.cabinets) ?: emptyList(),
+                            rawCabinetText = gsonNullable(row.rawCabinetText) ?: ""
                         )
                     },
-                    totals = (doc.totals ?: emptyList()).map { tot ->
+                    totals = (gsonNullable(doc.totals) ?: emptyList()).map { tot ->
                         HardwoodTotalsBlock(
                             page = tot.page,
-                            sourcePages = tot.sourcePages ?: emptyList(),
+                            sourcePages = gsonNullable(tot.sourcePages) ?: emptyList(),
                             material = tot.material,
-                            widthValues = tot.widthValues ?: emptyList(),
-                            lengthValues = tot.lengthValues ?: emptyList(),
-                            ripsValues = tot.ripsValues ?: emptyList(),
-                            unitType = tot.unitType ?: ""
+                            widthValues = gsonNullable(tot.widthValues) ?: emptyList(),
+                            lengthValues = gsonNullable(tot.lengthValues) ?: emptyList(),
+                            ripsValues = gsonNullable(tot.ripsValues) ?: emptyList(),
+                            unitType = gsonNullable(tot.unitType) ?: ""
                         )
                     }
                 )
@@ -1482,26 +1484,26 @@ class FileBackedUnifiedMetadataEngine(
             schemaVersion = hist.schemaVersion,
             updatedAt = hist.updatedAt,
             currentRevision = hist.currentRevision,
-            revisions = (hist.revisions ?: emptyList()).map { rev ->
+            revisions = (gsonNullable(hist.revisions) ?: emptyList()).map { rev ->
                 HardwoodRevisionEntry(
                     revision = rev.revision,
-                    kind = rev.kind ?: "DIFF",
+                    kind = gsonNullable(rev.kind) ?: "DIFF",
                     timestamp = rev.timestamp,
-                    added = (rev.added ?: emptyList()).map { sanitizeHardwoodRevisionRowSnapshot(it) },
-                    removed = (rev.removed ?: emptyList()).map { sanitizeHardwoodRevisionRowSnapshot(it) },
-                    modified = (rev.modified ?: emptyList()).map { mod ->
+                    added = (gsonNullable(rev.added) ?: emptyList()).map { sanitizeHardwoodRevisionRowSnapshot(it) },
+                    removed = (gsonNullable(rev.removed) ?: emptyList()).map { sanitizeHardwoodRevisionRowSnapshot(it) },
+                    modified = (gsonNullable(rev.modified) ?: emptyList()).map { mod ->
                         HardwoodRevisionModifiedEntry(
                             before = sanitizeHardwoodRevisionRowSnapshot(mod.before),
                             after = sanitizeHardwoodRevisionRowSnapshot(mod.after),
-                            changedFields = mod.changedFields ?: emptyList()
+                            changedFields = gsonNullable(mod.changedFields) ?: emptyList()
                         )
                     }
                 )
             },
-            currentRowStates = (hist.currentRowStates ?: emptyList()).map { state ->
+            currentRowStates = (gsonNullable(hist.currentRowStates) ?: emptyList()).map { state ->
                 HardwoodRowRevisionState(
-                    docType = state.docType ?: "",
-                    rowId = state.rowId ?: "",
+                    docType = gsonNullable(state.docType) ?: "",
+                    rowId = gsonNullable(state.rowId) ?: "",
                     latestRevision = state.latestRevision,
                     changedPendingRecut = state.changedPendingRecut
                 )
@@ -1512,33 +1514,33 @@ class FileBackedUnifiedMetadataEngine(
     private fun sanitizeHardwoodRevisionRowSnapshot(snap: HardwoodRevisionRowSnapshot?): HardwoodRevisionRowSnapshot {
         if (snap == null) return HardwoodRevisionRowSnapshot()
         return HardwoodRevisionRowSnapshot(
-            docType = snap.docType ?: "",
-            rowId = snap.rowId ?: "",
+            docType = gsonNullable(snap.docType) ?: "",
+            rowId = gsonNullable(snap.rowId) ?: "",
             page = snap.page,
             rowOrdinal = snap.rowOrdinal,
             qty = snap.qty,
-            material = snap.material ?: "",
-            description = snap.description ?: "",
-            width = snap.width ?: "",
-            length = snap.length ?: "",
-            cabinets = snap.cabinets ?: emptyList()
+            material = gsonNullable(snap.material) ?: "",
+            description = gsonNullable(snap.description) ?: "",
+            width = gsonNullable(snap.width) ?: "",
+            length = gsonNullable(snap.length) ?: "",
+            cabinets = gsonNullable(snap.cabinets) ?: emptyList()
         )
     }
 
     private fun sanitizeMaterialMetadata(metadata: MaterialMetadata?): MaterialMetadata {
         if (metadata == null) return MaterialMetadata()
         return MaterialMetadata(
-            jobNumber = metadata.jobNumber ?: "",
-            jobName = metadata.jobName ?: "",
-            material = metadata.material ?: "",
-            pdfFilename = metadata.pdfFilename ?: "",
+            jobNumber = gsonNullable(metadata.jobNumber) ?: "",
+            jobName = gsonNullable(metadata.jobName) ?: "",
+            material = gsonNullable(metadata.material) ?: "",
+            pdfFilename = gsonNullable(metadata.pdfFilename) ?: "",
             remakeLabel = metadata.remakeLabel,
             partGraphicsArchive = metadata.partGraphicsArchive,
-            pages = (metadata.pages ?: emptyList()).map { page ->
+            pages = (gsonNullable(metadata.pages) ?: emptyList()).map { page ->
                 PageMetadata(
                     pageNumber = page.pageNumber,
-                    sheetId = page.sheetId ?: "",
-                    sheetFiles = page.sheetFiles ?: emptyList(),
+                    sheetId = gsonNullable(page.sheetId) ?: "",
+                    sheetFiles = gsonNullable(page.sheetFiles) ?: emptyList(),
                     sheetDimensions = page.sheetDimensions,
                     logicalSheetKey = page.logicalSheetKey,
                     isPartListContinuation = page.isPartListContinuation,
@@ -1547,21 +1549,21 @@ class FileBackedUnifiedMetadataEngine(
                     hiddenInApp = page.hiddenInApp,
                     partListSpansPages = page.partListSpansPages,
                     thumbnailPath = page.thumbnailPath,
-                    parts = (page.parts ?: emptyList()).map { part ->
+                    parts = (gsonNullable(page.parts) ?: emptyList()).map { part ->
                         Part(
                             number = part.number,
                             width = part.width,
                             length = part.length,
-                            name = part.name ?: "",
+                            name = gsonNullable(part.name) ?: "",
                             cabNumber = part.cabNumber,
-                            room = part.room ?: "",
+                            room = gsonNullable(part.room) ?: "",
                             rotated = part.rotated,
                             graphicPath = part.graphicPath,
                             banding = part.banding
                         )
                     },
                     ocrBoxes = page.ocrBoxes?.mapValues { (_, list) ->
-                        (list ?: emptyList()).map { box ->
+                        (gsonNullable(list) ?: emptyList()).map { box ->
                             OcrBoxMetadata(
                                 left = box.left,
                                 top = box.top,
@@ -1575,11 +1577,11 @@ class FileBackedUnifiedMetadataEngine(
                     ocrVersion = page.ocrVersion,
                     remake = page.remake?.let { rm ->
                         RemakePageMetadata(
-                            label = rm.label ?: "",
-                            remadeParts = (rm.remadeParts ?: emptyList()).map { rp ->
+                            label = gsonNullable(rm.label) ?: "",
+                            remadeParts = (gsonNullable(rm.remadeParts) ?: emptyList()).map { rp ->
                                 RemadePartMetadata(
                                     partNumber = rp.partNumber,
-                                    partName = rp.partName ?: "",
+                                    partName = gsonNullable(rp.partName) ?: "",
                                     sourcePdfFilename = rp.sourcePdfFilename,
                                     sourcePage = rp.sourcePage,
                                     sourcePartNumber = rp.sourcePartNumber

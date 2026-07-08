@@ -3,6 +3,7 @@ package com.kkc.sheettracker.ui.hardwoods
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import androidx.compose.ui.unit.dp
 
 class HardwoodsRowHelpersTest {
     @Test
@@ -51,5 +52,47 @@ class HardwoodsRowHelpersTest {
             "unassigned",
             normalizeWidthForGrouping(" Unassigned ")
         )
+    }
+
+    @Test
+    fun hardwoodsTallyHoldTarget_completesOnlyWhenIncrementCanAdvance() {
+        assertEquals(
+            HardwoodsTallyHoldTarget.COMPLETE,
+            hardwoodsTallyHoldTarget(isSkipped = false, done = 1, total = 3, isIncrement = true)
+        )
+        assertEquals(
+            HardwoodsTallyHoldTarget.NONE,
+            hardwoodsTallyHoldTarget(isSkipped = false, done = 3, total = 3, isIncrement = true)
+        )
+        assertEquals(
+            HardwoodsTallyHoldTarget.NONE,
+            hardwoodsTallyHoldTarget(isSkipped = true, done = 1, total = 3, isIncrement = true)
+        )
+    }
+
+    @Test
+    fun hardwoodsTallyHoldTarget_zeroesOnlyWhenDecrementCanRetreat() {
+        assertEquals(
+            HardwoodsTallyHoldTarget.ZERO,
+            hardwoodsTallyHoldTarget(isSkipped = false, done = 2, total = 3, isIncrement = false)
+        )
+        assertEquals(
+            HardwoodsTallyHoldTarget.NONE,
+            hardwoodsTallyHoldTarget(isSkipped = false, done = 0, total = 3, isIncrement = false)
+        )
+        assertEquals(
+            HardwoodsTallyHoldTarget.NONE,
+            hardwoodsTallyHoldTarget(isSkipped = true, done = 2, total = 3, isIncrement = false)
+        )
+    }
+
+    @Test
+    fun hardwoodsListBottomScrollPadding_clearsFloatingAppScaffold() {
+        assertEquals(200.dp, hardwoodsListBottomScrollPadding())
+    }
+
+    @Test
+    fun hardwoodsTallyButtonSize_staysCompactInsideListRows() {
+        assertEquals(32.dp, hardwoodsTallyButtonSize())
     }
 }

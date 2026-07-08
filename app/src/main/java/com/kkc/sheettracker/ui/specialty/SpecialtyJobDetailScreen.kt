@@ -133,9 +133,8 @@ fun SpecialtyJobDetailScreen(
     var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var expandedSectionIds by remember(jobFolderName) { mutableStateOf<Set<String>?>(null) }
     val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
-        // Specialty mode excludes DELIVERY-tagged items
         specialtyStateStore.getResolvedItems(jobFolderName)
-            .filter { !it.item.stations.contains(SpecialtyStation.DELIVERY) }
+            .filter { isItemRelevantToMode(it, SpecialtySurfaceMode.SPECIALTY) }
     }
 
     val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()

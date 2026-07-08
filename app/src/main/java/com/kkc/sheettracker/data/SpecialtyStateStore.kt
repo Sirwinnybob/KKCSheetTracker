@@ -218,10 +218,7 @@ class SpecialtyStateStore(
 
     fun deriveJobCards(): List<SpecialtyJobCard> {
         return getJobs().map { job ->
-            // Specialty mode excludes DELIVERY-tagged items from counts and station progress
-            val specialtyItems = job.resolvedItems.filter { resolved ->
-                !resolved.item.stations.contains(SpecialtyStation.DELIVERY)
-            }
+            val specialtyItems = job.resolvedItems
             val specialtyTotal = specialtyItems.size
             val specialtyCompleted = specialtyItems.count { it.isComplete }
             SpecialtyJobCard(
