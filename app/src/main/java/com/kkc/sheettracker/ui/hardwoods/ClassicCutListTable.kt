@@ -121,6 +121,8 @@ fun ClassicCutListTable(
     onIncrementProgress: (rowId: String, currentDone: Int, maxQty: Int) -> Unit,
     onDecrementProgress: (rowId: String, currentDone: Int, maxQty: Int) -> Unit,
     onToggleSkip: (rowId: String, currentSkipped: Boolean) -> Unit,
+    onCompleteProgress: (rowId: String, qty: Int) -> Unit,
+    onZeroProgress: (rowId: String, qty: Int) -> Unit,
     activeStrokes: List<HardwoodInkStroke>,
     onSaveStrokes: (strokes: List<HardwoodInkStroke>, deletedIds: List<String>) -> Unit,
     onRowLongPress: (HardwoodCutlistRow) -> Unit,
@@ -635,6 +637,8 @@ fun ClassicCutListTable(
                                     onIncrement = { onIncrementProgress(row.rowId, done, qty) },
                                     onDecrement = { onDecrementProgress(row.rowId, done, qty) },
                                     onToggleSkip = { onToggleSkip(row.rowId, skipped) },
+                                    onCompleteAll = { onCompleteProgress(row.rowId, qty) },
+                                    onZeroOut = { onZeroProgress(row.rowId, qty) },
                                     longPressEnabled = classicRowLongPressEnabled(allowFingerDrawing),
                                     onLongPress = { onRowLongPress(row) },
                                     tallyTargetKeyPrefix = "${docType.name}-${classicPage}-${row.rowId}",
@@ -777,6 +781,8 @@ private fun TableRow(
     tallyActionsEnabled: Boolean,
     onIncrement: () -> Unit,
     onDecrement: () -> Unit,
+    onCompleteAll: () -> Unit,
+    onZeroOut: () -> Unit,
     onToggleSkip: () -> Unit,
     longPressEnabled: Boolean,
     onLongPress: () -> Unit,
@@ -885,11 +891,7 @@ private fun TableRow(
             val incrementEnabled = actionsEnabled && !skipped && done < qty
             val skipEnabled = actionsEnabled
 
-            IconButton(
-                onClick = {
-                    onDecrement()
-                },
-                enabled = decrementEnabled,
+            Box(
                 modifier = Modifier
                     .size(36.dp)
                     .trackTallyTarget(
@@ -898,6 +900,15 @@ private fun TableRow(
                         onTap = onDecrement,
                         onTargetChanged = onTallyTargetChanged
                     )
+                    .combinedClickable(
+                        enabled = decrementEnabled,
+                        onClick = onDecrement,
+                        onLongClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onZeroOut()
+                        }
+                    ),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.RemoveCircleOutline,
@@ -937,11 +948,7 @@ private fun TableRow(
                 }
             )
 
-            IconButton(
-                onClick = {
-                    onIncrement()
-                },
-                enabled = incrementEnabled,
+            Box(
                 modifier = Modifier
                     .size(36.dp)
                     .trackTallyTarget(
@@ -950,6 +957,15 @@ private fun TableRow(
                         onTap = onIncrement,
                         onTargetChanged = onTallyTargetChanged
                     )
+                    .combinedClickable(
+                        enabled = incrementEnabled,
+                        onClick = onIncrement,
+                        onLongClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onCompleteAll()
+                        }
+                    ),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.AddCircleOutline,
