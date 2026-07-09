@@ -31,9 +31,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.math.BigDecimal
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
@@ -154,32 +151,12 @@ class HardwoodsProgressStore(
     // Must be written atomically (temp file + Files.move ATOMIC_MOVE) so a concurrent reader never
     // observes a truncated/partial JSON file — readProgressFromDir silently drops any tablet whose
     // file fails to parse, so a torn write here is silent data loss for that tablet, not just an
-    // error. Mirrors ProgressStore.atomicWrite (ProgressStore.kt:239). See METADATA_AUDIT.md H-02.
+    // error. Uses the shared atomicWriteFile() helper (AtomicFileWriter.kt). See METADATA_AUDIT.md
+    // H-02 and R-04.
     private fun saveTabletProgress(jobFolderName: String, progress: HardwoodTabletProgress) {
         val dir = trackerDir(jobFolderName)
         dir.mkdirs()
-        atomicWrite(tabletFile(jobFolderName), gson.toJson(progress))
-    }
-
-    private fun atomicWrite(target: File, body: String) {
-        target.parentFile?.mkdirs()
-        val temp = File(target.parentFile, "${target.name}.tmp-${System.nanoTime()}")
-        temp.writeText(body)
-
-        try {
-            Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
-            )
-        } catch (_: AtomicMoveNotSupportedException) {
-            Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING
-            )
-        }
+        atomicWriteFile(tabletFile(jobFolderName), gson.toJson(progress))
     }
 
     private fun appendAction(

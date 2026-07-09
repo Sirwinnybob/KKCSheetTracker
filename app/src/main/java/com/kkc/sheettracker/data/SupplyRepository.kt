@@ -4,9 +4,6 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.kkc.sheettracker.data.models.*
 import java.io.File
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 class SupplyRepository(private val basePath: String) {
@@ -26,30 +23,10 @@ class SupplyRepository(private val basePath: String) {
     // CROSS-PROGRAM: see METADATA_AUDIT.md H-07. `.supply/items/<id>.json` and
     // `.supply/categories.json` are also written by the Hours Tracker backend
     // (backend/routes/supply_store.py, atomic+locked). Every tablet write to those files must
-    // go through this helper (temp file + Files.move ATOMIC_MOVE) so a concurrent reader —
-    // the backend, a peer tablet via Syncthing, or this app's own getItems()/getCategories() —
-    // never observes a truncated/partial JSON file. Mirrors HardwoodsProgressStore.atomicWrite
-    // / ProgressStore.atomicWrite (see METADATA_AUDIT.md H-02).
-    private fun atomicWrite(target: File, body: String) {
-        target.parentFile?.mkdirs()
-        val temp = File(target.parentFile, "${target.name}.tmp-${System.nanoTime()}")
-        temp.writeText(body)
-
-        try {
-            Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
-            )
-        } catch (_: AtomicMoveNotSupportedException) {
-            Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING
-            )
-        }
-    }
+    // go through the shared atomicWriteFile() helper (AtomicFileWriter.kt) so a concurrent
+    // reader — the backend, a peer tablet via Syncthing, or this app's own
+    // getItems()/getCategories() — never observes a truncated/partial JSON file. See
+    // METADATA_AUDIT.md H-02, H-07, R-04.
 
     // ── Read helpers ──────────────────────────────────────────────────────────
 
@@ -149,7 +126,7 @@ class SupplyRepository(private val basePath: String) {
             val existing = readJson<List<SupplyCategory>>(File(supplyDir, "categories.json")) ?: emptyList()
             val cat = SupplyCategory(UUID.randomUUID().toString(), name.trim(), existing.size)
             val updated = existing + cat
-            atomicWrite(File(supplyDir, "categories.json"), gson.toJson(updated))
+            atomicWriteFile(File(supplyDir, "categories.json"), gson.toJson(updated))
             return cat
         }
     }
@@ -172,7 +149,7 @@ class SupplyRepository(private val basePath: String) {
         // CROSS-PROGRAM: see METADATA_AUDIT.md H-07 — items/<id>.json is also written by the
         // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
         // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
-        atomicWrite(File(itemsDir, "$id.json"), gson.toJson(stored))
+        atomicWriteFile(File(itemsDir, "$id.json"), gson.toJson(stored))
         if (status != "IN STOCK") {
             setStatus(id, status, "", tabletId)
         }
@@ -190,7 +167,7 @@ class SupplyRepository(private val basePath: String) {
         // CROSS-PROGRAM: see METADATA_AUDIT.md H-07 — items/<id>.json is also written by the
         // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
         // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
-        atomicWrite(file, gson.toJson(updated))
+        atomicWriteFile(file, gson.toJson(updated))
         return updated.resolve()
     }
 
@@ -209,7 +186,7 @@ class SupplyRepository(private val basePath: String) {
         // (backend, peer tablet, or this app's own getItems()) from observing a torn file. Note:
         // the attachment binary copy just above is plain (overwrite = true) — that is tracked
         // separately as L-04 and intentionally out of scope for H-07.
-        atomicWrite(itemFile, gson.toJson(updated))
+        atomicWriteFile(itemFile, gson.toJson(updated))
         return updated.resolve()
     }
 

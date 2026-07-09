@@ -10,9 +10,6 @@ import com.kkc.sheettracker.data.models.TabletSpecialtyItem
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -137,18 +134,7 @@ class TabletSpecialtyItemsStore(
                 addProperty("createdByDevice", item.createdByDevice)
             })
         }
-        atomicWrite(ownFile(jobFolderName), gson.toJson(array))
-    }
-
-    private fun atomicWrite(target: File, body: String) {
-        target.parentFile?.mkdirs()
-        val temp = File(target.parentFile, "${target.name}.tmp-${System.nanoTime()}")
-        temp.writeText(body)
-        try {
-            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-        } catch (_: AtomicMoveNotSupportedException) {
-            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        }
+        atomicWriteFile(ownFile(jobFolderName), gson.toJson(array))
     }
 
     private fun adminDir(jobFolderName: String) = File(baseDir, "$jobFolderName/.metadata/admin")

@@ -13,9 +13,6 @@ import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.SpecialtyTrackerProgress
 import java.io.File
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -594,7 +591,7 @@ class SpecialtyProgressStore(
                 }
             })
         }
-        atomicWrite(tabletFile(jobFolderName), gson.toJson(root))
+        atomicWriteFile(tabletFile(jobFolderName), gson.toJson(root))
     }
 
     private fun SpecialtyCompletionState.toJson(): JsonObject {
@@ -602,27 +599,6 @@ class SpecialtyProgressStore(
             addProperty("completed", completed)
             if (!completedAt.isNullOrBlank()) addProperty("completedAt", completedAt)
             if (!completedBy.isNullOrBlank()) addProperty("completedBy", completedBy)
-        }
-    }
-
-    private fun atomicWrite(target: File, body: String) {
-        target.parentFile?.mkdirs()
-        val temp = File(target.parentFile, "${target.name}.tmp-${System.nanoTime()}")
-        temp.writeText(body)
-
-        try {
-            Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
-            )
-        } catch (_: AtomicMoveNotSupportedException) {
-            Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING
-            )
         }
     }
 
@@ -655,7 +631,7 @@ class SpecialtyProgressStore(
      * - A value of `null` is serialised as JSON `null` (meaning "clear this field").
      * - If a previous entry for [itemId] exists it is replaced (last-write wins).
      * - List values are serialised as a JsonArray of strings.
-     * - Write is atomic (temp file + Files.move ATOMIC_MOVE).
+     * - Write is atomic (shared atomicWriteFile() helper — temp file + Files.move ATOMIC_MOVE).
      *
      * MUST be called while holding the per-job mutex.
      */
@@ -723,7 +699,7 @@ class SpecialtyProgressStore(
             add("patches", patchesArray)
         }
 
-        atomicWrite(file, gson.toJson(newRoot))
+        atomicWriteFile(file, gson.toJson(newRoot))
     }
 
     // -------------------------------------------------------------------------
