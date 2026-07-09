@@ -147,6 +147,8 @@ class SpecialtyProgressStore(
         }
     }
 
+    // H-04: Instead of reading + RMW on the canonical specialty_items.json or checklist.json,
+    // write a per-tablet sidecar patch file. The canonical file is never modified by the tablet.
     suspend fun updateSpecialtyItemFields(
         jobFolderName: String,
         itemId: String,
@@ -158,37 +160,22 @@ class SpecialtyProgressStore(
         if (itemId.isBlank()) return
         val isChecklist = itemId.startsWith("checklist:")
         val rawItemId = if (isChecklist) itemId.removePrefix("checklist:") else itemId
+
+        // Build the patch fields map. null means "clear this field" — include it explicitly.
+        // (Original behaviour: null param -> obj.remove(field), i.e. explicit clear.)
+        val fields = mutableMapOf<String, Any?>()
+        fields["dimensions"] = dimensions
+        fields["quantity"] = quantity
+        fields["material"] = material
+
         val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         mutex.withLock {
-            val file = if (isChecklist) checklistFile(jobFolderName) else specialtyItemsFile(jobFolderName)
-            if (!file.exists() || !file.isFile) return@withLock
-            val raw = runCatching { file.readText() }.getOrNull() ?: return@withLock
-            val root = runCatching { JsonParser.parseString(raw) }.getOrNull() ?: return@withLock
-            val itemsArray = when {
-                root.isJsonArray -> root.asJsonArray
-                root.isJsonObject -> root.asJsonObject.getAsJsonArray("items")
-                else -> null
-            } ?: return@withLock
-
-            var modified = false
-            itemsArray.forEach { element ->
-                val obj = element as? JsonObject ?: return@forEach
-                if (obj.getString("id") != rawItemId) return@forEach
-                if (dimensions != null) obj.addProperty("dimensions", dimensions) else obj.remove("dimensions")
-                if (quantity != null) obj.addProperty("quantity", quantity) else obj.remove("quantity")
-                if (material != null) obj.addProperty("material", material) else obj.remove("material")
-                modified = true
-            }
-
-            if (!modified) return@withLock
-            val output: com.google.gson.JsonElement = if (root.isJsonObject) {
-                root.asJsonObject.apply { add("items", itemsArray) }
-            } else itemsArray
-            atomicWrite(file, gson.toJson(output))
-            invalidateJobCache(jobFolderName)
+            writePatchOverlay(jobFolderName, isChecklist, rawItemId, fields)
         }
+        invalidateJobCache(jobFolderName)
     }
 
+    // H-04: Same pattern as updateSpecialtyItemFields — writes a sidecar patch.
     suspend fun updateToOrderItem(
         jobFolderName: String,
         itemId: String,
@@ -208,65 +195,31 @@ class SpecialtyProgressStore(
         if (itemId.isBlank()) return
         val isChecklist = itemId.startsWith("checklist:")
         val rawItemId = if (isChecklist) itemId.removePrefix("checklist:") else itemId
+
+        // Build the patch fields map. Always use canonical key names; backend handles both.
+        // null means "clear this field" (original behaviour: null -> obj.remove(field)).
+        val fields = mutableMapOf<String, Any?>()
+        if (isChecklist) {
+            fields["text"] = name
+        } else {
+            fields["name"] = name
+        }
+        fields["cabinetNumbers"] = cabinetNumbers  // List serialised as JsonArray by writePatchOverlay
+        fields["supplier"] = supplier
+        fields["modelNumber"] = model          // Always use modelNumber; backend accepts both
+        fields["orderDate"] = orderDate
+        fields["trackingNumber"] = tracking    // Always use trackingNumber; backend accepts both
+        fields["orderUrl"] = orderUrl
+        fields["notes"] = notes
+        fields["quantity"] = quantity
+        fields["material"] = material
+        fields["dimensions"] = dimensions
+
         val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         mutex.withLock {
-            val file = if (isChecklist) checklistFile(jobFolderName) else specialtyItemsFile(jobFolderName)
-            if (!file.exists() || !file.isFile) return@withLock
-            val raw = runCatching { file.readText() }.getOrNull() ?: return@withLock
-            val root = runCatching { JsonParser.parseString(raw) }.getOrNull() ?: return@withLock
-            val itemsArray = when {
-                root.isJsonArray -> root.asJsonArray
-                root.isJsonObject -> root.asJsonObject.getAsJsonArray("items")
-                else -> null
-            } ?: return@withLock
-
-            var modified = false
-            itemsArray.forEach { element ->
-                val obj = element as? JsonObject ?: return@forEach
-                if (obj.getString("id") != rawItemId) return@forEach
-
-                if (isChecklist) {
-                    obj.addProperty("text", name)
-                } else {
-                    obj.addProperty("name", name)
-                }
-
-                val cabArray = com.google.gson.JsonArray()
-                cabinetNumbers.forEach { cabArray.add(it) }
-                obj.add("cabinetNumbers", cabArray)
-
-                if (supplier != null) obj.addProperty("supplier", supplier) else obj.remove("supplier")
-
-                if (obj.has("modelNumber") || isChecklist) {
-                    if (model != null) obj.addProperty("modelNumber", model) else obj.remove("modelNumber")
-                } else {
-                    if (model != null) obj.addProperty("model", model) else obj.remove("model")
-                }
-
-                if (orderDate != null) obj.addProperty("orderDate", orderDate) else obj.remove("orderDate")
-
-                if (obj.has("trackingNumber") || isChecklist) {
-                    if (tracking != null) obj.addProperty("trackingNumber", tracking) else obj.remove("trackingNumber")
-                } else {
-                    if (tracking != null) obj.addProperty("tracking", tracking) else obj.remove("tracking")
-                }
-
-                if (orderUrl != null) obj.addProperty("orderUrl", orderUrl) else obj.remove("orderUrl")
-                if (notes != null) obj.addProperty("notes", notes) else obj.remove("notes")
-                if (quantity != null) obj.addProperty("quantity", quantity) else obj.remove("quantity")
-                if (material != null) obj.addProperty("material", material) else obj.remove("material")
-                if (dimensions != null) obj.addProperty("dimensions", dimensions) else obj.remove("dimensions")
-
-                modified = true
-            }
-
-            if (!modified) return@withLock
-            val output: com.google.gson.JsonElement = if (root.isJsonObject) {
-                root.asJsonObject.apply { add("items", itemsArray) }
-            } else itemsArray
-            atomicWrite(file, gson.toJson(output))
-            invalidateJobCache(jobFolderName)
+            writePatchOverlay(jobFolderName, isChecklist, rawItemId, fields)
         }
+        invalidateJobCache(jobFolderName)
     }
 
     fun invalidateJobCache(jobFolderName: String) {
@@ -672,6 +625,110 @@ class SpecialtyProgressStore(
             )
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Patch sidecar helpers (H-04)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns the per-tablet sidecar file path.
+     * Sidecars live alongside the canonical admin files but are OWNED by this
+     * tablet — the backend reads them but never writes them.
+     *   specialty_patch.<tabletId>.json  — patches to specialty_items.json
+     *   checklist_patch.<tabletId>.json  — patches to checklist.json
+     */
+    private fun patchFile(jobFolderName: String, isChecklist: Boolean): File {
+        val filename = if (isChecklist) "checklist_patch.$tabletId.json"
+                       else "specialty_patch.$tabletId.json"
+        return File(File(baseDir, "$jobFolderName/.metadata/admin"), filename)
+    }
+
+    /**
+     * Upserts a patch entry for [itemId] into the per-tablet sidecar file.
+     *
+     * Format written:
+     * ```json
+     * { "schemaVersion": 1, "patches": [ { "itemId": "...", "patchedAt": "...", "fields": { ... } } ] }
+     * ```
+     *
+     * - Only supplied keys appear in `fields`.
+     * - A value of `null` is serialised as JSON `null` (meaning "clear this field").
+     * - If a previous entry for [itemId] exists it is replaced (last-write wins).
+     * - List values are serialised as a JsonArray of strings.
+     * - Write is atomic (temp file + Files.move ATOMIC_MOVE).
+     *
+     * MUST be called while holding the per-job mutex.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun writePatchOverlay(
+        jobFolderName: String,
+        isChecklist: Boolean,
+        itemId: String,
+        fields: Map<String, Any?>
+    ) {
+        val file = patchFile(jobFolderName, isChecklist)
+
+        // Load existing patches, or start fresh.
+        val existingRoot: JsonObject = if (file.exists() && file.isFile) {
+            runCatching {
+                JsonParser.parseString(file.readText()).asJsonObject
+            }.getOrNull() ?: JsonObject()
+        } else {
+            JsonObject()
+        }
+
+        val patchesArray: com.google.gson.JsonArray =
+            existingRoot.get("patches")
+                ?.takeIf { it.isJsonArray }
+                ?.asJsonArray
+                ?: com.google.gson.JsonArray()
+
+        // Remove any existing entry for this itemId (upsert semantics).
+        val iterator = patchesArray.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next() as? JsonObject ?: continue
+            if (entry.get("itemId")?.asStringOrNull() == itemId) {
+                iterator.remove()
+            }
+        }
+
+        // Build the fields JsonObject — include null values as JsonNull (explicit clear).
+        val fieldsObj = JsonObject()
+        fields.forEach { (key, value) ->
+            when (value) {
+                null -> fieldsObj.add(key, com.google.gson.JsonNull.INSTANCE)
+                is String -> fieldsObj.addProperty(key, value)
+                is Number -> fieldsObj.addProperty(key, value)
+                is Boolean -> fieldsObj.addProperty(key, value)
+                is List<*> -> {
+                    val arr = com.google.gson.JsonArray()
+                    (value as List<*>).forEach { item -> arr.add(item?.toString()) }
+                    fieldsObj.add(key, arr)
+                }
+                else -> fieldsObj.addProperty(key, value.toString())
+            }
+        }
+
+        // Build the new patch entry and append.
+        val newEntry = JsonObject().apply {
+            addProperty("itemId", itemId)
+            addProperty("patchedAt", Instant.now().toString())
+            add("fields", fieldsObj)
+        }
+        patchesArray.add(newEntry)
+
+        // Assemble the sidecar root object.
+        val newRoot = JsonObject().apply {
+            addProperty("schemaVersion", 1)
+            add("patches", patchesArray)
+        }
+
+        atomicWrite(file, gson.toJson(newRoot))
+    }
+
+    // -------------------------------------------------------------------------
+    // Canonical file path helpers (read-only from tablet perspective after H-04)
+    // -------------------------------------------------------------------------
 
     private fun specialtyItemsFile(jobFolderName: String): File {
         return File(baseDir, "$jobFolderName/.metadata/admin/specialty_items.json")

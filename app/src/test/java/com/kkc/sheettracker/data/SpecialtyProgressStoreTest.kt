@@ -1111,10 +1111,16 @@ class SpecialtyProgressStoreTest {
                 material = "Maple"
             )
 
-        val updated = checklistItemsFile(baseDir, jobFolderName).readText()
-        assertTrue(updated.contains("\"dimensions\": \"12 x 24\""))
-        assertTrue(updated.contains("\"quantity\": 3.0"))
-        assertTrue(updated.contains("\"material\": \"Maple\""))
+        // H-04: the tablet no longer RMWs the canonical checklist.json directly — it writes a
+        // per-tablet sidecar patch that the Hours Tracker backend merges at read time.
+        val canonical = checklistItemsFile(baseDir, jobFolderName).readText()
+        assertFalse(canonical.contains("\"dimensions\""))
+
+        val patch = checklistPatchFile(baseDir, jobFolderName, tabletId).readText()
+        assertTrue(patch.contains("\"itemId\": \"c1\""))
+        assertTrue(patch.contains("\"dimensions\": \"12 x 24\""))
+        assertTrue(patch.contains("\"quantity\": 3.0"))
+        assertTrue(patch.contains("\"material\": \"Maple\""))
     }
 
     @Test
@@ -1156,15 +1162,22 @@ class SpecialtyProgressStoreTest {
                 dimensions = "1 x 2"
             )
 
-        val updated = checklistItemsFile(baseDir, jobFolderName).readText()
-        assertTrue(updated.contains("\"text\": \"New name\""))
-        assertFalse(updated.contains("\"name\": \"New name\""))
-        assertTrue(updated.contains("\"modelNumber\": \"MODEL-1\""))
-        assertTrue(updated.contains("\"trackingNumber\": \"TRACK-1\""))
-        assertTrue(updated.contains("\"orderDate\": \"07-08\""))
-        assertTrue(updated.contains("\"quantity\": 12.0"))
-        assertTrue(updated.contains("\"material\": \"Brass\""))
-        assertTrue(updated.contains("\"dimensions\": \"1 x 2\""))
+        // H-04: canonical checklist.json must remain untouched by the tablet; the edit lands in
+        // a per-tablet sidecar patch that the Hours Tracker backend merges at read time.
+        val canonical = checklistItemsFile(baseDir, jobFolderName).readText()
+        assertTrue(canonical.contains("\"text\": \"Old name\""))
+        assertFalse(canonical.contains("New name"))
+
+        val patch = checklistPatchFile(baseDir, jobFolderName, tabletId).readText()
+        assertTrue(patch.contains("\"itemId\": \"c1\""))
+        assertTrue(patch.contains("\"text\": \"New name\""))
+        assertFalse(patch.contains("\"name\": \"New name\""))
+        assertTrue(patch.contains("\"modelNumber\": \"MODEL-1\""))
+        assertTrue(patch.contains("\"trackingNumber\": \"TRACK-1\""))
+        assertTrue(patch.contains("\"orderDate\": \"07-08\""))
+        assertTrue(patch.contains("\"quantity\": 12.0"))
+        assertTrue(patch.contains("\"material\": \"Brass\""))
+        assertTrue(patch.contains("\"dimensions\": \"1 x 2\""))
     }
 
     private fun createTempBaseDir(): File = Files.createTempDirectory("specialty-progress-store-test").toFile()
@@ -1193,6 +1206,10 @@ class SpecialtyProgressStoreTest {
 
     private fun trackerFile(baseDir: File, jobFolderName: String, tabletId: String): File {
         return File(baseDir, "$jobFolderName/.metadata/admin/.tracker/$tabletId.json")
+    }
+
+    private fun checklistPatchFile(baseDir: File, jobFolderName: String, tabletId: String): File {
+        return File(baseDir, "$jobFolderName/.metadata/admin/checklist_patch.$tabletId.json")
     }
 
     private fun checklistItemsFile(baseDir: File, jobFolderName: String): File {
