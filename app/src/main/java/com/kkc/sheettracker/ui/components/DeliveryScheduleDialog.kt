@@ -298,7 +298,7 @@ fun DeliveryScheduleDialog(
                             )
                         ) {
                             Text(
-                                text = "Queued edits will apply when Hours Tracker consumes delivery_schedule_request.json, then this view will refresh from the master schedule.",
+                                text = "Queued edits will apply when Hours Tracker consumes this tablet's delivery schedule request, then this view will refresh from the master schedule.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.padding(KKCSpacing.cardPaddingSmall)

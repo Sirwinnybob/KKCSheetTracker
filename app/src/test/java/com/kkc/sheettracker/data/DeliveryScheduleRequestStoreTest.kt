@@ -29,7 +29,8 @@ class DeliveryScheduleRequestStoreTest {
             tabletId = "tablet-1"
         )
 
-        val root = JsonParser.parseString(File(baseDir, "delivery_schedule_request.json").readText()).asJsonObject
+        // METADATA_AUDIT.md M-04: the request file is now keyed on tabletId, not a fixed name.
+        val root = JsonParser.parseString(File(baseDir, "delivery_schedule_request.tablet-1.json").readText()).asJsonObject
         assertEquals("tablet-1", root.get("tabletId").asString)
         assertFalse(root.get("resetAll").asBoolean)
         val edit = root.getAsJsonArray("slotEdits")[0].asJsonObject
@@ -50,7 +51,7 @@ class DeliveryScheduleRequestStoreTest {
         store.queueSlotEdit("tuesday_pm", listOf(DeliveryJob(jobNumber = "2", description = "Two")), "tablet-1")
         store.queueSlotEdit("monday_am", listOf(DeliveryJob(jobNumber = "3", description = "Three")), "tablet-1")
 
-        val edits = JsonParser.parseString(File(baseDir, "delivery_schedule_request.json").readText())
+        val edits = JsonParser.parseString(File(baseDir, "delivery_schedule_request.tablet-1.json").readText())
             .asJsonObject
             .getAsJsonArray("slotEdits")
         assertEquals(2, edits.size())
@@ -66,8 +67,36 @@ class DeliveryScheduleRequestStoreTest {
         store.queueSlotEdit("monday_am", listOf(DeliveryJob(jobNumber = "1", description = "One")), "tablet-1")
         store.queueReset("tablet-1")
 
-        val root = JsonParser.parseString(File(baseDir, "delivery_schedule_request.json").readText()).asJsonObject
+        val root = JsonParser.parseString(File(baseDir, "delivery_schedule_request.tablet-1.json").readText()).asJsonObject
         assertTrue(root.get("resetAll").asBoolean)
         assertEquals(0, root.getAsJsonArray("slotEdits").size())
+    }
+
+    // ==================== M-04 regression: per-tablet filenames don't collide ====================
+
+    @Test
+    fun twoTabletsQueuingBeforeAPollBothProduceDistinctRequestFiles() {
+        // Regression for METADATA_AUDIT.md M-04: two tablets queuing delivery-schedule edits
+        // before the backend's next poll cycle used to collide on one shared
+        // `delivery_schedule_request.json` (lost update or an unread `.sync-conflict-*` copy).
+        // Each tablet must now write its own file so both edits survive until the backend
+        // consumes them.
+        val baseDir = Files.createTempDirectory("delivery-request-store-two-tablets").toFile()
+        val store = DeliveryScheduleRequestStore(baseDir)
+
+        store.queueSlotEdit("monday_am", listOf(DeliveryJob(jobNumber = "1", description = "One")), "tablet-a")
+        store.queueSlotEdit("tuesday_pm", listOf(DeliveryJob(jobNumber = "2", description = "Two")), "tablet-b")
+
+        val tabletAFile = File(baseDir, "delivery_schedule_request.tablet-a.json")
+        val tabletBFile = File(baseDir, "delivery_schedule_request.tablet-b.json")
+        assertTrue("tablet-a's request file is missing", tabletAFile.exists())
+        assertTrue("tablet-b's request file is missing", tabletBFile.exists())
+
+        val tabletARoot = JsonParser.parseString(tabletAFile.readText()).asJsonObject
+        val tabletBRoot = JsonParser.parseString(tabletBFile.readText()).asJsonObject
+        assertEquals("tablet-a", tabletARoot.get("tabletId").asString)
+        assertEquals("monday_am", tabletARoot.getAsJsonArray("slotEdits")[0].asJsonObject.get("slot").asString)
+        assertEquals("tablet-b", tabletBRoot.get("tabletId").asString)
+        assertEquals("tuesday_pm", tabletBRoot.getAsJsonArray("slotEdits")[0].asJsonObject.get("slot").asString)
     }
 }

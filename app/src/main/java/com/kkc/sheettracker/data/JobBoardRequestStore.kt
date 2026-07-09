@@ -22,10 +22,16 @@ data class JobBoardEditRequest(
 
 /**
  * The tablet's queued label/pending-delivery edits. The Hours Tracker backend polls for
- * `job_board_request.json` (beside `job_board.json`), applies each edit to the master
- * `job_board.json`, then deletes the request. Multiple edits queued before the next poll are
- * merged by folderName rather than overwritten, since an admin may tag several jobs within one
- * poll window.
+ * per-tablet `job_board_request.<tabletId>.json` files (beside `job_board.json`), applies each
+ * edit to the master `job_board.json` (oldest-first by `requestedAt`), then deletes each request
+ * file individually. Multiple edits queued by THIS tablet before the next poll are merged by
+ * folderName rather than overwritten, since an admin may tag several jobs within one poll window.
+ *
+ * CROSS-PROGRAM (see METADATA_AUDIT.md M-04): this used to be one shared
+ * `job_board_request.json` — two tablets queuing edits before the same poll cycle collided
+ * (lost update / unread `.sync-conflict-*` copy). Each tablet now owns a distinct filename keyed
+ * on its own tabletId; the backend poller (`main_v2.py` `_apply_job_board_edit_requests`) globs
+ * all matching files and applies them in timestamp order.
  */
 class JobBoardRequestStore(private val baseDir: File) {
 
@@ -40,11 +46,14 @@ class JobBoardRequestStore(private val baseDir: File) {
     }
 
     private fun queueEdit(folderName: String, tabletId: String, apply: (JobBoardEdit) -> JobBoardEdit) {
-        val dest = File(baseDir, "job_board_request.json")
-        // Guard the whole read-merge-write against concurrent edits. The lock is keyed by the
-        // request file's absolute path (not the store instance) because separate screens each
-        // build their own JobBoardRequestStore over the same file — a per-instance lock would
-        // let two of them clobber each other's queued edits.
+        val dest = File(baseDir, "job_board_request.$tabletId.json")
+        // Guard the whole read-merge-write against concurrent edits FROM THIS TABLET. The lock is
+        // keyed by the request file's absolute path (not the store instance) because separate
+        // screens each build their own JobBoardRequestStore over the same file — a per-instance
+        // lock would let two of them clobber each other's queued edits. This remains only an
+        // in-process mutex — it does NOT protect against a second DEVICE writing concurrently
+        // (see METADATA_AUDIT.md L-05, intentionally not fixed here); the cross-device collision
+        // this file used to cause (M-04) is avoided because each tablet now writes its own file.
         synchronized(lockFor(dest)) {
             val existing = readExisting(dest)
             val existingEdit = existing.find { it.folderName == folderName } ?: JobBoardEdit(folderName)
@@ -56,12 +65,7 @@ class JobBoardRequestStore(private val baseDir: File) {
                 tabletId = tabletId,
                 requestedAt = Instant.now().toString()
             )
-            val tmp = File(baseDir, "job_board_request.json.tmp")
-            tmp.writeText(gson.toJson(payload))
-            if (!tmp.renameTo(dest)) {
-                tmp.copyTo(dest, overwrite = true)
-                tmp.delete()
-            }
+            atomicWriteFile(dest, gson.toJson(payload))
         }
     }
 
