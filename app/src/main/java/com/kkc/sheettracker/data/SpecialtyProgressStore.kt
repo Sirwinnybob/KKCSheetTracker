@@ -305,7 +305,7 @@ class SpecialtyProgressStore(
         val checklistSeeds = loadChecklistCompletionSeeds(jobFolderName, items)
         val files = trackerDir(jobFolderName)
             .listFiles()
-            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) && !it.name.startsWith(".") }
+            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) && !it.name.startsWith(".") && !it.name.contains(".sync-conflict-") }
             ?.sortedBy { it.name.lowercase(Locale.US) }
             .orEmpty()
 
@@ -806,7 +806,7 @@ class SpecialtyProgressStore(
         val dir = File(baseDir, "$jobFolderName/.metadata/admin")
         if (!dir.isDirectory) return emptyList()
         return dir.listFiles()
-            ?.filter { it.isFile && it.name.startsWith("tablet_items_") && it.extension.equals("json", ignoreCase = true) }
+            ?.filter { it.isFile && it.name.startsWith("tablet_items_") && it.extension.equals("json", ignoreCase = true) && !it.name.contains(".sync-conflict-") }
             ?.sortedBy { it.name.lowercase(Locale.US) }
             ?.flatMap { parseTabletItemsFile(it) }
             .orEmpty()

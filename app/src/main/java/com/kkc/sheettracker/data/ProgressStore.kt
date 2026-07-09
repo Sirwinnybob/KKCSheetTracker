@@ -337,7 +337,7 @@ class ProgressStore(
         if (!dir.exists()) return emptyList()
 
         return dir.listFiles()
-            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) && !it.name.startsWith(".") }
+            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) && !it.name.startsWith(".") && !it.name.contains(".sync-conflict-") }
             ?.mapNotNull { file ->
                 try {
                     sanitizeProgress(

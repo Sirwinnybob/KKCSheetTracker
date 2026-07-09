@@ -272,6 +272,30 @@ class HardwoodsProgressStoreTest {
     }
 
     @Test
+    fun saveTabletProgressWritesAtomicallyWithNoLeftoverTempFile() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(baseDir, jobFolderName, HardwoodCutlistIndex())
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        store.setBoardStockRipDone(jobFolderName, "Maple Select", 2.5, "FRAME", 4)
+        store.awaitPendingWrites()
+
+        val trackerDir = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker")
+        val trackerFiles = trackerDir.listFiles().orEmpty().map { it.name }
+
+        // The write must land as the final "<tabletId>.json" with no ".tmp-*" artifact left
+        // behind, and the file itself must contain fully-formed, parseable JSON (i.e. it was
+        // never observed mid-write via a truncating writeText()).
+        assertTrue(trackerFiles.contains("$tabletId.json"))
+        assertTrue(trackerFiles.none { it.contains(".tmp-") })
+
+        val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
+        assertEquals(1, persisted.actions.size)
+        assertEquals(HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT, persisted.actions.first().action)
+        assertEquals(4, persisted.actions.first().value)
+    }
+
+    @Test
     fun setTotalsRip10DoneWritesFinalSetAction() {
         val baseDir = createTempBaseDir()
         writeCutlistIndex(baseDir, jobFolderName, HardwoodCutlistIndex())

@@ -100,6 +100,29 @@ class ProgressStoreTest {
         assertTrue(progress.actions.all { it.action == "view" })
     }
 
+    @Test
+    fun loadAllProgressExcludesSyncConflictFiles() {
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-1",
+            progress = TabletProgress(tabletId = "tablet-1", actions = emptyList())
+        )
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-2.sync-conflict-20260709",
+            progress = TabletProgress(tabletId = "tablet-2.sync-conflict-20260709", actions = emptyList())
+        )
+
+        val allProgress = store.loadAllProgress(jobFolderName)
+        assertEquals(1, allProgress.size)
+        assertEquals("tablet-1", allProgress.first().tabletId)
+    }
+
     private fun createTempBaseDir(): File = Files.createTempDirectory("progress-store-test").toFile()
 
     private fun writeTabletProgress(baseDir: File, jobFolderName: String, tabletId: String, progress: TabletProgress) {

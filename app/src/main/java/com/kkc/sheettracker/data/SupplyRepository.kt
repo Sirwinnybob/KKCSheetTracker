@@ -34,7 +34,7 @@ class SupplyRepository(private val basePath: String) {
     // (was O(items) directory listings — an N+1 on the networked supply drive).
     private fun resolveStatusFrom(itemId: String, statusFiles: List<File>): SupplyStatusRecord {
         return statusFiles
-            .filter { it.name.startsWith("$itemId.") && it.name.endsWith(".json") }
+            .filter { it.name.startsWith("$itemId.") && it.name.endsWith(".json") && !it.name.contains(".sync-conflict-") }
             .mapNotNull { readJson<SupplyStatusRecord>(it) }
             .maxByOrNull { it.at }
             ?: SupplyStatusRecord("IN STOCK")
@@ -64,7 +64,7 @@ class SupplyRepository(private val basePath: String) {
         // List the status directory once and reuse it across all items, instead of
         // re-listing it inside resolve()/resolveStatus() for every item.
         val statusFiles = statusDir.listFiles()?.toList().orEmpty()
-        return itemsDir.listFiles { f -> f.extension == "json" }
+        return itemsDir.listFiles { f -> f.extension == "json" && !f.name.contains(".sync-conflict-") }
             ?.mapNotNull { file ->
                 val stored = readJson<StoredSupplyItem>(file) ?: return@mapNotNull null
                 stored.resolveWith(resolveStatusFrom(stored.id, statusFiles))
@@ -78,7 +78,7 @@ class SupplyRepository(private val basePath: String) {
     fun getComments(itemId: String): List<SupplyComment> {
         val dir = File(commentsDir, itemId)
         if (!dir.exists()) return emptyList()
-        return dir.listFiles { f -> f.extension == "json" }
+        return dir.listFiles { f -> f.extension == "json" && !f.name.contains(".sync-conflict-") }
             ?.mapNotNull { readJson<SupplyComment>(it) }
             ?.sortedBy { it.createdAt }
             ?: emptyList()

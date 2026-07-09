@@ -125,7 +125,7 @@ class PdfMarkupStore(
         return dir.listFiles()
             ?.filter {
                 it.isFile &&
-                    !it.name.startsWith(".") &&
+                    !it.name.startsWith(".") && !it.name.contains(".sync-conflict-") &&
                     (
                         it.name.endsWith(".markup.json", ignoreCase = true) ||
                             (it.extension.equals("json", ignoreCase = true) && !it.name.endsWith(".markup.json", ignoreCase = true))
@@ -187,7 +187,7 @@ class PdfMarkupStore(
         return dir.listFiles()
             ?.filter {
                 it.isFile &&
-                    !it.name.startsWith(".") &&
+                    !it.name.startsWith(".") && !it.name.contains(".sync-conflict-") &&
                     (
                         it.name.endsWith(".markup.json", ignoreCase = true) ||
                             (it.extension.equals("json", ignoreCase = true) && !it.name.endsWith(".markup.json", ignoreCase = true))

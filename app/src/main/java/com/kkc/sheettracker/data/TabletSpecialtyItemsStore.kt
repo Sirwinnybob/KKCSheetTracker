@@ -28,7 +28,7 @@ class TabletSpecialtyItemsStore(
         val dir = adminDir(jobFolderName)
         if (!dir.isDirectory) return emptyList()
         return dir.listFiles()
-            ?.filter { it.isFile && it.name.startsWith("tablet_items_") && it.extension.equals("json", ignoreCase = true) }
+            ?.filter { it.isFile && it.name.startsWith("tablet_items_") && it.extension.equals("json", ignoreCase = true) && !it.name.contains(".sync-conflict-") }
             ?.sortedBy { it.name.lowercase(Locale.US) }
             ?.flatMap { parseFile(it) }
             .orEmpty()

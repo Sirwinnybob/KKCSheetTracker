@@ -263,7 +263,7 @@ class TrackerChangeMonitor(
             ?.filter {
                 it.isFile &&
                     it.extension.equals("json", ignoreCase = true) &&
-                    !it.name.startsWith(".")
+                    !it.name.startsWith(".") && !it.name.contains(".sync-conflict-")
             }
             ?.sortedBy { it.name }
             .orEmpty()

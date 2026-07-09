@@ -472,7 +472,7 @@ class FileBackedUnifiedMetadataEngine(
             val files = dir.listFiles() ?: return null
             return files.firstOrNull { file ->
                 file.isFile &&
-                    file.extension.lowercase(Locale.US) == "pdf" &&
+                    file.extension.lowercase(Locale.US) == "pdf" && !file.name.contains(".sync-conflict-") &&
                     file.name.lowercase(Locale.US).contains(target)
             }?.name
         }
@@ -648,7 +648,7 @@ class FileBackedUnifiedMetadataEngine(
         val rootPdfs = jobDir.listFiles()
         if (rootPdfs != null) {
             for (file in rootPdfs) {
-                if (file.isFile && file.extension.equals("pdf", ignoreCase = true)) {
+                if (file.isFile && file.extension.equals("pdf", ignoreCase = true) && !file.name.contains(".sync-conflict-")) {
                     if (file.lastModified() > cacheMTime) return true
                 }
             }
@@ -658,7 +658,7 @@ class FileBackedUnifiedMetadataEngine(
         val cncPdfs = cncDir.listFiles()
         if (cncPdfs != null) {
             for (file in cncPdfs) {
-                if (file.isFile && file.extension.equals("pdf", ignoreCase = true) && "ALL SHEETS" !in file.name) {
+                if (file.isFile && file.extension.equals("pdf", ignoreCase = true) && "ALL SHEETS" !in file.name && !file.name.contains(".sync-conflict-")) {
                     if (file.lastModified() > cacheMTime) return true
                 }
             }
@@ -668,7 +668,7 @@ class FileBackedUnifiedMetadataEngine(
         val cncMetadata = cncMetadataDir.listFiles()
         if (cncMetadata != null) {
             for (file in cncMetadata) {
-                if (file.isFile && file.extension.equals("json", ignoreCase = true)) {
+                if (file.isFile && file.extension.equals("json", ignoreCase = true) && !file.name.contains(".sync-conflict-")) {
                     if (file.lastModified() > cacheMTime) return true
                 }
             }
@@ -1209,7 +1209,7 @@ class FileBackedUnifiedMetadataEngine(
         mix(signatureForFile(manualBoard))
 
         val rootPdfs = jobDir.listFiles()
-            ?.filter { it.isFile && it.extension.equals("pdf", ignoreCase = true) }
+            ?.filter { it.isFile && it.extension.equals("pdf", ignoreCase = true) && !it.name.contains(".sync-conflict-") }
             ?.sortedBy { it.name }
             .orEmpty()
         mix(rootPdfs.size.toLong())
@@ -1217,14 +1217,14 @@ class FileBackedUnifiedMetadataEngine(
 
         val cncDir = File(jobDir, "CNC")
         val cncPdfs = cncDir.listFiles()
-            ?.filter { it.isFile && it.extension.equals("pdf", ignoreCase = true) && "ALL SHEETS" !in it.name }
+            ?.filter { it.isFile && it.extension.equals("pdf", ignoreCase = true) && "ALL SHEETS" !in it.name && !it.name.contains(".sync-conflict-") }
             ?.sortedBy { it.name }
             .orEmpty()
         mix(cncPdfs.size.toLong())
         cncPdfs.forEach { file -> mix(signatureForFile(file)) }
 
         val cncMetadata = File(cncDir, ".metadata").listFiles()
-            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) }
+            ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) && !it.name.contains(".sync-conflict-") }
             ?.sortedBy { it.name }
             .orEmpty()
         mix(cncMetadata.size.toLong())
@@ -1243,7 +1243,7 @@ class FileBackedUnifiedMetadataEngine(
                 ?.filter {
                     it.isFile &&
                         it.extension.equals("json", ignoreCase = true) &&
-                        !it.name.startsWith(".")
+                        !it.name.startsWith(".") && !it.name.contains(".sync-conflict-")
                 }
                 ?.sortedBy { it.name }
                 .orEmpty()
