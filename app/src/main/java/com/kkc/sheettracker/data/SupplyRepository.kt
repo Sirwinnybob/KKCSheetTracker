@@ -4,6 +4,9 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.kkc.sheettracker.data.models.*
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 class SupplyRepository(private val basePath: String) {
@@ -13,6 +16,40 @@ class SupplyRepository(private val basePath: String) {
     private val statusDir get() = File(supplyDir, "status")
     private val commentsDir get() = File(supplyDir, "comments")
     private val gson = Gson()
+
+    // Guards the categories.json whole-list read-modify-write (createCategory) against
+    // same-process races. See METADATA_AUDIT.md H-07 — this does not protect against
+    // cross-process/cross-host races (Hours Tracker backend, another tablet); that is a
+    // larger overlay-pattern redesign tracked separately (R-03), not attempted here.
+    private val categoryWriteLock = Any()
+
+    // CROSS-PROGRAM: see METADATA_AUDIT.md H-07. `.supply/items/<id>.json` and
+    // `.supply/categories.json` are also written by the Hours Tracker backend
+    // (backend/routes/supply_store.py, atomic+locked). Every tablet write to those files must
+    // go through this helper (temp file + Files.move ATOMIC_MOVE) so a concurrent reader —
+    // the backend, a peer tablet via Syncthing, or this app's own getItems()/getCategories() —
+    // never observes a truncated/partial JSON file. Mirrors HardwoodsProgressStore.atomicWrite
+    // / ProgressStore.atomicWrite (see METADATA_AUDIT.md H-02).
+    private fun atomicWrite(target: File, body: String) {
+        target.parentFile?.mkdirs()
+        val temp = File(target.parentFile, "${target.name}.tmp-${System.nanoTime()}")
+        temp.writeText(body)
+
+        try {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        }
+    }
 
     // ── Read helpers ──────────────────────────────────────────────────────────
 
@@ -103,11 +140,18 @@ class SupplyRepository(private val basePath: String) {
 
     fun createCategory(name: String): SupplyCategory {
         supplyDir.mkdirs()
-        val existing = readJson<List<SupplyCategory>>(File(supplyDir, "categories.json")) ?: emptyList()
-        val cat = SupplyCategory(UUID.randomUUID().toString(), name.trim(), existing.size)
-        val updated = existing + cat
-        File(supplyDir, "categories.json").writeText(gson.toJson(updated))
-        return cat
+        // CROSS-PROGRAM: see METADATA_AUDIT.md H-07. categories.json is a whole-list RMW also
+        // performed by the Hours Tracker backend (atomic+locked there). categoryWriteLock only
+        // guards against same-process races (e.g. two callers on this tablet); it does not
+        // prevent a concurrent writer in another process/host from clobbering this update. The
+        // write itself is atomic (temp+rename) so readers never see a torn file either way.
+        synchronized(categoryWriteLock) {
+            val existing = readJson<List<SupplyCategory>>(File(supplyDir, "categories.json")) ?: emptyList()
+            val cat = SupplyCategory(UUID.randomUUID().toString(), name.trim(), existing.size)
+            val updated = existing + cat
+            atomicWrite(File(supplyDir, "categories.json"), gson.toJson(updated))
+            return cat
+        }
     }
 
     fun createItem(
@@ -125,7 +169,10 @@ class SupplyRepository(private val basePath: String) {
             fields = fields, customFields = emptyMap(),
             attachmentIds = emptyList(), createdAt = now, updatedAt = now
         )
-        File(itemsDir, "$id.json").writeText(gson.toJson(stored))
+        // CROSS-PROGRAM: see METADATA_AUDIT.md H-07 — items/<id>.json is also written by the
+        // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
+        // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
+        atomicWrite(File(itemsDir, "$id.json"), gson.toJson(stored))
         if (status != "IN STOCK") {
             setStatus(id, status, "", tabletId)
         }
@@ -140,7 +187,10 @@ class SupplyRepository(private val basePath: String) {
             notes = notes?.takeIf { it.isNotBlank() },
             fields = fields, updatedAt = java.time.Instant.now().toString()
         )
-        file.writeText(gson.toJson(updated))
+        // CROSS-PROGRAM: see METADATA_AUDIT.md H-07 — items/<id>.json is also written by the
+        // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
+        // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
+        atomicWrite(file, gson.toJson(updated))
         return updated.resolve()
     }
 
@@ -154,7 +204,12 @@ class SupplyRepository(private val basePath: String) {
             attachmentIds = existing.attachmentIds + attachment,
             updatedAt = java.time.Instant.now().toString()
         )
-        itemFile.writeText(gson.toJson(updated))
+        // CROSS-PROGRAM: see METADATA_AUDIT.md H-07 — items/<id>.json is also written by the
+        // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
+        // (backend, peer tablet, or this app's own getItems()) from observing a torn file. Note:
+        // the attachment binary copy just above is plain (overwrite = true) — that is tracked
+        // separately as L-04 and intentionally out of scope for H-07.
+        atomicWrite(itemFile, gson.toJson(updated))
         return updated.resolve()
     }
 
