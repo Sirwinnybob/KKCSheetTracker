@@ -435,7 +435,8 @@ data class HardwoodTrackerAction(
     val totalsKey: String? = null,
     val action: String = "",
     val value: Int? = null,
-    val timestamp: String = ""
+    val timestamp: String = "",
+    val lamport: Long = 0L
 )
 
 data class HardwoodInkStroke(

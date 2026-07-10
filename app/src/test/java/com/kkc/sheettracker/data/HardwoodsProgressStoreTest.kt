@@ -9,6 +9,10 @@ import com.kkc.sheettracker.data.models.HardwoodTabletProgress
 import com.kkc.sheettracker.data.models.HardwoodTrackerAction
 import com.kkc.sheettracker.data.models.HardwoodTrackerActions
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
+import com.kkc.sheettracker.data.readTrackerEvents
+import com.kkc.sheettracker.data.encodeTrackerEventLine
+import com.kkc.sheettracker.data.hardwoodsTrackerActionToEvent
+import com.kkc.sheettracker.data.decodeHardwoodsTrackerEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -29,7 +33,7 @@ class HardwoodsProgressStoreTest {
     private val tabletId = "tablet-test"
 
     @Test
-    fun compactsStaleRowActionsAndPersistsCompactedLocalActions() {
+    fun compactsStaleRowActionsFromInMemoryViewButKeepsRawHistoryOnDisk() {
         val baseDir = createTempBaseDir()
         writeCutlistIndex(
             baseDir = baseDir,
@@ -72,12 +76,28 @@ class HardwoodsProgressStoreTest {
 
         assertEquals(4, rowMap["FACE_FRAME_CUT_LIST" to "row-keep"]?.doneCount)
         assertNull(rowMap["FACE_FRAME_CUT_LIST" to "row-missing"])
+        assertEquals(3, store.getBoardStockRipDone(jobFolderName, "red oak", 2.5, "frame"))
 
         val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
-        val persistedRowActions = persisted.actions.filter { it.action == HardwoodTrackerActions.SET_DONE_COUNT }
-        assertEquals(1, persistedRowActions.size)
-        assertEquals("row-keep", persistedRowActions.first().rowId)
-        assertEquals(3, store.getBoardStockRipDone(jobFolderName, "red oak", 2.5, "frame"))
+        assertEquals(3, persisted.actions.size)
+        assertTrue(persisted.actions.any { it.rowId == "row-missing" })
+    }
+
+    @Test
+    fun appendActionWritesToNdjsonEventsFile() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+
+        store.setDoneCount(jobFolderName, "FACE_FRAME_CUT_LIST", "row-1", qty = 10, doneCount = 4)
+        store.awaitPendingWrites()
+
+        val eventsFile = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/events/$tabletId.ndjson")
+        assertTrue(eventsFile.exists())
+        val events = readTrackerEvents(eventsFile)
+        assertEquals(1, events.size)
+        assertEquals(HardwoodTrackerActions.SET_DONE_COUNT, events.first().get("op").asString)
+        assertEquals(4, events.first().getAsJsonObject("payload").get("value").asInt)
+        assertFalse(File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/$tabletId.json").exists())
     }
 
     @Test
@@ -169,9 +189,11 @@ class HardwoodsProgressStoreTest {
         assertEquals(setOf("C1"), rowSkipped)
         assertFalse(skippedMap.containsKey("FACE_FRAME_CUT_LIST" to "row-missing"))
 
+        // Under append-only semantics, compaction only filters the in-memory view -- the raw
+        // history on disk (all 3 originally-written actions) is left untouched.
         val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
-        assertEquals(1, persisted.actions.size)
-        assertEquals(encodeCabinetSkipRowId("row-keep", "C1"), persisted.actions.first().rowId)
+        assertEquals(3, persisted.actions.size)
+        assertTrue(persisted.actions.any { it.rowId == encodeCabinetSkipRowId("row-missing", "C1") })
     }
 
     @Test
@@ -280,13 +302,13 @@ class HardwoodsProgressStoreTest {
         store.setBoardStockRipDone(jobFolderName, "Maple Select", 2.5, "FRAME", 4)
         store.awaitPendingWrites()
 
-        val trackerDir = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker")
-        val trackerFiles = trackerDir.listFiles().orEmpty().map { it.name }
+        val eventsDir = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/events")
+        val trackerFiles = eventsDir.listFiles().orEmpty().map { it.name }
 
-        // The write must land as the final "<tabletId>.json" with no ".tmp-*" artifact left
-        // behind, and the file itself must contain fully-formed, parseable JSON (i.e. it was
-        // never observed mid-write via a truncating writeText()).
-        assertTrue(trackerFiles.contains("$tabletId.json"))
+        // The write must land as the final "<tabletId>.ndjson" with no ".tmp-*" artifact left
+        // behind, and the file itself must contain fully-formed, parseable ndjson lines (i.e. it
+        // was never observed mid-write via a truncating writeText()).
+        assertTrue(trackerFiles.contains("$tabletId.ndjson"))
         assertTrue(trackerFiles.none { it.contains(".tmp-") })
 
         val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
@@ -590,7 +612,7 @@ class HardwoodsProgressStoreTest {
     }
 
     @Test
-    fun compactionDuringPendingAsyncSaveDoesNotRestorePrunedActions() {
+    fun compactionDuringPendingAsyncSaveFiltersInMemoryButKeepsRawHistoryOnDisk() {
         val baseDir = createTempBaseDir()
         writeCutlistIndex(
             baseDir = baseDir,
@@ -617,7 +639,9 @@ class HardwoodsProgressStoreTest {
 
         assertNull(rowMap[docType to "row-stale"])
         assertEquals(4, rowMap[docType to "row-keep"]?.doneCount)
-        assertEquals(listOf("row-keep"), persisted.actions.map { it.rowId })
+        // Append-only semantics: the raw history on disk still has both actions -- only the
+        // in-memory view (rowMap, above) filters the stale row.
+        assertEquals(listOf("row-stale", "row-keep"), persisted.actions.map { it.rowId })
     }
 
     @Test
@@ -812,14 +836,18 @@ class HardwoodsProgressStoreTest {
         tabletId: String,
         progress: HardwoodTabletProgress
     ) {
-        val trackerDir = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker")
-        trackerDir.mkdirs()
-        File(trackerDir, "$tabletId.json").writeText(gson.toJson(progress))
+        val eventsDir = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/events").apply { mkdirs() }
+        val file = File(eventsDir, "$tabletId.ndjson")
+        val body = progress.actions.joinToString("") { action ->
+            encodeTrackerEventLine(hardwoodsTrackerActionToEvent(action)) + "\n"
+        }
+        file.writeText(body)
     }
 
     private fun readTabletProgress(baseDir: File, jobFolderName: String, tabletId: String): HardwoodTabletProgress {
-        val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/$tabletId.json")
-        return gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
+        val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/events/$tabletId.ndjson")
+        val actions = readTrackerEvents(file).mapNotNull { decodeHardwoodsTrackerEvent(it) }
+        return HardwoodTabletProgress(tabletId = tabletId, actions = actions)
     }
 
     private fun throwingHardwoodsSnapshotEngine(): UnifiedMetadataEngine {

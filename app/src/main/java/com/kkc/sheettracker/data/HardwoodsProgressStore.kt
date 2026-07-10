@@ -35,6 +35,42 @@ import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
 
+internal fun hardwoodsTrackerActionToEvent(action: HardwoodTrackerAction): TrackerEvent {
+    val payload = com.google.gson.JsonObject()
+    payload.addProperty("docType", action.docType)
+    payload.addProperty("rowId", action.rowId)
+    action.totalsKey?.let { payload.addProperty("totalsKey", it) }
+    action.value?.let { payload.addProperty("value", it) }
+    payload.addProperty("timestamp", action.timestamp)
+    return TrackerEvent(
+        op = action.action,
+        payload = payload,
+        wallTime = action.timestamp,
+        lamport = action.lamport
+    )
+}
+
+internal fun decodeHardwoodsTrackerEvent(event: com.google.gson.JsonObject): HardwoodTrackerAction? {
+    return runCatching {
+        val payload = event.getAsJsonObject("payload") ?: return@runCatching null
+        val docType = payload.get("docType")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        val rowId = payload.get("rowId")?.takeIf { !it.isJsonNull }?.asString ?: return@runCatching null
+        val action = event.get("op")?.takeIf { !it.isJsonNull }?.asString ?: return@runCatching null
+        val timestamp = payload.get("timestamp")?.takeIf { !it.isJsonNull }?.asString
+            ?: event.get("wallTime")?.takeIf { !it.isJsonNull }?.asString
+            ?: ""
+        HardwoodTrackerAction(
+            docType = docType,
+            rowId = rowId,
+            totalsKey = payload.get("totalsKey")?.takeIf { !it.isJsonNull }?.asString,
+            action = action,
+            value = payload.get("value")?.takeIf { !it.isJsonNull }?.asInt,
+            timestamp = timestamp,
+            lamport = event.get("lamport")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+        )
+    }.getOrNull()
+}
+
 private data class HardwoodRowKey(
     val docType: String,
     val rowId: String
@@ -128,35 +164,36 @@ class HardwoodsProgressStore(
     }
 
     private fun trackerDir(jobFolderName: String): File = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker")
-    private fun tabletFile(jobFolderName: String): File = File(trackerDir(jobFolderName), "$tabletId.json")
+    private fun tabletEventsFile(jobFolderName: String): File = File(trackerDir(jobFolderName), "events/$tabletId.ndjson")
     private fun boardStockMigrationMarkerFile(jobFolderName: String): File =
         File(trackerDir(jobFolderName), ".board_stock_migration_${tabletId}.json")
     private fun boardStockCanonicalMigrationMarkerFile(jobFolderName: String): File =
         File(trackerDir(jobFolderName), ".board_stock_canonical_migration_${tabletId}.json")
 
     private fun loadTabletProgress(jobFolderName: String): HardwoodTabletProgress {
-        val file = tabletFile(jobFolderName)
+        val file = tabletEventsFile(jobFolderName)
         if (!file.exists()) return HardwoodTabletProgress(tabletId = tabletId)
-        return try {
-            val parsed = gson.fromJson(file.readText(), HardwoodTabletProgress::class.java)
-            sanitizeProgress(parsed, fallbackTabletId = tabletId) ?: HardwoodTabletProgress(tabletId = tabletId)
-        } catch (_: Exception) {
-            HardwoodTabletProgress(tabletId = tabletId)
-        }
+        val actions = readTrackerEvents(file).mapNotNull { decodeHardwoodsTrackerEvent(it) }
+        return sanitizeProgress(HardwoodTabletProgress(tabletId = tabletId, actions = actions), fallbackTabletId = tabletId)
+            ?: HardwoodTabletProgress(tabletId = tabletId)
     }
 
-    // CROSS-PROGRAM: this file (`<tabletId>.json` under `.metadata/hardwoods/.tracker/`) is
-    // Syncthing-replicated and read by peer tablets (readProgressFromDir/loadAllProgress above)
-    // and by Ready Jobs Watcher/Hours Tracker tooling that inspects per-tablet hardwoods progress.
-    // Must be written atomically (temp file + Files.move ATOMIC_MOVE) so a concurrent reader never
-    // observes a truncated/partial JSON file — readProgressFromDir silently drops any tablet whose
-    // file fails to parse, so a torn write here is silent data loss for that tablet, not just an
-    // error. Uses the shared atomicWriteFile() helper (AtomicFileWriter.kt). See METADATA_AUDIT.md
-    // H-02 and R-04.
+    // CROSS-PROGRAM: this file (`events/<tabletId>.ndjson` under `.metadata/hardwoods/.tracker/`)
+    // is Syncthing-replicated and read by peer tablets (readProgressFromDir/loadAllProgress above)
+    // and by Ready Jobs Watcher's tracker_action_stream.py union reader. Written atomically (temp
+    // file + Files.move ATOMIC_MOVE via atomicWriteFile) so a concurrent reader never observes a
+    // torn write. Unlike ProgressStore.kt's true per-line append, this rewrites the whole stream
+    // from the in-memory action list on every persist -- correct here because this tablet is still
+    // the sole writer of its own file (no cross-process race), and it preserves compatibility with
+    // the existing migration routines that rewrite historical actions in place. See
+    // METADATA_AUDIT.md R-01.
     private fun saveTabletProgress(jobFolderName: String, progress: HardwoodTabletProgress) {
         val dir = trackerDir(jobFolderName)
         dir.mkdirs()
-        atomicWriteFile(tabletFile(jobFolderName), gson.toJson(progress))
+        val body = progress.actions.joinToString("") { action ->
+            encodeTrackerEventLine(hardwoodsTrackerActionToEvent(action)) + "\n"
+        }
+        atomicWriteFile(tabletEventsFile(jobFolderName), body)
     }
 
     private fun appendAction(
@@ -174,7 +211,8 @@ class HardwoodsProgressStore(
             totalsKey = totalsKey,
             action = action,
             value = value,
-            timestamp = Instant.now().toString()
+            timestamp = Instant.now().toString(),
+            lamport = TrackerLamportClock.next()
         )
         val snapshot = runCatching {
             synchronized(cacheOperationLockFor(jobFolderName)) {
@@ -204,9 +242,13 @@ class HardwoodsProgressStore(
         return readProgressFromDir(trackerDir(jobFolderName))
     }
 
+    // Merges two on-disk representations of per-tablet progress under trackerDir:
+    //   1. Legacy single-blob `<tabletId>.json` files -- older tablets/peers not yet migrated.
+    //   2. `events/<tabletId>.ndjson` -- the current format written by saveTabletProgress().
+    // Mirrors ProgressStore.kt's loadAllProgress() merge pattern (see METADATA_AUDIT.md R-01).
     private fun readProgressFromDir(dir: File): List<HardwoodTabletProgress> {
         if (!dir.exists()) return emptyList()
-        return dir.listFiles()
+        val legacyProgress = dir.listFiles()
             ?.filter {
                 it.isFile &&
                     it.extension.equals("json", ignoreCase = true) &&
@@ -220,6 +262,31 @@ class HardwoodsProgressStore(
                     ?.let { sanitizeProgress(it, fallbackTabletId = file.nameWithoutExtension) }
             }
             ?: emptyList()
+
+        val eventsDir = File(dir, "events")
+        val ndjsonProgress = eventsDir.listFiles()
+            ?.filter {
+                it.isFile &&
+                    it.extension.equals("ndjson", ignoreCase = true) &&
+                    !it.name.startsWith(".") &&
+                    !it.name.contains(".sync-conflict-")
+            }
+            ?.mapNotNull { file ->
+                sanitizeProgress(
+                    HardwoodTabletProgress(
+                        tabletId = file.nameWithoutExtension,
+                        actions = readTrackerEvents(file).mapNotNull { decodeHardwoodsTrackerEvent(it) }
+                    ),
+                    fallbackTabletId = file.nameWithoutExtension
+                )
+            }
+            ?: emptyList()
+
+        val merged = linkedMapOf<String, MutableList<HardwoodTrackerAction>>()
+        (legacyProgress + ndjsonProgress).forEach { progress ->
+            merged.getOrPut(progress.tabletId) { mutableListOf() }.addAll(progress.actions)
+        }
+        return merged.map { (id, actions) -> HardwoodTabletProgress(tabletId = id, actions = actions) }
     }
 
     private fun tabletMarkupFile(jobFolderName: String): File = File(trackerDir(jobFolderName), "$tabletId.markup.json")
@@ -317,7 +384,8 @@ class HardwoodsProgressStore(
             totalsKey = action.totalsKey?.trim()?.takeIf { it.isNotBlank() },
             action = safeAction,
             value = action.value,
-            timestamp = (action.timestamp as String?).orEmpty()
+            timestamp = (action.timestamp as String?).orEmpty(),
+            lamport = action.lamport
         )
     }
 
@@ -734,9 +802,6 @@ class HardwoodsProgressStore(
             .mapNotNull { action -> compactAction(action, lookup) }
             .sortedBy { it.timestamp }
             .toMutableList()
-        if (localActions != localProgress.actions) {
-            saveLocalActionsSync(jobFolderName, localActions)
-        }
 
         val cache = JobCache(
             localActions = localActions,
@@ -1061,7 +1126,8 @@ class HardwoodsProgressStore(
                         totalsKey = totalsKey,
                         action = action,
                         value = value,
-                        timestamp = Instant.now().toString()
+                        timestamp = Instant.now().toString(),
+                        lamport = TrackerLamportClock.next()
                     )
                     cache.localActions.add(next)
                     applyActionToCache(cache, next)
@@ -1107,7 +1173,8 @@ class HardwoodsProgressStore(
                 totalsKey = totalsKey,
                 action = action,
                 value = value,
-                timestamp = Instant.now().toString()
+                timestamp = Instant.now().toString(),
+                lamport = TrackerLamportClock.next()
             )
             val localActions = pendingLocalActions ?: loadTabletProgress(jobFolderName).actions
             (localActions + next).also { pendingLocalActionsByJob[jobFolderName] = it }
