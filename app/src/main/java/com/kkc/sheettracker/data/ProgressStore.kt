@@ -371,7 +371,7 @@ class ProgressStore(
         val dir = trackerDir(jobFolderName)
         if (!dir.exists()) return emptyList()
 
-        return dir.listFiles()
+        val legacyProgress = dir.listFiles()
             ?.filter { it.isFile && it.extension.equals("json", ignoreCase = true) && !it.name.startsWith(".") && !it.name.contains(".sync-conflict-") }
             ?.mapNotNull { file ->
                 try {
@@ -385,6 +385,23 @@ class ProgressStore(
                 }
             }
             ?: emptyList()
+
+        val eventsDir = File(dir, "events")
+        val ndjsonProgress = eventsDir.listFiles()
+            ?.filter { it.isFile && it.extension.equals("ndjson", ignoreCase = true) && !it.name.startsWith(".") && !it.name.contains(".sync-conflict-") }
+            ?.map { file ->
+                TabletProgress(
+                    tabletId = file.nameWithoutExtension,
+                    actions = readTrackerEvents(file).mapNotNull { decodeCncTrackerEvent(it) }
+                )
+            }
+            ?: emptyList()
+
+        val merged = linkedMapOf<String, MutableList<TrackerAction>>()
+        (legacyProgress + ndjsonProgress).forEach { progress ->
+            merged.getOrPut(progress.tabletId) { mutableListOf() }.addAll(progress.actions)
+        }
+        return merged.map { (id, actions) -> TabletProgress(tabletId = id, actions = actions) }
     }
 
     private fun sanitizeProgress(progress: TabletProgress?, fallbackTabletId: String): TabletProgress? {

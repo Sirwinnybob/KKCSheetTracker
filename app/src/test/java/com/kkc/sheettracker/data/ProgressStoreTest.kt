@@ -118,6 +118,53 @@ class ProgressStoreTest {
     }
 
     @Test
+    fun loadAllProgressMergesNdjsonPeerEvents() {
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+        val trackerDir = File(baseDir, "$jobFolderName/CNC/.tracker")
+        val eventsFile = File(trackerDir, "events/tablet-b.ndjson")
+        val payload = JsonObject().apply {
+            addProperty("file", "A.pdf")
+            addProperty("page", 3)
+            addProperty("fileFingerprint", "fp1")
+            addProperty("timestamp", "2026-07-09T09:00:00Z")
+        }
+        appendTrackerEvent(eventsFile, TrackerEvent(op = "set_complete_true", payload = payload, wallTime = "2026-07-09T09:00:00Z", lamport = 1))
+
+        val allProgress = store.loadAllProgress(jobFolderName)
+
+        assertEquals(1, allProgress.size)
+        assertEquals("tablet-b", allProgress.first().tabletId)
+        assertEquals("complete", allProgress.first().actions.first().action)
+        assertEquals(3, allProgress.first().actions.first().page)
+    }
+
+    @Test
+    fun loadAllProgressMergesLegacyAndNdjsonForSameTabletId() {
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-b",
+            progress = TabletProgress(tabletId = "tablet-b", actions = listOf(trackerAction("A.pdf", 1, "view", "2026-07-09T08:00:00Z")))
+        )
+        val eventsFile = File(baseDir, "$jobFolderName/CNC/.tracker/events/tablet-b.ndjson")
+        val payload = JsonObject().apply {
+            addProperty("file", "A.pdf")
+            addProperty("page", 2)
+            addProperty("timestamp", "2026-07-09T09:00:00Z")
+        }
+        appendTrackerEvent(eventsFile, TrackerEvent(op = "set_complete_true", payload = payload, wallTime = "2026-07-09T09:00:00Z", lamport = 1))
+
+        val allProgress = store.loadAllProgress(jobFolderName)
+
+        assertEquals(1, allProgress.size)
+        assertEquals(2, allProgress.first().actions.size)
+        assertEquals(setOf("view", "complete"), allProgress.first().actions.map { it.action }.toSet())
+    }
+
+    @Test
     fun decodeToleratesWrongTypedFields() {
         val good = JsonParser.parseString(
             """{"op":"view","payload":{"file":"A.pdf","page":5,"timestamp":"2026-05-01T00:00:01Z"},"wallTime":"2026-05-01T00:00:01Z","lamport":1,"eventId":"e1"}"""
