@@ -62,16 +62,16 @@ internal fun cncTrackerActionToEvent(action: TrackerAction): TrackerEvent {
     )
 }
 
-internal fun decodeCncTrackerEvent(event: JsonObject): TrackerAction? {
-    val payload = event.getAsJsonObject("payload") ?: return null
-    val file = payload.get("file")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() } ?: return null
-    val page = payload.get("page")?.takeIf { !it.isJsonNull }?.asInt ?: return null
-    val opField = event.get("op")?.takeIf { !it.isJsonNull }?.asString ?: return null
+internal fun decodeCncTrackerEvent(event: JsonObject): TrackerAction? = runCatching {
+    val payload = event.getAsJsonObject("payload") ?: return@runCatching null
+    val file = payload.get("file")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() } ?: return@runCatching null
+    val page = payload.get("page")?.takeIf { !it.isJsonNull }?.asInt ?: return@runCatching null
+    val opField = event.get("op")?.takeIf { !it.isJsonNull }?.asString ?: return@runCatching null
     val action = cncActionForOp(opField)
     val timestamp = payload.get("timestamp")?.takeIf { !it.isJsonNull }?.asString
         ?: event.get("wallTime")?.takeIf { !it.isJsonNull }?.asString
         ?: ""
-    return TrackerAction(
+    TrackerAction(
         file = file,
         page = page,
         part = payload.get("part")?.takeIf { !it.isJsonNull }?.asInt,
@@ -80,7 +80,7 @@ internal fun decodeCncTrackerEvent(event: JsonObject): TrackerAction? {
         fileFingerprint = payload.get("fileFingerprint")?.takeIf { !it.isJsonNull }?.asString,
         reNested = payload.get("reNested")?.takeIf { !it.isJsonNull }?.asBoolean
     )
-}
+}.getOrNull()
 
 private data class DraftBadPartEntry(
     val file: String,
@@ -339,20 +339,32 @@ class ProgressStore(
      * load-whole/rewrite-whole-file pattern. Callers that emit several actions at once
      * (markSheetComplete, resolveBadPartsOnSheet, resolveSpecificBadParts) still get one
      * coalesced index update, so the change monitor sees one version bump rather than many.
+     *
+     * Intentional tradeoff: append-only per-line durability replaces the old whole-file atomic
+     * rewrite. That rewrite pattern (load-all → mutate → rewrite-all) is exactly what caused the
+     * bugs R-01 fixes (lost concurrent peer writes, torn whole-file snapshots). With per-line
+     * appends, a partial batch (e.g. entry 3 of 5 throws) leaves the successfully-appended events
+     * durably recorded — which is correct for an event log — and we still bump the version for
+     * those landed entries so listeners see them. The original exception still propagates.
      */
     private fun appendActions(jobFolderName: String, entries: List<TrackerAction>) {
         if (readOnly || entries.isEmpty()) return
         val writeLock = writeLockByJob.getOrPut(jobFolderName) { Any() }
-        synchronized(indexOperationLock) {
-            synchronized(writeLock) {
-                val file = eventsFile(jobFolderName)
-                entries.forEach { entry ->
-                    appendTrackerEvent(file, cncTrackerActionToEvent(entry))
-                    applyActionToIndex(jobFolderName, entry)
+        var appendedAny = false
+        try {
+            synchronized(indexOperationLock) {
+                synchronized(writeLock) {
+                    val file = eventsFile(jobFolderName)
+                    entries.forEach { entry ->
+                        appendTrackerEvent(file, cncTrackerActionToEvent(entry))
+                        applyActionToIndex(jobFolderName, entry)
+                        appendedAny = true
+                    }
                 }
             }
+        } finally {
+            if (appendedAny) bumpProgressVersion()
         }
-        bumpProgressVersion()
     }
 
     fun loadAllProgress(jobFolderName: String): List<TabletProgress> {

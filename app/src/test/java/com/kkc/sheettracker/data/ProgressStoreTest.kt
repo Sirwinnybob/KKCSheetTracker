@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.TabletProgress
 import com.kkc.sheettracker.data.models.TrackerAction
@@ -114,6 +115,21 @@ class ProgressStoreTest {
         val allProgress = store.loadAllProgress(jobFolderName)
         assertEquals(1, allProgress.size)
         assertEquals("tablet-1", allProgress.first().tabletId)
+    }
+
+    @Test
+    fun decodeToleratesWrongTypedFields() {
+        val good = JsonParser.parseString(
+            """{"op":"view","payload":{"file":"A.pdf","page":5,"timestamp":"2026-05-01T00:00:01Z"},"wallTime":"2026-05-01T00:00:01Z","lamport":1,"eventId":"e1"}"""
+        ).asJsonObject
+        val badTyped = JsonParser.parseString(
+            """{"op":"view","payload":{"file":"A.pdf","page":"notanumber"},"wallTime":"2026-05-01T00:00:02Z","lamport":2,"eventId":"e2"}"""
+        ).asJsonObject
+
+        val decoded = listOf(good, badTyped).mapNotNull { decodeCncTrackerEvent(it) }
+        assertEquals(1, decoded.size)
+        assertEquals("A.pdf", decoded.first().file)
+        assertEquals(5, decoded.first().page)
     }
 
     private fun createTempBaseDir(): File = Files.createTempDirectory("progress-store-test").toFile()
