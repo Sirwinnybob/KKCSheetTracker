@@ -46,3 +46,48 @@ class TrackerLamportClockTest {
         assertTrue(third > second)
     }
 }
+
+class TrackerEventCodecTest {
+    @Test
+    fun appendThenReadRoundTripsMultipleLines() {
+        val file = File(Files.createTempDirectory("event-log-test").toFile(), "tablet-a.ndjson")
+        val payload1 = com.google.gson.JsonObject().apply {
+            addProperty("file", "A.pdf")
+            addProperty("page", 1)
+        }
+        val payload2 = com.google.gson.JsonObject().apply {
+            addProperty("file", "A.pdf")
+            addProperty("page", 2)
+        }
+        appendTrackerEvent(file, TrackerEvent(op = "set_complete_true", payload = payload1, wallTime = "2026-07-09T09:00:00Z", lamport = 1))
+        appendTrackerEvent(file, TrackerEvent(op = "set_complete_true", payload = payload2, wallTime = "2026-07-09T09:00:01Z", lamport = 2))
+
+        val events = readTrackerEvents(file)
+
+        assertEquals(2, events.size)
+        assertEquals(1, events[0].getAsJsonObject("payload").get("page").asInt)
+        assertEquals(2, events[1].getAsJsonObject("payload").get("page").asInt)
+        assertEquals(1L, events[0].get("lamport").asLong)
+    }
+
+    @Test
+    fun readSkipsTornLastLineWithoutDroppingEarlierLines() {
+        val file = File(Files.createTempDirectory("event-log-test").toFile(), "tablet-a.ndjson")
+        val payload = com.google.gson.JsonObject().apply {
+            addProperty("file", "A.pdf")
+            addProperty("page", 1)
+        }
+        appendTrackerEvent(file, TrackerEvent(op = "set_complete_true", payload = payload, wallTime = "2026-07-09T09:00:00Z", lamport = 1))
+        file.appendText("{\"op\": \"set_complete_tr")  // simulate a torn write
+
+        val events = readTrackerEvents(file)
+
+        assertEquals(1, events.size)
+    }
+
+    @Test
+    fun readReturnsEmptyListForMissingFile() {
+        val file = File(Files.createTempDirectory("event-log-test").toFile(), "does-not-exist.ndjson")
+        assertTrue(readTrackerEvents(file).isEmpty())
+    }
+}
