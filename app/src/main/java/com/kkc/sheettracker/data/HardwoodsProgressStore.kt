@@ -335,14 +335,9 @@ class HardwoodsProgressStore(
                     strokes = strokes,
                     deletedStrokeIds = deletedStrokeIds
                 )
-                val tmpFile = File(dir, "$tabletId.markup.json.tmp")
                 val destFile = tabletMarkupFile(jobFolderName)
                 try {
-                    tmpFile.writeText(gson.toJson(markup))
-                    if (!tmpFile.renameTo(destFile)) {
-                        tmpFile.copyTo(destFile, overwrite = true)
-                        tmpFile.delete()
-                    }
+                    atomicWriteFile(destFile, gson.toJson(markup))
                     _progressVersion.value++
                 } catch (e: Exception) {
                     android.util.Log.e("HardwoodsProgressStore", "Error saving markup: ${e.localizedMessage}")

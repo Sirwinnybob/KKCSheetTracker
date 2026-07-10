@@ -166,15 +166,8 @@ class PdfMarkupStore(
     }
 
     private fun saveTabletMarkup(jobFolderName: String, markup: PdfTabletMarkup) {
-        val dir = trackerDir(jobFolderName)
-        dir.mkdirs()
         val destFile = tabletMarkupFile(jobFolderName)
-        val tmpFile = File(dir, "$tabletId.markup.json.tmp")
-        tmpFile.writeText(gson.toJson(markup))
-        if (!tmpFile.renameTo(destFile)) {
-            tmpFile.copyTo(destFile, overwrite = true)
-            tmpFile.delete()
-        }
+        atomicWriteFile(destFile, gson.toJson(markup))
         Log.d(
             TAG,
             "saveTabletMarkup job=$jobFolderName path=${destFile.absolutePath} exists=${destFile.exists()} bytes=${destFile.length()}"
