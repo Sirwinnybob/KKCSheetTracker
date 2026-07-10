@@ -40,6 +40,11 @@ class CrashReportStore(
     private val timestampFormat = ThreadLocal.withInitial {
         SimpleDateFormat("yyyy-MM-dd'T'HH-mm-ss-SSS", Locale.US)
     }
+    private val tabletIdRegex = Regex("""^[0-9T:-]+_(.+?)_crash""")
+
+    private fun extractTabletId(fileName: String): String {
+        return tabletIdRegex.find(fileName)?.groupValues?.get(1) ?: "unknown-tablet"
+    }
 
     fun recordCrash(
         baseDir: File?,
@@ -93,8 +98,13 @@ class CrashReportStore(
         val reports = crashDir.listFiles()
             .orEmpty()
             .filter { it.isFile && it.extension.equals("json", ignoreCase = true) }
-            .sortedWith(compareByDescending<File> { it.lastModified() }.thenByDescending { it.name })
-        reports.drop(retentionLimit).forEach { it.delete() }
+        val groups = reports.groupBy { extractTabletId(it.name) }
+        for ((_, groupReports) in groups) {
+            val sorted = groupReports.sortedWith(
+                compareByDescending<File> { it.lastModified() }.thenByDescending { it.name }
+            )
+            sorted.drop(retentionLimit).forEach { it.delete() }
+        }
     }
 
     private fun buildReport(

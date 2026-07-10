@@ -115,4 +115,45 @@ class CrashReportStoreTest {
         assertEquals(listOf("old-3.json", "old-4.json"), remainingJson)
         assertTrue(keep.exists())
     }
+
+    @Test
+    fun enforceRetention_enforcesPerTablet() {
+        val baseDir = Files.createTempDirectory("crash-retention-tablet").toFile()
+        val crashDir = File(baseDir, ".metadata/crashes").apply { mkdirs() }
+
+        // tablet-1 has 3 reports
+        val t1File1 = File(crashDir, "2026-07-10T08-00-00-000_tablet-1_crash.json").apply {
+            writeText("{}")
+            setLastModified(1000L)
+        }
+        val t1File2 = File(crashDir, "2026-07-10T08-01-00-000_tablet-1_crash.json").apply {
+            writeText("{}")
+            setLastModified(2000L)
+        }
+        val t1File3 = File(crashDir, "2026-07-10T08-02-00-000_tablet-1_crash.json").apply {
+            writeText("{}")
+            setLastModified(3000L)
+        }
+
+        // tablet-2 has 1 report
+        val t2File1 = File(crashDir, "2026-07-10T08-00-00-000_tablet-2_crash.json").apply {
+            writeText("{}")
+            setLastModified(1000L)
+        }
+
+        val store = CrashReportStore(
+            pendingDir = Files.createTempDirectory("pending").toFile(),
+            retentionLimit = 2
+        )
+
+        store.enforceRetention(crashDir)
+
+        // For tablet-1, the oldest file (t1File1) should be deleted, and the two newer ones kept
+        assertFalse(t1File1.exists())
+        assertTrue(t1File2.exists())
+        assertTrue(t1File3.exists())
+
+        // For tablet-2, the file should still be kept, despite the crash loop on tablet-1
+        assertTrue(t2File1.exists())
+    }
 }
