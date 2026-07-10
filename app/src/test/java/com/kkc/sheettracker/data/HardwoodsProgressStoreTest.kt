@@ -84,6 +84,24 @@ class HardwoodsProgressStoreTest {
     }
 
     @Test
+    fun readProgressFromDirMergesNdjsonPeerEvents() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val eventsFile = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/events/tablet-b.ndjson")
+        val payload = com.google.gson.JsonObject().apply {
+            addProperty("docType", "FACE_FRAME_CUT_LIST")
+            addProperty("rowId", "row-1")
+            addProperty("value", 5)
+            addProperty("timestamp", "2026-07-09T09:00:00Z")
+        }
+        appendTrackerEvent(eventsFile, TrackerEvent(op = "set_done_count", payload = payload, wallTime = "2026-07-09T09:00:00Z", lamport = 1))
+
+        val rowMap = store.getRowProgressMap(jobFolderName)
+
+        assertEquals(5, rowMap["FACE_FRAME_CUT_LIST" to "row-1"]?.doneCount)
+    }
+
+    @Test
     fun appendActionWritesToNdjsonEventsFile() {
         val baseDir = createTempBaseDir()
         val store = HardwoodsProgressStore(baseDir, tabletId)
