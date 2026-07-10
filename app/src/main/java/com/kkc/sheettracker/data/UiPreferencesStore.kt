@@ -28,4 +28,14 @@ class UiPreferencesStore(context: Context) {
 
     fun setAdminMode(enabled: Boolean) =
         prefs.edit().putBoolean("admin_mode", enabled).apply()
+
+    fun getSupplyTabOrder(): List<String> {
+        val raw = prefs.getString("supply_tab_order", "") ?: ""
+        if (raw.isBlank()) return emptyList()
+        return raw.split(",")
+    }
+
+    fun setSupplyTabOrder(order: List<String>) {
+        prefs.edit().putString("supply_tab_order", order.joinToString(",")).apply()
+    }
 }
