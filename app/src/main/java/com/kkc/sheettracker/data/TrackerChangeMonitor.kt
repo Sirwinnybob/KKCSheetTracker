@@ -175,7 +175,9 @@ class TrackerChangeMonitor(
         val trackedPath = tracked.dir.absolutePath
         return object : FileObserver(tracked.dir.absolutePath, OBSERVER_EVENTS) {
             override fun onEvent(event: Int, path: String?) {
-                if (path != null && !path.endsWith(".json", ignoreCase = true)) return
+                if (path != null &&
+                    !(path.endsWith(".json", ignoreCase = true) || path.endsWith(".ndjson", ignoreCase = true))
+                ) return
                 val invalidation = synchronized(lock) {
                     if (!started) return@synchronized null
                     val previousSig = signaturesByPath[trackedPath]
@@ -225,12 +227,28 @@ class TrackerChangeMonitor(
                     dir = cncTrackerDir
                 )
             }
+            val cncEventsDir = File(jobDir, "CNC/.tracker/events")
+            if (cncEventsDir.isDirectory) {
+                tracked += TrackedDir(
+                    kind = TrackerKind.CNC,
+                    jobFolderName = jobFolderName,
+                    dir = cncEventsDir
+                )
+            }
             val hardwoodTrackerDir = File(jobDir, ".metadata/hardwoods/.tracker")
             if (hardwoodTrackerDir.isDirectory) {
                 tracked += TrackedDir(
                     kind = TrackerKind.HARDWOODS,
                     jobFolderName = jobFolderName,
                     dir = hardwoodTrackerDir
+                )
+            }
+            val hardwoodEventsDir = File(jobDir, ".metadata/hardwoods/.tracker/events")
+            if (hardwoodEventsDir.isDirectory) {
+                tracked += TrackedDir(
+                    kind = TrackerKind.HARDWOODS,
+                    jobFolderName = jobFolderName,
+                    dir = hardwoodEventsDir
                 )
             }
             val specialtyTrackerDir = File(jobDir, ".metadata/admin/.tracker")
@@ -262,7 +280,7 @@ class TrackerChangeMonitor(
         val files = dir.listFiles()
             ?.filter {
                 it.isFile &&
-                    it.extension.equals("json", ignoreCase = true) &&
+                    (it.extension.equals("json", ignoreCase = true) || it.extension.equals("ndjson", ignoreCase = true)) &&
                     !it.name.startsWith(".") && !it.name.contains(".sync-conflict-")
             }
             ?.sortedBy { it.name }
