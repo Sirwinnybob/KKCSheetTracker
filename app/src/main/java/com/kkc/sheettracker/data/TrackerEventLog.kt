@@ -56,6 +56,17 @@ object TrackerLamportClock {
             file.writeText(value.toString())
         }
     }
+
+    /** Test-only: restore the singleton to its pristine, un-initialized state so one test class
+     * can't leak counter/backingFile/loaded state into another. See METADATA_AUDIT.md R-01. */
+    @androidx.annotation.VisibleForTesting
+    fun resetForTest() {
+        synchronized(lock) {
+            counter.set(0L)
+            backingFile = null
+            loaded = false
+        }
+    }
 }
 
 /** One ndjson tracker event line, matching the schema Ready Jobs Watcher's

@@ -1,11 +1,28 @@
 package com.kkc.sheettracker.data
 
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.io.File
 import java.nio.file.Files
 
 class TrackerLamportClockTest {
+
+    private val tempDirs = mutableListOf<File>()
+
+    @Before
+    fun setUp() {
+        TrackerLamportClock.resetForTest()
+    }
+
+    @After
+    fun tearDown() {
+        TrackerLamportClock.resetForTest()
+        tempDirs.forEach { it.deleteRecursively() }
+        tempDirs.clear()
+    }
 
     @Test
     fun nextReturnsStrictlyIncreasingValues() {
@@ -17,6 +34,7 @@ class TrackerLamportClockTest {
     @Test
     fun persistsAcrossReinitWithSameBackingDir() {
         val stateDir = Files.createTempDirectory("lamport-test").toFile()
+        tempDirs.add(stateDir)
         TrackerLamportClock.init(stateDir)
         val first = TrackerLamportClock.next()
         val second = TrackerLamportClock.next()
