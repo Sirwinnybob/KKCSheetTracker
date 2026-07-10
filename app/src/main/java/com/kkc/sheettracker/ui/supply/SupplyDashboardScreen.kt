@@ -64,6 +64,7 @@ import com.kkc.sheettracker.data.models.SupplyItem
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.ToOrderRepository
 import com.kkc.sheettracker.data.ToOrderGroup
+import com.kkc.sheettracker.data.UiPreferencesStore
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.SpecialtyProgressStore
 import com.kkc.sheettracker.data.models.SpecialtyItem
@@ -132,9 +133,15 @@ fun SupplyDashboardScreen(
     // Admin-only "To Order" tab: cross-job aggregation of specialty/checklist TO_ORDER items,
     // mirroring the Hours Tracker web "To Order" tab. Placed next to the Needs Attention tab.
     val isAdminMode by AdminModeController.enabled.collectAsState()
-    val toOrderPage = 2
-    val categoriesStartPage = if (isAdminMode) 3 else 2
-    val tabCount = categories.size + 2 + if (isAdminMode) 1 else 0
+    val preferencesStore = remember(context) { UiPreferencesStore(context) }
+    var savedTabOrder by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(context) {
+        savedTabOrder = preferencesStore.getSupplyTabOrder()
+    }
+    val supplyTabs = remember(categories, isAdminMode, savedTabOrder) {
+        buildSupplyTabsList(categories, isAdminMode, savedTabOrder)
+    }
+    val tabCount = supplyTabs.size
     val pagerState = rememberPagerState(pageCount = { tabCount })
 
     val specialtyStore = remember(basePath, tabletId) {
@@ -210,8 +217,11 @@ fun SupplyDashboardScreen(
     LaunchedEffect(basePath) { loadData() }
     LaunchedEffect(items, subscriptionData) { reloadUpdates() }
 
-    val currentCategoryId = if (!isLoading && searchQuery.isBlank() && categories.isNotEmpty() && pagerState.currentPage >= categoriesStartPage) {
-        categories.getOrNull(pagerState.currentPage - categoriesStartPage)?.id
+    val currentCategoryId = if (!isLoading && searchQuery.isBlank() && supplyTabs.isNotEmpty()) {
+        val activeTab = supplyTabs.getOrNull(pagerState.currentPage)
+        if (activeTab?.type is SupplyTabType.CategoryTab) {
+            activeTab.type.category.id
+        } else null
     } else null
 
     DashboardShell(
@@ -237,18 +247,24 @@ fun SupplyDashboardScreen(
                             showAddCategoryDialog = true
                         }
                     )
-                    if (pagerState.currentPage >= categoriesStartPage) {
-                        val currentCat = categories.getOrNull(pagerState.currentPage - categoriesStartPage)
-                        if (currentCat != null) {
-                            val isSubscribed = subscriptionData.subscribedCategoryIds.contains(currentCat.id)
-                            DropdownMenuItem(
-                                text = { Text(if (isSubscribed) "Unsubscribe from Category" else "Subscribe to Category") },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    scope.launch { subscriptionManager.toggleCategorySubscription(currentCat.id) }
-                                }
-                            )
+                    DropdownMenuItem(
+                        text = { Text("Reorder Tabs") },
+                        onClick = {
+                            showOverflowMenu = false
+                            activeModal = SupplyDashboardModal.ReorderTabs
                         }
+                    )
+                    val activeTab = supplyTabs.getOrNull(pagerState.currentPage)
+                    if (activeTab?.type is SupplyTabType.CategoryTab) {
+                        val currentCat = activeTab.type.category
+                        val isSubscribed = subscriptionData.subscribedCategoryIds.contains(currentCat.id)
+                        DropdownMenuItem(
+                            text = { Text(if (isSubscribed) "Unsubscribe from Category" else "Subscribe to Category") },
+                            onClick = {
+                                showOverflowMenu = false
+                                scope.launch { subscriptionManager.toggleCategorySubscription(currentCat.id) }
+                            }
+                        )
                     }
                 }
             }
@@ -320,73 +336,44 @@ fun SupplyDashboardScreen(
                             )
                         }
                     ) {
-                        Tab(
-                            selected = pagerState.currentPage == 0,
-                            onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text("Updates")
-                                    if (notificationCount > 0) {
-                                        Badge { Text(notificationCount.toString()) }
-                                    }
-                                }
-                            }
-                        )
-                        val attentionCount = items.count { (SUPPLY_STATUS_PRIORITY[it.status] ?: 99) < 5 }
-                        Tab(
-                            selected = pagerState.currentPage == 1,
-                            onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text("Needs Attention")
-                                    if (attentionCount > 0) {
-                                        Badge { Text(attentionCount.toString()) }
-                                    }
-                                }
-                            }
-                        )
-                        if (isAdminMode) {
+                        supplyTabs.forEachIndexed { index, tabItem ->
                             Tab(
-                                selected = pagerState.currentPage == toOrderPage,
-                                onClick = { scope.launch { pagerState.animateScrollToPage(toOrderPage) } },
+                                selected = pagerState.currentPage == index,
+                                onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                                 text = {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Text("To Order")
-                                        val count = toOrderGroups.sumOf { it.items.size }
-                                        if (count > 0) {
-                                            Badge { Text(count.toString()) }
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                        categories.forEachIndexed { index, category ->
-                            val isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id)
-                            val targetPage = index + categoriesStartPage
-                            Tab(
-                                selected = pagerState.currentPage == targetPage,
-                                onClick = { scope.launch { pagerState.animateScrollToPage(targetPage) } },
-                                text = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(category.name, maxLines = 1)
-                                        if (isSubscribed) {
-                                            Icon(
-                                                Icons.Filled.Notifications,
-                                                contentDescription = "Subscribed",
-                                                modifier = Modifier.size(12.dp)
-                                            )
+                                        Text(tabItem.name, maxLines = 1)
+                                        when (val type = tabItem.type) {
+                                            SupplyTabType.Updates -> {
+                                                if (notificationCount > 0) {
+                                                    Badge { Text(notificationCount.toString()) }
+                                                }
+                                            }
+                                            SupplyTabType.NeedsAttention -> {
+                                                val attentionCount = items.count { (SUPPLY_STATUS_PRIORITY[it.status] ?: 99) < 5 }
+                                                if (attentionCount > 0) {
+                                                    Badge { Text(attentionCount.toString()) }
+                                                }
+                                            }
+                                            SupplyTabType.ToOrder -> {
+                                                val count = toOrderGroups.sumOf { it.items.size }
+                                                if (count > 0) {
+                                                    Badge { Text(count.toString()) }
+                                                }
+                                            }
+                                            is SupplyTabType.CategoryTab -> {
+                                                val isSubscribed = subscriptionData.subscribedCategoryIds.contains(type.category.id)
+                                                if (isSubscribed) {
+                                                    Icon(
+                                                        Icons.Filled.Notifications,
+                                                        contentDescription = "Subscribed",
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -399,72 +386,69 @@ fun SupplyDashboardScreen(
                     state = pagerState,
                     modifier = Modifier.weight(1f)
                 ) { page ->
-                    when {
-                        page == 0 -> UpdatesPage(
-                            notifications = notifications,
-                            categories = categories,
-                            subscriptionManager = subscriptionManager,
-                            onOpenItem = ::openDetailModal,
-                            reloadUpdates = { scope.launch { reloadUpdates() } },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        page == 1 -> NeedsAttentionPage(
-                            items = items,
-                            categories = categories,
-                            onOpenItem = ::openDetailModal,
-                            onLongPress = { item -> statusSheetItem = items.firstOrNull { it.id == item.id } },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        isAdminMode && page == toOrderPage -> ToOrderPage(
-                            groups = toOrderGroups,
-                            loading = toOrderLoading,
-                            onToggleComplete = { jobFolder, resolvedItem, completed ->
-                                scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        specialtyStore.setCompletion(
-                                            jobFolderName = jobFolder,
-                                            itemId = resolvedItem.item.id,
-                                            completionKey = SpecialtyProgressStore.ITEM_COMPLETION_KEY,
-                                            completed = completed,
-                                            completedBy = employeeName.ifBlank { "Floor" },
-                                            completedAt = java.time.Instant.now().toString()
-                                        )
-                                        // Auto-fill orderDate on first check-off
-                                        if (completed && resolvedItem.item.orderDate.isNullOrBlank()) {
-                                            val today = defaultToOrderDate(java.time.LocalDate.now())
-                                            val item = resolvedItem.item
-                                            specialtyStore.updateToOrderItem(
+                    val tabItem = supplyTabs.getOrNull(page)
+                    if (tabItem != null) {
+                        when (val type = tabItem.type) {
+                            SupplyTabType.Updates -> UpdatesPage(
+                                notifications = notifications,
+                                categories = categories,
+                                subscriptionManager = subscriptionManager,
+                                onOpenItem = ::openDetailModal,
+                                reloadUpdates = { scope.launch { reloadUpdates() } },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            SupplyTabType.NeedsAttention -> NeedsAttentionPage(
+                                items = items,
+                                categories = categories,
+                                onOpenItem = ::openDetailModal,
+                                onLongPress = { item -> statusSheetItem = items.firstOrNull { it.id == item.id } },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            SupplyTabType.ToOrder -> ToOrderPage(
+                                groups = toOrderGroups,
+                                loading = toOrderLoading,
+                                onToggleComplete = { jobFolder, resolvedItem, completed ->
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            specialtyStore.setCompletion(
                                                 jobFolderName = jobFolder,
-                                                itemId = item.id,
-                                                name = item.name,
-                                                cabinetNumbers = item.cabinetNumbers,
-                                                supplier = item.supplier,
-                                                model = item.model,
-                                                orderDate = today,
-                                                tracking = item.tracking,
-                                                orderUrl = item.orderUrl,
-                                                notes = item.notes,
-                                                quantity = item.quantity,
-                                                material = item.material,
-                                                dimensions = item.dimensions
+                                                itemId = resolvedItem.item.id,
+                                                completionKey = SpecialtyProgressStore.ITEM_COMPLETION_KEY,
+                                                completed = completed,
+                                                completedBy = employeeName.ifBlank { "Floor" },
+                                                completedAt = java.time.Instant.now().toString()
                                             )
+                                            // Auto-fill orderDate on first check-off
+                                            if (completed && resolvedItem.item.orderDate.isNullOrBlank()) {
+                                                val today = defaultToOrderDate(java.time.LocalDate.now())
+                                                val item = resolvedItem.item
+                                                specialtyStore.updateToOrderItem(
+                                                    jobFolderName = jobFolder,
+                                                    itemId = item.id,
+                                                    name = item.name,
+                                                    cabinetNumbers = item.cabinetNumbers,
+                                                    supplier = item.supplier,
+                                                    model = item.model,
+                                                    orderDate = today,
+                                                    tracking = item.tracking,
+                                                    orderUrl = item.orderUrl,
+                                                    notes = item.notes,
+                                                    quantity = item.quantity,
+                                                    material = item.material,
+                                                    dimensions = item.dimensions
+                                                )
+                                            }
                                         }
+                                        toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
                                     }
-                                    toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
-                                }
-                            },
-                            onEditItem = { jobFolder, resolvedItem ->
-                                editingToOrderItem = Pair(jobFolder, resolvedItem)
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        else -> {
-                            val category = categories.getOrNull(page - categoriesStartPage)
-                            if (category == null) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("No category")
-                                }
-                            } else {
+                                },
+                                onEditItem = { jobFolder, resolvedItem ->
+                                    editingToOrderItem = Pair(jobFolder, resolvedItem)
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            is SupplyTabType.CategoryTab -> {
+                                val category = type.category
                                 val categoryItems = items.filter { it.categoryId == category.id }
                                 Column(
                                     modifier = Modifier
@@ -674,6 +658,31 @@ fun SupplyDashboardScreen(
                 )
             }
         }
+        is SupplyDashboardModal.ReorderTabs -> {
+            SupplyModalFrame(
+                title = "Reorder Tabs",
+                onDismiss = { dismissSupplyModal() },
+                headerTint = null
+            ) {
+                SupplyTabReorderScreen(
+                    availableTabs = supplyTabs,
+                    preferencesStore = preferencesStore,
+                    onOrderChanged = { newOrder ->
+                        val selectedTabId = supplyTabs.getOrNull(pagerState.currentPage)?.id
+                        savedTabOrder = newOrder
+                        if (selectedTabId != null) {
+                            val nextTabs = buildSupplyTabsList(categories, isAdminMode, newOrder)
+                            val newIndex = nextTabs.indexOfFirst { it.id == selectedTabId }
+                            if (newIndex >= 0) {
+                                scope.launch {
+                                    pagerState.scrollToPage(newIndex)
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+        }
         null -> Unit
     }
 
@@ -748,6 +757,7 @@ private sealed interface SupplyDashboardModal {
     data class Detail(val itemId: String) : SupplyDashboardModal
     data class EditItem(val itemId: String) : SupplyDashboardModal
     data class NewItem(val categoryId: String) : SupplyDashboardModal
+    object ReorderTabs : SupplyDashboardModal
 }
 
 /**
