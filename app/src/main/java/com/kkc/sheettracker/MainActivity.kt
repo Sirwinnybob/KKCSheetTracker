@@ -49,6 +49,7 @@ import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.SupplyRepository
 import com.kkc.sheettracker.data.SupplySubscriptionManager
+import com.kkc.sheettracker.data.TrackerLamportClock
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.navigation.AppNavigation
@@ -184,6 +185,7 @@ class MainActivity : ComponentActivity() {
 
         val baseDir = File(basePath)
         val jobRepository = JobRepository(baseDir, isDebugBuild = BuildConfig.DEBUG)
+        TrackerLamportClock.init(File(filesDir, "state"))
         val progressStore = ProgressStore(
             baseDir = baseDir,
             tabletId = tabletId,
