@@ -1,0 +1,237 @@
+<!DOCTYPE html><html class="light" lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Inventory Category View</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@100..900&amp;family=Inter:wght@100..900&amp;family=JetBrains+Mono:wght@100..900&amp;display=swap" rel="stylesheet">
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-dim": "#d8dadc",
+                        "secondary-fixed-dim": "#b7c8e1",
+                        "surface": "#f7f9fb",
+                        "primary-fixed": "#d8e2ff",
+                        "on-tertiary-container": "#fcfcff",
+                        "surface-variant": "#e0e3e5",
+                        "on-tertiary-fixed-variant": "#004c6e",
+                        "inverse-primary": "#adc6ff",
+                        "inverse-surface": "#2d3133",
+                        "on-error": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "primary-container": "#2170e4",
+                        "primary": "#0058be",
+                        "on-secondary-fixed-variant": "#38485d",
+                        "inverse-on-surface": "#eff1f3",
+                        "tertiary": "#00628d",
+                        "tertiary-fixed": "#c9e6ff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "primary-fixed-dim": "#adc6ff",
+                        "outline-variant": "#c2c6d6",
+                        "background": "#f7f9fb",
+                        "error": "#ba1a1a",
+                        "surface-tint": "#005ac2",
+                        "tertiary-fixed-dim": "#89ceff",
+                        "secondary-container": "#d0e1fb",
+                        "on-background": "#191c1e",
+                        "on-secondary-fixed": "#0b1c30",
+                        "outline": "#727785",
+                        "on-primary-container": "#fefcff",
+                        "on-surface-variant": "#424754",
+                        "surface-container-low": "#f2f4f6",
+                        "surface-bright": "#f7f9fb",
+                        "secondary-fixed": "#d3e4fe",
+                        "surface-container-highest": "#e0e3e5",
+                        "surface-container-high": "#e6e8ea",
+                        "surface-container": "#eceef0",
+                        "on-surface": "#191c1e",
+                        "on-primary-fixed-variant": "#004395",
+                        "secondary": "#505f76",
+                        "on-tertiary-fixed": "#001e2f",
+                        "on-secondary": "#ffffff",
+                        "tertiary-container": "#007cb1",
+                        "on-primary": "#ffffff",
+                        "on-secondary-container": "#54647a",
+                        "on-tertiary": "#ffffff",
+                        "on-primary-fixed": "#001a42"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "margin-desktop": "40px",
+                        "xs": "4px",
+                        "md": "16px",
+                        "lg": "24px",
+                        "sm": "8px",
+                        "margin-mobile": "16px",
+                        "2xl": "48px",
+                        "gutter": "24px",
+                        "xl": "32px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "display-lg": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Hide scrollbar for horizontal scrolling containers */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background min-h-screen flex flex-col font-body-md">
+<!-- TopAppBar Shared Component -->
+<header class="bg-surface-container-lowest w-full top-0 sticky border-b border-outline-variant flex items-center justify-between px-gutter h-[56px] max-w-full z-50">
+<button class="cursor-pointer active:opacity-80 p-sm hover:bg-surface-container-low transition-colors rounded-full text-on-surface-variant flex items-center justify-center">
+
+</button>
+
+<button class="cursor-pointer active:opacity-80 p-sm hover:bg-surface-container-low transition-colors rounded-full text-on-surface-variant flex items-center justify-center">
+
+</button>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-margin-mobile py-md flex flex-col gap-md pb-xl">
+<!-- Context Header -->
+<div class="flex flex-col gap-xs">
+
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface"><br></h1>
+</div>
+<!-- Search Bar -->
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-outline text-[20px]">search</span>
+<input class="w-full bg-surface-container-lowest border border-outline-variant rounded-full py-[10px] pl-[40px] pr-md font-body-sm text-body-sm text-on-surface placeholder:text-outline focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all shadow-sm" placeholder="Search SKU, name, or material..." type="text">
+</div>
+<!-- Horizontal Filter Chips -->
+<div class="flex overflow-x-auto gap-sm pb-xs no-scrollbar"><button class="whitespace-nowrap px-md py-[6px] rounded-full bg-surface-container-lowest text-on-surface-variant font-label-caps text-label-caps border border-outline-variant hover:bg-surface-container-low transition-colors">Updates</button><button class="whitespace-nowrap px-md py-[6px] rounded-full bg-surface-container-lowest text-on-surface-variant font-label-caps text-label-caps border border-outline-variant hover:bg-surface-container-low transition-colors">Needs Attention <span class="bg-error text-on-error rounded-full px-1 ml-1">10</span></button><button class="whitespace-nowrap px-md py-[6px] rounded-full bg-primary-container text-on-primary-container font-label-caps text-label-caps border border-primary transition-colors">SHEET/HW STOCK(TREE PRODUCTS)</button><button class="whitespace-nowrap px-md py-[6px] rounded-full bg-surface-container-lowest text-on-surface-variant font-label-caps text-label-caps border border-outline-variant hover:bg-surface-container-low transition-colors">EDGE BANDER</button><button class="whitespace-nowrap px-md py-[6px] rounded-full bg-surface-container-lowest text-on-surface-variant font-label-caps text-label-caps border border-outline-variant hover:bg-surface-container-low transition-colors">HARDWOODS</button></div>
+<!-- Overview Section (Bento-style mini cards) -->
+<section class="flex flex-col gap-sm">
+<div class="flex items-center justify-between pl-xs pr-md mb-xs"><div class="flex flex-col"><h2 class="font-label-caps text-label-caps text-on-surface font-bold uppercase tracking-wider">SHEET/HW STOCK(TREE PRODUCTS)</h2><span class="text-[10px] text-secondary">Category inventory</span></div><button class="bg-primary text-on-primary px-md py-sm rounded-full flex items-center gap-xs text-body-sm font-semibold shadow-sm active:opacity-80"><span class="material-symbols-outlined text-[18px]">add</span>Add Item</button></div>
+<div class="bg-surface-container-lowest p-md rounded-lg border border-outline-variant shadow-sm flex flex-col gap-xs"><h3 class="font-semibold text-on-surface">SHEET/HW STOCK(TREE PRODUCTS) Overview</h3><div class="text-headline-lg-mobile font-bold text-on-surface">11 items</div><div class="text-body-sm text-on-surface-variant">Not subscribed for updates</div><div class="text-body-sm text-on-surface-variant">No active notifications</div></div>
+</section>
+<!-- Category Items List (High Density) -->
+<section class="flex flex-col gap-xs">
+<h2 class="font-label-caps text-label-caps text-secondary uppercase tracking-wider pl-xs mt-sm">Items List</h2>
+<!-- Item Card 1 -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-sm flex items-center justify-between shadow-sm relative overflow-hidden group">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-error-container"></div>
+<div class="flex flex-col pl-xs">
+<span class="font-body-md text-body-md text-on-surface font-semibold tracking-tight">1/4" Prefinished Maple</span>
+<div class="flex items-center gap-xs mt-[2px] text-on-surface-variant font-body-sm text-body-sm">
+<span class="">SKU: PF-14-MAP</span>
+<span class="text-outline text-[8px]">•</span>
+<span class="">$32.50/sht</span>
+</div>
+</div>
+<div class="flex flex-col items-end gap-[4px]">
+<span class="px-xs py-[2px] rounded-DEFAULT bg-error-container text-on-error-container font-label-caps text-label-caps font-bold">LOW</span>
+<span class="text-outline font-body-sm text-body-sm text-[11px]">Qty: 4</span>
+</div>
+</div>
+<!-- Item Card 2 -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-sm flex items-center justify-between shadow-sm relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-tertiary-container"></div>
+<div class="flex flex-col pl-xs">
+<span class="font-body-md text-body-md text-on-surface font-semibold tracking-tight">19mm Pre-Finished Birch</span>
+<div class="flex items-center gap-xs mt-[2px] text-on-surface-variant font-body-sm text-body-sm">
+<span class="">SKU: PF-19-BIR</span>
+<span class="text-outline text-[8px]">•</span>
+<span class="">$55.00/sht</span>
+</div>
+</div>
+<div class="flex flex-col items-end gap-[4px]">
+<span class="px-xs py-[2px] rounded-DEFAULT bg-tertiary-container text-on-tertiary-container font-label-caps text-label-caps font-bold">ORDERED</span>
+<span class="text-outline font-body-sm text-body-sm text-[11px]">ETA: Oct 12</span>
+</div>
+</div>
+<!-- Item Card 3 -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-sm flex items-center justify-between shadow-sm relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-surface-variant"></div>
+<div class="flex flex-col pl-xs">
+<span class="font-body-md text-body-md text-on-surface font-semibold tracking-tight">1/2" MDF Raw (Light)</span>
+<div class="flex items-center gap-xs mt-[2px] text-on-surface-variant font-body-sm text-body-sm">
+<span class="">SKU: MDF-12-RAW</span>
+<span class="text-outline text-[8px]">•</span>
+<span class="">$21.00/sht</span>
+</div>
+</div>
+<div class="flex flex-col items-end gap-[4px]">
+<span class="px-xs py-[2px] rounded-DEFAULT bg-surface-container-highest text-on-surface-variant font-label-caps text-label-caps font-bold">GOOD</span>
+<span class="text-outline font-body-sm text-body-sm text-[11px]">Qty: 42</span>
+</div>
+</div>
+<!-- Item Card 4 -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-sm flex items-center justify-between shadow-sm relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-error-container"></div>
+<div class="flex flex-col pl-xs">
+<span class="font-body-md text-body-md text-on-surface font-semibold tracking-tight">3/4" White Melamine</span>
+<div class="flex items-center gap-xs mt-[2px] text-on-surface-variant font-body-sm text-body-sm">
+<span class="">SKU: MEL-34-WHT</span>
+<span class="text-outline text-[8px]">•</span>
+<span class="">$28.75/sht</span>
+</div>
+</div>
+<div class="flex flex-col items-end gap-[4px]">
+<span class="px-xs py-[2px] rounded-DEFAULT bg-error-container text-on-error-container font-label-caps text-label-caps font-bold">LOW</span>
+<span class="text-outline font-body-sm text-body-sm text-[11px]">Qty: 2</span>
+</div>
+</div>
+<!-- Item Card 5 -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-sm flex items-center justify-between shadow-sm relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-surface-variant"></div>
+<div class="flex flex-col pl-xs">
+<span class="font-body-md text-body-md text-on-surface font-semibold tracking-tight">5/8" Particle Board</span>
+<div class="flex items-center gap-xs mt-[2px] text-on-surface-variant font-body-sm text-body-sm">
+<span class="">SKU: PB-58-STD</span>
+<span class="text-outline text-[8px]">•</span>
+<span class="">$18.50/sht</span>
+</div>
+</div>
+<div class="flex flex-col items-end gap-[4px]">
+<span class="px-xs py-[2px] rounded-DEFAULT bg-surface-container-highest text-on-surface-variant font-label-caps text-label-caps font-bold">GOOD</span>
+<span class="text-outline font-body-sm text-body-sm text-[11px]">Qty: 18</span>
+</div>
+</div>
+</section>
+</main>
+
+
+</body></html>

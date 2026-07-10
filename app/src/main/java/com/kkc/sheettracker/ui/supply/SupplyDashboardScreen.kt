@@ -84,6 +84,8 @@ import com.kkc.sheettracker.ui.dashboard.DashboardWidgetRenderer
 import com.kkc.sheettracker.ui.dashboard.DashboardInventoryItemModel
 import com.kkc.sheettracker.ui.dashboard.DashboardWidgetModel
 import com.kkc.sheettracker.ui.dashboard.buildSupplyCategoryWidgets
+import com.kkc.sheettracker.ui.dashboard.getSoftStatusColors
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -556,7 +558,7 @@ fun SupplyDashboardScreen(
             val item = items.firstOrNull { it.id == modal.itemId }
             val itemTitle = item?.name ?: "Supply Item"
             SupplyModalFrame(
-                title = itemTitle,
+                title = "",
                 onDismiss = { dismissSupplyModal() },
                 headerTint = supplyStatusHeaderTint(item?.status),
                 actions = {
@@ -944,6 +946,7 @@ private fun toInventoryItemModel(
     categoryMap: Map<String, SupplyCategory> = emptyMap()
 ): DashboardInventoryItemModel {
     val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
+    val sku = item.fields["sku"]?.takeIf { it.isNotBlank() }
     val supportingText = listOfNotNull(
         quantity?.let { "Qty $it" },
         item.notes?.takeIf { it.isNotBlank() }
@@ -954,7 +957,10 @@ private fun toInventoryItemModel(
         subtitle = categoryMap[item.categoryId]?.name ?: "",
         supportingText = supportingText,
         badge = item.status,
-        accent = supplyAccent(item.status)
+        accent = supplyAccent(item.status),
+        sku = sku,
+        quantity = quantity,
+        notes = item.notes
     )
 }
 
@@ -1217,10 +1223,13 @@ private fun ToOrderJobSectionCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                val statusText = if (section.isFullyOrdered) "ORDERED" else "OPEN"
+                val baseColor = supplyStatusColor(if (section.isFullyOrdered) 7 else 6)
+                val (chipBgColor, chipTextColor) = getSoftStatusColors(statusText, baseColor)
                 StatusChip(
-                    text = if (section.isFullyOrdered) "ORDERED" else "OPEN",
-                    backgroundColor = supplyStatusColor(if (section.isFullyOrdered) 7 else 6),
-                    contentColor = Color.White
+                    text = statusText,
+                    backgroundColor = chipBgColor,
+                    contentColor = chipTextColor
                 )
                 Icon(
                     imageVector = if (section.isCollapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
@@ -1293,10 +1302,12 @@ private fun ToOrderItemRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val baseColor = supplyStatusColor(tier)
+                val (chipBgColor, chipTextColor) = getSoftStatusColors(status, baseColor)
                 StatusChip(
                     text = status,
-                    backgroundColor = supplyStatusColor(tier),
-                    contentColor = Color.White
+                    backgroundColor = chipBgColor,
+                    contentColor = chipTextColor
                 )
                 if (resolvedItem.isComplete && !cardText.orderDateLabel.isNullOrBlank()) {
                     StatusChip(

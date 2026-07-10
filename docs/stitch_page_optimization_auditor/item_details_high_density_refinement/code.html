@@ -1,0 +1,186 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>New Item Modal</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Hanken Grotesk"', 'sans-serif'],
+          },
+          colors: {
+            surface: '#f7f9fb',
+            'surface-dim': '#d8dadc',
+            'surface-bright': '#f7f9fb',
+            'surface-container-lowest': '#ffffff',
+            'surface-container-low': '#f2f4f6',
+            'surface-container': '#edeef1',
+            'surface-container-high': '#e7e9ec',
+            'surface-container-highest': '#e1e3e6',
+            primary: '#3b82f6',
+            'on-primary': '#ffffff',
+            'primary-container': '#dbeafe',
+            'on-primary-container': '#1e3a8a',
+            secondary: '#555f71',
+            'on-secondary': '#ffffff',
+            'secondary-container': '#d9e3f8',
+            'on-secondary-container': '#121c2b',
+            error: '#ba1a1a',
+            'on-error': '#ffffff',
+            'error-container': '#ffdad6',
+            'on-error-container': '#410002',
+            background: '#fdfbff',
+            'on-background': '#1a1b1e',
+            outline: '#74777f',
+            'outline-variant': '#c4c6cf',
+            'success-container': '#bbf7d0',
+            'on-success-container': '#166534',
+          },
+          borderRadius: {
+            'xl': '0.5rem',
+          }
+        }
+      }
+    }
+  </script>
+<style data-purpose="custom-styles">
+    body {
+      background-color: rgba(0, 0, 0, 0.4); /* Dark backdrop */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 1rem;
+    }
+    .modal-container {
+      width: 100%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    
+    /* Custom scrollbar for modal */
+    .modal-container::-webkit-scrollbar {
+      width: 6px;
+    }
+    .modal-container::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .modal-container::-webkit-scrollbar-thumb {
+      background-color: #c4c6cf;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body class="text-on-background font-sans antialiased">
+<!-- BEGIN: Modal Container -->
+<div class="modal-container bg-surface-container-lowest rounded-xl shadow-xl flex flex-col relative" data-purpose="modal-wrapper">
+<!-- BEGIN: Header -->
+<header class="sticky top-0 z-10 bg-surface-container-lowest border-b border-outline-variant px-4 py-3 flex items-center justify-between rounded-t-xl" data-purpose="modal-header">
+<div class="flex items-center gap-3">
+<button aria-label="Close modal" class="text-secondary hover:text-on-background transition-colors p-1">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<h1 class="text-lg font-bold">New Item</h1>
+</div>
+<button class="bg-primary text-on-primary px-4 py-1.5 rounded text-sm font-semibold hover:bg-opacity-90 transition-opacity">
+        Save
+      </button>
+</header>
+<!-- END: Header -->
+<!-- BEGIN: Modal Content -->
+<div class="p-4 sm:p-6 space-y-6 bg-surface-container-low" data-purpose="modal-body">
+<!-- BEGIN: Item Title & Status -->
+<section class="space-y-3" data-purpose="item-header-info">
+<h2 class="text-xl sm:text-2xl font-bold leading-tight">BLUM - Tandem 563/569 "Standard" Front Clips, Left and Right</h2>
+<div class="flex items-center gap-2">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-success-container text-on-success-container">
+            IN STOCK
+          </span>
+<span class="text-xs text-secondary cursor-pointer hover:underline">Tap to change status</span>
+</div>
+</section>
+<!-- END: Item Title & Status -->
+<!-- BEGIN: Notes Section -->
+<section class="rounded-lg p-4 border border-outline-variant/50 bg-surface-container-lowest shadow-sm" data-purpose="notes-section">
+<h3 class="text-sm font-bold text-on-background mb-2">Notes</h3>
+<div class="text-sm text-secondary space-y-2">
+<p class="">Wurth <a class="text-primary hover:underline" href="#">link</a> - $1.31 on 11/6 PREV 1.18 on 6/26</p>
+<p class="">Maverick <a class="text-primary hover:underline" href="#">link</a> - $1.25 on 12/24</p>
+<p class="">.06 ea difference or $6.00 a box of 100 box</p>
+</div>
+</section>
+<!-- END: Notes Section -->
+<!-- BEGIN: Photos & Attachments -->
+<section class="rounded-lg p-4 border border-outline-variant/50 bg-surface-container-lowest shadow-sm" data-purpose="attachments-section">
+<h3 class="text-sm font-bold text-on-background mb-3">Photos &amp; Attachments</h3>
+<div class="flex gap-3">
+<button class="flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant px-3 py-1.5 rounded text-sm font-medium text-secondary hover:bg-surface-container-low transition-colors">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" stroke-linecap="round" stroke-linejoin="round"></path>
+<path d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+            Camera
+          </button>
+<button class="flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant px-3 py-1.5 rounded text-sm font-medium text-secondary hover:bg-surface-container-low transition-colors">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+            Gallery
+          </button>
+</div>
+</section>
+<!-- END: Photos & Attachments -->
+<!-- BEGIN: Comments Section -->
+<section class="space-y-4" data-purpose="comments-section">
+<header>
+<h3 class="text-sm font-bold text-on-background">Comments</h3>
+<p class="text-xs text-secondary">1 comment</p>
+</header>
+<!-- Existing Comment -->
+<div class="rounded-lg p-3 sm:p-4 border border-outline-variant/50 bg-surface-container-lowest shadow-sm">
+<div class="flex items-start gap-3">
+<div class="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center text-xs font-bold shrink-0">
+              WF
+            </div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-baseline mb-1">
+<span class="text-sm font-bold text-on-primary-container truncate pr-2">Winston Ferguson</span>
+<span class="text-xs text-secondary shrink-0">7/9/26, 3:57 PM</span>
+</div>
+<p class="text-sm text-on-background break-words">test comment</p>
+</div>
+</div>
+</div>
+<!-- Add Comment Form -->
+<div class="rounded-lg p-3 sm:p-4 border border-outline-variant/50 bg-surface-container-lowest shadow-sm">
+<h4 class="text-sm font-bold text-on-background mb-3">Add Comment</h4>
+<div class="relative">
+<label class="absolute -top-2 left-2 inline-block px-1 text-xs font-medium text-primary bg-surface-container-lowest" for="comment-input">
+              Comment
+            </label>
+<textarea class="block w-full rounded-md border-2 border-primary bg-surface-container-lowest px-3 py-2 text-sm text-on-background shadow-sm focus:border-primary focus:ring-0 placeholder:text-outline-variant" id="comment-input" name="comment" placeholder="" rows="3"></textarea>
+</div>
+<div class="mt-3 flex justify-end">
+<button class="bg-surface-container-highest text-secondary px-4 py-1.5 rounded text-sm font-semibold cursor-not-allowed">
+              Submit
+            </button>
+</div>
+</div>
+</section>
+<!-- END: Comments Section -->
+</div>
+<!-- END: Modal Content -->
+</div>
+<!-- END: Modal Container -->
+
+
+</body></html>

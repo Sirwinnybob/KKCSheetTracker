@@ -17,8 +17,13 @@ if (-not (Test-Path $apkPath)) {
     exit 1
 }
 
+$adbPath = "C:\Users\chadc\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+if (-not (Test-Path $adbPath)) {
+    $adbPath = "adb"
+}
+
 Write-Host "Getting connected devices..." -ForegroundColor Green
-$devices = & adb devices | Select-Object -Skip 1 | Where-Object { $_ -match '\bdevice$' } | ForEach-Object { ($_ -split '\s+')[0] }
+$devices = & $adbPath devices | Select-Object -Skip 1 | Where-Object { $_ -match '\bdevice$' } | ForEach-Object { ($_ -split '\s+')[0] }
 
 if ($devices.Count -eq 0) {
     Write-Host "No devices connected" -ForegroundColor Red
@@ -29,12 +34,12 @@ Write-Host "Found $($devices.Count) device(s)" -ForegroundColor Green
 
 foreach ($device in $devices) {
     Write-Host "Installing to $device..." -ForegroundColor Green
-    & adb -s $device install -r $apkPath
+    & $adbPath -s $device install -r $apkPath
 
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "✓ Installed to $device" -ForegroundColor Green
+        Write-Host "OK: Installed to $device" -ForegroundColor Green
     } else {
-        Write-Host "✗ Failed to install to $device" -ForegroundColor Red
+        Write-Host "FAIL: Failed to install to $device" -ForegroundColor Red
     }
 }
 

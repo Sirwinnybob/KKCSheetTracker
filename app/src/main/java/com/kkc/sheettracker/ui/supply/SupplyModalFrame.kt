@@ -12,6 +12,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -261,7 +262,7 @@ fun SupplyModalFrame(
                         .fillMaxWidth()
                         .widthIn(max = 1040.dp)
                         .fillMaxHeight(0.92f),
-                    shape = MaterialTheme.shapes.extraLarge,
+                    shape = RoundedCornerShape(18.dp),
                     tonalElevation = 6.dp,
                     shadowElevation = 16.dp,
                     color = MaterialTheme.colorScheme.surface

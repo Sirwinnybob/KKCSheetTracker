@@ -45,7 +45,10 @@ data class DashboardInventoryItemModel(
     override val subtitle: String,
     override val supportingText: String? = null,
     val badge: String? = null,
-    override val accent: DashboardAccent = DashboardAccent.NEUTRAL
+    override val accent: DashboardAccent = DashboardAccent.NEUTRAL,
+    val sku: String? = null,
+    val quantity: String? = null,
+    val notes: String? = null
 ): DashboardItemModel
 
 data class SpecialtySummary(

@@ -5,10 +5,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
@@ -23,6 +26,10 @@ import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.dashboard.DashboardSectionHeader
 import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceCard
 import com.kkc.sheettracker.ui.dashboard.DashboardAccent
+import com.kkc.sheettracker.ui.dashboard.getSoftStatusColors
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -213,23 +220,41 @@ fun SupplyItemDetailScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Status pill
+                    // Item Title and Status Header
                     item {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            StatusChip(
-                                text = currentItem.status,
-                                backgroundColor = supplyStatusColor(SUPPLY_STATUS_PRIORITY[currentItem.status] ?: 99),
-                                contentColor = Color.White,
-                                modifier = Modifier.clickable { showStatusSheet = true }
-                            )
                             Text(
-                                "Tap to change status",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = currentItem.name,
+                                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
                             )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                val tier = SUPPLY_STATUS_PRIORITY[currentItem.status] ?: 99
+                                val baseColor = supplyStatusColor(tier)
+                                val (chipBgColor, chipTextColor) = getSoftStatusColors(currentItem.status, baseColor)
+                                StatusChip(
+                                    text = currentItem.status,
+                                    backgroundColor = chipBgColor,
+                                    contentColor = chipTextColor,
+                                    modifier = Modifier
+                                        .border(
+                                            BorderStroke(0.5.dp, chipTextColor.copy(alpha = 0.25f)),
+                                            shape = CircleShape
+                                        )
+                                        .clickable { showStatusSheet = true }
+                                )
+                                Text(
+                                    "Tap to change status",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
 
@@ -251,23 +276,82 @@ fun SupplyItemDetailScreen(
                     }
                     if (builtinFields.isNotEmpty()) {
                         item {
+                            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
                             DetailSection(title = "Details") {
-                                builtinFields.forEach { (label, value) ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            "$label:",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            value,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            modifier = Modifier.weight(1f),
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.End
-                                        )
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                ) {
+                                    builtinFields.forEachIndexed { index, (label, value) ->
+                                        if (index > 0) {
+                                            HorizontalDivider(
+                                                thickness = 0.5.dp,
+                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                            )
+                                        }
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                label,
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            
+                                            val isUrl = label == "Vendor Link" && (value.startsWith("http://") || value.startsWith("https://"))
+                                            val isTracking = label == "Tracking #" && value.isNotBlank()
+                                            
+                                            if (isUrl) {
+                                                Text(
+                                                    text = value,
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                                                        fontWeight = FontWeight.Medium
+                                                    ),
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clickable { runCatching { uriHandler.openUri(value) } },
+                                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            } else if (isTracking) {
+                                                Text(
+                                                    text = value,
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                                                        fontWeight = FontWeight.Medium
+                                                    ),
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clickable {
+                                                            runCatching {
+                                                                val encoded = java.net.URLEncoder.encode(value.trim(), "UTF-8")
+                                                                uriHandler.openUri("https://www.google.com/search?q=$encoded")
+                                                            }
+                                                        },
+                                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = value,
+                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier.weight(1f),
+                                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -297,7 +381,7 @@ fun SupplyItemDetailScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .heightIn(max = 280.dp)
-                                            .clip(MaterialTheme.shapes.medium),
+                                            .clip(RoundedCornerShape(12.dp)),
                                         contentScale = ContentScale.FillWidth
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
@@ -326,17 +410,87 @@ fun SupplyItemDetailScreen(
 
                             // Add attachment buttons
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (isAddingAttachment) {
+                            if (isAddingAttachment) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                                } else {
+                                }
+                            } else if (attachmentCount == 0) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Card(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(96.dp)
+                                            .clickable { launchCamera() },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.Center,
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.PhotoCamera,
+                                                contentDescription = "Camera",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                "Camera",
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    
+                                    Card(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(96.dp)
+                                            .clickable { galleryLauncher.launch("image/*") },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.Center,
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Image,
+                                                contentDescription = "Gallery",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                "Gallery",
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedButton(
                                         onClick = { launchCamera() },
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                     ) {
                                         Icon(
-                                            Icons.Filled.Add,
-                                            contentDescription = "Add icon",
+                                            Icons.Filled.PhotoCamera,
+                                            contentDescription = "Camera icon",
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
@@ -347,8 +501,8 @@ fun SupplyItemDetailScreen(
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                     ) {
                                         Icon(
-                                            Icons.Filled.Add,
-                                            contentDescription = "Add icon",
+                                            Icons.Filled.Image,
+                                            contentDescription = "Gallery icon",
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
@@ -366,7 +520,7 @@ fun SupplyItemDetailScreen(
                             subtitle = if (comments.isEmpty()) null else {
                                 "${comments.size} comment${if (comments.size == 1) "" else "s"}"
                             },
-                            modifier = Modifier.fillMaxWidth(0.5f)
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
 
@@ -377,18 +531,18 @@ fun SupplyItemDetailScreen(
                                 "No comments yet.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.fillMaxWidth(0.5f)
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     } else {
                         items(comments, key = { it.id }) { comment ->
-                            CommentCard(comment = comment, modifier = Modifier.fillMaxWidth(0.5f))
+                            CommentCard(comment = comment, modifier = Modifier.fillMaxWidth())
                         }
                     }
 
                     // Add comment form
                     item {
-                        DashboardSurfaceCard(modifier = Modifier.fillMaxWidth(0.5f)) {
+                        DashboardSurfaceCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                             Column(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -400,7 +554,7 @@ fun SupplyItemDetailScreen(
                                         label = { Text("Your Name") },
                                         modifier = Modifier.fillMaxWidth(),
                                         singleLine = true,
-                                        shape = MaterialTheme.shapes.medium
+                                        shape = RoundedCornerShape(6.dp)
                                     )
                                 }
                                 OutlinedTextField(
@@ -410,7 +564,7 @@ fun SupplyItemDetailScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     minLines = 2,
                                     maxLines = 4,
-                                    shape = MaterialTheme.shapes.medium
+                                    shape = RoundedCornerShape(6.dp)
                                 )
                                 Button(
                                     onClick = {
@@ -507,7 +661,7 @@ private fun DetailSection(
     accent: DashboardAccent = DashboardAccent.NEUTRAL,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    DashboardSurfaceCard(accent = accent) {
+    DashboardSurfaceCard(accent = accent, shape = RoundedCornerShape(12.dp)) {
         DashboardSectionHeader(title = title, subtitle = subtitle)
         content()
     }
@@ -534,19 +688,23 @@ private fun CommentCard(comment: SupplyComment, modifier: Modifier = Modifier) {
         }.uppercase()
     }
 
-    DashboardSurfaceCard(modifier = modifier, contentPadding = PaddingValues(12.dp)) {
+    DashboardSurfaceCard(
+        modifier = modifier,
+        contentPadding = PaddingValues(12.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
                 modifier = Modifier
                     .size(32.dp)
-                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     initials,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {

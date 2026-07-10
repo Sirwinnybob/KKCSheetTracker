@@ -58,6 +58,17 @@ import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.supply.supplyStatusColor
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.fillMaxHeight
 import kotlin.math.roundToInt
 
 fun buildCncDashboardWidgets(
@@ -652,46 +663,11 @@ fun DashboardWidgetRenderer(
                             Text(widget.emptyMessage, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             widget.items.forEach { item ->
-                                val tier = item.badge?.let { SUPPLY_STATUS_PRIORITY[it] } ?: 99
-                                DashboardSurfaceCard(
-                                    accent = item.accent,
-                                    tinted = true,
-                                    tintOverride = supplyStatusColor(tier),
-                                    modifier = androidx.compose.ui.Modifier.combinedClickable(
-                                        onClick = { onItemClick(item) },
-                                        onLongClick = { onItemLongPress?.invoke(item) }
-                                    ),
-                                    contentPadding = PaddingValues(14.dp)
-                                ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        item.badge?.let { badge ->
-                                            StatusChip(
-                                                text = badge,
-                                                backgroundColor = supplyStatusColor(tier),
-                                                contentColor = Color.White
-                                            )
-                                        }
-                                        Text(
-                                            item.title,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                                        )
-                                        if (item.subtitle.isNotBlank()) {
-                                            Text(
-                                                item.subtitle,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        item.supportingText?.let {
-                                            MarkdownText(
-                                                it,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
+                                HighDensityInventoryItemRow(
+                                    item = item,
+                                    onClick = { onItemClick(item) },
+                                    onLongClick = { onItemLongPress?.invoke(item) }
+                                )
                             }
                         }
                         }
@@ -756,6 +732,7 @@ private fun toAssemblyJobItemModel(card: AssemblyJobCard): DashboardProgressItem
 
 private fun toInventoryItemModel(item: SupplyItem): DashboardInventoryItemModel {
     val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
+    val sku = item.fields["sku"]?.takeIf { it.isNotBlank() }
     val supportingText = listOfNotNull(
         quantity?.let { "Qty $it" },
         item.notes?.takeIf { it.isNotBlank() }
@@ -766,7 +743,10 @@ private fun toInventoryItemModel(item: SupplyItem): DashboardInventoryItemModel 
         subtitle = "",
         supportingText = supportingText,
         badge = item.status,
-        accent = supplyAccent(item.status)
+        accent = supplyAccent(item.status),
+        sku = sku,
+        quantity = quantity,
+        notes = item.notes
     )
 }
 
@@ -880,3 +860,137 @@ private fun safeFraction(completed: Int, total: Int): Float {
 private fun remainingCount(completed: Int, total: Int): Int = (total - completed).coerceAtLeast(0)
 
 private fun pluralize(word: String, count: Int): String = if (count == 1) word else "${word}s"
+
+@Composable
+fun getSoftStatusColors(status: String, baseColor: Color): Pair<Color, Color> {
+    val statusUpper = status.uppercase()
+    return when {
+        statusUpper in setOf("OUT", "ASAP", "MALFUNCTIONING", "NEED") -> {
+            MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+        }
+        statusUpper == "LOW" -> {
+            MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        }
+        statusUpper in setOf("ORDERED", "IN PROCESS", "ACKNOWLEDGED") -> {
+            if (statusUpper == "ORDERED" && (baseColor == Color(0xFF388E3C) || baseColor == Color(0xFF2E7D32))) {
+                Color(0xFFE8F5E9) to Color(0xFF2E7D32)
+            } else {
+                MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+            }
+        }
+        statusUpper in setOf("IN STOCK", "COMPLETE", "RECEIVED") -> {
+            Color(0xFFE8F5E9) to Color(0xFF2E7D32)
+        }
+        statusUpper in setOf("NOT ORDERED", "OPEN") -> {
+            Color(0xFFFFF8E1) to Color(0xFFEF6C00)
+        }
+        else -> {
+            MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun HighDensityInventoryItemRow(
+    item: DashboardInventoryItemModel,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val tier = item.badge?.let { SUPPLY_STATUS_PRIORITY[it] } ?: 99
+    val statusColor = supplyStatusColor(tier)
+    val shape = RoundedCornerShape(12.dp)
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(elevation = 2.dp, shape = shape, clip = false)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
+        shape = shape,
+        colors = CardDefaults.cardColors(
+            containerColor = statusColor.copy(alpha = 0.06f).compositeOver(MaterialTheme.colorScheme.surface)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+    ) {
+        // Content Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+                // Left Column: Title & Metadata
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    // Metadata row: SKU, notes, etc.
+                    val metadataParts = remember(item.sku, item.notes) {
+                        buildList {
+                            if (!item.sku.isNullOrBlank()) {
+                                add("SKU: ${item.sku}")
+                            }
+                            if (!item.notes.isNullOrBlank()) {
+                                val cleanNotes = item.notes.replace("\n", " ").trim()
+                                if (cleanNotes.length > 50) {
+                                    add(cleanNotes.take(47) + "...")
+                                } else {
+                                    add(cleanNotes)
+                                }
+                            }
+                        }
+                    }
+                    if (metadataParts.isNotEmpty()) {
+                        Text(
+                            text = metadataParts.joinToString(" • "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                // Right Column: Status chip & Quantity
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    item.badge?.let { badge ->
+                        val (chipBgColor, chipTextColor) = getSoftStatusColors(badge, statusColor)
+                        StatusChip(
+                            text = badge,
+                            backgroundColor = chipBgColor,
+                            contentColor = chipTextColor,
+                            modifier = Modifier.border(
+                                BorderStroke(0.5.dp, chipTextColor.copy(alpha = 0.25f)),
+                                shape = CircleShape
+                            )
+                        )
+                    }
+                    
+                    if (!item.quantity.isNullOrBlank()) {
+                        Text(
+                            text = "Qty: ${item.quantity}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+    }
+}
+

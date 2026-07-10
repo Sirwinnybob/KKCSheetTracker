@@ -1,15 +1,20 @@
 package com.kkc.sheettracker.ui.supply
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.dashboard.getSoftStatusColors
 import com.kkc.sheettracker.data.SupplyRepository
 import com.kkc.sheettracker.data.models.ALL_SUPPLY_STATUSES
 import com.kkc.sheettracker.data.models.SUPPLY_STATUS_PRIORITY
@@ -146,7 +151,8 @@ fun SupplyItemEditScreen(
         ) {
             OutlinedCard(
                 onClick = { showCategorySheet = true },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -176,12 +182,13 @@ fun SupplyItemEditScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 isError = name.isBlank(),
-                shape = MaterialTheme.shapes.medium
+                shape = RoundedCornerShape(6.dp)
             )
 
             OutlinedCard(
                 onClick = { showStatusSheet = true },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -195,31 +202,27 @@ fun SupplyItemEditScreen(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .background(statusColor, CircleShape)
+                    val (chipBgColor, chipTextColor) = getSoftStatusColors(selectedStatus, statusColor)
+                    StatusChip(
+                        text = selectedStatus,
+                        backgroundColor = chipBgColor,
+                        contentColor = chipTextColor,
+                        modifier = Modifier.border(
+                            BorderStroke(0.5.dp, chipTextColor.copy(alpha = 0.25f)),
+                            shape = CircleShape
                         )
-                        Text(
-                            selectedStatus,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
+                    )
                 }
             }
 
-            OutlinedTextField(
+             OutlinedTextField(
                 value = notes,
                 onValueChange = { notes = it },
                 label = { Text("Notes") },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
                 maxLines = 8,
-                shape = MaterialTheme.shapes.medium
+                shape = RoundedCornerShape(6.dp)
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -235,7 +238,7 @@ fun SupplyItemEditScreen(
                 label = { Text("SKU") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                shape = MaterialTheme.shapes.medium
+                shape = RoundedCornerShape(6.dp)
             )
             OutlinedTextField(
                 value = quantity,
@@ -243,7 +246,7 @@ fun SupplyItemEditScreen(
                 label = { Text("Quantity") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                shape = MaterialTheme.shapes.medium
+                shape = RoundedCornerShape(6.dp)
             )
             OutlinedTextField(
                 value = vendorLink,
@@ -251,7 +254,7 @@ fun SupplyItemEditScreen(
                 label = { Text("Vendor Link") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                shape = MaterialTheme.shapes.medium
+                shape = RoundedCornerShape(6.dp)
             )
             OutlinedTextField(
                 value = trackingNumber,
@@ -259,7 +262,7 @@ fun SupplyItemEditScreen(
                 label = { Text("Tracking #") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                shape = MaterialTheme.shapes.medium
+                shape = RoundedCornerShape(6.dp)
             )
 
             if (errorMessage != null) {
