@@ -275,6 +275,64 @@ class HardwoodsProgressStoreTest {
     }
 
     @Test
+    fun migrationFoldsLegacyBlobIntoNdjsonAndRetiresIt() {
+        val baseDir = createTempBaseDir()
+        writeCutlistIndex(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            index = HardwoodCutlistIndex(
+                documents = listOf(
+                    HardwoodDocumentIndex(
+                        docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+                        rows = listOf(HardwoodCutlistRow(rowId = "row-keep", qty = 6))
+                    )
+                )
+            )
+        )
+        // Simulate a pre-upgrade tablet: data lives ONLY in the legacy <tabletId>.json blob,
+        // there is NO ndjson stream and NO migration markers yet. Written in non-canonical
+        // board-stock key form so the canonical migration has to fold + canonicalize it.
+        val trackerDir = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker").apply { mkdirs() }
+        val legacyBlob = File(trackerDir, "$tabletId.json")
+        legacyBlob.writeText(
+            gson.toJson(
+                HardwoodTabletProgress(
+                    tabletId = tabletId,
+                    actions = listOf(
+                        trackerAction("FACE_FRAME_CUT_LIST", "row-keep", HardwoodTrackerActions.SET_DONE_COUNT, 4, timestamp = "2026-05-01T00:00:01Z"),
+                        trackerAction(
+                            docType = "BOARD_STOCK",
+                            rowId = "",
+                            action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+                            value = 3,
+                            totalsKey = "board_stock| Maple   Select |2.5000| frame ",
+                            timestamp = "2026-05-01T00:00:02Z"
+                        )
+                    )
+                )
+            )
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        // Force buildJobCache (which runs both migration routines).
+        val canonicalTally = store.makeBoardStockTallyKey("Maple Select", 2.5, "FRAME")
+
+        // (a) Pre-upgrade tally is NOT lost -- visible via canonical lookup.
+        assertEquals(3, store.getBoardStockRipDone(jobFolderName, "Maple Select", 2.5, "FRAME"))
+        assertEquals(4, store.getRowProgressMap(jobFolderName)["FACE_FRAME_CUT_LIST" to "row-keep"]?.doneCount)
+
+        // (b) Legacy blob is retired.
+        assertFalse(legacyBlob.exists())
+
+        // (c) ndjson now holds the (canonicalized) history.
+        val eventsFile = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker/events/$tabletId.ndjson")
+        assertTrue(eventsFile.exists())
+        val persisted = readTabletProgress(baseDir, jobFolderName, tabletId)
+        assertTrue(persisted.actions.any { it.totalsKey == canonicalTally && it.value == 3 })
+        assertTrue(persisted.actions.any { it.rowId == "row-keep" && it.value == 4 })
+    }
+
+    @Test
     fun setBoardStockRipDoneWritesFinalSetAction() {
         val baseDir = createTempBaseDir()
         writeCutlistIndex(baseDir, jobFolderName, HardwoodCutlistIndex())

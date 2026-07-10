@@ -170,6 +170,24 @@ class HardwoodsProgressStore(
     private fun boardStockCanonicalMigrationMarkerFile(jobFolderName: String): File =
         File(trackerDir(jobFolderName), ".board_stock_canonical_migration_${tabletId}.json")
 
+    private fun legacyTabletBlobFile(jobFolderName: String): File = File(trackerDir(jobFolderName), "$tabletId.json")
+
+    /** One-time upgrade read: this tablet's own progress from BOTH the legacy <tabletId>.json blob
+     * and the ndjson stream, merged. Used only by the migration routines so they still see
+     * pre-upgrade history that predates the ndjson switch. */
+    private fun loadOwnProgressIncludingLegacy(jobFolderName: String): HardwoodTabletProgress {
+        val actions = mutableListOf<HardwoodTrackerAction>()
+        val legacy = legacyTabletBlobFile(jobFolderName)
+        if (legacy.exists()) {
+            runCatching { gson.fromJson(legacy.readText(), HardwoodTabletProgress::class.java) }
+                .getOrNull()
+                ?.let { sanitizeProgress(it, fallbackTabletId = tabletId) }
+                ?.let { actions.addAll(it.actions) }
+        }
+        actions.addAll(loadTabletProgress(jobFolderName).actions)  // ndjson
+        return HardwoodTabletProgress(tabletId = tabletId, actions = actions)
+    }
+
     private fun loadTabletProgress(jobFolderName: String): HardwoodTabletProgress {
         val file = tabletEventsFile(jobFolderName)
         if (!file.exists()) return HardwoodTabletProgress(tabletId = tabletId)
@@ -884,7 +902,7 @@ class HardwoodsProgressStore(
     private fun migrateLegacyTotalsKeysIfNeeded(jobFolderName: String) {
         val marker = boardStockMigrationMarkerFile(jobFolderName)
         if (marker.exists()) return
-        val current = loadTabletProgress(jobFolderName)
+        val current = loadOwnProgressIncludingLegacy(jobFolderName)
         if (current.actions.isEmpty()) {
             writeMigrationMarker(jobFolderName, migratedCount = 0)
             return
@@ -895,14 +913,19 @@ class HardwoodsProgressStore(
             action.copy(totalsKey = boardKey)
         }
         val changed = migratedActions.zip(current.actions).count { (next, prev) -> next.totalsKey != prev.totalsKey }
-        if (changed > 0) saveLocalActionsSync(jobFolderName, migratedActions)
+        // Always fold the (possibly-migrated) full set into ndjson, THEN retire the legacy blob --
+        // even when changed == 0 -- so pre-upgrade legacy history is preserved in ndjson before the
+        // <tabletId>.json is deleted. Deleting keeps readProgressFromDir's legacy+ndjson union
+        // disjoint (no double-count). See METADATA_AUDIT.md R-01 upgrade-path fix.
+        saveLocalActionsSync(jobFolderName, migratedActions)
+        runCatching { legacyTabletBlobFile(jobFolderName).delete() }
         writeMigrationMarker(jobFolderName, migratedCount = changed)
     }
 
     private fun migrateBoardStockKeysToCanonicalIfNeeded(jobFolderName: String) {
         val marker = boardStockCanonicalMigrationMarkerFile(jobFolderName)
         if (marker.exists()) return
-        val current = loadTabletProgress(jobFolderName)
+        val current = loadOwnProgressIncludingLegacy(jobFolderName)
         if (current.actions.isEmpty()) {
             writeCanonicalMigrationMarker(jobFolderName, migratedCount = 0)
             return
@@ -913,7 +936,12 @@ class HardwoodsProgressStore(
             if (canonical == key) action else action.copy(totalsKey = canonical)
         }
         val changed = migratedActions.zip(current.actions).count { (next, prev) -> next.totalsKey != prev.totalsKey }
-        if (changed > 0) saveLocalActionsSync(jobFolderName, migratedActions)
+        // Always fold the (possibly-migrated) full set into ndjson, THEN retire the legacy blob --
+        // even when changed == 0 -- so pre-upgrade legacy history is preserved in ndjson before the
+        // <tabletId>.json is deleted. Deleting keeps readProgressFromDir's legacy+ndjson union
+        // disjoint (no double-count). See METADATA_AUDIT.md R-01 upgrade-path fix.
+        saveLocalActionsSync(jobFolderName, migratedActions)
+        runCatching { legacyTabletBlobFile(jobFolderName).delete() }
         writeCanonicalMigrationMarker(jobFolderName, migratedCount = changed)
     }
 
