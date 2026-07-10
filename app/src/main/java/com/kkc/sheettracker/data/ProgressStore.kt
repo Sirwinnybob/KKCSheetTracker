@@ -5,6 +5,7 @@ import android.graphics.Rect
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonObject
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
@@ -18,6 +19,68 @@ import java.time.Instant
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
+
+/** CNC op-name mapping mirroring Ready Jobs Watcher's tracker_action_stream.py _CNC_OP_MAP.
+ * Top-level (not private) so tests in this package can decode ndjson events directly. */
+internal fun cncOpForAction(action: String): String = when (action) {
+    "complete" -> "set_complete_true"
+    "uncomplete" -> "set_complete_false"
+    "skip" -> "set_skipped_true"
+    "unskip" -> "set_skipped_false"
+    "bad_part" -> "set_bad_part_true"
+    "unbad_part" -> "set_bad_part_false"
+    "bad_part_submitted" -> "bad_part_submitted"
+    "view" -> "view"
+    else -> action
+}
+
+internal fun cncActionForOp(op: String): String = when (op) {
+    "set_complete_true" -> "complete"
+    "set_complete_false" -> "uncomplete"
+    "set_skipped_true" -> "skip"
+    "set_skipped_false" -> "unskip"
+    "set_bad_part_true" -> "bad_part"
+    "set_bad_part_false" -> "unbad_part"
+    "bad_part_submitted" -> "bad_part_submitted"
+    "view" -> "view"
+    else -> op
+}
+
+internal fun cncTrackerActionToEvent(action: TrackerAction): TrackerEvent {
+    val payload = JsonObject()
+    payload.addProperty("file", action.file)
+    payload.addProperty("page", action.page)
+    action.part?.let { payload.addProperty("part", it) }
+    action.fileFingerprint?.let { payload.addProperty("fileFingerprint", it) }
+    payload.addProperty("timestamp", action.timestamp)
+    action.reNested?.let { payload.addProperty("reNested", it) }
+    return TrackerEvent(
+        op = cncOpForAction(action.action),
+        payload = payload,
+        wallTime = action.timestamp,
+        lamport = TrackerLamportClock.next()
+    )
+}
+
+internal fun decodeCncTrackerEvent(event: JsonObject): TrackerAction? {
+    val payload = event.getAsJsonObject("payload") ?: return null
+    val file = payload.get("file")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() } ?: return null
+    val page = payload.get("page")?.takeIf { !it.isJsonNull }?.asInt ?: return null
+    val opField = event.get("op")?.takeIf { !it.isJsonNull }?.asString ?: return null
+    val action = cncActionForOp(opField)
+    val timestamp = payload.get("timestamp")?.takeIf { !it.isJsonNull }?.asString
+        ?: event.get("wallTime")?.takeIf { !it.isJsonNull }?.asString
+        ?: ""
+    return TrackerAction(
+        file = file,
+        page = page,
+        part = payload.get("part")?.takeIf { !it.isJsonNull }?.asInt,
+        action = action,
+        timestamp = timestamp,
+        fileFingerprint = payload.get("fileFingerprint")?.takeIf { !it.isJsonNull }?.asString,
+        reNested = payload.get("reNested")?.takeIf { !it.isJsonNull }?.asBoolean
+    )
+}
 
 private data class DraftBadPartEntry(
     val file: String,
@@ -182,8 +245,8 @@ class ProgressStore(
         return File(baseDir, "$jobFolderName/CNC/.tracker")
     }
 
-    private fun tabletFile(jobFolderName: String): File {
-        return File(trackerDir(jobFolderName), "$tabletId.json")
+    private fun eventsFile(jobFolderName: String): File {
+        return File(trackerDir(jobFolderName), "events/$tabletId.ndjson")
     }
 
     private fun draftDir(jobFolderName: String): File {
@@ -213,25 +276,6 @@ class ProgressStore(
     ): String = "$jobFolderName|$pdfFilename|$page|$fileFingerprint"
 
     private fun safeName(value: String): String = value.replace(Regex("[^A-Za-z0-9._-]"), "_")
-
-    private fun loadTabletProgress(jobFolderName: String): TabletProgress {
-        val file = tabletFile(jobFolderName)
-        if (!file.exists()) return TabletProgress(tabletId)
-        return try {
-            sanitizeProgress(
-                gson.fromJson(file.readText(), TabletProgress::class.java),
-                fallbackTabletId = tabletId
-            ) ?: TabletProgress(tabletId)
-        } catch (_: Exception) {
-            TabletProgress(tabletId)
-        }
-    }
-
-    private fun saveTabletProgress(jobFolderName: String, progress: TabletProgress) {
-        val dir = trackerDir(jobFolderName)
-        dir.mkdirs()
-        atomicWriteFile(tabletFile(jobFolderName), gson.toJson(progress))
-    }
 
     private fun loadDraftState(jobFolderName: String): DraftBadPartState {
         val file = draftFile(jobFolderName)
@@ -290,19 +334,22 @@ class ProgressStore(
     }
 
     /**
-     * Append multiple actions with a single load → append-all → save → version bump, instead of
-     * one full re-parse/re-serialize per action. Callers that emit several actions at once
-     * (markSheetComplete, resolveBadPartsOnSheet, resolveSpecificBadParts) avoid O(A·K) writes,
-     * and the change monitor sees one coalesced write rather than many.
+     * Appends multiple actions as individual ndjson lines to this tablet's own event stream
+     * (never rewriting prior lines -- see METADATA_AUDIT.md R-01), instead of the old
+     * load-whole/rewrite-whole-file pattern. Callers that emit several actions at once
+     * (markSheetComplete, resolveBadPartsOnSheet, resolveSpecificBadParts) still get one
+     * coalesced index update, so the change monitor sees one version bump rather than many.
      */
     private fun appendActions(jobFolderName: String, entries: List<TrackerAction>) {
         if (readOnly || entries.isEmpty()) return
         val writeLock = writeLockByJob.getOrPut(jobFolderName) { Any() }
         synchronized(indexOperationLock) {
             synchronized(writeLock) {
-                val progress = loadTabletProgress(jobFolderName)
-                saveTabletProgress(jobFolderName, progress.copy(actions = progress.actions + entries))
-                entries.forEach { applyActionToIndex(jobFolderName, it) }
+                val file = eventsFile(jobFolderName)
+                entries.forEach { entry ->
+                    appendTrackerEvent(file, cncTrackerActionToEvent(entry))
+                    applyActionToIndex(jobFolderName, entry)
+                }
             }
         }
         bumpProgressVersion()
@@ -956,9 +1003,9 @@ class ProgressStore(
      * "recent jobs" lists so each device shows its own history.
      */
     fun getLocalMaterialLastTouches(jobFolderName: String): Map<String, MaterialLastTouch> {
-        val progress = loadTabletProgress(jobFolderName)
+        val ownActions = readTrackerEvents(eventsFile(jobFolderName)).mapNotNull { decodeCncTrackerEvent(it) }
         val touches = mutableMapOf<String, MaterialTouchEntry>()
-        progress.actions.sortedBy { it.timestamp }.forEach { action ->
+        ownActions.sortedBy { it.timestamp }.forEach { action ->
             val ms = parseTimestampMillis(action.timestamp)
             val entry = touches.getOrPut(action.file) { MaterialTouchEntry() }
             if (ms >= entry.lastTouchedAtMs) {

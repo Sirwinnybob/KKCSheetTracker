@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.data
 
 import com.google.gson.Gson
+import com.google.gson.JsonObject
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.TabletProgress
 import com.kkc.sheettracker.data.models.TrackerAction
@@ -38,27 +39,19 @@ class ProgressStoreTest {
         val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
 
         store.markSheetViewed(jobFolderName, "A.pdf", 3, "fp1")
-        val progress = readTabletProgress(baseDir, jobFolderName, tabletId)
-        assertEquals(listOf("view"), progress.actions.map { it.action })
+        val actions = readTrackerEventActions(baseDir, jobFolderName, tabletId)
+        assertEquals(listOf("view"), actions)
     }
 
     @Test
     fun localMaterialTouchesAreLatestPerMaterial() {
         val baseDir = createTempBaseDir()
-        writeTabletProgress(
-            baseDir = baseDir,
-            jobFolderName = jobFolderName,
-            tabletId = tabletId,
-            progress = TabletProgress(
-                tabletId = tabletId,
-                actions = listOf(
-                    trackerAction("A.pdf", 2, "view", "2026-05-01T00:00:01Z"),
-                    trackerAction("B.pdf", 4, "view", "2026-05-01T00:00:02Z"),
-                    trackerAction("A.pdf", 6, "view", "2026-05-01T00:00:03Z")
-                )
-            )
-        )
         val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+
+        store.markSheetViewed(jobFolderName, "A.pdf", 2, "fp1")
+        store.markSheetViewed(jobFolderName, "B.pdf", 4, "fp1")
+        store.markSheetViewed(jobFolderName, "A.pdf", 6, "fp1")
+
         val touches = store.getLocalMaterialLastTouches(jobFolderName)
 
         assertEquals(6, touches["A.pdf"]?.page)
@@ -92,12 +85,12 @@ class ProgressStoreTest {
             pool.shutdownNow()
         }
 
-        val progress = readTabletProgress(baseDir, jobFolderName, tabletId)
-        val pages = progress.actions.map { it.page }
+        val events = readTrackerEventObjects(baseDir, jobFolderName, tabletId)
+        val pages = events.map { it.getAsJsonObject("payload").get("page").asInt }
 
-        assertEquals(totalActions, progress.actions.size)
+        assertEquals(totalActions, events.size)
         assertEquals((1..totalActions).toSet(), pages.toSet())
-        assertTrue(progress.actions.all { it.action == "view" })
+        assertTrue(events.all { cncActionForOp(it.get("op").asString) == "view" })
     }
 
     @Test
@@ -133,6 +126,15 @@ class ProgressStoreTest {
     private fun readTabletProgress(baseDir: File, jobFolderName: String, tabletId: String): TabletProgress {
         val trackerFile = File(baseDir, "$jobFolderName/CNC/.tracker/$tabletId.json")
         return gson.fromJson(trackerFile.readText(), TabletProgress::class.java)
+    }
+
+    private fun readTrackerEventObjects(baseDir: File, jobFolderName: String, tabletId: String): List<JsonObject> {
+        val file = File(baseDir, "$jobFolderName/CNC/.tracker/events/$tabletId.ndjson")
+        return readTrackerEvents(file)
+    }
+
+    private fun readTrackerEventActions(baseDir: File, jobFolderName: String, tabletId: String): List<String> {
+        return readTrackerEventObjects(baseDir, jobFolderName, tabletId).map { cncActionForOp(it.get("op").asString) }
     }
 
     @Test
