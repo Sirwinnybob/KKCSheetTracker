@@ -19,6 +19,8 @@ import com.kkc.sheettracker.data.SupplyRepository
 import com.kkc.sheettracker.data.models.ALL_SUPPLY_STATUSES
 import com.kkc.sheettracker.data.models.SUPPLY_STATUS_PRIORITY
 import com.kkc.sheettracker.data.models.SupplyCategory
+import com.kkc.sheettracker.data.models.SupplySchemaField
+import com.kkc.sheettracker.data.routeSupplyFieldValues
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,10 +52,10 @@ fun SupplyItemEditScreen(
 
     var name by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
-    var sku by remember { mutableStateOf("") }
-    var quantity by remember { mutableStateOf("") }
-    var vendorLink by remember { mutableStateOf("") }
-    var trackingNumber by remember { mutableStateOf("") }
+    var schema by remember { mutableStateOf<List<SupplySchemaField>>(emptyList()) }
+    val fieldValues = remember { mutableStateMapOf<String, String>() }
+    var existingFields by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var existingCustomFields by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var selectedCategoryId by remember { mutableStateOf(initialCategoryId ?: "") }
     var selectedStatus by remember { mutableStateOf("IN STOCK") }
 
@@ -64,22 +66,27 @@ fun SupplyItemEditScreen(
     LaunchedEffect(itemId, initialCategoryId) {
         val cats = withContext(Dispatchers.IO) { repository.getCategories() }
         categories = cats.sortedBy { it.position }
+        val loadedSchema = withContext(Dispatchers.IO) { repository.schemaOrDefault() }
+        schema = loadedSchema
         if (itemId != null) {
             isLoading = true
             val item = withContext(Dispatchers.IO) { repository.getItem(itemId) }
             if (item != null) {
                 name = item.name
                 notes = item.notes ?: ""
-                sku = item.fields["sku"] ?: ""
-                quantity = item.fields["quantity"] ?: ""
-                vendorLink = item.fields["vendorLink"] ?: ""
-                trackingNumber = item.fields["trackingNumber"] ?: ""
+                existingFields = item.fields
+                existingCustomFields = item.customFields
+                val seed = item.fields + item.customFields
+                fieldValues.clear()
+                loadedSchema.forEach { field -> fieldValues[field.key] = seed[field.key] ?: "" }
                 selectedCategoryId = item.categoryId
                 selectedStatus = item.status
             }
             isLoading = false
         } else {
             selectedCategoryId = initialCategoryId ?: ""
+            fieldValues.clear()
+            loadedSchema.forEach { field -> fieldValues[field.key] = "" }
         }
     }
 
@@ -94,12 +101,12 @@ fun SupplyItemEditScreen(
             isSaving = true
             errorMessage = null
             try {
-                val fields = buildMap {
-                    if (sku.isNotBlank()) put("sku", sku.trim())
-                    if (quantity.isNotBlank()) put("quantity", quantity.trim())
-                    if (vendorLink.isNotBlank()) put("vendorLink", vendorLink.trim())
-                    if (trackingNumber.isNotBlank()) put("trackingNumber", trackingNumber.trim())
-                }
+                val routed = routeSupplyFieldValues(
+                    schema = schema,
+                    editedValues = fieldValues,
+                    existingFields = existingFields,
+                    existingCustomFields = existingCustomFields
+                )
                 val author = employeeName.ifBlank { "Floor" }
                 val savedId = withContext(Dispatchers.IO) {
                     if (itemId == null) {
@@ -107,12 +114,17 @@ fun SupplyItemEditScreen(
                             categoryId = selectedCategoryId,
                             name = name.trim(),
                             notes = notes.takeIf { it.isNotBlank() },
-                            fields = fields,
+                            fields = routed.fields,
+                            customFields = routed.customFields,
                             status = selectedStatus,
                             tabletId = tabletId
                         ).id
                     } else {
-                        repository.updateItem(itemId, name.trim(), selectedCategoryId, notes.takeIf { it.isNotBlank() }, fields)
+                        repository.updateItem(
+                            itemId, name.trim(), selectedCategoryId,
+                            notes.takeIf { it.isNotBlank() },
+                            routed.fields, routed.customFields
+                        )
                         repository.setStatus(itemId, selectedStatus, author, tabletId)
                         itemId
                     }
@@ -152,7 +164,7 @@ fun SupplyItemEditScreen(
             OutlinedCard(
                 onClick = { showCategorySheet = true },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(9.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -182,13 +194,13 @@ fun SupplyItemEditScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 isError = name.isBlank(),
-                shape = RoundedCornerShape(6.dp)
+                shape = RoundedCornerShape(4.dp)
             )
 
             OutlinedCard(
                 onClick = { showStatusSheet = true },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(9.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -222,7 +234,7 @@ fun SupplyItemEditScreen(
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
                 maxLines = 8,
-                shape = RoundedCornerShape(6.dp)
+                shape = RoundedCornerShape(4.dp)
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -232,38 +244,13 @@ fun SupplyItemEditScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            OutlinedTextField(
-                value = sku,
-                onValueChange = { sku = it },
-                label = { Text("SKU") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(6.dp)
-            )
-            OutlinedTextField(
-                value = quantity,
-                onValueChange = { quantity = it },
-                label = { Text("Quantity") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(6.dp)
-            )
-            OutlinedTextField(
-                value = vendorLink,
-                onValueChange = { vendorLink = it },
-                label = { Text("Vendor Link") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(6.dp)
-            )
-            OutlinedTextField(
-                value = trackingNumber,
-                onValueChange = { trackingNumber = it },
-                label = { Text("Tracking #") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(6.dp)
-            )
+            schema.forEach { field ->
+                SupplyFieldInput(
+                    field = field,
+                    value = fieldValues[field.key] ?: "",
+                    onValueChange = { fieldValues[field.key] = it }
+                )
+            }
 
             if (errorMessage != null) {
                 Text(
