@@ -73,6 +73,12 @@ class SupplyRepository(private val basePath: String) {
     fun getSchema(): List<SupplySchemaField> =
         readJson<List<SupplySchemaField>>(File(supplyDir, "schema.json")) ?: emptyList()
 
+    // Schema for rendering item fields. Falls back to the builtin defaults when
+    // schema.json is missing/empty (e.g. not yet synced to this tablet), so the
+    // Edit/Detail screens never render zero fields.
+    fun schemaOrDefault(): List<SupplySchemaField> =
+        getSchema().ifEmpty { DEFAULT_SUPPLY_SCHEMA }
+
     fun getItems(): List<SupplyItem> {
         if (!itemsDir.exists()) return emptyList()
         // List the status directory once and reuse it across all items, instead of
@@ -134,6 +140,7 @@ class SupplyRepository(private val basePath: String) {
     fun createItem(
         categoryId: String, name: String, notes: String?,
         fields: Map<String, String>,
+        customFields: Map<String, String> = emptyMap(),
         status: String = "IN STOCK",
         tabletId: String = "tablet"
     ): SupplyItem {
@@ -143,7 +150,7 @@ class SupplyRepository(private val basePath: String) {
         val stored = StoredSupplyItem(
             id = id, categoryId = categoryId, name = name,
             notes = notes?.takeIf { it.isNotBlank() },
-            fields = fields, customFields = emptyMap(),
+            fields = fields, customFields = customFields,
             attachmentIds = emptyList(), createdAt = now, updatedAt = now
         )
         // CROSS-PROGRAM: see METADATA_AUDIT.md H-07 — items/<id>.json is also written by the
@@ -156,13 +163,22 @@ class SupplyRepository(private val basePath: String) {
         return stored.resolve()
     }
 
-    fun updateItem(itemId: String, name: String, categoryId: String, notes: String?, fields: Map<String, String>): SupplyItem? {
+    fun updateItem(
+        itemId: String,
+        name: String,
+        categoryId: String,
+        notes: String?,
+        fields: Map<String, String>,
+        customFields: Map<String, String>? = null
+    ): SupplyItem? {
         val file = File(itemsDir, "$itemId.json")
         val existing = readJson<StoredSupplyItem>(file) ?: return null
         val updated = existing.copy(
             name = name, categoryId = categoryId,
             notes = notes?.takeIf { it.isNotBlank() },
-            fields = fields, updatedAt = java.time.Instant.now().toString()
+            fields = fields,
+            customFields = customFields ?: existing.customFields,
+            updatedAt = java.time.Instant.now().toString()
         )
         // CROSS-PROGRAM: see METADATA_AUDIT.md H-07 — items/<id>.json is also written by the
         // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader

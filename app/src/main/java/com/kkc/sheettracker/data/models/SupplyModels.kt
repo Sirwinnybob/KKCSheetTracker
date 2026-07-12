@@ -46,6 +46,17 @@ data class SupplySchemaField(
     val builtin: Boolean
 )
 
+// The 4 builtin fields, mirroring the backend DEFAULT_SCHEMA in
+// Hours Tracker backend/routes/supply_store.py. Used as a fallback when
+// .supply/schema.json has not synced to the tablet yet, so the editor never
+// renders zero fields.
+val DEFAULT_SUPPLY_SCHEMA: List<SupplySchemaField> = listOf(
+    SupplySchemaField("builtin-sku", "sku", "SKU", "text", true),
+    SupplySchemaField("builtin-quantity", "quantity", "Quantity", "text", true),
+    SupplySchemaField("builtin-vendorLink", "vendorLink", "Vendor Link", "url", true),
+    SupplySchemaField("builtin-trackingNumber", "trackingNumber", "Tracking #", "text", true),
+)
+
 // Priority tier for sorting — lower = more urgent (floats to top)
 val SUPPLY_STATUS_PRIORITY: Map<String, Int> = mapOf(
     "OUT" to 1, "ASAP" to 1,

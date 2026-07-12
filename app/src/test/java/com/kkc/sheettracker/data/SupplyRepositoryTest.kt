@@ -122,6 +122,51 @@ class SupplyRepositoryTest {
         assertEquals(1, created.position)
     }
 
+    @Test
+    fun createItem_persistsCustomFields() {
+        val basePath = createTempBasePath()
+        val repository = SupplyRepository(basePath)
+        val cat = repository.createCategory("Blades")
+        val created = repository.createItem(
+            categoryId = cat.id,
+            name = "Saw blade",
+            notes = null,
+            fields = mapOf("sku" to "SB-1"),
+            customFields = mapOf("diameter" to "10in"),
+            status = "IN STOCK",
+            tabletId = "tablet-A"
+        )
+        val reloaded = repository.getItem(created.id)!!
+        assertEquals("SB-1", reloaded.fields["sku"])
+        assertEquals("10in", reloaded.customFields["diameter"])
+    }
+
+    @Test
+    fun updateItem_setsCustomFieldsAndPreservesOrphans() {
+        val basePath = createTempBasePath()
+        val repository = SupplyRepository(basePath)
+        val cat = repository.createCategory("Blades")
+        val created = repository.createItem(
+            categoryId = cat.id,
+            name = "Saw blade",
+            notes = null,
+            fields = mapOf("sku" to "SB-1"),
+            customFields = mapOf("diameter" to "10in", "legacyKerf" to "0.1"),
+            tabletId = "tablet-A"
+        )
+        val updated = repository.updateItem(
+            created.id,
+            "Saw blade v2",
+            cat.id,
+            null,
+            mapOf("sku" to "SB-2"),
+            mapOf("diameter" to "12in", "legacyKerf" to "0.1")
+        )!!
+        assertEquals("SB-2", updated.fields["sku"])
+        assertEquals("12in", updated.customFields["diameter"])
+        assertEquals("0.1", updated.customFields["legacyKerf"])
+    }
+
     private fun createTempBasePath(): String {
         return Files.createTempDirectory("supply-repository-test").toFile().absolutePath
     }
