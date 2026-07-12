@@ -72,6 +72,7 @@ fun SupplyItemDetailScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var item by remember { mutableStateOf<SupplyItem?>(null) }
+    var schema by remember { mutableStateOf(DEFAULT_SUPPLY_SCHEMA) }
     var comments by remember { mutableStateOf<List<SupplyComment>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -90,6 +91,7 @@ fun SupplyItemDetailScreen(
             errorMessage = null
             try {
                 val loadedItem = withContext(Dispatchers.IO) { repository.getItem(itemId) }
+                schema = withContext(Dispatchers.IO) { repository.schemaOrDefault() }
                 if (loadedItem == null) {
                     errorMessage = "Item not found"
                 } else {
@@ -267,14 +269,15 @@ fun SupplyItemDetailScreen(
                         }
                     }
 
-                    // Built-in fields
-                    val builtinFields = buildList {
-                        currentItem.fields["sku"]?.takeIf { it.isNotBlank() }?.let { add("SKU" to it) }
-                        currentItem.fields["quantity"]?.takeIf { it.isNotBlank() }?.let { add("Quantity" to it) }
-                        currentItem.fields["vendorLink"]?.takeIf { it.isNotBlank() }?.let { add("Vendor Link" to it) }
-                        currentItem.fields["trackingNumber"]?.takeIf { it.isNotBlank() }?.let { add("Tracking #" to it) }
+                    // Fields, rendered from the current schema (non-blank values only).
+                    // Orphan values (keys not in the current schema) are intentionally hidden.
+                    data class DetailField(val label: String, val value: String, val type: String, val key: String)
+                    val detailFields = schema.mapNotNull { f ->
+                        val v = (currentItem.fields[f.key] ?: currentItem.customFields[f.key])
+                            ?.takeIf { it.isNotBlank() }
+                        v?.let { DetailField(f.label, it, f.type, f.key) }
                     }
-                    if (builtinFields.isNotEmpty()) {
+                    if (detailFields.isNotEmpty()) {
                         item {
                             val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
                             DetailSection(title = "Details") {
@@ -282,7 +285,9 @@ fun SupplyItemDetailScreen(
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                                 ) {
-                                    builtinFields.forEachIndexed { index, (label, value) ->
+                                    detailFields.forEachIndexed { index, df ->
+                                        val label = df.label
+                                        val value = df.value
                                         if (index > 0) {
                                             HorizontalDivider(
                                                 thickness = 0.5.dp,
@@ -302,8 +307,8 @@ fun SupplyItemDetailScreen(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             
-                                            val isUrl = label == "Vendor Link" && (value.startsWith("http://") || value.startsWith("https://"))
-                                            val isTracking = label == "Tracking #" && value.isNotBlank()
+                                            val isUrl = df.type == "url" && (value.startsWith("http://") || value.startsWith("https://"))
+                                            val isTracking = df.key == "trackingNumber" && value.isNotBlank()
                                             
                                             if (isUrl) {
                                                 Text(
@@ -381,7 +386,7 @@ fun SupplyItemDetailScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .heightIn(max = 280.dp)
-                                            .clip(RoundedCornerShape(12.dp)),
+                                            .clip(RoundedCornerShape(9.dp)),
                                         contentScale = ContentScale.FillWidth
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
@@ -427,7 +432,7 @@ fun SupplyItemDetailScreen(
                                             .weight(1f)
                                             .height(96.dp)
                                             .clickable { launchCamera() },
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RoundedCornerShape(9.dp),
                                         colors = CardDefaults.cardColors(
                                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                         )
@@ -457,7 +462,7 @@ fun SupplyItemDetailScreen(
                                             .weight(1f)
                                             .height(96.dp)
                                             .clickable { galleryLauncher.launch("image/*") },
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RoundedCornerShape(9.dp),
                                         colors = CardDefaults.cardColors(
                                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                         )
@@ -542,7 +547,7 @@ fun SupplyItemDetailScreen(
 
                     // Add comment form
                     item {
-                        DashboardSurfaceCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                            DashboardSurfaceCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(9.dp)) {
                             Column(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -554,7 +559,7 @@ fun SupplyItemDetailScreen(
                                         label = { Text("Your Name") },
                                         modifier = Modifier.fillMaxWidth(),
                                         singleLine = true,
-                                        shape = RoundedCornerShape(6.dp)
+                                        shape = RoundedCornerShape(4.dp)
                                     )
                                 }
                                 OutlinedTextField(
@@ -564,7 +569,7 @@ fun SupplyItemDetailScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     minLines = 2,
                                     maxLines = 4,
-                                    shape = RoundedCornerShape(6.dp)
+                                    shape = RoundedCornerShape(4.dp)
                                 )
                                 Button(
                                     onClick = {
@@ -661,7 +666,7 @@ private fun DetailSection(
     accent: DashboardAccent = DashboardAccent.NEUTRAL,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    DashboardSurfaceCard(accent = accent, shape = RoundedCornerShape(12.dp)) {
+    DashboardSurfaceCard(accent = accent, shape = RoundedCornerShape(9.dp)) {
         DashboardSectionHeader(title = title, subtitle = subtitle)
         content()
     }
@@ -691,7 +696,7 @@ private fun CommentCard(comment: SupplyComment, modifier: Modifier = Modifier) {
     DashboardSurfaceCard(
         modifier = modifier,
         contentPadding = PaddingValues(12.dp),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(9.dp)
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
