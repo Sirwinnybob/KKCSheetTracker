@@ -59,8 +59,8 @@ adding custom-field support.
 3. **Save:** split the edited value map into `(fields, customFields)` by each field's
    `builtin` flag (via the pure routing helper), then call the repository. Blank values
    are omitted (matches today's `buildMap { if (isNotBlank()) ... }`).
-4. **Detail:** render one row per schema field with a non-blank value, in schema order,
-   plus any orphan values (see below).
+4. **Detail:** render one row per schema field with a non-blank value, in schema order.
+   Orphan values (keys not in the current schema) are not shown.
 
 ## Robustness
 
@@ -72,9 +72,9 @@ adding custom-field support.
 2. **Orphan values.** An item may hold a value for a key the current schema no longer
    lists (field deleted after the item was created). On save, orphan keys in *both*
    `fields` and `customFields` are preserved untouched (round-trip), never silently
-   dropped. In Detail, any non-blank orphan value is still shown (label = the raw key) so
-   nothing disappears from view. Orphans are not rendered as editable inputs in Edit
-   (their type is unknown).
+   dropped. Orphans are **not displayed** in Detail and **not rendered as editable inputs**
+   in Edit (their type is unknown) — they are invisible in the UI but survive every
+   save. Only fields present in the current schema are shown/edited.
 
 ## Type handling (balanced)
 
@@ -105,7 +105,8 @@ adding custom-field support.
    loop over `schemaOrDefault()`; per-field state in a `mutableStateMapOf`; split into
    fields/customFields via the routing helper on save; preserve orphan values.
 4. **`ui/supply/SupplyItemDetailScreen.kt`** — replace the 4 hardcoded rows with dynamic
-   rows (schema fields + orphans); url rows tappable.
+   rows from the current schema (non-blank values only, schema order); url rows tappable.
+   Orphan values are not rendered.
 5. **New small composables** — `SupplyFieldInput` (typed edit input) and `SupplyFieldRow`
    (detail row) to keep the screens focused and readable.
 6. **New pure helper** — field routing/splitting + fallback, e.g. in a
@@ -120,7 +121,8 @@ Logic lives in pure, testable helpers; Compose wiring is verified by build + man
   - split an edited value map into `(fields, customFields)` correctly by schema `builtin`
     flag;
   - blank values omitted;
-  - orphan keys (present on item, absent from schema) preserved in the correct map;
+  - orphan keys (present on item, absent from schema) preserved in the correct map and
+    never surfaced for display/edit;
   - `schemaOrDefault()` fallback returns `DEFAULT_SUPPLY_SCHEMA` when schema is empty.
 - **`SupplyRepositoryTest`** (extend): `createItem`/`updateItem` persist and round-trip
   `customFields`; orphan `customFields` survive an `updateItem`; builtin values land in
@@ -130,7 +132,8 @@ Logic lives in pure, testable helpers; Compose wiring is verified by build + man
   `testDebugUnitTest` runs against `:updater-agent`.)
 - Manual walkthrough on a tablet: add a custom field in admin → confirm it renders in
   Edit (typed input), saves, and shows in Detail; url field is tappable; delete the field
-  in admin → confirm the value still shows in Detail and survives an edit.
+  in admin → confirm the value is hidden in both Edit and Detail but still survives an
+  edit-and-save (round-tripped, not dropped).
 
 ## Out of scope
 
