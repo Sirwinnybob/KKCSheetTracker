@@ -324,8 +324,9 @@ Status values: `OPEN`, `IN PROGRESS - <agent> <date>`, `RESOLVED - <commit(s)>`,
 
 ### AUD-13 — R-01 needs live two-tablet verification
 
-- Status: **OPEN — PARTIAL live field evidence captured 2026-07-13; watcher-side consolidation,
-  Syncthing propagation, and after-hours compaction still unverified**
+- Status: **OPEN — Android peer-merge AND watcher-side consolidation both verified against real
+  two-tablet data 2026-07-13; Syncthing conflict-copy handling and after-hours compaction still
+  unverified**
 - Repos: `C:\Scripts\KKCSheetTracker`, `C:\Scripts\Ready Jobs Watcher`
 - Reference: `C:\Scripts\Hours Tracker\METADATA_AUDIT.md:1062`
 - Required sequence:
@@ -333,12 +334,11 @@ Status values: `OPEN`, `IN PROGRESS - <agent> <date>`, `RESOLVED - <commit(s)>`,
   2. Deploy backward-compatible Ready Jobs Watcher first.
   3. Deploy updated tablets afterward.
   4. Use two tablets on one real job to create competing CNC and hardwood events. — DONE, see below.
-  5. Verify Android peers and watcher consolidation agree. — Android side DONE; watcher-side
-     `consolidated.json` agreement NOT checked this pass.
-  6. Verify progress/reset/bad-part events survive restart, Syncthing propagation, and after-hours compaction. — NOT done this pass (restart persistence was separately verified on job 314 earlier the same day; not re-run for job 646).
+  5. Verify Android peers and watcher consolidation agree. — DONE, see below.
+  6. Verify progress/reset/bad-part events survive restart, Syncthing propagation, and after-hours compaction. — Restart persistence separately verified on job 314 earlier the same day (not re-run for job 646). After-hours compaction (`compact=True` rotation) NOT exercised this pass — only non-destructive consolidation (`compact=False`) was run, deliberately, to avoid mutating real production event streams outside a planned test.
 - Acceptance: Record app/watcher versions, device IDs, event files, consolidated output, logs, and observed tablet state before marking R-01 resolved.
 
-**2026-07-13 partial field evidence (real shop tablets, real job 646 — BLANKENSHIP 1521 SPRIG LN):**
+**2026-07-13 field evidence (real shop tablets, real job 646 — BLANKENSHIP 1521 SPRIG LN):**
 
 Two real tablets (`SM-X800-31`, `SM-X808U-6448`, both on the fixed release build including commit
 `1e53fef`) were independently updated by the user and used concurrently on CNC, hardwoods, and
@@ -354,18 +354,35 @@ SM-X800-31:    14:28:44Z set_complete_true (lamport 6)
 Verified on-device (SM-X808U-6448) after both tablets wrote: `PG Armor Core 10ft` shows **Done
 2/2** — page 1 correctly resolved to complete (the chronologically-last action wins), page 2
 (uncontested) also correct. No crashes/exceptions in logcat across the full test window; app
-process stable throughout. Hardwoods and specialty events from both tablets touched different
-rows/items (no direct conflict there, but both tablets' writes were present and readable).
+process stable throughout.
 
-This confirms the Android-side peer-merge and total-order resolution (AUD-08) work correctly
-against genuine multi-device concurrent writes on real hardware — the core mechanism AUD-13 exists
-to verify. Still open: independently confirming Ready Jobs Watcher's own `consolidated.json`
-converges to the same state, Syncthing conflict-copy behavior, and after-hours compaction survival
-for this same event set. Do not mark AUD-13 resolved until those remaining items are checked.
+**Watcher-side consolidation** was then run directly against the real job 646 tracker directory by
+invoking `ready_jobs_watcher.metadata_cache.consolidate_cnc_tracker` /
+`consolidate_hardwoods_tracker` from the project's own `.venv` Python (non-destructive,
+`compact=False`, so no event streams were rotated/deleted — the watcher's own per-tracker-dir file
+lock, `.consolidate.lock`, makes this safe to run alongside the live watcher process). Result:
+`CNC\.tracker\consolidated.json` shows page 1 `complete` at `2026-07-13T14:28:44.364102Z` --
+byte-for-byte the same timestamp as the tablet's winning action, an exact match with the
+Android-rendered state. `.metadata\hardwoods\.tracker\consolidated.json` correctly merged all 3
+real hardwood actions from both tablets (2 `FACE_FRAME_CUT_LIST` rows + 1 `DOOR_CUT_LIST` row).
 
-- Blocker: the remaining watcher-side/Syncthing/compaction verification requires observing the
-  Ready Jobs Watcher process and a real overnight/Syncthing propagation window; not performed this
-  pass.
+**False-alarm note for future debugging:** a `DOOR_CUT_LIST` action briefly appeared to be lost
+during this investigation -- it was present when read directly off the tablet's local storage via
+`adb`, but missing from the PC-side `Y:\Ready Jobs` copy of the same file moments later. This was
+Syncthing propagation lag (a few minutes), not a bug: re-reading the `Y:` copy after some time
+passed showed it had caught up and converged correctly. Comparing tablet-local (`adb shell cat
+/storage/emulated/0/Ready Jobs/...`) and PC-side (`Y:\Ready Jobs\...`) copies of the same tracker
+file without accounting for Syncthing's asynchronous propagation will produce spurious
+data-loss-looking diffs; always re-check both sides again before concluding data was actually lost.
+
+This confirms both the Android-side peer-merge/total-order resolution (AUD-08) AND the Ready Jobs
+Watcher's own consolidation independently converge to the identical, correct state against genuine
+multi-device concurrent writes on real hardware -- the core mechanism AUD-13 exists to verify.
+Still open before AUD-13/R-01 can be marked resolved: Syncthing `.sync-conflict-*` exclusion
+behavior (AUD-05) and after-hours compaction/rotation survival (AUD-04) have not been exercised
+against this same real event set -- both require deliberately triggering a conflict/compaction
+scenario, which was out of scope for this pass to avoid mutating real production event streams
+without a planned rollback.
 
 #### AUD-13 field checklist (run during the real two-tablet session)
 
