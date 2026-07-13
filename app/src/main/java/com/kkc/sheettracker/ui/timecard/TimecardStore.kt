@@ -85,7 +85,8 @@ class TimecardStore(
 
     // Returns true if the server was reachable and employees loaded (even if empty)
     private suspend fun connectToServer(serverUrl: String, clearCacheOnFailure: Boolean): Boolean {
-        repo = TimecardRepository(serverUrl)
+        // AUD-01: attach the per-device hub auth token (empty until provisioned).
+        repo = TimecardRepository(serverUrl, config.getHubToken())
         return try {
             val employees = repo!!.getEmployees()
             val resolvedEmployees = employees.map { emp ->

@@ -32,7 +32,12 @@ data class PunchResult(
     val hoursWorked: Double?   // non-null on clock-out
 )
 
-class TimecardRepository(private val serverUrl: String) {
+class TimecardRepository(
+    private val serverUrl: String,
+    // AUD-01: per-device auth token sent to the hub as 'X-Hub-Token'. Empty = omit the header
+    // (backward compatible during the staged rollout, before the hub enforces auth).
+    private val hubToken: String = ""
+) {
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
@@ -43,9 +48,14 @@ class TimecardRepository(private val serverUrl: String) {
             .build()
     }
 
+    // Adds the device auth header when a token is configured.
+    private fun Request.Builder.withHubAuth(): Request.Builder =
+        if (hubToken.isNotBlank()) header("X-Hub-Token", hubToken) else this
+
     suspend fun getEmployees(): List<EmployeeInfo> = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("$serverUrl/api/employees")
+            .withHubAuth()
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return@withContext emptyList()
@@ -72,6 +82,7 @@ class TimecardRepository(private val serverUrl: String) {
             .build()
         val request = Request.Builder()
             .url(url)
+            .withHubAuth()
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
@@ -105,6 +116,7 @@ class TimecardRepository(private val serverUrl: String) {
         val request = Request.Builder()
             .url("$serverUrl/api/punch")
             .post(body)
+            .withHubAuth()
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {

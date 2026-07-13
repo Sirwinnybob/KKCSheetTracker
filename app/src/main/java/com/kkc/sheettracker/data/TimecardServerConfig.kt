@@ -22,6 +22,8 @@ private const val DEFAULT_HUB_IP = "192.168.1.15"
 private object TimecardConfigKeys {
     val serverIp = stringPreferencesKey("server_ip")
     val cachedUrl = stringPreferencesKey("cached_server_url")
+    // AUD-01: per-device hub auth token sent as the 'X-Hub-Token' header.
+    val hubToken = stringPreferencesKey("hub_device_token")
 }
 
 class TimecardServerConfig(
@@ -74,6 +76,23 @@ class TimecardServerConfig(
                 prefs.remove(TimecardConfigKeys.cachedUrl)
             } else {
                 prefs[TimecardConfigKeys.cachedUrl] = url
+            }
+        }
+    }
+
+    // AUD-01: hub device auth token. Empty until provisioned, so pre-rollout tablets send no
+    // header and keep working against a hub that does not yet require auth.
+    suspend fun getHubToken(): String =
+        dataStore.data
+            .map { prefs -> prefs[TimecardConfigKeys.hubToken].orEmpty() }
+            .first()
+
+    suspend fun setHubToken(token: String?) {
+        dataStore.edit { prefs ->
+            if (token.isNullOrBlank()) {
+                prefs.remove(TimecardConfigKeys.hubToken)
+            } else {
+                prefs[TimecardConfigKeys.hubToken] = token.trim()
             }
         }
     }
