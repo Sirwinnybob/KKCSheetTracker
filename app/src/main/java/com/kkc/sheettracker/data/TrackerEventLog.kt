@@ -2,10 +2,43 @@ package com.kkc.sheettracker.data
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.kkc.sheettracker.data.models.HardwoodTrackerAction
+import com.kkc.sheettracker.data.models.TrackerAction
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * AUD-08: the single documented total-order comparator for replaying tracker actions. It must
+ * stay byte-for-byte equivalent to the Ready Jobs Watcher's
+ * `tracker_action_stream._sort_combined_actions` key so equal-timestamp events from different
+ * tablets resolve identically on Android and in the watcher:
+ *   (timestamp, lamport, eventId, file, page, action)
+ * eventId is a per-event UUID, so timestamp+lamport+eventId already give a total order for
+ * ndjson events; file/page/action are the watcher's trailing tie-breaks for legacy actions that
+ * carry no lamport/eventId.
+ */
+val TRACKER_TOTAL_ORDER: Comparator<TrackerAction> = compareBy(
+    { it.timestamp },
+    { it.lamport },
+    { it.eventId },
+    { it.file },
+    { it.page },
+    { it.action }
+)
+
+/**
+ * AUD-08: hardwood equivalent of [TRACKER_TOTAL_ORDER]. Hardwood events carry no file/page, so
+ * the watcher's trailing (file, page) keys are absent/zero for them; the meaningful ordering is
+ * (timestamp, lamport, eventId, action), which stays consistent with the watcher's shared sort.
+ */
+val HARDWOOD_TRACKER_TOTAL_ORDER: Comparator<HardwoodTrackerAction> = compareBy(
+    { it.timestamp },
+    { it.lamport },
+    { it.eventId },
+    { it.action }
+)
 
 /**
  * Monotonic per-tablet counter used to tie-break tracker events sharing the same wall-clock
@@ -51,9 +84,13 @@ object TrackerLamportClock {
 
     private fun persistLocked(value: Long) {
         val file = backingFile ?: return
+        // AUD-08: persist atomically (temp+rename) so a crash mid-write can't leave a torn
+        // counter file that reads back as a smaller value and resets the clock on restart.
+        // Failures are logged instead of silently swallowed so a stuck counter is diagnosable.
         runCatching {
-            file.parentFile?.mkdirs()
-            file.writeText(value.toString())
+            atomicWriteFile(file, value.toString())
+        }.onFailure { e ->
+            android.util.Log.w("KKC_LAMPORT", "Failed to persist Lamport counter=$value", e)
         }
     }
 

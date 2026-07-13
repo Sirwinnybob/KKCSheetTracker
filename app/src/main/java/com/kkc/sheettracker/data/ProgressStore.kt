@@ -71,6 +71,10 @@ internal fun decodeCncTrackerEvent(event: JsonObject): TrackerAction? = runCatch
     val timestamp = payload.get("timestamp")?.takeIf { !it.isJsonNull }?.asString
         ?: event.get("wallTime")?.takeIf { !it.isJsonNull }?.asString
         ?: ""
+    // AUD-08: preserve the Lamport counter and event id so replay uses the same total order
+    // as the watcher instead of discarding them and sorting on timestamp alone.
+    val lamport = event.get("lamport")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+    val eventId = event.get("eventId")?.takeIf { !it.isJsonNull }?.asString ?: ""
     TrackerAction(
         file = file,
         page = page,
@@ -78,7 +82,9 @@ internal fun decodeCncTrackerEvent(event: JsonObject): TrackerAction? = runCatch
         action = action,
         timestamp = timestamp,
         fileFingerprint = payload.get("fileFingerprint")?.takeIf { !it.isJsonNull }?.asString,
-        reNested = payload.get("reNested")?.takeIf { !it.isJsonNull }?.asBoolean
+        reNested = payload.get("reNested")?.takeIf { !it.isJsonNull }?.asBoolean,
+        lamport = lamport,
+        eventId = eventId
     )
 }.getOrNull()
 
@@ -428,7 +434,9 @@ class ProgressStore(
             action = safeAction,
             timestamp = safeTimestamp,
             fileFingerprint = action.fileFingerprint?.trim(),
-            reNested = action.reNested
+            reNested = action.reNested,
+            lamport = action.lamport,
+            eventId = action.eventId
         )
     }
 
@@ -459,7 +467,7 @@ class ProgressStore(
         val startedAt = System.currentTimeMillis()
         val allActions = loadAllProgress(jobFolderName)
             .flatMap { it.actions }
-            .sortedBy { it.timestamp }
+            .sortedWith(TRACKER_TOTAL_ORDER)
 
         val sheets = mutableMapOf<SheetKey, SheetIndexEntry>()
         val materialTouches = mutableMapOf<String, MaterialTouchEntry>()
@@ -820,7 +828,7 @@ class ProgressStore(
         val index = ensureJobIndex(jobFolderName)
         val allActions = synchronized(indexLock) { index.allActions.toList() }
             .filter { it.file == pdfFilename && (it.fileFingerprint ?: "") == fileFingerprint }
-            .sortedBy { it.timestamp }
+            .sortedWith(TRACKER_TOTAL_ORDER)
         val pending = mutableSetOf<Pair<Int, Int>>() // (page, partNumber)
         for (action in allActions) {
             val partNum = action.part ?: continue
@@ -851,7 +859,7 @@ class ProgressStore(
         val index = ensureJobIndex(jobFolderName)
         val allActions = synchronized(indexLock) { index.allActions.toList() }
             .filter { it.file == pdfFilename && (it.fileFingerprint ?: "") == fileFingerprint }
-            .sortedBy { it.timestamp }
+            .sortedWith(TRACKER_TOTAL_ORDER)
         val pending = mutableSetOf<Pair<Int, Int>>() // (page, partNumber)
         for (action in allActions) {
             val partNum = action.part ?: continue
@@ -1034,7 +1042,7 @@ class ProgressStore(
     fun getLocalMaterialLastTouches(jobFolderName: String): Map<String, MaterialLastTouch> {
         val ownActions = readTrackerEvents(eventsFile(jobFolderName)).mapNotNull { decodeCncTrackerEvent(it) }
         val touches = mutableMapOf<String, MaterialTouchEntry>()
-        ownActions.sortedBy { it.timestamp }.forEach { action ->
+        ownActions.sortedWith(TRACKER_TOTAL_ORDER).forEach { action ->
             val ms = parseTimestampMillis(action.timestamp)
             val entry = touches.getOrPut(action.file) { MaterialTouchEntry() }
             if (ms >= entry.lastTouchedAtMs) {

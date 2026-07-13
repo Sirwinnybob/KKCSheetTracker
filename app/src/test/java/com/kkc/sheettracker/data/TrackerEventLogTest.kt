@@ -91,3 +91,76 @@ class TrackerEventCodecTest {
         assertTrue(readTrackerEvents(file).isEmpty())
     }
 }
+
+/** AUD-08: Android total-order parity with the watcher's _sort_combined_actions key. */
+class TrackerTotalOrderTest {
+
+    private fun cnc(ts: String, lamport: Long, eventId: String, action: String = "complete",
+                   file: String = "A.pdf", page: Int = 1) =
+        com.kkc.sheettracker.data.models.TrackerAction(
+            file = file, page = page, action = action, timestamp = ts, lamport = lamport, eventId = eventId
+        )
+
+    @Test
+    fun equalTimestampBreaksOnLamportThenEventId() {
+        val a = cnc("2026-07-09T09:00:00Z", lamport = 5, eventId = "zzz")
+        val b = cnc("2026-07-09T09:00:00Z", lamport = 5, eventId = "aaa")
+        val c = cnc("2026-07-09T09:00:00Z", lamport = 3, eventId = "mmm")
+        val sorted = listOf(a, b, c).shuffled().sortedWith(TRACKER_TOTAL_ORDER)
+        // lamport 3 first, then lamport 5 ordered by eventId aaa < zzz
+        assertEquals(listOf(c, b, a), sorted)
+    }
+
+    @Test
+    fun decodePreservesLamportAndEventId() {
+        val event = cncTrackerActionToEvent(cnc("2026-07-09T09:00:00Z", lamport = 0, eventId = ""))
+        val line = encodeTrackerEventLine(event)
+        val parsed = com.google.gson.JsonParser.parseString(line).asJsonObject
+        val decoded = decodeCncTrackerEvent(parsed)!!
+        assertEquals(event.lamport, decoded.lamport)
+        assertEquals(event.eventId, decoded.eventId)
+        assertTrue(decoded.eventId.isNotBlank())
+    }
+
+    @Test
+    fun hardwoodEqualTimestampBreaksOnLamportThenEventId() {
+        fun hw(ts: String, lamport: Long, eventId: String, action: String = "set_done_count") =
+            com.kkc.sheettracker.data.models.HardwoodTrackerAction(
+                docType = "cutlist", rowId = "r1", action = action, timestamp = ts,
+                lamport = lamport, eventId = eventId
+            )
+        val a = hw("2026-07-09T09:00:00Z", 5, "zzz")
+        val b = hw("2026-07-09T09:00:00Z", 5, "aaa")
+        val c = hw("2026-07-09T09:00:00Z", 3, "mmm")
+        val sorted = listOf(a, b, c).shuffled().sortedWith(HARDWOOD_TRACKER_TOTAL_ORDER)
+        assertEquals(listOf(c, b, a), sorted)
+    }
+}
+
+/** AUD-08: Lamport counter persists atomically and survives a torn backing file. */
+class TrackerLamportAtomicPersistTest {
+    @org.junit.Before
+    fun setUp() { TrackerLamportClock.resetForTest() }
+
+    @org.junit.After
+    fun tearDown() { TrackerLamportClock.resetForTest() }
+
+    @Test
+    fun tornBackingFileDoesNotCrashAndCounterKeepsAdvancing() {
+        val stateDir = Files.createTempDirectory("lamport-atomic-test").toFile()
+        TrackerLamportClock.init(stateDir)
+        val first = TrackerLamportClock.next()
+        // Corrupt the backing file (simulate a torn/garbage write from before the atomic fix).
+        File(stateDir, "tracker_lamport.txt").writeText("not-a-number")
+
+        // Re-init and advance: the unparseable value is ignored, the counter still advances.
+        TrackerLamportClock.init(stateDir)
+        val next = TrackerLamportClock.next()
+        assertTrue(next > 0)
+
+        // The persisted file is now valid again and parseable.
+        val persisted = File(stateDir, "tracker_lamport.txt").readText().trim().toLong()
+        assertEquals(next, persisted)
+        stateDir.deleteRecursively()
+    }
+}

@@ -436,7 +436,10 @@ data class HardwoodTrackerAction(
     val action: String = "",
     val value: Int? = null,
     val timestamp: String = "",
-    val lamport: Long = 0L
+    val lamport: Long = 0L,
+    // AUD-08: event id preserved from the ndjson event so hardwood replay uses the same
+    // total order the watcher applies. Legacy actions default to "".
+    val eventId: String = ""
 )
 
 data class HardwoodInkStroke(
@@ -596,7 +599,11 @@ data class TrackerAction(
     val action: String,
     val timestamp: String,
     val fileFingerprint: String? = null,
-    val reNested: Boolean? = null
+    val reNested: Boolean? = null,
+    // AUD-08: Lamport counter and event id preserved from the ndjson event so Android can apply
+    // the same total order the Ready Jobs Watcher uses. Legacy JSON actions default to 0/"".
+    val lamport: Long = 0L,
+    val eventId: String = ""
 )
 
 data class TabletProgress(

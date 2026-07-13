@@ -42,12 +42,22 @@ internal fun hardwoodsTrackerActionToEvent(action: HardwoodTrackerAction): Track
     action.totalsKey?.let { payload.addProperty("totalsKey", it) }
     action.value?.let { payload.addProperty("value", it) }
     payload.addProperty("timestamp", action.timestamp)
-    return TrackerEvent(
-        op = action.action,
-        payload = payload,
-        wallTime = action.timestamp,
-        lamport = action.lamport
-    )
+    return if (action.eventId.isNotBlank()) {
+        TrackerEvent(
+            op = action.action,
+            payload = payload,
+            wallTime = action.timestamp,
+            lamport = action.lamport,
+            eventId = action.eventId
+        )
+    } else {
+        TrackerEvent(
+            op = action.action,
+            payload = payload,
+            wallTime = action.timestamp,
+            lamport = action.lamport
+        )
+    }
 }
 
 internal fun decodeHardwoodsTrackerEvent(event: com.google.gson.JsonObject): HardwoodTrackerAction? {
@@ -66,7 +76,9 @@ internal fun decodeHardwoodsTrackerEvent(event: com.google.gson.JsonObject): Har
             action = action,
             value = payload.get("value")?.takeIf { !it.isJsonNull }?.asInt,
             timestamp = timestamp,
-            lamport = event.get("lamport")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+            lamport = event.get("lamport")?.takeIf { !it.isJsonNull }?.asLong ?: 0L,
+            // AUD-08: preserve event id for the shared total order.
+            eventId = event.get("eventId")?.takeIf { !it.isJsonNull }?.asString ?: ""
         )
     }.getOrNull()
 }
@@ -370,7 +382,7 @@ class HardwoodsProgressStore(
     private fun loadAllActions(jobFolderName: String): List<HardwoodTrackerAction> {
         return loadAllProgress(jobFolderName)
             .flatMap { it.actions.orEmpty() }
-            .sortedBy { it.timestamp }
+            .sortedWith(HARDWOOD_TRACKER_TOTAL_ORDER)
     }
 
     private fun sanitizeProgress(
@@ -398,7 +410,8 @@ class HardwoodsProgressStore(
             action = safeAction,
             value = action.value,
             timestamp = (action.timestamp as String?).orEmpty(),
-            lamport = action.lamport
+            lamport = action.lamport,
+            eventId = action.eventId
         )
     }
 
@@ -808,12 +821,12 @@ class HardwoodsProgressStore(
         val allActions = allProgress
             .flatMap { it.actions.orEmpty() }
             .mapNotNull { action -> compactAction(action, lookup) }
-            .sortedBy { it.timestamp }
+            .sortedWith(HARDWOOD_TRACKER_TOTAL_ORDER)
         val localProgress = allProgress.firstOrNull { it.tabletId == tabletId }
             ?: HardwoodTabletProgress(tabletId = tabletId)
         val localActions = localProgress.actions
             .mapNotNull { action -> compactAction(action, lookup) }
-            .sortedBy { it.timestamp }
+            .sortedWith(HARDWOOD_TRACKER_TOTAL_ORDER)
             .toMutableList()
 
         val cache = JobCache(
@@ -1187,7 +1200,7 @@ class HardwoodsProgressStore(
             )
             progress
                 .flatMap { it.actions.orEmpty() }
-                .sortedBy { it.timestamp }
+                .sortedWith(HARDWOOD_TRACKER_TOTAL_ORDER)
                 .forEach { applyActionToCache(fallbackCache, it) }
             val value = computeValue(fallbackCache) ?: return@synchronized null
             val next = HardwoodTrackerAction(
