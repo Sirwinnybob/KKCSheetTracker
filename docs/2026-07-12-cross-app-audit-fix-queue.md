@@ -489,6 +489,39 @@ merged action set identical to a single pre-rotation read. Security rollouts mus
 OFF and validate-but-don't-require during the transition (AUD-01) so hub-first deploys never break
 live tablets. Quarantine-not-delete (AUD-03) preserves evidence while breaking infinite loops.
 
+### Round 3 (2026-07-12) — Fresh full-gate re-verification (no code changes)
+
+Re-ran the entire Required Final Verification from clean, treating Round 1/2 "done" records as
+unproven, to confirm release readiness. No source changes were needed — every AUD-01..AUD-12 fix
+was already committed and intact; only this handoff Done entry was added.
+
+Commit existence confirmed in all four repos:
+- KKCSheetTracker: AUD-02 a3b5bb9, AUD-12 eba95f3, AUD-11 687f98a, AUD-10 abc4b1c, AUD-08 89c42dc,
+  AUD-01 9c82652 (handoff docs fcba58f).
+- timeclock-hub: AUD-01 d5444f7, AUD-07 25864af.
+- Ready Jobs Watcher: AUD-04 347a54b, AUD-05 ee0c3e6.
+- Hours Tracker: AUD-03 9bea06a8, AUD-09 e3ad2b7f, AUD-06 8bccc850, AUD-04 doc 4641b09c, AUD-10 ea89be76.
+
+Fresh verification results (all green):
+- KKCSheetTracker/updater: `:app:testDebugUnitTest :updater-agent:testDebugUnitTest --rerun-tasks`
+  — BUILD SUCCESSFUL, 52 tasks executed. `assembleRelease` — BUILD SUCCESSFUL (app + updater APKs).
+- timeclock-hub: `python -m pytest -q` — 33 passed.
+- Ready Jobs Watcher: `.venv` pytest — 362 passed.
+- Hours Tracker: `backend/venv` pytest backend/tests — 205 passed (datetime.utcnow deprecation
+  warnings only; pre-existing, unrelated to audit fixes).
+- `git diff --check` — clean (only LF→CRLF advisory warnings).
+
+Working-tree state: the only dirty files are pre-existing user work disjoint from every audit fix —
+KKC UI/theme/M-13 Kotlin + SKILL.md + spec .md files; watcher `cabinet_sheet_indexer.py` and its
+test. None were touched, committed, or reset. No audit file left uncommitted.
+
+Status of the objective: all code-addressable audit issues are RESOLVED and committed with targeted
+regression tests, and the full release gate passes. The Release-Ready Checkpoint is met. The only
+open item is **AUD-13** (R-01 live two-tablet field verification), which is genuinely external —
+it requires two physical tablets plus the RTC/Syncthing environment and a deployment that the loop
+rules explicitly place out of scope. Its exact field checklist and the recommended deployment order
+are recorded above. No deployment or publication has occurred.
+
 ## Confirmed Parity
 
 - Built-in supply schema matches between Hours Tracker and Android.
