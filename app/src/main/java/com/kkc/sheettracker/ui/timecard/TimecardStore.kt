@@ -89,8 +89,9 @@ class TimecardStore(
         return try {
             val employees = repo!!.getEmployees()
             val resolvedEmployees = employees.map { emp ->
-                val customName = getCustomDisplayName(emp.pin)
-                if (customName != null) emp.copy(displayName = customName) else emp
+                emp.copy(
+                    displayName = resolveDisplayOverride(getCustomDisplayName(emp.pin), emp.displayName)
+                )
             }
             _state.value = TimecardUiState.Ready(employees = resolvedEmployees)
             true
@@ -140,8 +141,9 @@ class TimecardStore(
                         EmployeeInfo(pin = pin, name = status.name, displayName = status.displayName ?: "")
                     else null
                 val finalMatched = matched?.let { emp ->
-                    val customName = getCustomDisplayName(emp.pin)
-                    if (customName != null) emp.copy(displayName = customName) else emp
+                    emp.copy(
+                        displayName = resolveDisplayOverride(getCustomDisplayName(emp.pin), emp.displayName)
+                    )
                 }
                 _state.value = it.copy(punchStatus = status, isLoading = false, matchedEmployee = finalMatched)
             }
@@ -243,6 +245,20 @@ class TimecardStore(
 
     fun cancel() {
         scope.cancel()
+    }
+
+    companion object {
+        /**
+         * AUD-11 display-name precedence. Returns the override that should replace the real
+         * name, or "" when the real name should be shown. Order: Hours custom name, then the
+         * hub effective name, then no override (fall back to the real name). Blank/whitespace
+         * overrides are ignored at each level.
+         */
+        fun resolveDisplayOverride(customName: String?, hubDisplayName: String?): String {
+            customName?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+            hubDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+            return ""
+        }
     }
 
     private fun parseName(fullName: String): String {

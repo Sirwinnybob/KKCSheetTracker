@@ -56,9 +56,11 @@ class TimecardRepository(private val serverUrl: String) {
                 EmployeeInfo(
                     pin = obj.getString("pin"),
                     name = obj.getString("name"),
-                    // display_name from the hub is the RTC-1000's numeric Display ID (e.g. "501"),
-                    // NOT a human name. Custom display names are resolved by TimecardStore.
-                    displayName = ""
+                    // AUD-11: the hub JSON key `display_name` is the human effective name
+                    // (`_effective_display_name`), empty when it equals the real name — NOT the
+                    // RTC numeric Display ID. Parse it so browser and tablet agree; a Hours
+                    // custom name (resolved in TimecardStore) still takes precedence over it.
+                    displayName = obj.optString("display_name")
                 )
             }
         }
@@ -87,8 +89,9 @@ class TimecardRepository(private val serverUrl: String) {
             PunchStatus(
                 found = obj.optBoolean("found", false),
                 name = obj.optString("name").takeIf { it.isNotEmpty() },
-                // display_name from hub is the RTC-1000's numeric Display ID — not a human name.
-                displayName = null,
+                // AUD-11: hub `display_name` is the human effective name — parse it (blank
+                // when it matches the real name). Hours custom names still win in TimecardStore.
+                displayName = obj.optString("display_name").takeIf { it.isNotEmpty() },
                 isClockedIn = obj.optBoolean("is_clocked_in", false),
                 clockedInSince = obj.optString("clocked_in_since").takeIf { it.isNotEmpty() },
                 hoursToday = obj.optDouble("hours_today", 0.0)
