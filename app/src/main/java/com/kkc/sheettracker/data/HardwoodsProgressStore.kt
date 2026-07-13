@@ -411,7 +411,12 @@ class HardwoodsProgressStore(
             value = action.value,
             timestamp = (action.timestamp as String?).orEmpty(),
             lamport = action.lamport,
-            eventId = action.eventId
+            // Defensive cast matching the other String fields above and the fix for the
+            // confirmed CNC ProgressStore.kt NPE (same shape: legacy JSON missing this key).
+            // Gson currently fills eventId="" for HardwoodTrackerAction's all-defaulted
+            // constructor rather than leaving it null, so this isn't fixing an active bug --
+            // it removes reliance on that Gson-version-dependent behavior for the sibling path.
+            eventId = (action.eventId as String?).orEmpty()
         )
     }
 

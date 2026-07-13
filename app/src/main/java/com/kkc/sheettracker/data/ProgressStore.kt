@@ -436,7 +436,11 @@ class ProgressStore(
             fileFingerprint = action.fileFingerprint?.trim(),
             reNested = action.reNested,
             lamport = action.lamport,
-            eventId = action.eventId
+            // Pre-AUD-08 legacy JSON (consolidated.json, older per-tablet snapshots) has no
+            // eventId key at all; Gson leaves this non-null field as a raw null for such files
+            // instead of applying the "" default, so it must be defensively cast like the other
+            // fields above rather than passed straight into TrackerAction's non-null parameter.
+            eventId = (action.eventId as String?).orEmpty()
         )
     }
 

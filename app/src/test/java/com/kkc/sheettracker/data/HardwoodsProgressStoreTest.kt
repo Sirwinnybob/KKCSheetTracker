@@ -102,6 +102,28 @@ class HardwoodsProgressStoreTest {
     }
 
     @Test
+    fun loadAllProgressToleratesPreAud08LegacyJsonMissingLamportAndEventId() {
+        // Real production hardwoods consolidated.json/legacy snapshots predate AUD-08 and were
+        // written before HardwoodTrackerAction gained lamport/eventId fields, so they never
+        // contain those keys. Gson leaves eventId (a non-null String field) as a raw null for
+        // such files instead of applying the "" default, so sanitizeAction() must not let that
+        // null reach HardwoodTrackerAction's non-null constructor parameter, or the whole file
+        // gets silently dropped as "malformed".
+        val baseDir = createTempBaseDir()
+        val trackerDir = File(baseDir, "$jobFolderName/.metadata/hardwoods/.tracker").apply { mkdirs() }
+        File(trackerDir, "consolidated.json").writeText(
+            """{"tabletId":"consolidated","actions":[""" +
+                """{"docType":"FACE_FRAME_CUT_LIST","rowId":"row-1","action":"set_done_count","value":5,"timestamp":"2026-06-22T21:05:59Z"}""" +
+                """]}"""
+        )
+
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val rowMap = store.getRowProgressMap(jobFolderName)
+
+        assertEquals(5, rowMap["FACE_FRAME_CUT_LIST" to "row-1"]?.doneCount)
+    }
+
+    @Test
     fun appendActionWritesToNdjsonEventsFile() {
         val baseDir = createTempBaseDir()
         val store = HardwoodsProgressStore(baseDir, tabletId)

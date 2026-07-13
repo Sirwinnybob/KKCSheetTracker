@@ -165,6 +165,29 @@ class ProgressStoreTest {
     }
 
     @Test
+    fun loadAllProgressToleratesPreAud08LegacyJsonMissingLamportAndEventId() {
+        // Real production tracker/consolidated.json files predate AUD-08 and were written before
+        // TrackerAction gained lamport/eventId fields, so they never contain those keys at all.
+        // Gson leaves eventId (a non-null String field) as a raw null for such files, and
+        // sanitizeAction() must not let that null reach TrackerAction's non-null constructor
+        // parameter -- doing so throws and the whole file gets silently dropped as "malformed".
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+        val trackerDir = File(baseDir, "$jobFolderName/CNC/.tracker").apply { mkdirs() }
+        File(trackerDir, "consolidated.json").writeText(
+            """{"tabletId":"consolidated","actions":[""" +
+                """{"file":"A.pdf","page":1,"action":"complete","timestamp":"2026-06-22T21:05:59Z","fileFingerprint":"fp1"}""" +
+                """]}"""
+        )
+
+        val allProgress = store.loadAllProgress(jobFolderName)
+
+        assertEquals(1, allProgress.size)
+        assertEquals(1, allProgress.first().actions.size)
+        assertEquals("complete", allProgress.first().actions.first().action)
+    }
+
+    @Test
     fun decodeToleratesWrongTypedFields() {
         val good = JsonParser.parseString(
             """{"op":"view","payload":{"file":"A.pdf","page":5,"timestamp":"2026-05-01T00:00:01Z"},"wallTime":"2026-05-01T00:00:01Z","lamport":1,"eventId":"e1"}"""
