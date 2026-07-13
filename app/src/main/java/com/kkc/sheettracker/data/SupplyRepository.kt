@@ -50,7 +50,10 @@ class SupplyRepository(private val basePath: String) {
         return statusFiles
             .filter { it.name.startsWith("$itemId.") && it.name.endsWith(".json") && !it.name.contains(".sync-conflict-") }
             .mapNotNull { readJson<SupplyStatusRecord>(it) }
-            .maxByOrNull { it.at }
+            // AUD-10: order by parsed Instant, not lexical string. A whole-second timestamp
+            // ("...:00Z") sorts AFTER a fractional-second one ("...:00.5Z") lexically even
+            // though it is chronologically earlier, so string maxBy picked the wrong status.
+            .maxWithOrNull(SUPPLY_STATUS_RECENCY)
             ?: SupplyStatusRecord("IN STOCK")
     }
 
@@ -100,7 +103,9 @@ class SupplyRepository(private val basePath: String) {
         if (!dir.exists()) return emptyList()
         return dir.listFiles { f -> f.extension == "json" && !f.name.contains(".sync-conflict-") }
             ?.mapNotNull { readJson<SupplyComment>(it) }
-            ?.sortedBy { it.createdAt }
+            // AUD-10: parsed-Instant ordering (see resolveStatusFrom) so fractional-second
+            // timestamps sort correctly relative to whole-second ones.
+            ?.sortedWith(compareBy({ parseInstantOrMin(it.createdAt) }, { it.createdAt }))
             ?: emptyList()
     }
 
@@ -109,7 +114,10 @@ class SupplyRepository(private val basePath: String) {
     fun setStatus(itemId: String, status: String, by: String, tabletId: String) {
         statusDir.mkdirs()
         val file = File(statusDir, "$itemId.$tabletId.json")
-        file.writeText(gson.toJson(SupplyStatusRecord(status, by, java.time.Instant.now().toString())))
+        // AUD-10: atomic write so a concurrent reader (getItems(), a peer tablet via Syncthing,
+        // or the Hours backend) never observes a truncated status file and falls back to
+        // "IN STOCK".
+        atomicWriteFile(file, gson.toJson(SupplyStatusRecord(status, by, java.time.Instant.now().toString())))
     }
 
     fun addComment(itemId: String, author: String, text: String, tabletId: String): SupplyComment {
@@ -117,7 +125,8 @@ class SupplyRepository(private val basePath: String) {
         dir.mkdirs()
         val id = UUID.randomUUID().toString()
         val comment = SupplyComment(id, author, text, java.time.Instant.now().toString())
-        File(dir, "$id.json").writeText(gson.toJson(comment))
+        // AUD-10: atomic write so a concurrent reader never sees a partial comment file.
+        atomicWriteFile(File(dir, "$id.json"), gson.toJson(comment))
         return comment
     }
 
@@ -212,4 +221,18 @@ class SupplyRepository(private val basePath: String) {
     // Legacy path helper kept for any callers that use absolutePath string
     fun attachmentPath(itemId: String, storedName: String): String =
         getAttachmentFile(itemId, storedName).absolutePath
+
+    companion object {
+        /**
+         * AUD-10: parse an ISO-8601 instant, returning Instant.MIN when unparseable so a valid
+         * record always outranks a corrupt one. Used for chronologically-correct recency
+         * ordering instead of lexical string comparison.
+         */
+        internal fun parseInstantOrMin(value: String): java.time.Instant =
+            runCatching { java.time.Instant.parse(value) }.getOrDefault(java.time.Instant.MIN)
+
+        // Latest-wins by parsed instant, with the raw string as a stable tiebreak.
+        internal val SUPPLY_STATUS_RECENCY: Comparator<SupplyStatusRecord> =
+            compareBy({ parseInstantOrMin(it.at) }, { it.at })
+    }
 }

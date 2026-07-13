@@ -3,6 +3,8 @@ package com.kkc.sheettracker.data
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.kkc.sheettracker.data.models.SupplyCategory
+import com.kkc.sheettracker.data.models.SupplyComment
+import com.kkc.sheettracker.data.models.SupplyStatusRecord
 import com.kkc.sheettracker.data.models.StoredSupplyItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -165,6 +167,87 @@ class SupplyRepositoryTest {
         assertEquals("SB-2", updated.fields["sku"])
         assertEquals("12in", updated.customFields["diameter"])
         assertEquals("0.1", updated.customFields["legacyKerf"])
+    }
+
+    // ── AUD-10: atomic status/comment writes and parsed-Instant ordering ────────
+
+    private fun seedItem(basePath: String, id: String) {
+        val itemsDir = File(basePath, ".supply/items").apply { mkdirs() }
+        val stored = StoredSupplyItem(
+            id = id, categoryId = "cat", name = "Widget", notes = null,
+            createdAt = "2026-07-12T09:00:00Z", updatedAt = "2026-07-12T09:00:00Z"
+        )
+        File(itemsDir, "$id.json").writeText(gson.toJson(stored))
+    }
+
+    private fun seedStatus(basePath: String, id: String, tablet: String, status: String, at: String) {
+        val statusDir = File(basePath, ".supply/status").apply { mkdirs() }
+        File(statusDir, "$id.$tablet.json").writeText(gson.toJson(SupplyStatusRecord(status, "", at)))
+    }
+
+    @Test
+    fun fractionalSecondStatusTimestampWinsOverWholeSecond() {
+        // 10:00:00.500 is chronologically later than 10:00:00, but lexically "...00.500Z"
+        // sorts BEFORE "...00Z". The later (fractional) status must win.
+        val basePath = createTempBasePath()
+        seedItem(basePath, "item1")
+        seedStatus(basePath, "item1", "tabletA", "OUT", "2026-07-12T10:00:00Z")
+        seedStatus(basePath, "item1", "tabletB", "IN STOCK", "2026-07-12T10:00:00.500Z")
+
+        val item = SupplyRepository(basePath).getItems().single { it.id == "item1" }
+        assertEquals("IN STOCK", item.status)
+    }
+
+    @Test
+    fun laterWholeSecondStatusWinsOverEarlierFractional() {
+        val basePath = createTempBasePath()
+        seedItem(basePath, "item2")
+        seedStatus(basePath, "item2", "tabletA", "LOW", "2026-07-12T10:00:00.500Z")
+        seedStatus(basePath, "item2", "tabletB", "OUT", "2026-07-12T10:00:01Z")
+
+        val item = SupplyRepository(basePath).getItems().single { it.id == "item2" }
+        assertEquals("OUT", item.status)
+    }
+
+    @Test
+    fun setStatusWritesAtomicallyWithNoLeftoverTempFile() {
+        val basePath = createTempBasePath()
+        seedItem(basePath, "item3")
+        val repository = SupplyRepository(basePath)
+        repository.setStatus("item3", "ORDERED", "chad", "tabletA")
+
+        val statusDir = File(basePath, ".supply/status")
+        assertTrue(statusDir.listFiles().orEmpty().none { it.name.contains(".tmp-") })
+        assertEquals("ORDERED", repository.getItems().single { it.id == "item3" }.status)
+    }
+
+    @Test
+    fun addCommentWritesAtomicallyAndReadsBack() {
+        val basePath = createTempBasePath()
+        seedItem(basePath, "item4")
+        val repository = SupplyRepository(basePath)
+        repository.addComment("item4", "chad", "hello", "tabletA")
+
+        val commentDir = File(basePath, ".supply/comments/item4")
+        assertTrue(commentDir.listFiles().orEmpty().none { it.name.contains(".tmp-") })
+        val comments = repository.getComments("item4")
+        assertEquals(1, comments.size)
+        assertEquals("hello", comments.single().text)
+    }
+
+    @Test
+    fun commentsOrderedByParsedInstant() {
+        val basePath = createTempBasePath()
+        seedItem(basePath, "item5")
+        val commentDir = File(basePath, ".supply/comments/item5").apply { mkdirs() }
+        File(commentDir, "a.json").writeText(
+            gson.toJson(SupplyComment("a", "u", "first", "2026-07-12T10:00:00Z"))
+        )
+        File(commentDir, "b.json").writeText(
+            gson.toJson(SupplyComment("b", "u", "later", "2026-07-12T10:00:00.500Z"))
+        )
+
+        assertEquals(listOf("a", "b"), SupplyRepository(basePath).getComments("item5").map { it.id })
     }
 
     private fun createTempBasePath(): String {
