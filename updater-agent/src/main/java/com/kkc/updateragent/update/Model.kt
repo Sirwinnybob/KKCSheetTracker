@@ -62,3 +62,31 @@ data class InstallDecision(
     val reason: String,
     val forced: Boolean = false
 )
+
+/**
+ * AUD-12: classifies the update feed so the worker can distinguish a deliberate
+ * no-update from an unavailable share or a corrupt policy/manifest, and audit/retry
+ * accordingly instead of silently returning success.
+ */
+sealed class FeedState {
+    /** Base share is not mounted/reachable — transient, retry without auditing. */
+    object ShareUnavailable : FeedState()
+
+    /** Share is present but no device policy is configured — deliberate no-op. */
+    object NoPolicy : FeedState()
+
+    /** Policy file exists but is unreadable/invalid — audit and retry. */
+    object InvalidPolicy : FeedState()
+
+    /** Policy is valid but no manifest is present — deliberate no-op. */
+    object NoManifest : FeedState()
+
+    /** Manifest file exists but is unreadable/invalid — audit and retry. */
+    object InvalidManifest : FeedState()
+
+    /** Both policy and manifest are present and valid. */
+    data class Ready(
+        val policy: DevicePolicyConfig,
+        val manifest: UpdateFeedManifest
+    ) : FeedState()
+}

@@ -27,12 +27,39 @@ class UpdateWorker(
         val basePath = configuredBasePath ?: UpdatePaths.defaultBasePath()
         val paths = UpdatePaths(basePath)
 
-        val policy = repository.readPolicy(paths) ?: return Result.success()
-        val manifest = repository.readManifest(paths) ?: return Result.success()
-
         val tabletId = resolveTabletId()
         val logFile = paths.tabletLogFile(tabletId)
         val fallbackSignalFile = paths.fallbackRequiredFile(tabletId)
+
+        // AUD-12: classify the feed so outages are diagnosable instead of a silent success.
+        val policy: DevicePolicyConfig
+        val manifest: UpdateFeedManifest
+        when (val feed = repository.classifyFeed(paths)) {
+            FeedState.ShareUnavailable -> {
+                Log.w(TAG, "Update share unavailable at $basePath")
+                return Result.retry()
+            }
+            FeedState.NoPolicy -> {
+                auditLogger.appendResult(logFile, "_system", null, null, "skipped", "no device policy present")
+                return Result.success()
+            }
+            FeedState.InvalidPolicy -> {
+                auditLogger.appendResult(logFile, "_system", null, null, "failed", "device policy missing or invalid")
+                return Result.retry()
+            }
+            FeedState.NoManifest -> {
+                auditLogger.appendResult(logFile, "_system", null, null, "skipped", "no update manifest present")
+                return Result.success()
+            }
+            FeedState.InvalidManifest -> {
+                auditLogger.appendResult(logFile, "_system", null, null, "failed", "update manifest missing or invalid")
+                return Result.retry()
+            }
+            is FeedState.Ready -> {
+                policy = feed.policy
+                manifest = feed.manifest
+            }
+        }
 
         if (!policy.silentInstallEnabled) {
             auditLogger.appendResult(logFile, "_system", null, null, "skipped", "silent install disabled")

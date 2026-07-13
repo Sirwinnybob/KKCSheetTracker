@@ -7,6 +7,17 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
+    <!--
+      AUD-12: signature-level permission gating the maintenance update trigger. Only
+      components signed with the same certificate (e.g. the KKC SheetTracker app or a
+      signed maintenance tool that declares uses-permission) may send the broadcast;
+      arbitrary installed apps cannot.
+    -->
+    <permission
+        android:name="com.kkc.updateragent.permission.TRIGGER_UPDATE"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.kkc.updateragent.permission.TRIGGER_UPDATE" />
+
     <application
         android:allowBackup="false"
         android:label="@string/app_name"
@@ -45,7 +56,8 @@
 
         <receiver
             android:name=".update.TriggerUpdateReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="com.kkc.updateragent.permission.TRIGGER_UPDATE">
             <intent-filter>
                 <action android:name="com.kkc.updateragent.TRIGGER_UPDATE" />
             </intent-filter>

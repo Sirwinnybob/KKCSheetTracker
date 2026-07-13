@@ -18,6 +18,19 @@ class UpdateFeedRepository {
         return if (isPolicyValid(config)) config else null
     }
 
+    /**
+     * AUD-12: single source of truth for feed availability/validity. Pure enough to unit
+     * test with a temp folder — no Android dependencies.
+     */
+    fun classifyFeed(paths: UpdatePaths): FeedState {
+        if (!paths.baseDir.isDirectory) return FeedState.ShareUnavailable
+        if (!paths.policyFile.isFile) return FeedState.NoPolicy
+        val policy = readPolicy(paths) ?: return FeedState.InvalidPolicy
+        if (!paths.manifestFile.isFile) return FeedState.NoManifest
+        val manifest = readManifest(paths) ?: return FeedState.InvalidManifest
+        return FeedState.Ready(policy, manifest)
+    }
+
     fun readManifest(paths: UpdatePaths): UpdateFeedManifest? {
         val manifestFile = paths.manifestFile
         if (!manifestFile.isFile) return null
