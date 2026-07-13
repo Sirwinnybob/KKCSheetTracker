@@ -324,20 +324,48 @@ Status values: `OPEN`, `IN PROGRESS - <agent> <date>`, `RESOLVED - <commit(s)>`,
 
 ### AUD-13 — R-01 needs live two-tablet verification
 
-- Status: **OPEN — code prerequisites (AUD-04, AUD-05) DONE; awaiting live two-tablet field run**
+- Status: **OPEN — PARTIAL live field evidence captured 2026-07-13; watcher-side consolidation,
+  Syncthing propagation, and after-hours compaction still unverified**
 - Repos: `C:\Scripts\KKCSheetTracker`, `C:\Scripts\Ready Jobs Watcher`
 - Reference: `C:\Scripts\Hours Tracker\METADATA_AUDIT.md:1062`
 - Required sequence:
   1. Fix and verify AUD-04 and AUD-05. — DONE (AUD-05 ee0c3e6, AUD-04 347a54b; watcher suite 362 passed).
   2. Deploy backward-compatible Ready Jobs Watcher first.
   3. Deploy updated tablets afterward.
-  4. Use two tablets on one real job to create competing CNC and hardwood events.
-  5. Verify Android peers and watcher consolidation agree.
-  6. Verify progress/reset/bad-part events survive restart, Syncthing propagation, and after-hours compaction.
+  4. Use two tablets on one real job to create competing CNC and hardwood events. — DONE, see below.
+  5. Verify Android peers and watcher consolidation agree. — Android side DONE; watcher-side
+     `consolidated.json` agreement NOT checked this pass.
+  6. Verify progress/reset/bad-part events survive restart, Syncthing propagation, and after-hours compaction. — NOT done this pass (restart persistence was separately verified on job 314 earlier the same day; not re-run for job 646).
 - Acceptance: Record app/watcher versions, device IDs, event files, consolidated output, logs, and observed tablet state before marking R-01 resolved.
-- Blocker: requires two physical tablets + the RTC/Syncthing environment; cannot be performed or
-  simulated in this workspace, and deployment is out of scope per the loop rules. Not marked
-  resolved.
+
+**2026-07-13 partial field evidence (real shop tablets, real job 646 — BLANKENSHIP 1521 SPRIG LN):**
+
+Two real tablets (`SM-X800-31`, `SM-X808U-6448`, both on the fixed release build including commit
+`1e53fef`) were independently updated by the user and used concurrently on CNC, hardwoods, and
+specialty tracking for job 646. Genuine competing events landed on `646 - PG Armor Core 10ft.pdf`
+page 1:
+
+```
+SM-X800-31:    14:26:55Z set_complete_true (lamport 2)
+SM-X808U-6448: 14:27:57Z set_complete_false (lamport 19)
+SM-X800-31:    14:28:44Z set_complete_true (lamport 6)
+```
+
+Verified on-device (SM-X808U-6448) after both tablets wrote: `PG Armor Core 10ft` shows **Done
+2/2** — page 1 correctly resolved to complete (the chronologically-last action wins), page 2
+(uncontested) also correct. No crashes/exceptions in logcat across the full test window; app
+process stable throughout. Hardwoods and specialty events from both tablets touched different
+rows/items (no direct conflict there, but both tablets' writes were present and readable).
+
+This confirms the Android-side peer-merge and total-order resolution (AUD-08) work correctly
+against genuine multi-device concurrent writes on real hardware — the core mechanism AUD-13 exists
+to verify. Still open: independently confirming Ready Jobs Watcher's own `consolidated.json`
+converges to the same state, Syncthing conflict-copy behavior, and after-hours compaction survival
+for this same event set. Do not mark AUD-13 resolved until those remaining items are checked.
+
+- Blocker: the remaining watcher-side/Syncthing/compaction verification requires observing the
+  Ready Jobs Watcher process and a real overnight/Syncthing propagation window; not performed this
+  pass.
 
 #### AUD-13 field checklist (run during the real two-tablet session)
 
