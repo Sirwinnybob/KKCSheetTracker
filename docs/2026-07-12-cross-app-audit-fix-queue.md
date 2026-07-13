@@ -324,9 +324,9 @@ Status values: `OPEN`, `IN PROGRESS - <agent> <date>`, `RESOLVED - <commit(s)>`,
 
 ### AUD-13 — R-01 needs live two-tablet verification
 
-- Status: **OPEN — Android peer-merge AND watcher-side consolidation both verified against real
-  two-tablet data 2026-07-13; Syncthing conflict-copy handling and after-hours compaction still
-  unverified**
+- Status: **OPEN — every mechanism verified against real two-tablet data 2026-07-13 (peer-merge,
+  watcher consolidation, restart persistence, real after-hours compaction/rotation, and recovery
+  via the AUD-08 fix); only Syncthing `.sync-conflict-*` exclusion remains unverified**
 - Repos: `C:\Scripts\KKCSheetTracker`, `C:\Scripts\Ready Jobs Watcher`
 - Reference: `C:\Scripts\Hours Tracker\METADATA_AUDIT.md:1062`
 - Required sequence:
@@ -335,7 +335,7 @@ Status values: `OPEN`, `IN PROGRESS - <agent> <date>`, `RESOLVED - <commit(s)>`,
   3. Deploy updated tablets afterward.
   4. Use two tablets on one real job to create competing CNC and hardwood events. — DONE, see below.
   5. Verify Android peers and watcher consolidation agree. — DONE, see below.
-  6. Verify progress/reset/bad-part events survive restart, Syncthing propagation, and after-hours compaction. — Restart persistence separately verified on job 314 earlier the same day (not re-run for job 646). After-hours compaction (`compact=True` rotation) NOT exercised this pass — only non-destructive consolidation (`compact=False`) was run, deliberately, to avoid mutating real production event streams outside a planned test.
+  6. Verify progress/reset/bad-part events survive restart, Syncthing propagation, and after-hours compaction. — DONE for restart (job 314 earlier the same day, and again implicitly for job 646 below) and for real after-hours compaction (`compact=True`, see below). Syncthing `.sync-conflict-*` exclusion specifically NOT exercised.
 - Acceptance: Record app/watcher versions, device IDs, event files, consolidated output, logs, and observed tablet state before marking R-01 resolved.
 
 **2026-07-13 field evidence (real shop tablets, real job 646 — BLANKENSHIP 1521 SPRIG LN):**
@@ -378,11 +378,28 @@ data-loss-looking diffs; always re-check both sides again before concluding data
 This confirms both the Android-side peer-merge/total-order resolution (AUD-08) AND the Ready Jobs
 Watcher's own consolidation independently converge to the identical, correct state against genuine
 multi-device concurrent writes on real hardware -- the core mechanism AUD-13 exists to verify.
-Still open before AUD-13/R-01 can be marked resolved: Syncthing `.sync-conflict-*` exclusion
-behavior (AUD-05) and after-hours compaction/rotation survival (AUD-04) have not been exercised
-against this same real event set -- both require deliberately triggering a conflict/compaction
-scenario, which was out of scope for this pass to avoid mutating real production event streams
-without a planned rollback.
+
+**Real after-hours compaction (AUD-04 rotation) then run deliberately, at the user's request**,
+against this same job 646 data: `consolidate_cnc_tracker`/`consolidate_hardwoods_tracker` called
+again with `compact=True` (the real production after-hours-sweep code path). Both tablets'
+`events/*.ndjson` streams were atomically rotated and removed after their contents were durably
+folded into `consolidated.json`; no `.compacting-*` temp dir was left behind (clean completion, no
+restore-on-failure path triggered). Syncthing propagated the rotation to the tablet's local storage
+within roughly ten minutes (`events/` now empty on-device). After a full force-stop + relaunch (a
+cold cache rebuild reading only `consolidated.json`, since the per-tablet ndjson streams are gone),
+the tablet still correctly rendered **PG Armor Core 10ft: Done 2/2** -- proving the full real
+production lifecycle (write → competing edits → compaction/rotation → tablet cache rebuild →
+recovery from `consolidated.json`) works end-to-end, and confirming the AUD-08 fix is what makes
+recovery after compaction possible at all (pre-fix, this exact sequence would have silently zeroed
+visible progress, as it did before the fix was found and applied).
+
+Still open before AUD-13/R-01 can be marked fully resolved: Syncthing `.sync-conflict-*` exclusion
+behavior (AUD-05) has not been exercised against this event set -- that requires deliberately
+engineering a sync conflict, which is a different kind of test than what this pass covered.
+
+**Cleanup note:** job 646's CNC/hardwoods items were marked complete purely as test data for this
+verification and need to be manually unchecked to restore the job to its real state before normal
+production use.
 
 #### AUD-13 field checklist (run during the real two-tablet session)
 
