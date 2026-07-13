@@ -19,7 +19,9 @@
       "installMode": "forced",
       "minRequiredVersionCode": 3230,
       "allowDowngrade": false,
-      "expectedSignerSha256": []
+      "expectedSignerSha256": [
+        "REPLACE_WITH_RELEASE_KEYSTORE_SHA256_CERT_DIGEST"
+      ]
     }
   ]
 }

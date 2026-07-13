@@ -31,22 +31,43 @@ class IntegrityVerifier(private val context: Context) {
         expectedSignerHashes: List<String>
     ): Pair<Boolean, String?> {
         val apkSigners = loadSignerDigestsFromApk(apkFile)
-        if (apkSigners.isEmpty()) {
-            return false to "Unable to read APK signing certificate"
-        }
+        val installed = loadInstalledSignerDigests(packageName)
+        return evaluateSignerPolicy(apkSigners, expectedSignerHashes, installed)
+    }
 
-        if (expectedSignerHashes.isNotEmpty()) {
-            val expected = expectedSignerHashes.map { normalizeHash(it) }.toSet()
+    companion object {
+        /**
+         * Pure signer-policy decision, extracted so it can be unit tested without a
+         * PackageManager. AUD-02: an empty/blank expected-signer list is a hard failure —
+         * every managed package must carry a real signer allowlist. The installed-signer
+         * check preserves continuity for already-installed packages.
+         */
+        fun evaluateSignerPolicy(
+            apkSigners: Set<String>,
+            expectedSignerHashes: List<String>,
+            installedSigners: Set<String>
+        ): Pair<Boolean, String?> {
+            if (apkSigners.isEmpty()) {
+                return false to "Unable to read APK signing certificate"
+            }
+
+            val expected = expectedSignerHashes.map { normalizeHash(it) }.filter { it.isNotEmpty() }.toSet()
+            if (expected.isEmpty()) {
+                return false to "No expected signer policy configured for package"
+            }
             if (apkSigners.intersect(expected).isEmpty()) {
                 return false to "APK signer does not match expected signer policy"
             }
+
+            if (installedSigners.isNotEmpty() && apkSigners.intersect(installedSigners).isEmpty()) {
+                return false to "APK signer does not match currently installed app"
+            }
+            return true to null
         }
 
-        val installed = loadInstalledSignerDigests(packageName)
-        if (installed.isNotEmpty() && apkSigners.intersect(installed).isEmpty()) {
-            return false to "APK signer does not match currently installed app"
+        private fun normalizeHash(value: String): String {
+            return value.trim().lowercase().replace(":", "")
         }
-        return true to null
     }
 
     private fun loadInstalledSignerDigests(packageName: String): Set<String> {
@@ -90,9 +111,5 @@ class IntegrityVerifier(private val context: Context) {
 
     private fun sha256Hex(bytes: ByteArray): String {
         return MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-    }
-
-    private fun normalizeHash(value: String): String {
-        return value.trim().lowercase().replace(":", "")
     }
 }

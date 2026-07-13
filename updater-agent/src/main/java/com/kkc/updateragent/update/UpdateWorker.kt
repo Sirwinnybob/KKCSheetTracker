@@ -86,6 +86,18 @@ class UpdateWorker(
             }
 
             val apkFile = repository.resolveApkFile(paths, entry)
+            if (apkFile == null) {
+                anyFailure = true
+                auditLogger.appendResult(
+                    logFile,
+                    pkg.packageName,
+                    installedVersion,
+                    entry.versionCode,
+                    "failed",
+                    "invalid or unsafe artifact path"
+                )
+                continue
+            }
             if (!verifier.verifySha256(apkFile, entry.sha256)) {
                 anyFailure = true
                 auditLogger.appendResult(
