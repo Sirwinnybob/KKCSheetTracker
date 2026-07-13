@@ -395,12 +395,12 @@ private fun MorphingNavBar(
         // renders as a full pill whenever the bar is short (minimized icon row, or this radius
         // exceeding half-height) and eases into a softly-rounded rect with flat sides once the
         // bar grows taller than 2x this value (expanded panel). Previously this swapped between
-        // 26dp and 999dp ("always full pill") depending on state, which raced against the
+        // 20dp and 999dp ("always full pill") depending on state, which raced against the
         // height animation from both directions — animating it caused a mid-transition snap,
         // and even a plain instant swap popped on collapse (999 wins the clamp immediately
         // while the bar is still tall from being expanded, before the shrink has caught down).
         // One constant removes the race entirely: only the height moves.
-        val cornerRadius = 26.dp
+        val cornerRadius = 20.dp
         val minNavShape = remember { RoundedCornerShape(cornerRadius) }
         Surface(
             modifier       = Modifier.fillMaxWidth(),

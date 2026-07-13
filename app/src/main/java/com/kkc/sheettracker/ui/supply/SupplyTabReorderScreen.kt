@@ -62,7 +62,7 @@ fun SupplyTabReorderScreen(
                 ReorderableItem(reorderState, key = tabItem.id) {
                     DashboardSurfaceCard(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(9.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         Row(

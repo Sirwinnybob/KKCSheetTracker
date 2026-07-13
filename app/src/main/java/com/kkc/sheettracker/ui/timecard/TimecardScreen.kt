@@ -163,10 +163,10 @@ private fun TimecardReadyState(store: TimecardStore, ready: TimecardUiState.Read
                                 .graphicsLayer { scaleX = scale; scaleY = scale }
                                 .shadow(
                                     elevation = if (isActionEnabled) 6.dp else 0.dp,
-                                    shape = RoundedCornerShape(13.dp),
+                                    shape = RoundedCornerShape(7.dp),
                                     clip = false
                                 )
-                                .clip(RoundedCornerShape(13.dp))
+                                .clip(RoundedCornerShape(7.dp))
                                 .hazeEffect(
                                     state = hazeState,
                                     style = HazeDefaults.style(
@@ -290,8 +290,8 @@ private fun DisplayCard(
     Surface(
         modifier = modifier
             .height(160.dp)
-            .shadow(elevation = 12.dp, shape = RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp))
+            .shadow(elevation = 12.dp, shape = RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(10.dp))
             .hazeEffect(
                 state = hazeState,
                 style = HazeDefaults.style(
@@ -299,7 +299,7 @@ private fun DisplayCard(
                     blurRadius = (frostedTokens.blurDp * 1.7f).coerceAtLeast(1f).dp
                 )
             ),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(10.dp),
         color = Color.Transparent
     ) {
         Column(
@@ -450,8 +450,8 @@ private fun NumpadKey(
         modifier = modifier
             .height(84.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .shadow(elevation = 6.dp, shape = RoundedCornerShape(13.dp), clip = false)
-            .clip(RoundedCornerShape(13.dp))
+            .shadow(elevation = 6.dp, shape = RoundedCornerShape(7.dp), clip = false)
+            .clip(RoundedCornerShape(7.dp))
             .hazeEffect(
                 state = hazeState,
                 style = HazeDefaults.style(

@@ -899,7 +899,7 @@ fun HighDensityInventoryItemRow(
 ) {
     val tier = item.badge?.let { SUPPLY_STATUS_PRIORITY[it] } ?: 99
     val statusColor = supplyStatusColor(tier)
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(9.dp)
     
     Card(
         modifier = Modifier

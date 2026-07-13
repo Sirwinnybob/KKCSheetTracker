@@ -177,8 +177,8 @@ private fun BgOptionCard(
 
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.5.dp, borderColor, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(9.dp))
+            .border(1.5.dp, borderColor, RoundedCornerShape(9.dp))
             .background(bgColor)
             .clickable(onClick = onClick)
             .padding(vertical = 16.dp),

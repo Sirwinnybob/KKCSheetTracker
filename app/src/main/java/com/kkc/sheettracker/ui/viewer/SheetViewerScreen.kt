@@ -1092,7 +1092,19 @@ fun SheetViewerScreen(
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     val page = currentPage
                     val fp = fileFingerprint
-                    val remakeParts = currentPageRemakeParts
+                    // Derive the display number and remake parts from the live `page`, not
+                    // the composition snapshots (displayPageNumber / currentPageRemakeParts).
+                    // The decoration reaches the nav bar via SideEffect, so if `currentPage`
+                    // changed between the last push and this tap, those snapshots would lag —
+                    // marking one sheet complete while resolving remake parts / reporting the
+                    // page number of another. Recomputing from `page` keeps all three in sync.
+                    val displayNo = if (effectiveVisiblePages.isNotEmpty())
+                        effectiveVisiblePages.indexOf(page).let { if (it >= 0) it + 1 else page }
+                    else page
+                    val remakeParts = resolvePageMetadata(currentMaterial, page)?.remake?.remadeParts
+                        ?.mapNotNull { remade -> remade.partNumber.takeIf { it > 0 } }
+                        ?.toSet()
+                        .orEmpty()
                     val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
                     scope.launch {
                         val wasComplete = withContext(Dispatchers.IO) {
@@ -1102,7 +1114,7 @@ fun SheetViewerScreen(
                             withContext(Dispatchers.IO) {
                                 progressStore.unmarkSheetComplete(jobFolderName, pdfFilename, page, fp)
                             }
-                            snackbarHostState.showSnackbar("Sheet $displayPageNumber marked incomplete")
+                            snackbarHostState.showSnackbar("Sheet $displayNo marked incomplete")
                         } else {
                             val (wasSkipped, resolvedRemakeCount) = withContext(Dispatchers.IO) {
                                 val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, page, fp)
@@ -1117,8 +1129,8 @@ fun SheetViewerScreen(
                                 skipped to resolved
                             }
                             val baseMessage =
-                                if (wasSkipped) "Sheet $displayPageNumber marked complete (skip removed)"
-                                else "Sheet $displayPageNumber marked complete"
+                                if (wasSkipped) "Sheet $displayNo marked complete (skip removed)"
+                                else "Sheet $displayNo marked complete"
                             snackbarHostState.showSnackbar(
                                 if (resolvedRemakeCount > 0) {
                                     "$baseMessage • auto-resolved $resolvedRemakeCount remake bad part(s)"

@@ -1424,7 +1424,7 @@ private fun HardwoodsPartRow(
                     onJump()
                 }
             ),
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(5.dp),
         color = rowColor,
         tonalElevation = 0.5.dp
     ) {
@@ -1877,7 +1877,7 @@ private fun MaterialSkipPill(
             .height(22.dp)
             .widthIn(min = 24.dp)
             .clickable { onClick() },
-        shape = RoundedCornerShape(11.dp),
+        shape = RoundedCornerShape(7.dp),
         color = fillColor,
         border = BorderStroke(1.dp, borderColor.copy(alpha = 0.85f))
     ) {
@@ -2043,11 +2043,11 @@ private fun HardwoodsBoardStockList(
                     }
                     val matExpanded = adminMatKey in expandedMaterialSections
                     stickyHeader(key = "admin-mat-header:$material") {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = childSectionIndent),
-                            shape = RoundedCornerShape(10.dp),
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = childSectionIndent),
+            shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
                             border = BorderStroke(
                                 width = 1.dp,
@@ -2172,7 +2172,7 @@ private fun HardwoodsBoardStockList(
                                         if (isNoneItem) {
                                             // NONE badge — no tally or skip controls
                                             Surface(
-                                                shape = RoundedCornerShape(4.dp),
+                                                shape = RoundedCornerShape(3.dp),
                                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                                             ) {
                                                 Text(
@@ -2341,7 +2341,7 @@ private fun HardwoodsBoardStockList(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(start = childSectionIndent),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
                             border = BorderStroke(
                                 width = 1.dp,

@@ -136,7 +136,7 @@ fun ClockInOverlay(
     if (snapshot.pendingPrompt) {
         AlertDialog(
             onDismissRequest = { clockInState.dismissPromptKeepActive() },
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(17.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
             title = { Text("Clock Out?") },
@@ -218,9 +218,9 @@ fun ClockInOverlay(
 
             // Shape: rounded on the "inner" side only
             val tabShape = if (tabOnRight)
-                RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp)
+                RoundedCornerShape(topStart = 11.dp, bottomStart = 11.dp)
             else
-                RoundedCornerShape(topEnd   = 14.dp, bottomEnd   = 14.dp)
+                RoundedCornerShape(topEnd   = 11.dp, bottomEnd   = 11.dp)
 
             val tabAlignment = if (tabOnRight) Alignment.TopEnd else Alignment.TopStart
 
@@ -279,7 +279,7 @@ fun ClockInOverlay(
         // ── Expanded floating modal ───────────────────────────────────────
         // Kept in composition during animation (animProgress < 1)
         if (animProgress < 0.99f) {
-            val modalShape = RoundedCornerShape(16.dp)
+            val modalShape = RoundedCornerShape(12.dp)
             val frostedTokens = LocalKKCThemeTokens.current.frosted
             val modalSurfaceModifier = if (hazeState != null) {
                 Modifier.hazeEffect(

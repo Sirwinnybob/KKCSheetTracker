@@ -56,7 +56,7 @@ fun HsvColorPicker(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(9.dp))
                 .background(currentColor)
         )
 

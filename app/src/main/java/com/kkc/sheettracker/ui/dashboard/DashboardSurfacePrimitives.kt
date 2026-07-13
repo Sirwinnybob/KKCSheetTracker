@@ -34,7 +34,7 @@ object DashboardSurfaceDefaults {
         @Composable get() = RoundedCornerShape(LocalKKCThemeTokens.current.shape.mediumDp.dp)
 
     val chipShape: Shape
-        @Composable get() = RoundedCornerShape(14.dp)
+        @Composable get() = RoundedCornerShape(11.dp)
 
     @Composable
     fun containerColor(accent: DashboardAccent): Color {

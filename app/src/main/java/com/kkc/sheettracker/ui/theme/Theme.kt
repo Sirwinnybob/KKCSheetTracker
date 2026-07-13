@@ -69,16 +69,16 @@ fun KKCThemeTokens.toShapes(): Shapes {
         small = RoundedCornerShape(shape.smallDp.dp),
         medium = RoundedCornerShape(shape.mediumDp.dp),
         large = RoundedCornerShape(shape.largeDp.dp),
-        extraLarge = RoundedCornerShape(28.dp)
+        extraLarge = RoundedCornerShape(21.dp)
     )
 }
 
 val KKCShapes = Shapes(
     extraSmall = RoundedCornerShape(6.dp),
-    small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(28.dp)
+    small = RoundedCornerShape(6.dp),
+    medium = RoundedCornerShape(9.dp),
+    large = RoundedCornerShape(12.dp),
+    extraLarge = RoundedCornerShape(21.dp)
 )
 
 object KKCShapeTokens {

@@ -718,14 +718,14 @@ fun ReferencePdfPane(
                             is PdfRenderUiState.Error -> {
                                 val message = (renderState as PdfRenderUiState.Error).message
                                 Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .padding(10.dp)
-                                        .background(
-                                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                         modifier = Modifier
+                                             .align(Alignment.BottomCenter)
+                                             .padding(10.dp)
+                                             .background(
+                                                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+                                                 shape = RoundedCornerShape(6.dp)
+                                             )
+                                             .padding(horizontal = 8.dp, vertical = 4.dp)
                                 ) {
                                     Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer)
                                 }

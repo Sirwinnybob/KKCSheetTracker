@@ -500,7 +500,7 @@ private fun ResizableModalCalculator(
         val widthDp = stateSnapshot.modalWidth.coerceIn(minWidth, maxWidthDp)
         val heightDp = stateSnapshot.modalHeight.coerceIn(minHeight, maxHeightDp)
 
-        val modalShape = RoundedCornerShape(20.dp)
+        val modalShape = RoundedCornerShape(15.dp)
         val frostedTokens = LocalKKCThemeTokens.current.frosted
         val panelModifier = if (hazeState != null) {
             Modifier.hazeEffect(
@@ -769,10 +769,10 @@ private fun CalculatorPanel(
         Surface(
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
             tonalElevation = 0.dp,
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(11.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(11.dp))
         ) {
             Column(
                 modifier = Modifier
@@ -815,7 +815,7 @@ private fun CalculatorPanel(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(8.dp),
                             colors = when {
                                 key == "=" -> ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary,

@@ -125,7 +125,7 @@ fun SupplyModalFrame(
                         .fillMaxWidth()
                         .widthIn(max = 1040.dp)
                         .fillMaxHeight(0.92f),
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(14.dp),
                     tonalElevation = 6.dp,
                     shadowElevation = 16.dp,
                     color = MaterialTheme.colorScheme.surface

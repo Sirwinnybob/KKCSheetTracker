@@ -92,9 +92,9 @@ val BuiltInKKCThemeTokens = KKCThemeTokens(
         blurDp = 14f
     ),
     shape = KKCThemeShapeTokens(
-        smallDp = 10f,
-        mediumDp = 18f,
-        largeDp = 24f
+        smallDp = 6f,
+        mediumDp = 9f,
+        largeDp = 12f
     ),
     spacingScale = 1.0f
 )

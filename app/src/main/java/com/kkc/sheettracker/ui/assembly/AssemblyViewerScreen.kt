@@ -921,7 +921,13 @@ fun AssemblyViewerScreen(
                     NavBarSearchDecoration(
                         searchTextValue = currentSearchText,
                         onSearchTextChange = { searchText = it },
-                        onGo = { jumpToCabinet(currentSearchText.text) },
+                        // Read the live search state at click time, NOT the composition
+                        // snapshot `currentSearchText`. The decoration (and its onGo) is
+                        // pushed to the nav bar via SideEffect, so it trails `searchText`
+                        // by a commit; capturing the snapshot made "Go" fire with the
+                        // previous cabinet after fast type-then-Go (confirmed on-device:
+                        // field showed the new number but navigation used the old one).
+                        onGo = { jumpToCabinet(searchText.text) },
                         isPartsEnabled = lastSearchedCabinet.isNotBlank(),
                         onParts = { showPartsSheet = true },
                         contextLine = contextLine

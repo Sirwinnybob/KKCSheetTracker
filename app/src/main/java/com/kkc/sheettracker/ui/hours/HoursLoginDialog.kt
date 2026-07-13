@@ -25,7 +25,7 @@ fun HoursLoginDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(17.dp),
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         title = { Text("Who are you?") },
@@ -49,7 +49,7 @@ fun HoursLoginDialog(
                     keyboardActions = KeyboardActions(
                         onDone = { if (input.trim().isNotBlank()) onLogin(input.trim()) }
                     ),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(11.dp)
                 )
                 suggestions.take(5).forEach { option ->
                     OutlinedButton(

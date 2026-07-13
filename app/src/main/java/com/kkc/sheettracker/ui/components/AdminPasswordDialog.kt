@@ -44,7 +44,7 @@ fun AdminPasswordDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(17.dp),
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         title = { Text("Admin Unlock") },
@@ -83,7 +83,7 @@ fun AdminPasswordDialog(
                         imeAction = ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(onDone = { submit() }),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(11.dp)
                 )
                 if (error) {
                     Text(

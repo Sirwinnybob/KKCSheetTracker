@@ -66,7 +66,7 @@ fun ClockInButton(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant
             ),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(9.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
             modifier = modifier.animateContentSize()
         ) {

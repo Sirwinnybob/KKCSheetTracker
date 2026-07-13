@@ -264,7 +264,7 @@ private fun JobBoardCard(
     }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(6.dp),
         modifier = modifier
             .fillMaxWidth()
             .combinedClickable(
@@ -375,7 +375,7 @@ private fun JobBoardCard(
                         item.labels.forEach { label ->
                             Surface(
                                 color = parseJobLabelColor(label.colorHex),
-                                shape = RoundedCornerShape(4.dp)
+                                shape = RoundedCornerShape(3.dp)
                             ) {
                                 Text(
                                     text = label.name,

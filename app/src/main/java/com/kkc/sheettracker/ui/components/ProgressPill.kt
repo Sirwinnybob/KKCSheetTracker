@@ -69,7 +69,7 @@ fun ProgressPill(
         ProgressState.SKIPPED -> skippedFillColor ?: colors.skipBorder
     }
     val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-    val shape = RoundedCornerShape(11.dp)
+    val shape = RoundedCornerShape(9.dp)
     val label = "$safeDone/$safeTotal"
     val textColor = when {
         state == ProgressState.COMPLETE && showCheckOnComplete -> Color.White

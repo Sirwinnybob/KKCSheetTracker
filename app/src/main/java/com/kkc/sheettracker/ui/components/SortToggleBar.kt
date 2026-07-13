@@ -40,7 +40,7 @@ fun SortToggleBar(
     val inactiveTextColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(9.dp),
         color = trackColor,
         modifier = modifier
             .fillMaxWidth()
@@ -94,7 +94,7 @@ private fun SortSegment(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .clip(RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(7.dp))
             .background(bgColor)
             .clickable(onClick = onClick)
     ) {
