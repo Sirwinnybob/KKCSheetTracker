@@ -95,6 +95,12 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.data.SupplyBarcodeStore
+import com.kkc.sheettracker.data.ScanMode
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.AlertDialog
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -119,6 +125,13 @@ fun SupplyDashboardScreen(
     var statusSheetItem by remember { mutableStateOf<SupplyItem?>(null) }
     var activeModal by remember { mutableStateOf<SupplyDashboardModal?>(null) }
     var editChromeState by remember { mutableStateOf<SupplyItemEditorChromeState?>(null) }
+    val barcodeStore = remember(basePath) { SupplyBarcodeStore(basePath, repository) }
+    val scanMode by barcodeStore.scanMode.collectAsState()
+    val pickPendingBarcode by barcodeStore.pickPendingBarcode.collectAsState()
+    var knownBarcodeResult by remember { mutableStateOf<Pair<SupplyItem, String>?>(null) }
+    var unknownBarcodeResult by remember { mutableStateOf<String?>(null) }
+    var itemToConfirmLink by remember { mutableStateOf<Pair<SupplyItem, String>?>(null) }
+    var pendingNewItemBarcode by remember { mutableStateOf<String?>(null) }
     // Monotonic guard for the status-change write-then-reload sequence below: each status pick
     // launches its own write+reload coroutine, and two picks in quick succession can have the
     // older reload's getItems() result land after the newer one, stomping fresher state. Only
@@ -196,8 +209,16 @@ fun SupplyDashboardScreen(
     }
 
     fun openDetailModal(itemId: String) {
-        editChromeState = null
-        activeModal = SupplyDashboardModal.Detail(itemId)
+        val pending = pickPendingBarcode
+        if (pending != null) {
+            val item = items.firstOrNull { it.id == itemId }
+            if (item != null) {
+                itemToConfirmLink = Pair(item, pending)
+            }
+        } else {
+            editChromeState = null
+            activeModal = SupplyDashboardModal.Detail(itemId)
+        }
     }
 
     fun openNewItemModal(categoryId: String) {
@@ -234,6 +255,9 @@ fun SupplyDashboardScreen(
         scrollable = false,
         onRefresh = { scope.launch { loadData(); reloadUpdates() } },
         topBarActions = {
+            IconButton(onClick = { barcodeStore.setScanMode(ScanMode.Global) }) {
+                Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan barcode")
+            }
             Box {
                 IconButton(onClick = { showOverflowMenu = true }) {
                     Icon(Icons.Filled.MoreVert, contentDescription = "More options")
@@ -277,6 +301,23 @@ fun SupplyDashboardScreen(
             }
         }
     ) {
+        // Pick mode banner
+        AnimatedVisibility(visible = pickPendingBarcode != null, enter = expandVertically(), exit = shrinkVertically()) {
+            Surface(color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Tap an item to link barcode", style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    IconButton(onClick = { barcodeStore.clearPickMode() }) {
+                        Icon(Icons.Filled.Close, "Cancel link", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
+            }
+        }
+
         DashboardSurfaceCard(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
         ) {
@@ -648,6 +689,11 @@ fun SupplyDashboardScreen(
                     onBack = { dismissSupplyModal() },
                     onSaved = { savedItemId ->
                         scope.launch {
+                            val barcode = pendingNewItemBarcode
+                            if (barcode != null) {
+                                barcodeStore.link(barcode, savedItemId)
+                                pendingNewItemBarcode = null
+                            }
                             loadData(showLoading = false)
                             reloadUpdates()
                             editChromeState = null
@@ -749,6 +795,76 @@ fun SupplyDashboardScreen(
             },
             onDismiss = { statusSheetItem = null },
             headerTint = supplyStatusHeaderTint(item.status)
+        )
+    }
+
+    // Scanner overlay (Global mode)
+    if (scanMode != ScanMode.Idle && scanMode == ScanMode.Global) {
+        val knownSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val unknownSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+        SupplyScannerOverlay(
+            barcodeStore = barcodeStore,
+            onDismiss = { barcodeStore.setScanMode(ScanMode.Idle) },
+            onKnownBarcode = { item, barcode -> knownBarcodeResult = Pair(item, barcode) },
+            onUnknownBarcode = { barcode -> unknownBarcodeResult = barcode }
+        )
+
+        knownBarcodeResult?.let { (item, barcode) ->
+            KnownBarcodeSheet(
+                item = item,
+                categoryName = categoryMap[item.categoryId]?.name ?: "",
+                sheetState = knownSheetState,
+                onStatusPick = { newStatus ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) { repository.setStatus(item.id, newStatus, employeeName, tabletId) }
+                        barcodeStore.setScanMode(ScanMode.Idle)
+                        knownBarcodeResult = null
+                        loadData()
+                    }
+                },
+                onViewItem = {
+                    barcodeStore.setScanMode(ScanMode.Idle)
+                    knownBarcodeResult = null
+                    activeModal = SupplyDashboardModal.Detail(item.id)
+                },
+                onDismiss = { knownBarcodeResult = null; barcodeStore.setScanMode(ScanMode.Idle) }
+            )
+        }
+
+        unknownBarcodeResult?.let { barcode ->
+            UnknownBarcodeSheet(
+                barcode = barcode,
+                sheetState = unknownSheetState,
+                onLinkToExisting = {
+                    unknownBarcodeResult = null
+                    barcodeStore.setScanMode(ScanMode.Idle)
+                    barcodeStore.setPickPendingBarcode(barcode)
+                },
+                onAddNewItem = {
+                    unknownBarcodeResult = null
+                    barcodeStore.setScanMode(ScanMode.Idle)
+                    pendingNewItemBarcode = barcode
+                    openNewItemModal(currentCategoryId ?: categories.firstOrNull()?.id ?: "")
+                },
+                onDismiss = { unknownBarcodeResult = null; barcodeStore.setScanMode(ScanMode.Idle) }
+            )
+        }
+    }
+
+    // Pick mode link confirmation dialog
+    itemToConfirmLink?.let { (item, barcode) ->
+        AlertDialog(
+            onDismissRequest = { itemToConfirmLink = null },
+            title = { Text("Link barcode?") },
+            text = { Text("Link \"${barcode.take(20)}\" to ${item.name}?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    itemToConfirmLink = null
+                    scope.launch { barcodeStore.link(barcode, item.id); barcodeStore.clearPickMode(); loadData() }
+                }) { Text("Link") }
+            },
+            dismissButton = { TextButton(onClick = { itemToConfirmLink = null }) { Text("Cancel") } }
         )
     }
 }
