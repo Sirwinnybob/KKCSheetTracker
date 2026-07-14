@@ -64,7 +64,8 @@ class SupplyRepository(private val basePath: String) {
             id = id, categoryId = categoryId, name = name,
             status = s.status, statusBy = s.by, statusAt = s.at,
             notes = notes, fields = fields, customFields = customFields,
-            attachmentIds = attachmentIds, createdAt = createdAt, updatedAt = updatedAt
+            attachmentIds = attachmentIds, barcodes = barcodes,
+            createdAt = createdAt, updatedAt = updatedAt
         )
     }
 

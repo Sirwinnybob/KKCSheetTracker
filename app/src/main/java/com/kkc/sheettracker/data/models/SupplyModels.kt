@@ -13,9 +13,18 @@ data class StoredSupplyItem(
     val fields: Map<String, String> = emptyMap(),
     val customFields: Map<String, String> = emptyMap(),
     val attachmentIds: List<SupplyAttachment> = emptyList(),
+    val barcodes: List<String> = emptyList(),   // mirror of barcodes.json — backup only
     val createdAt: String = "",
     val updatedAt: String = ""
-)
+) {
+    // Gson has no accessible no-arg constructor to call for this class (id/categoryId/name/notes
+    // are required), so it falls back to Unsafe field allocation and skips every Kotlin default
+    // value — a field absent from on-disk JSON deserializes to null, not its declared default.
+    // This secondary no-arg constructor gives Gson a real constructor to invoke instead, so
+    // defaults (notably `barcodes = emptyList()`, for JSON written before this field existed)
+    // are actually applied for keys missing from old on-disk JSON.
+    constructor() : this(id = "", categoryId = "", name = "", notes = null)
+}
 
 // What's in status/{uuid}.*.json
 data class SupplyStatusRecord(val status: String, val by: String = "", val at: String = "")
@@ -32,6 +41,7 @@ data class SupplyItem(
     val fields: Map<String, String>,
     val customFields: Map<String, String>,
     val attachmentIds: List<SupplyAttachment>,
+    val barcodes: List<String> = emptyList(),   // mirror field
     val createdAt: String,
     val updatedAt: String
 )

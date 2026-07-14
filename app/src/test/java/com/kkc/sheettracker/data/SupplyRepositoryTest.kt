@@ -250,6 +250,32 @@ class SupplyRepositoryTest {
         assertEquals(listOf("a", "b"), SupplyRepository(basePath).getComments("item5").map { it.id })
     }
 
+    // ── barcodes mirror field ───────────────────────────────────────────────────
+
+    @Test
+    fun storedSupplyItemDeserializesWithMissingBarcodesField() {
+        // Old JSON on disk has no barcodes field — must deserialize cleanly as empty list
+        val json = """{"id":"i1","categoryId":"c1","name":"Screws","notes":null,
+            "fields":{},"customFields":{},"attachmentIds":[],"createdAt":"","updatedAt":""}"""
+        val item = gson.fromJson(json, StoredSupplyItem::class.java)
+        assertEquals(emptyList<String>(), item.barcodes)
+    }
+
+    @Test
+    fun resolvedSupplyItemCarriesBarcodesFromStoredItem() {
+        val basePath = createTempBasePath()
+        val itemsDir = File(basePath, ".supply/items").also { it.mkdirs() }
+        val stored = StoredSupplyItem(
+            id = "i1", categoryId = "c1", name = "Screws", notes = null,
+            fields = emptyMap(), customFields = emptyMap(), attachmentIds = emptyList(),
+            barcodes = listOf("CODE128-ABC", "QR-XYZ"),
+            createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z"
+        )
+        File(itemsDir, "i1.json").writeText(gson.toJson(stored))
+        val result = SupplyRepository(basePath).getItem("i1")
+        assertEquals(listOf("CODE128-ABC", "QR-XYZ"), result?.barcodes)
+    }
+
     private fun createTempBasePath(): String {
         return Files.createTempDirectory("supply-repository-test").toFile().absolutePath
     }
