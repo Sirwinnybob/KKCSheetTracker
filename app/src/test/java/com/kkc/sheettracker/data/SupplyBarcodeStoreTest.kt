@@ -82,4 +82,53 @@ class SupplyBarcodeStoreTest {
         assertEquals("i1", store.lookup("barcode-real"))
         assertNull(store.lookup("barcode-stale"))
     }
+
+    @Test
+    fun lookupReturnsNullWhenBarcodesJsonIsMalformed() {
+        val basePath = tmp.root.absolutePath
+        val supplyDir = File(basePath, ".supply").also { it.mkdirs() }
+        File(supplyDir, "barcodes.json").writeText("""{not valid json""")
+
+        val store = makeStore()
+
+        assertNull(store.lookup("any-barcode"))
+    }
+
+    @Test
+    fun setScanModeUpdatesScanModeStateFlowValue() {
+        val store = makeStore()
+
+        assertEquals(ScanMode.Idle, store.scanMode.value)
+
+        store.setScanMode(ScanMode.Global)
+        assertEquals(ScanMode.Global, store.scanMode.value)
+
+        store.setScanMode(ScanMode.Item("item-42"))
+        assertEquals(ScanMode.Item("item-42"), store.scanMode.value)
+    }
+
+    @Test
+    fun setPickPendingBarcodeUpdatesPickPendingBarcodeStateFlowValue() {
+        val store = makeStore()
+
+        assertNull(store.pickPendingBarcode.value)
+
+        store.setPickPendingBarcode("barcode-xyz")
+        assertEquals("barcode-xyz", store.pickPendingBarcode.value)
+
+        store.setPickPendingBarcode(null)
+        assertNull(store.pickPendingBarcode.value)
+    }
+
+    @Test
+    fun clearPickModeResetsPickPendingBarcodeAndScanMode() {
+        val store = makeStore()
+        store.setPickPendingBarcode("barcode-xyz")
+        store.setScanMode(ScanMode.Item("item-42"))
+
+        store.clearPickMode()
+
+        assertNull(store.pickPendingBarcode.value)
+        assertEquals(ScanMode.Idle, store.scanMode.value)
+    }
 }

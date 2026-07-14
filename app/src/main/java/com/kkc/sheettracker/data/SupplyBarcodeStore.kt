@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.kkc.sheettracker.data.models.SupplyItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +33,12 @@ class SupplyBarcodeStore(
     private val supplyDir get() = File(basePath, ".supply")
     private val barcodesFile get() = File(supplyDir, "barcodes.json")
 
+    // Guards the barcodes.json whole-map read-modify-write (linkSync/unlinkSync) against
+    // same-process races, matching SupplyRepository's categoryWriteLock pattern. link()/unlink()
+    // dispatch onto Dispatchers.IO (a real thread pool), so two near-simultaneous calls without
+    // this lock could race between readIndex() and atomicWriteFile() and silently lose an update.
+    private val barcodeWriteLock = Any()
+
     private val _scanMode = MutableStateFlow<ScanMode>(ScanMode.Idle)
     val scanMode: StateFlow<ScanMode> = _scanMode.asStateFlow()
 
@@ -57,25 +64,30 @@ class SupplyBarcodeStore(
 
     fun lookup(barcode: String): String? = readIndex()[barcode]
 
-    fun resolveItemSync(barcode: String): com.kkc.sheettracker.data.models.SupplyItem? {
+    fun resolveItemSync(barcode: String): SupplyItem? {
         val itemId = lookup(barcode) ?: return null
         return repository.getItem(itemId)
     }
 
     fun linkSync(barcode: String, itemId: String) {
         supplyDir.mkdirs()
-        val current = readIndex().toMutableMap()
-        current[barcode] = itemId
-        atomicWriteFile(barcodesFile, gson.toJson(current))
+        synchronized(barcodeWriteLock) {
+            val current = readIndex().toMutableMap()
+            current[barcode] = itemId
+            atomicWriteFile(barcodesFile, gson.toJson(current))
+        }
         val item = repository.getItem(itemId) ?: return
         val updated = (item.barcodes + barcode).distinct()
         repository.updateItemBarcodes(itemId, updated)
     }
 
     fun unlinkSync(barcode: String) {
-        val current = readIndex().toMutableMap()
-        val itemId = current.remove(barcode) ?: return
-        atomicWriteFile(barcodesFile, gson.toJson(current))
+        val itemId = synchronized(barcodeWriteLock) {
+            val current = readIndex().toMutableMap()
+            val removed = current.remove(barcode) ?: return
+            atomicWriteFile(barcodesFile, gson.toJson(current))
+            removed
+        }
         val item = repository.getItem(itemId) ?: return
         repository.updateItemBarcodes(itemId, item.barcodes.filter { it != barcode })
     }
@@ -86,6 +98,6 @@ class SupplyBarcodeStore(
     suspend fun unlink(barcode: String) =
         withContext(Dispatchers.IO) { unlinkSync(barcode) }
 
-    suspend fun resolveItem(barcode: String): com.kkc.sheettracker.data.models.SupplyItem? =
+    suspend fun resolveItem(barcode: String): SupplyItem? =
         withContext(Dispatchers.IO) { resolveItemSync(barcode) }
 }
