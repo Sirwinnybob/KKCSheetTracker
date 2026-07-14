@@ -287,8 +287,9 @@ class SupplyRepositoryTest {
         )
         File(itemsDir, "i1.json").writeText(gson.toJson(stored))
 
-        SupplyRepository(basePath).updateItemBarcodes("i1", listOf("ABC-123", "QR-456"))
+        val result = SupplyRepository(basePath).updateItemBarcodes("i1", listOf("ABC-123", "QR-456"))
 
+        assertEquals(listOf("ABC-123", "QR-456"), result?.barcodes)
         val persisted = gson.fromJson(File(itemsDir, "i1.json").readText(), StoredSupplyItem::class.java)
         assertEquals(listOf("ABC-123", "QR-456"), persisted.barcodes)
         assertTrue(itemsDir.listFiles().orEmpty().none { it.name.contains(".tmp-") })
