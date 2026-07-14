@@ -616,7 +616,8 @@ fun SupplyDashboardScreen(
                         editChromeState = null
                         activeModal = SupplyDashboardModal.EditItem(modal.itemId)
                     },
-                    subscriptionManager = subscriptionManager
+                    subscriptionManager = subscriptionManager,
+                    barcodeStore = barcodeStore
                 )
             }
         }

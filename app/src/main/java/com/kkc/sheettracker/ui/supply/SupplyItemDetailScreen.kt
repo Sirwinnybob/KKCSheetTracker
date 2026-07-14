@@ -42,6 +42,13 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.kkc.sheettracker.data.SupplyRepository
 import com.kkc.sheettracker.data.SupplySubscriptionManager
+import com.kkc.sheettracker.data.SupplyBarcodeStore
+import com.kkc.sheettracker.data.ScanMode
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.text.font.FontFamily
 import com.kkc.sheettracker.data.models.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -64,7 +71,8 @@ fun SupplyItemDetailScreen(
     employeeName: String,
     onBack: () -> Unit,
     onEdit: () -> Unit,
-    subscriptionManager: SupplySubscriptionManager
+    subscriptionManager: SupplySubscriptionManager,
+    barcodeStore: SupplyBarcodeStore
 ) {
     val repository = remember(basePath) { SupplyRepository(basePath) }
     val coroutineScope = rememberCoroutineScope()
@@ -518,6 +526,25 @@ fun SupplyItemDetailScreen(
                         }
                     }
 
+                    // Barcodes section
+                    item {
+                        if (currentItem != null) {
+                            ItemBarcodeSection(
+                                item = currentItem,
+                                barcodeStore = barcodeStore,
+                                scope = coroutineScope,
+                                onRefresh = {
+                                    coroutineScope.launch {
+                                        val loaded = withContext(Dispatchers.IO) { repository.getItem(itemId) }
+                                        item = loaded
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    item { Spacer(modifier = Modifier.height(16.dp)) }
+                    item { HorizontalDivider() }
+
                     // Comments header
                     item {
                         DashboardSectionHeader(
@@ -732,6 +759,118 @@ private fun CommentCard(comment: SupplyComment, modifier: Modifier = Modifier) {
                 }
                 MarkdownText(comment.text, style = MaterialTheme.typography.bodyMedium)
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ItemBarcodeSection(
+    item: SupplyItem,
+    barcodeStore: SupplyBarcodeStore,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onRefresh: () -> Unit
+) {
+    var confirmRemoveBarcode by remember { mutableStateOf<String?>(null) }
+    val scanMode by barcodeStore.scanMode.collectAsState()
+    var itemScanResult by remember { mutableStateOf<String?>(null) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("BARCODES", style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        if (item.barcodes.isEmpty()) {
+            Text("No barcodes linked.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            item.barcodes.forEach { barcode ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        barcode,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    IconButton(onClick = { confirmRemoveBarcode = barcode }) {
+                        Icon(Icons.Filled.Delete, "Remove barcode",
+                            tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+
+        OutlinedButton(
+            onClick = { barcodeStore.setScanMode(ScanMode.Item(item.id)) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.QrCodeScanner, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Add Barcode")
+        }
+    }
+
+    // Remove confirmation dialog
+    confirmRemoveBarcode?.let { barcode ->
+        AlertDialog(
+            onDismissRequest = { confirmRemoveBarcode = null },
+            title = { Text("Remove barcode?") },
+            text = { Text("Remove \"${barcode.take(24)}\" from ${item.name}?") },
+            confirmButton = {
+                TextButton(
+                    onClick = { confirmRemoveBarcode = null; scope.launch { barcodeStore.unlink(barcode); onRefresh() } },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemoveBarcode = null }) { Text("Cancel") } }
+        )
+    }
+
+    // Per-item scanner overlay
+    if (scanMode is ScanMode.Item && (scanMode as ScanMode.Item).itemId == item.id) {
+        val itemSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+        SupplyScannerOverlay(
+            barcodeStore = barcodeStore,
+            onDismiss = { barcodeStore.setScanMode(ScanMode.Idle) },
+            onKnownBarcode = { foundItem, barcode ->
+                if (foundItem.id == item.id) {
+                    barcodeStore.setScanMode(ScanMode.Idle)
+                    // Already linked
+                } else {
+                    itemScanResult = barcode
+                }
+            },
+            onUnknownBarcode = { barcode -> itemScanResult = barcode }
+        )
+
+        itemScanResult?.let { barcode ->
+            val onOtherItem = barcodeStore.lookup(barcode)?.let { it != item.id } ?: false
+            AlertDialog(
+                onDismissRequest = { itemScanResult = null; barcodeStore.setScanMode(ScanMode.Idle) },
+                title = { Text(if (onOtherItem) "Move barcode?" else "Link barcode?") },
+                text = {
+                    if (onOtherItem)
+                        Text("This barcode is linked to another item. Move it to ${item.name}?")
+                    else
+                        Text("Link \"${barcode.take(24)}\" to ${item.name}?")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        itemScanResult = null
+                        barcodeStore.setScanMode(ScanMode.Idle)
+                        scope.launch { barcodeStore.link(barcode, item.id); onRefresh() }
+                    }) { Text(if (onOtherItem) "Move" else "Link") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { itemScanResult = null; barcodeStore.setScanMode(ScanMode.Idle) }) { Text("Cancel") }
+                }
+            )
         }
     }
 }
