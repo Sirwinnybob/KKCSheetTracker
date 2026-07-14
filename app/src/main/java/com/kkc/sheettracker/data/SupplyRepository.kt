@@ -216,6 +216,20 @@ class SupplyRepository(private val basePath: String) {
         return updated.resolve()
     }
 
+    fun updateItemBarcodes(itemId: String, barcodes: List<String>): SupplyItem? {
+        val file = File(itemsDir, "$itemId.json")
+        val existing = readJson<StoredSupplyItem>(file) ?: return null
+        val updated = existing.copy(
+            barcodes = barcodes,
+            updatedAt = java.time.Instant.now().toString()
+        )
+        // CROSS-PROGRAM: see METADATA_AUDIT.md H-07 — items/<id>.json is also written by the
+        // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
+        // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
+        atomicWriteFile(file, gson.toJson(updated))
+        return updated.resolve()
+    }
+
     fun getAttachmentFile(itemId: String, storedName: String): File =
         File(supplyDir, "attachments/$itemId/$storedName")
 

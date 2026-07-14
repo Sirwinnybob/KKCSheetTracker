@@ -276,6 +276,33 @@ class SupplyRepositoryTest {
         assertEquals(listOf("CODE128-ABC", "QR-XYZ"), result?.barcodes)
     }
 
+    @Test
+    fun updateItemBarcodesWritesBarcodesFieldAtomically() {
+        val basePath = createTempBasePath()
+        val itemsDir = File(basePath, ".supply/items").also { it.mkdirs() }
+        val stored = StoredSupplyItem(
+            id = "i1", categoryId = "c1", name = "Screws", notes = null,
+            fields = emptyMap(), customFields = emptyMap(), attachmentIds = emptyList(),
+            barcodes = emptyList(), createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z"
+        )
+        File(itemsDir, "i1.json").writeText(gson.toJson(stored))
+
+        SupplyRepository(basePath).updateItemBarcodes("i1", listOf("ABC-123", "QR-456"))
+
+        val persisted = gson.fromJson(File(itemsDir, "i1.json").readText(), StoredSupplyItem::class.java)
+        assertEquals(listOf("ABC-123", "QR-456"), persisted.barcodes)
+        assertTrue(itemsDir.listFiles().orEmpty().none { it.name.contains(".tmp-") })
+    }
+
+    @Test
+    fun updateItemBarcodesReturnsNullWhenItemDoesNotExist() {
+        val basePath = createTempBasePath()
+
+        val result = SupplyRepository(basePath).updateItemBarcodes("missing-item", listOf("X"))
+
+        assertEquals(null, result)
+    }
+
     private fun createTempBasePath(): String {
         return Files.createTempDirectory("supply-repository-test").toFile().absolutePath
     }
