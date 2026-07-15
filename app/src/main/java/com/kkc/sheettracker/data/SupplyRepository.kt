@@ -60,11 +60,17 @@ class SupplyRepository(private val basePath: String) {
     private fun StoredSupplyItem.resolve(): SupplyItem = resolveWith(resolveStatus(id))
 
     private fun StoredSupplyItem.resolveWith(s: SupplyStatusRecord): SupplyItem {
+        val skuVal = fields["sku"]?.trim()?.takeIf { it.isNotBlank() }
+        val resolvedBarcodes = if (skuVal != null) {
+            (barcodes + skuVal).distinct()
+        } else {
+            barcodes
+        }
         return SupplyItem(
             id = id, categoryId = categoryId, name = name,
             status = s.status, statusBy = s.by, statusAt = s.at,
             notes = notes, fields = fields, customFields = customFields,
-            attachmentIds = attachmentIds, barcodes = barcodes,
+            attachmentIds = attachmentIds, barcodes = resolvedBarcodes,
             createdAt = createdAt, updatedAt = updatedAt
         )
     }
@@ -236,6 +242,21 @@ class SupplyRepository(private val basePath: String) {
     // Legacy path helper kept for any callers that use absolutePath string
     fun attachmentPath(itemId: String, storedName: String): String =
         getAttachmentFile(itemId, storedName).absolutePath
+
+    fun deleteItem(itemId: String): Boolean {
+        val file = File(itemsDir, "$itemId.json")
+        val commentDir = File(commentsDir, itemId)
+        val deletedItem = if (file.exists()) file.delete() else false
+        if (commentDir.exists()) {
+            commentDir.deleteRecursively()
+        }
+        return deletedItem
+    }
+
+    fun deleteComment(itemId: String, commentId: String): Boolean {
+        val file = File(File(commentsDir, itemId), "$commentId.json")
+        return if (file.exists()) file.delete() else false
+    }
 
     companion object {
         /**

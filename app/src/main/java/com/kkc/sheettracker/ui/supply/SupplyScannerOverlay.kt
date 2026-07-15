@@ -29,6 +29,10 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.kkc.sheettracker.data.SupplyBarcodeStore
 import com.kkc.sheettracker.data.models.SupplyItem
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.geometry.Size
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val SCANNER_TAG = "SupplyScannerOverlay"
 
@@ -44,17 +48,34 @@ private const val SCANNER_TAG = "SupplyScannerOverlay"
 @Composable
 fun SupplyScannerOverlay(
     barcodeStore: SupplyBarcodeStore,
+    isModalActive: Boolean,
     onDismiss: () -> Unit,
     onKnownBarcode: (item: SupplyItem, barcode: String) -> Unit,
     onUnknownBarcode: (barcode: String) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
 
     var hasCameraPermission by remember { mutableStateOf(false) }
     var showPermissionRationale by remember { mutableStateOf(false) }
-    var scanPaused by remember { mutableStateOf(false) }
+    var lockedBarcodeValue by remember { mutableStateOf<String?>(null) }
+    var isCooldownActive by remember { mutableStateOf(false) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
+    var detectedBox by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(isModalActive) {
+        if (!isModalActive && lockedBarcodeValue != null) {
+            lockedBarcodeValue = null
+            detectedBox = null
+            isCooldownActive = true
+            delay(2000)
+            isCooldownActive = false
+        }
+    }
+    var parentSize by remember { mutableStateOf(Size.Zero) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -94,21 +115,93 @@ fun SupplyScannerOverlay(
                                 .build()
 
                             imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
-                                if (scanPaused) { imageProxy.close(); return@setAnalyzer }
+                                if (isCooldownActive) {
+                                    imageProxy.close()
+                                    return@setAnalyzer
+                                }
                                 val mediaImage = imageProxy.image
-                                    ?: run { imageProxy.close(); return@setAnalyzer }
+                                    ?: run {
+                                        imageProxy.close()
+                                        return@setAnalyzer
+                                    }
                                 val image = InputImage.fromMediaImage(
                                     mediaImage, imageProxy.imageInfo.rotationDegrees
                                 )
                                 barcodeScanner.process(image)
                                     .addOnSuccessListener { barcodes ->
-                                        val raw = barcodes.firstOrNull()?.rawValue
-                                            ?.takeIf { it.isNotBlank() }
-                                        if (raw != null && !scanPaused) {
-                                            scanPaused = true
-                                            val item = barcodeStore.resolveItemSync(raw)
-                                            if (item != null) onKnownBarcode(item, raw)
-                                            else onUnknownBarcode(raw)
+                                        val rotation = imageProxy.imageInfo.rotationDegrees
+                                        val lockedVal = lockedBarcodeValue
+
+                                        if (lockedVal != null) {
+                                            // Keep tracking/updating coordinates for the locked barcode
+                                            val matchingBarcode = barcodes.firstOrNull { it.rawValue == lockedVal }
+                                            val rect = matchingBarcode?.boundingBox
+                                            if (rect != null && parentSize.width > 0 && parentSize.height > 0) {
+                                                val mapped = mapBoundingBox(
+                                                    rect = rect,
+                                                    imageWidth = imageProxy.width,
+                                                    imageHeight = imageProxy.height,
+                                                    rotation = rotation,
+                                                    parentWidth = parentSize.width,
+                                                    parentHeight = parentSize.height
+                                                )
+                                                detectedBox = smoothRect(mapped, detectedBox, alpha = 0.22f)
+                                            } else {
+                                                detectedBox = null
+                                            }
+                                        } else {
+                                            // Search for a new barcode inside the center ROI window
+                                            val filteredBarcodes = barcodes.filter { barcode ->
+                                                val rect = barcode.boundingBox ?: return@filter false
+                                                if (parentSize.width <= 0f || parentSize.height <= 0f) return@filter false
+
+                                                val mapped = mapBoundingBox(
+                                                    rect = rect,
+                                                    imageWidth = imageProxy.width,
+                                                    imageHeight = imageProxy.height,
+                                                    rotation = rotation,
+                                                    parentWidth = parentSize.width,
+                                                    parentHeight = parentSize.height
+                                                )
+
+                                                val reticlePx = with(density) { 260.dp.toPx() }
+                                                val paddingPx = with(density) { 36.dp.toPx() }
+                                                val windowSize = reticlePx + paddingPx * 2f
+
+                                                val windowLeft = (parentSize.width - windowSize) / 2f
+                                                val windowRight = (parentSize.width + windowSize) / 2f
+                                                val windowTop = (parentSize.height - windowSize) / 2f
+                                                val windowBottom = (parentSize.height + windowSize) / 2f
+
+                                                val cx = mapped.centerX()
+                                                val cy = mapped.centerY()
+                                                cx >= windowLeft && cx <= windowRight && cy >= windowTop && cy <= windowBottom
+                                            }
+
+                                            val barcode = filteredBarcodes.firstOrNull()
+                                            val raw = barcode?.rawValue?.takeIf { it.isNotBlank() }
+                                            if (raw != null) {
+                                                lockedBarcodeValue = raw // Lock scanning
+
+                                                val rect = barcode.boundingBox
+                                                if (rect != null && parentSize.width > 0 && parentSize.height > 0) {
+                                                    detectedBox = mapBoundingBox(
+                                                        rect = rect,
+                                                        imageWidth = imageProxy.width,
+                                                        imageHeight = imageProxy.height,
+                                                        rotation = rotation,
+                                                        parentWidth = parentSize.width,
+                                                        parentHeight = parentSize.height
+                                                    )
+                                                }
+
+                                                scope.launch {
+                                                    delay(450) // Short delay for visual lock feedback
+                                                    val item = barcodeStore.resolveItem(raw)
+                                                    if (item != null) onKnownBarcode(item, raw)
+                                                    else onUnknownBarcode(raw)
+                                                }
+                                            }
                                         }
                                     }
                                     .addOnFailureListener { Log.w(SCANNER_TAG, "Scan failed", it) }
@@ -127,10 +220,17 @@ fun SupplyScannerOverlay(
                         }, ContextCompat.getMainExecutor(ctx))
                         previewView
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned {
+                            parentSize = Size(it.size.width.toFloat(), it.size.height.toFloat())
+                        }
                 )
 
-                ScannerReticle(modifier = Modifier.fillMaxSize())
+                ScannerReticle(
+                    modifier = Modifier.fillMaxSize(),
+                    detectedBox = detectedBox
+                )
 
                 Row(
                     modifier = Modifier
@@ -175,4 +275,53 @@ fun SupplyScannerOverlay(
             }
         }
     }
+}
+
+private fun mapBoundingBox(
+    rect: android.graphics.Rect,
+    imageWidth: Int,
+    imageHeight: Int,
+    rotation: Int,
+    parentWidth: Float,
+    parentHeight: Float
+): android.graphics.Rect {
+    val isRotated = rotation == 90 || rotation == 270
+    val displayWidth = if (isRotated) imageHeight.toFloat() else imageWidth.toFloat()
+    val displayHeight = if (isRotated) imageWidth.toFloat() else imageHeight.toFloat()
+
+    // PreviewView scales uniformly using FILL_CENTER, matching the larger scale factor
+    val scale = maxOf(parentWidth / displayWidth, parentHeight / displayHeight)
+
+    // Center offsets inside the cropped viewport
+    val offsetX = (displayWidth * scale - parentWidth) / 2f
+    val offsetY = (displayHeight * scale - parentHeight) / 2f
+
+    // Since ML Kit already rotates coordinates to match the input rotationDegrees,
+    // the bounding box is already aligned with the display orientation.
+    // We only need to apply the uniform scaling and centering offsets.
+    val left = rect.left * scale - offsetX
+    val right = rect.right * scale - offsetX
+    val top = rect.top * scale - offsetY
+    val bottom = rect.bottom * scale - offsetY
+
+    return android.graphics.Rect(
+        left.coerceAtLeast(0f).toInt(),
+        top.coerceAtLeast(0f).toInt(),
+        right.coerceAtMost(parentWidth).toInt(),
+        bottom.coerceAtMost(parentHeight).toInt()
+    )
+}
+
+private fun smoothRect(
+    target: android.graphics.Rect,
+    previous: android.graphics.Rect?,
+    alpha: Float
+): android.graphics.Rect {
+    if (previous == null) return target
+    return android.graphics.Rect(
+        (previous.left + alpha * (target.left - previous.left)).toInt(),
+        (previous.top + alpha * (target.top - previous.top)).toInt(),
+        (previous.right + alpha * (target.right - previous.right)).toInt(),
+        (previous.bottom + alpha * (target.bottom - previous.bottom)).toInt()
+    )
 }

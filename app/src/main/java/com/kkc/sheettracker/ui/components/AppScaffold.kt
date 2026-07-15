@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -497,7 +498,7 @@ private fun MorphingNavBar(
                                                     Box(contentAlignment = Alignment.CenterStart) {
                                                         if (dec.searchTextValue.text.isEmpty()) {
                                                             Text(
-                                                                "Cabinet #",
+                                                                dec.placeholder,
                                                                 style = MaterialTheme.typography.bodyMedium,
                                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                                             )
@@ -513,13 +514,27 @@ private fun MorphingNavBar(
                                             ) {
                                                 Text("Go", style = MaterialTheme.typography.labelMedium)
                                             }
-                                            Button(
-                                                onClick = { dec.onParts() },
-                                                enabled = dec.isPartsEnabled,
-                                                shape = MaterialTheme.shapes.extraLarge,
-                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                                            ) {
-                                                Text("Parts", style = MaterialTheme.typography.labelMedium)
+                                            if (dec.showParts) {
+                                                Button(
+                                                    onClick = { dec.onParts() },
+                                                    enabled = dec.isPartsEnabled,
+                                                    shape = MaterialTheme.shapes.extraLarge,
+                                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text("Parts", style = MaterialTheme.typography.labelMedium)
+                                                }
+                                            }
+                                            dec.onScan?.let { onScan ->
+                                                FilledTonalIconButton(
+                                                    onClick = onScan,
+                                                    modifier = Modifier.size(40.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.QrCodeScanner,
+                                                        contentDescription = "Scan barcode",
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                         if (dec.contextLine.isNotBlank()) {

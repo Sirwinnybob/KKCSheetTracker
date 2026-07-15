@@ -84,6 +84,21 @@ class SupplyBarcodeStoreTest {
     }
 
     @Test
+    fun lookupMatchesItemWithMatchingSkuField() {
+        val basePath = tmp.root.absolutePath
+        val itemsDir = File(basePath, ".supply/items").also { it.mkdirs() }
+        val stored = com.kkc.sheettracker.data.models.StoredSupplyItem(
+            id = "i1", categoryId = "c1", name = "Bolts", notes = null,
+            fields = mapOf("sku" to "SKU-999"), customFields = emptyMap(), attachmentIds = emptyList(),
+            barcodes = emptyList(), createdAt = "", updatedAt = ""
+        )
+        File(itemsDir, "i1.json").writeText(Gson().toJson(stored))
+
+        val store = makeStore()
+        assertEquals("i1", store.lookup("SKU-999"))
+    }
+
+    @Test
     fun lookupReturnsNullWhenBarcodesJsonIsMalformed() {
         val basePath = tmp.root.absolutePath
         val supplyDir = File(basePath, ".supply").also { it.mkdirs() }

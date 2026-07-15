@@ -15,7 +15,10 @@ data class NavBarSearchDecoration(
     val onGo: () -> Unit,
     val isPartsEnabled: Boolean,
     val onParts: () -> Unit,
-    val contextLine: String
+    val contextLine: String,
+    val placeholder: String = "Cabinet #",
+    val showParts: Boolean = true,
+    val onScan: (() -> Unit)? = null
 )
 
 data class NavBarCncDecoration(

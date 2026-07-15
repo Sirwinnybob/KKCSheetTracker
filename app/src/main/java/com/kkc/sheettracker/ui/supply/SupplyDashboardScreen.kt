@@ -6,9 +6,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowColumn
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.ui.layout.Layout
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -62,6 +66,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.Dp
 import com.kkc.sheettracker.data.SupplyChange
 import com.kkc.sheettracker.data.SupplyNotificationItem
 import com.kkc.sheettracker.data.SupplyRepository
@@ -106,10 +116,14 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.data.SupplyBarcodeStore
 import com.kkc.sheettracker.data.ScanMode
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.text.input.TextFieldValue
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
+import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -127,7 +141,7 @@ fun SupplyDashboardScreen(
     var items by remember { mutableStateOf<List<SupplyItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf(TextFieldValue("")) }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var newCategoryName by remember { mutableStateOf("") }
     var showOverflowMenu by remember { mutableStateOf(false) }
@@ -139,6 +153,27 @@ fun SupplyDashboardScreen(
     val pickPendingBarcode by barcodeStore.pickPendingBarcode.collectAsState()
     var knownBarcodeResult by remember { mutableStateOf<Pair<SupplyItem, String>?>(null) }
     var unknownBarcodeResult by remember { mutableStateOf<String?>(null) }
+
+    // ── Scaffold nav bar search decoration ─────────────────────────────────────
+    val navBarDeco = LocalNavBarDecoration.current
+    val currentSearchQuery = searchQuery
+    SideEffect {
+        navBarDeco.searchDecoration = NavBarSearchDecoration(
+            searchTextValue    = currentSearchQuery,
+            onSearchTextChange = { searchQuery = it },
+            onGo               = {},          // free-text filter: no explicit submit needed
+            isPartsEnabled     = false,
+            onParts            = {},
+            contextLine        = if (currentSearchQuery.text.isNotBlank())
+                                     "Filtering buckets by \"${currentSearchQuery.text}\"" else "",
+            placeholder        = "Search Inventory...",
+            showParts          = false,
+            onScan             = { barcodeStore.setScanMode(ScanMode.Global) }
+        )
+    }
+    DisposableEffect(Unit) {
+        onDispose { navBarDeco.searchDecoration = null }
+    }
     var itemToConfirmLink by remember { mutableStateOf<Pair<SupplyItem, String>?>(null) }
     var pendingNewItemBarcode by remember { mutableStateOf<String?>(null) }
     // Monotonic guard for the status-change write-then-reload sequence below: each status pick
@@ -283,7 +318,19 @@ fun SupplyDashboardScreen(
     LaunchedEffect(basePath) { loadData() }
     LaunchedEffect(items, subscriptionData) { reloadUpdates() }
 
-    val currentCategoryId = if (!isLoading && searchQuery.isBlank() && supplyTabs.isNotEmpty()) {
+    val boardSearchMatches = remember(items, searchQuery) {
+        if (searchQuery.text.isBlank()) items else items.filter {
+            it.name.contains(searchQuery.text, ignoreCase = true) ||
+                it.fields["sku"]?.contains(searchQuery.text, ignoreCase = true) == true
+        }
+    }
+    val boardItemsByCategory = remember(boardSearchMatches) { boardSearchMatches.groupBy { it.categoryId } }
+    val boardCategories = remember(sortedCategories, boardItemsByCategory, searchQuery) {
+        if (searchQuery.text.isBlank()) sortedCategories
+        else sortedCategories.filter { !boardItemsByCategory[it.id].isNullOrEmpty() }
+    }
+
+    val currentCategoryId = if (!isLoading && searchQuery.text.isBlank() && supplyTabs.isNotEmpty()) {
         val activeTab = supplyTabs.getOrNull(pagerState.currentPage)
         if (activeTab?.type is SupplyTabType.CategoryTab) {
             activeTab.type.category.id
@@ -300,9 +347,6 @@ fun SupplyDashboardScreen(
         scrollable = false,
         onRefresh = { scope.launch { loadData(); reloadUpdates() } },
         topBarActions = {
-            IconButton(onClick = { barcodeStore.setScanMode(ScanMode.Global) }) {
-                Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan barcode")
-            }
             Box {
                 IconButton(onClick = { showOverflowMenu = true }) {
                     Icon(Icons.Filled.MoreVert, contentDescription = "More options")
@@ -363,53 +407,9 @@ fun SupplyDashboardScreen(
             }
         }
 
-        DashboardSurfaceCard(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("Search items...") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium
-            )
-        }
+        run {
+            DashboardSurfaceCard(contentPadding = PaddingValues(vertical = 6.dp)) {
 
-        when {
-            searchQuery.isNotBlank() -> {
-                val filtered = items.filter { it.name.contains(searchQuery, ignoreCase = true) }
-                    .sortedBy { SUPPLY_STATUS_PRIORITY[it.status] ?: 99 }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    DashboardWidgetRenderer(
-                        widgets = listOf(
-                            DashboardWidgetModel.InventoryBlock(
-                                key = "supply-search",
-                                title = "Search Results",
-                                items = filtered.map { toInventoryItemModel(it, categoryMap) },
-                                summary = if (filtered.isEmpty()) null else "${filtered.size} matching items",
-                                emptyMessage = "No items match \"$searchQuery\""
-                            )
-                        ),
-                        onItemClick = { item ->
-                            if (item is DashboardInventoryItemModel) {
-                                openDetailModal(item.id)
-                            }
-                        },
-                        onItemLongPress = { item ->
-                            statusSheetItem = items.firstOrNull { it.id == item.id }
-                        }
-                    )
-                }
-            }
-
-            else -> {
-                DashboardSurfaceCard(contentPadding = PaddingValues(vertical = 6.dp)) {
                     SecondaryScrollableTabRow(
                         selectedTabIndex = selectedTabIndex,
                         containerColor = TabRowDefaults.primaryContainerColor,
@@ -488,17 +488,38 @@ fun SupplyDashboardScreen(
                     modifier = Modifier.weight(1f)
                 ) { page ->
                     if (page == boardPageIndex) {
+                        val isDark = isSystemInDarkTheme()
+                        val palette = if (isDark) HEADER_COLORS_DARK else HEADER_COLORS_LIGHT
+                        // Greedy coloring: pick a color that differs from the previous neighbor
+                        val headerColors = remember(sortedCategories, isDark) {
+                            val result = mutableMapOf<String, Color>()
+                            var prev: Color? = null
+                            sortedCategories.forEach { cat ->
+                                var pick = Math.abs(cat.id.hashCode()) % palette.size
+                                if (prev != null && palette[pick] == prev) {
+                                    pick = (pick + 1) % palette.size
+                                }
+                                val color = palette[pick]
+                                result[cat.id] = color
+                                prev = color
+                            }
+                            result
+                        }
                         LazyRow(
                             state = boardScrollState,
-                            modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
+                            modifier = Modifier.fillMaxSize().padding(top = 12.dp, bottom = 90.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(horizontal = 16.dp)
                         ) {
-                            items(sortedCategories, key = { it.id }) { category ->
-                                val categoryItems = items.filter { it.categoryId == category.id }
+                            itemsIndexed(
+                                items = boardCategories,
+                                key = { _, cat -> cat.id }
+                            ) { _, category ->
+                                val categoryItems = boardItemsByCategory[category.id].orEmpty()
                                 CategoryBoardColumn(
                                     category = category,
                                     items = categoryItems,
+                                    headerColor = headerColors[category.id] ?: palette[0],
                                     onAddItem = { openNewItemModal(category.id) },
                                     onOpenItem = ::openDetailModal,
                                     onLongPress = { item -> statusSheetItem = item }
@@ -573,9 +594,7 @@ fun SupplyDashboardScreen(
                     }
                 }
             }
-        }
     }
-
     if (showAddCategoryDialog) {
         SupplyModalFrame(
             title = "New Category",
@@ -1841,10 +1860,12 @@ private fun BoardCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CategoryBoardColumn(
     category: SupplyCategory,
     items: List<SupplyItem>,
+    headerColor: Color,
     onAddItem: () -> Unit,
     onOpenItem: (String) -> Unit,
     onLongPress: (SupplyItem) -> Unit,
@@ -1852,81 +1873,188 @@ private fun CategoryBoardColumn(
 ) {
     val isDark = isSystemInDarkTheme()
     val columnBgColor = if (isDark) Color(0xFF1C2B3E) else Color(0xFFEDF2F5)
-    val headerColor = if (isDark) Color(0xFF2C5E66) else Color(0xFF356A73)
 
     androidx.compose.material3.Card(
         modifier = modifier
-            .width(300.dp)
-            .fillMaxHeight(),
+            .fillMaxHeight()
+            .wrapContentWidth()
+            .shadow(elevation = 3.dp, shape = RoundedCornerShape(8.dp), clip = false),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = columnBgColor)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(headerColor)
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = category.name.uppercase(),
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (items.isEmpty()) {
+        CategoryColumnLayout(
+            modifier = Modifier.fillMaxHeight(),
+            header = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(headerColor)
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
                     Text(
-                        text = "No items in this category.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(8.dp)
+                        text = category.name.uppercase(),
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                } else {
-                    items.forEach { item ->
-                        BoardCard(
-                            item = item,
-                            onClick = { onOpenItem(item.id) },
-                            onLongClick = { onLongPress(item) }
-                        )
+                }
+            },
+            content = {
+                FlowColumn(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (items.isEmpty()) {
+                        Box(modifier = Modifier.width(300.dp)) {
+                            Text(
+                                text = "No items in this category.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    } else {
+                        items.forEach { item ->
+                            Box(modifier = Modifier.width(300.dp)) {
+                                BoardCard(
+                                    item = item,
+                                    onClick = { onOpenItem(item.id) },
+                                    onLongClick = { onLongPress(item) }
+                                )
+                            }
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .width(300.dp)
+                            .clickable { onAddItem() }
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = null,
+                                tint = if (isDark) Color(0xFF4FA7C0) else Color(0xFF356A73),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Add another card",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isDark) Color(0xFF4FA7C0) else Color(0xFF356A73)
+                                )
+                            )
+                        }
                     }
                 }
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onAddItem() }
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = null,
-                        tint = if (isDark) Color(0xFF4FA7C0) else Color(0xFF356A73),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "Add another card",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.Medium,
-                            color = if (isDark) Color(0xFF4FA7C0) else Color(0xFF356A73)
-                        )
-                    )
-                }
-            }
+        )
+    }
+}
+
+private fun Modifier.verticalScrollbar(
+    scrollState: androidx.compose.foundation.ScrollState,
+    width: Dp = 4.dp,
+    color: Color
+): Modifier = this.drawWithContent {
+    drawContent()
+    val viewportHeight = size.height
+    val totalHeight = scrollState.maxValue + viewportHeight
+    if (totalHeight > viewportHeight && viewportHeight > 0) {
+        val scrollbarHeight = (viewportHeight * viewportHeight) / totalHeight
+        val scrollbarTop = (scrollState.value.toFloat() / totalHeight) * viewportHeight
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(size.width - width.toPx() - 2.dp.toPx(), scrollbarTop),
+            size = Size(width.toPx(), scrollbarHeight),
+            cornerRadius = CornerRadius(width.toPx() / 2, width.toPx() / 2)
+        )
+    }
+}
+
+@Composable
+private fun CategoryColumnLayout(
+    header: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.ui.layout.Layout(
+        content = {
+            header()
+            content()
+        },
+        modifier = modifier
+    ) { measurables, constraints ->
+        val headerMeasurable = measurables.getOrNull(0)
+        val contentMeasurable = measurables.getOrNull(1)
+
+        if (headerMeasurable == null || contentMeasurable == null) {
+            return@Layout layout(0, 0) {}
+        }
+
+        // 1. Learn the header's (width-independent) height via intrinsics, without
+        // consuming its one allowed measure() call.
+        val headerHeightProbe = headerMeasurable.maxIntrinsicHeight(100_000)
+
+        // 2. Measure content with the header's height subtracted so it doesn't overflow
+        // past the bottom of the column.
+        val contentPlaceable = contentMeasurable.measure(
+            constraints.copy(
+                minHeight = 0,
+                maxHeight = (constraints.maxHeight - headerHeightProbe).coerceAtLeast(0)
+            )
+        )
+
+        val columnWidth = contentPlaceable.width
+
+        // 3. Re-measure the header pinned to the content's actual width.
+        val headerPlaceable = headerMeasurable.measure(
+            constraints.copy(
+                minWidth = columnWidth,
+                maxWidth = columnWidth,
+                minHeight = 0
+            )
+        )
+
+        val totalHeight = (headerPlaceable.height + contentPlaceable.height).coerceAtMost(constraints.maxHeight)
+        layout(columnWidth, totalHeight) {
+            headerPlaceable.placeRelative(0, 0)
+            contentPlaceable.placeRelative(0, headerPlaceable.height)
         }
     }
 }
+
+private val HEADER_COLORS_LIGHT = listOf(
+    Color(0xFF356A73), // slate-teal (original)
+    Color(0xFF3D6B8E), // steel blue
+    Color(0xFF4A6741), // muted sage green
+    Color(0xFF6B5B8E), // dusty violet
+    Color(0xFF7A5C4E), // warm terracotta
+    Color(0xFF3D7A6B), // deep seafoam
+    Color(0xFF5E6B3D), // olive
+    Color(0xFF6B3D5B), // muted mauve
+    Color(0xFF3D5B6B), // storm blue
+    Color(0xFF6B6B3D), // golden moss
+)
+
+private val HEADER_COLORS_DARK = listOf(
+    Color(0xFF2C5E66), // dark teal (original)
+    Color(0xFF2E5A7A), // dark steel blue
+    Color(0xFF3A5732), // dark sage green
+    Color(0xFF574A7A), // dark dusty violet
+    Color(0xFF6B4C3E), // dark terracotta
+    Color(0xFF2E6A5A), // dark seafoam
+    Color(0xFF4E5A32), // dark olive
+    Color(0xFF6B2E4E), // dark mauve
+    Color(0xFF2E4E6B), // dark storm blue
+    Color(0xFF5A5A2E), // dark golden moss
+)

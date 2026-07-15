@@ -62,7 +62,16 @@ class SupplyBarcodeStore(
         }.getOrDefault(emptyMap())
     }
 
-    fun lookup(barcode: String): String? = readIndex()[barcode]
+    fun lookup(barcode: String): String? {
+        val mappedId = readIndex()[barcode]
+        if (mappedId != null) return mappedId
+
+        val allItems = repository.getItems()
+        val matchingItem = allItems.firstOrNull {
+            it.fields["sku"]?.trim()?.equals(barcode.trim(), ignoreCase = true) == true
+        }
+        return matchingItem?.id
+    }
 
     fun resolveItemSync(barcode: String): SupplyItem? {
         val itemId = lookup(barcode) ?: return null

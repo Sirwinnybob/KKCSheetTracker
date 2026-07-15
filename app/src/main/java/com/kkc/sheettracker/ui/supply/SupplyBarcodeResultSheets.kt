@@ -60,10 +60,22 @@ fun KnownBarcodeSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ALL_SUPPLY_STATUSES.forEach { status ->
+                    val tier = SUPPLY_STATUS_PRIORITY[status.uppercase()] ?: 99
+                    val baseColor = supplyStatusColor(tier)
+                    val (chipBgColor, chipTextColor) = getSoftStatusColors(status, baseColor)
+                    val isSelected = item.status == status
+
                     FilterChip(
-                        selected = item.status == status,
+                        selected = isSelected,
                         onClick = { onStatusPick(status) },
-                        label = { Text(status, style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(status, style = MaterialTheme.typography.labelSmall) },
+                        border = null,
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = chipBgColor.copy(alpha = 0.5f),
+                            labelColor = chipTextColor.copy(alpha = 0.9f),
+                            selectedContainerColor = baseColor,
+                            selectedLabelColor = Color.White
+                        )
                     )
                 }
             }

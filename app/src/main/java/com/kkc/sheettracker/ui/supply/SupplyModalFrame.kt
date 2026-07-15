@@ -12,6 +12,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -120,20 +121,21 @@ fun SupplyModalFrame(
                 enter = SupplyModalEnter,
                 exit = SupplyModalExit
             ) {
+                val modalBgColor = if (isSystemInDarkTheme()) Color(0xFF1B2028) else Color(0xFFFFFFFF)
                 Surface(
                     modifier = modifier
                         .fillMaxWidth()
                         .widthIn(max = 1040.dp)
                         .fillMaxHeight(0.92f),
                     shape = RoundedCornerShape(14.dp),
-                    tonalElevation = 6.dp,
+                    tonalElevation = 0.dp,
                     shadowElevation = 16.dp,
-                    color = MaterialTheme.colorScheme.surface
+                    color = modalBgColor
                 ) {
                     ImmersiveDialogDecor()
                     val topBarColor = headerTint
                         ?.copy(alpha = 0.16f)
-                        ?.compositeOver(MaterialTheme.colorScheme.surface)
+                        ?.compositeOver(modalBgColor)
                         ?: Color.Transparent
                     Scaffold(
                         containerColor = Color.Transparent,

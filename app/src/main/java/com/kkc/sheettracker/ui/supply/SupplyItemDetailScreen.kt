@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import com.kkc.sheettracker.ui.components.MarkdownText
@@ -59,6 +60,21 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.UUID
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.List
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Notifications
 
 private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp")
 
@@ -78,10 +94,13 @@ fun SupplyItemDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val subscriptionData by subscriptionManager.subscriptionData.collectAsState()
 
     var item by remember { mutableStateOf<SupplyItem?>(null) }
     var schema by remember { mutableStateOf(DEFAULT_SUPPLY_SCHEMA) }
     var comments by remember { mutableStateOf<List<SupplyComment>>(emptyList()) }
+    var categories by remember { mutableStateOf<List<SupplyCategory>>(emptyList()) }
+    val categoryMap = remember(categories) { categories.associateBy { it.id } }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var commentText by remember { mutableStateOf("") }
@@ -100,12 +119,14 @@ fun SupplyItemDetailScreen(
             try {
                 val loadedItem = withContext(Dispatchers.IO) { repository.getItem(itemId) }
                 schema = withContext(Dispatchers.IO) { repository.schemaOrDefault() }
+                val loadedCats = withContext(Dispatchers.IO) { repository.getCategories() }
                 if (loadedItem == null) {
                     errorMessage = "Item not found"
                 } else {
                     val loadedComments = withContext(Dispatchers.IO) { repository.getComments(itemId) }
                     item = loadedItem
                     comments = loadedComments
+                    categories = loadedCats
                 }
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Failed to load item"
@@ -198,7 +219,10 @@ fun SupplyItemDetailScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isWide = maxWidth >= 600.dp
+        var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
         when {
             isLoading -> {
                 Box(
@@ -225,16 +249,20 @@ fun SupplyItemDetailScreen(
                 }
             }
             currentItem != null -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Item Title and Status Header
-                    item {
+                if (isWide) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        // LEFT COLUMN (68% width)
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .weight(0.68f)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             Text(
                                 text = currentItem.name,
@@ -243,7 +271,7 @@ fun SupplyItemDetailScreen(
                             )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 val tier = SUPPLY_STATUS_PRIORITY[currentItem.status] ?: 99
                                 val baseColor = supplyStatusColor(tier)
@@ -259,276 +287,719 @@ fun SupplyItemDetailScreen(
                                         )
                                         .clickable { showStatusSheet = true }
                                 )
+                                IconButton(onClick = { showStatusSheet = true }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Add, "Change Status", modifier = Modifier.size(16.dp))
+                                }
+                                Text("in category ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
-                                    "Tap to change status",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    categoryMap[currentItem.categoryId]?.name ?: "unknown",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
-                        }
-                    }
 
-                    // Notes
-                    if (!currentItem.notes.isNullOrBlank()) {
-                        item {
-                            DetailSection(title = "Notes", accent = supplyAccent(currentItem.status)) {
-                                MarkdownText(currentItem.notes, style = MaterialTheme.typography.bodyMedium)
+                            if (!currentItem.notes.isNullOrBlank()) {
+                                DetailSection(title = "Notes", accent = supplyAccent(currentItem.status)) {
+                                    MarkdownText(currentItem.notes, style = MaterialTheme.typography.bodyMedium)
+                                }
                             }
-                        }
-                    }
 
-                    // Fields, rendered from the current schema (non-blank values only).
-                    // Orphan values (keys not in the current schema) are intentionally hidden.
-                    data class DetailField(val label: String, val value: String, val type: String, val key: String)
-                    val detailFields = schema.mapNotNull { f ->
-                        val v = (currentItem.fields[f.key] ?: currentItem.customFields[f.key])
-                            ?.takeIf { it.isNotBlank() }
-                        v?.let { DetailField(f.label, it, f.type, f.key) }
-                    }
-                    if (detailFields.isNotEmpty()) {
-                        item {
-                            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-                            DetailSection(title = "Details") {
+                            // Fields, rendered from the current schema (non-blank values only).
+                            // Orphan values (keys not in the current schema) are intentionally hidden.
+                            data class DetailField(val label: String, val value: String, val type: String, val key: String)
+                            val detailFields = schema.mapNotNull { f ->
+                                val v = (currentItem.fields[f.key] ?: currentItem.customFields[f.key])
+                                    ?.takeIf { it.isNotBlank() }
+                                v?.let { DetailField(f.label, it, f.type, f.key) }
+                            }
+                            if (detailFields.isNotEmpty()) {
+                                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                                DetailSection(title = "Details") {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                    ) {
+                                        detailFields.forEachIndexed { index, df ->
+                                            val label = df.label
+                                            val value = df.value
+                                            if (index > 0) {
+                                                HorizontalDivider(
+                                                    thickness = 0.5.dp,
+                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                                )
+                                            }
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    label,
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                
+                                                val isUrl = df.type == "url" && (value.startsWith("http://") || value.startsWith("https://"))
+                                                val isTracking = df.key == "trackingNumber" && value.isNotBlank()
+                                                
+                                                if (isUrl) {
+                                                    Text(
+                                                        text = value,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                                                            fontWeight = FontWeight.Medium
+                                                        ),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clickable { runCatching { uriHandler.openUri(value) } },
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                } else if (isTracking) {
+                                                    Text(
+                                                        text = value,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                                                            fontWeight = FontWeight.Medium
+                                                        ),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clickable {
+                                                                runCatching {
+                                                                    val encoded = java.net.URLEncoder.encode(value.trim(), "UTF-8")
+                                                                    uriHandler.openUri("https://www.google.com/search?q=$encoded")
+                                                                }
+                                                            },
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = value,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        modifier = Modifier.weight(1f),
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            ItemBarcodeSection(
+                                item = currentItem,
+                                barcodeStore = barcodeStore,
+                                scope = coroutineScope,
+                                onRefresh = {
+                                    coroutineScope.launch {
+                                        val loaded = withContext(Dispatchers.IO) { repository.getItem(itemId) }
+                                        item = loaded
+                                    }
+                                }
+                            )
+
+
+
+                            HorizontalDivider()
+
+                            // Comments and Actions Tabbed View
+                            var commentTab by remember { mutableStateOf(0) }
+                            TabRow(selectedTabIndex = commentTab, containerColor = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
+                                Tab(selected = commentTab == 0, onClick = { commentTab = 0 }) {
+                                    Text("Comments", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
+                                }
+                                Tab(selected = commentTab == 1, onClick = { commentTab = 1 }) {
+                                    Text("Actions", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
+                                }
+                            }
+                            if (commentTab == 0) {
+                                // Comments form + CommentCard list
                                 Column(
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    detailFields.forEachIndexed { index, df ->
-                                        val label = df.label
-                                        val value = df.value
-                                        if (index > 0) {
-                                            HorizontalDivider(
-                                                thickness = 0.5.dp,
-                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                    DashboardSurfaceCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(9.dp)) {
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text("Add Comment", style = MaterialTheme.typography.labelLarge)
+                                            if (employeeName.isBlank()) {
+                                                OutlinedTextField(
+                                                    value = commentAuthor,
+                                                    onValueChange = { commentAuthor = it },
+                                                    label = { Text("Your Name") },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    singleLine = true,
+                                                    shape = RoundedCornerShape(4.dp)
+                                                )
+                                            }
+                                            OutlinedTextField(
+                                                value = commentText,
+                                                onValueChange = { commentText = it },
+                                                label = { Text("Comment") },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                minLines = 2,
+                                                maxLines = 4,
+                                                shape = RoundedCornerShape(4.dp)
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    val author = commentAuthor.ifBlank { "Unknown" }
+                                                    val text = commentText.trim()
+                                                    if (text.isNotBlank()) {
+                                                        coroutineScope.launch {
+                                                            isSubmittingComment = true
+                                                            try {
+                                                                withContext(Dispatchers.IO) {
+                                                                    repository.addComment(itemId, author, text, tabletId)
+                                                                }
+                                                                commentText = ""
+                                                                val updated = withContext(Dispatchers.IO) {
+                                                                    repository.getComments(itemId)
+                                                                }
+                                                                comments = updated
+                                                            } catch (_: Exception) {
+                                                            } finally {
+                                                                isSubmittingComment = false
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                enabled = commentText.isNotBlank() && commentAuthor.isNotBlank() && !isSubmittingComment,
+                                                modifier = Modifier.align(Alignment.End)
+                                            ) {
+                                                if (isSubmittingComment) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(16.dp),
+                                                        strokeWidth = 2.dp
+                                                    )
+                                                } else {
+                                                    Text("Submit")
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (comments.isEmpty()) {
+                                        Text(
+                                            "No comments yet.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    } else {
+                                        comments.forEach { comment ->
+                                            CommentCard(
+                                                comment = comment,
+                                                onDelete = {
+                                                    coroutineScope.launch {
+                                                        withContext(Dispatchers.IO) {
+                                                            repository.deleteComment(currentItem.id, comment.id)
+                                                        }
+                                                        comments = withContext(Dispatchers.IO) {
+                                                            repository.getComments(currentItem.id)
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth()
                                             )
                                         }
-                                        Row(
+                                    }
+                                }
+                            } else {
+                                Text("No recent activity log.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+                            }
+                        }
+
+                        // RIGHT COLUMN (32% width)
+                        Column(
+                            modifier = Modifier
+                                .weight(0.32f)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text("LIST", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            SideActionButton(
+                                onClick = {},
+                                icon = Icons.Default.List,
+                                text = categoryMap[currentItem.categoryId]?.name ?: "None",
+                                bold = true,
+                                interactive = false
+                            )
+
+                            Text("ADD TO CARD", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SideActionButton(onClick = { showStatusSheet = true }, icon = Icons.Default.Bookmark, text = "Labels")
+                                SideActionButton(onClick = { galleryLauncher.launch("image/*") }, icon = Icons.Default.AttachFile, text = "Attachment")
+
+                                // Existing attachments
+                                val attachmentCount = currentItem.attachmentIds.size
+                                currentItem.attachmentIds.forEach { att ->
+                                    val attFile = repository.getAttachmentFile(currentItem.id, att.storedName)
+                                    val isImage = att.storedName.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
+                                    if (isImage) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(attFile)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = att.originalName,
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(vertical = 4.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                .heightIn(max = 140.dp)
+                                                .clip(RoundedCornerShape(9.dp)),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            att.originalName,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    } else {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                label,
-                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                att.originalName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                modifier = Modifier.weight(1f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
-                                            
-                                            val isUrl = df.type == "url" && (value.startsWith("http://") || value.startsWith("https://"))
-                                            val isTracking = df.key == "trackingNumber" && value.isNotBlank()
-                                            
-                                            if (isUrl) {
-                                                Text(
-                                                    text = value,
-                                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
-                                                        fontWeight = FontWeight.Medium
-                                                    ),
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .clickable { runCatching { uriHandler.openUri(value) } },
-                                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
+                                }
+
+                                // Add attachment buttons
+                                Spacer(modifier = Modifier.height(8.dp))
+                                if (isAddingAttachment) {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                    }
+                                } else if (attachmentCount == 0) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Card(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(96.dp)
+                                                .clickable { launchCamera() },
+                                            shape = RoundedCornerShape(9.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                            )
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.fillMaxSize(),
+                                                verticalArrangement = Arrangement.Center,
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.PhotoCamera,
+                                                    contentDescription = "Camera",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(28.dp)
                                                 )
-                                            } else if (isTracking) {
+                                                Spacer(modifier = Modifier.height(6.dp))
                                                 Text(
-                                                    text = value,
-                                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
-                                                        fontWeight = FontWeight.Medium
-                                                    ),
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .clickable {
-                                                            runCatching {
-                                                                val encoded = java.net.URLEncoder.encode(value.trim(), "UTF-8")
-                                                                uriHandler.openUri("https://www.google.com/search?q=$encoded")
-                                                            }
-                                                        },
-                                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    "Camera",
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
-                                            } else {
+                                            }
+                                        }
+                                        
+                                        Card(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(96.dp)
+                                                .clickable { galleryLauncher.launch("image/*") },
+                                            shape = RoundedCornerShape(9.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                            )
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.fillMaxSize(),
+                                                verticalArrangement = Arrangement.Center,
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Image,
+                                                    contentDescription = "Gallery",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
                                                 Text(
-                                                    text = value,
-                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    modifier = Modifier.weight(1f),
-                                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    "Gallery",
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(
+                                            onClick = { launchCamera() },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.PhotoCamera,
+                                                contentDescription = "Camera icon",
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Camera", style = MaterialTheme.typography.labelMedium)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { galleryLauncher.launch("image/*") },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.Image,
+                                                contentDescription = "Gallery icon",
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Gallery", style = MaterialTheme.typography.labelMedium)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text("ACTIONS", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SideActionButton(onClick = { showDeleteConfirmDialog = true }, icon = Icons.Default.Delete, text = "Delete")
+                            }
+                        }
+                    }
+                } else {
+                    // Fall back to original single column LazyColumn layout
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Item Title and Status Header
+                        item {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = currentItem.name,
+                                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    val tier = SUPPLY_STATUS_PRIORITY[currentItem.status] ?: 99
+                                    val baseColor = supplyStatusColor(tier)
+                                    val (chipBgColor, chipTextColor) = getSoftStatusColors(currentItem.status, baseColor)
+                                    StatusChip(
+                                        text = currentItem.status,
+                                        backgroundColor = chipBgColor,
+                                        contentColor = chipTextColor,
+                                        modifier = Modifier
+                                            .border(
+                                                BorderStroke(0.5.dp, chipTextColor.copy(alpha = 0.25f)),
+                                                shape = CircleShape
+                                            )
+                                            .clickable { showStatusSheet = true }
+                                    )
+                                    Text(
+                                        "Tap to change status",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // Notes
+                        if (!currentItem.notes.isNullOrBlank()) {
+                            item {
+                                DetailSection(title = "Notes", accent = supplyAccent(currentItem.status)) {
+                                    MarkdownText(currentItem.notes, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+
+                        // Fields, rendered from the current schema (non-blank values only).
+                        // Orphan values (keys not in the current schema) are intentionally hidden.
+                        data class DetailField(val label: String, val value: String, val type: String, val key: String)
+                        val detailFields = schema.mapNotNull { f ->
+                            val v = (currentItem.fields[f.key] ?: currentItem.customFields[f.key])
+                                ?.takeIf { it.isNotBlank() }
+                            v?.let { DetailField(f.label, it, f.type, f.key) }
+                        }
+                        if (detailFields.isNotEmpty()) {
+                            item {
+                                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                                DetailSection(title = "Details") {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                    ) {
+                                        detailFields.forEachIndexed { index, df ->
+                                            val label = df.label
+                                            val value = df.value
+                                            if (index > 0) {
+                                                HorizontalDivider(
+                                                    thickness = 0.5.dp,
+                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                                )
+                                            }
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    label,
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                
+                                                val isUrl = df.type == "url" && (value.startsWith("http://") || value.startsWith("https://"))
+                                                val isTracking = df.key == "trackingNumber" && value.isNotBlank()
+                                                
+                                                if (isUrl) {
+                                                    Text(
+                                                        text = value,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                                                            fontWeight = FontWeight.Medium
+                                                        ),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clickable { runCatching { uriHandler.openUri(value) } },
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                } else if (isTracking) {
+                                                    Text(
+                                                        text = value,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                                                            fontWeight = FontWeight.Medium
+                                                        ),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clickable {
+                                                                runCatching {
+                                                                    val encoded = java.net.URLEncoder.encode(value.trim(), "UTF-8")
+                                                                    uriHandler.openUri("https://www.google.com/search?q=$encoded")
+                                                                }
+                                                            },
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = value,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        modifier = Modifier.weight(1f),
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // Attachments
-                    item {
-                        val attachmentCount = currentItem.attachmentIds.size
-                        DetailSection(
-                            title = "Photos & Attachments",
-                            subtitle = if (attachmentCount == 0) null else {
-                                "$attachmentCount file${if (attachmentCount == 1) "" else "s"}"
-                            }
-                        ) {
-                            // Existing attachments
-                            currentItem.attachmentIds.forEach { att ->
-                                val attFile = repository.getAttachmentFile(currentItem.id, att.storedName)
-                                val isImage = att.storedName.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
-                                if (isImage) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(attFile)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = att.originalName,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 280.dp)
-                                            .clip(RoundedCornerShape(9.dp)),
-                                        contentScale = ContentScale.FillWidth
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        att.originalName,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                } else {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                        // Attachments
+                        item {
+                            val attachmentCount = currentItem.attachmentIds.size
+                            DetailSection(
+                                title = "Photos & Attachments",
+                                subtitle = if (attachmentCount == 0) null else {
+                                    "$attachmentCount file${if (attachmentCount == 1) "" else "s"}"
+                                }
+                            ) {
+                                // Existing attachments
+                                currentItem.attachmentIds.forEach { att ->
+                                    val attFile = repository.getAttachmentFile(currentItem.id, att.storedName)
+                                    val isImage = att.storedName.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
+                                    if (isImage) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(attFile)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = att.originalName,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(max = 280.dp)
+                                                .clip(RoundedCornerShape(9.dp)),
+                                            contentScale = ContentScale.FillWidth
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             att.originalName,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            modifier = Modifier.weight(1f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    } else {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                att.originalName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                modifier = Modifier.weight(1f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
                                 }
-                            }
 
-                            // Add attachment buttons
-                            Spacer(modifier = Modifier.height(8.dp))
-                            if (isAddingAttachment) {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                                }
-                            } else if (attachmentCount == 0) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Card(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(96.dp)
-                                            .clickable { launchCamera() },
-                                        shape = RoundedCornerShape(9.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                        )
+                                // Add attachment buttons
+                                Spacer(modifier = Modifier.height(8.dp))
+                                if (isAddingAttachment) {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Column(
-                                            modifier = Modifier.fillMaxSize(),
-                                            verticalArrangement = Arrangement.Center,
-                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                    }
+                                } else if (attachmentCount == 0) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Card(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(96.dp)
+                                                .clickable { launchCamera() },
+                                            shape = RoundedCornerShape(9.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                            )
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.PhotoCamera,
-                                                contentDescription = "Camera",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(28.dp)
+                                            Column(
+                                                modifier = Modifier.fillMaxSize(),
+                                                verticalArrangement = Arrangement.Center,
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.PhotoCamera,
+                                                    contentDescription = "Camera",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    "Camera",
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        
+                                        Card(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(96.dp)
+                                                .clickable { galleryLauncher.launch("image/*") },
+                                            shape = RoundedCornerShape(9.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                             )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                "Camera",
-                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.fillMaxSize(),
+                                                verticalArrangement = Arrangement.Center,
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Image,
+                                                    contentDescription = "Gallery",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    "Gallery",
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
                                         }
                                     }
-                                    
-                                    Card(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(96.dp)
-                                            .clickable { galleryLauncher.launch("image/*") },
-                                        shape = RoundedCornerShape(9.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                        )
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.fillMaxSize(),
-                                            verticalArrangement = Arrangement.Center,
-                                            horizontalAlignment = Alignment.CenterHorizontally
+                                } else {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(
+                                            onClick = { launchCamera() },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Filled.Image,
-                                                contentDescription = "Gallery",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(28.dp)
+                                                Icons.Filled.PhotoCamera,
+                                                contentDescription = "Camera icon",
+                                                modifier = Modifier.size(16.dp)
                                             )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                "Gallery",
-                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Camera", style = MaterialTheme.typography.labelMedium)
                                         }
-                                    }
-                                }
-                            } else {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(
-                                        onClick = { launchCamera() },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.PhotoCamera,
-                                            contentDescription = "Camera icon",
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Camera", style = MaterialTheme.typography.labelMedium)
-                                    }
-                                    OutlinedButton(
-                                        onClick = { galleryLauncher.launch("image/*") },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.Image,
-                                            contentDescription = "Gallery icon",
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Gallery", style = MaterialTheme.typography.labelMedium)
+                                        OutlinedButton(
+                                            onClick = { galleryLauncher.launch("image/*") },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.Image,
+                                                contentDescription = "Gallery icon",
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Gallery", style = MaterialTheme.typography.labelMedium)
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // Barcodes section
-                    item {
-                        if (currentItem != null) {
+                        // Barcodes section
+                        item {
                             ItemBarcodeSection(
                                 item = currentItem,
                                 barcodeStore = barcodeStore,
@@ -541,105 +1012,142 @@ fun SupplyItemDetailScreen(
                                 }
                             )
                         }
-                    }
-                    item { Spacer(modifier = Modifier.height(16.dp)) }
-                    item { HorizontalDivider() }
+                        item { Spacer(modifier = Modifier.height(16.dp)) }
+                        item { HorizontalDivider() }
 
-                    // Comments header
-                    item {
-                        DashboardSectionHeader(
-                            title = "Comments",
-                            subtitle = if (comments.isEmpty()) null else {
-                                "${comments.size} comment${if (comments.size == 1) "" else "s"}"
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    // Comment list
-                    if (comments.isEmpty()) {
+                        // Comments header
                         item {
-                            Text(
-                                "No comments yet.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            DashboardSectionHeader(
+                                title = "Comments",
+                                subtitle = if (comments.isEmpty()) null else {
+                                    "${comments.size} comment${if (comments.size == 1) "" else "s"}"
+                                },
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
-                    } else {
-                        items(comments, key = { it.id }) { comment ->
-                            CommentCard(comment = comment, modifier = Modifier.fillMaxWidth())
-                        }
-                    }
 
-                    // Add comment form
-                    item {
-                            DashboardSurfaceCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(9.dp)) {
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text("Add Comment", style = MaterialTheme.typography.labelLarge)
-                                if (employeeName.isBlank()) {
-                                    OutlinedTextField(
-                                        value = commentAuthor,
-                                        onValueChange = { commentAuthor = it },
-                                        label = { Text("Your Name") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(4.dp)
-                                    )
-                                }
-                                OutlinedTextField(
-                                    value = commentText,
-                                    onValueChange = { commentText = it },
-                                    label = { Text("Comment") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    minLines = 2,
-                                    maxLines = 4,
-                                    shape = RoundedCornerShape(4.dp)
+                        // Comment list
+                        if (comments.isEmpty()) {
+                            item {
+                                Text(
+                                    "No comments yet.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                                Button(
-                                    onClick = {
-                                        val author = commentAuthor.ifBlank { "Unknown" }
-                                        val text = commentText.trim()
-                                        if (text.isNotBlank()) {
-                                            coroutineScope.launch {
-                                                isSubmittingComment = true
-                                                try {
-                                                    withContext(Dispatchers.IO) {
-                                                        repository.addComment(itemId, author, text, tabletId)
-                                                    }
-                                                    commentText = ""
-                                                    val updated = withContext(Dispatchers.IO) {
-                                                        repository.getComments(itemId)
-                                                    }
-                                                    comments = updated
-                                                } catch (_: Exception) {
-                                                } finally {
-                                                    isSubmittingComment = false
-                                                }
+                            }
+                        } else {
+                            items(comments, key = { it.id }) { comment ->
+                                CommentCard(
+                                    comment = comment,
+                                    onDelete = {
+                                        coroutineScope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                repository.deleteComment(currentItem.id, comment.id)
+                                            }
+                                            comments = withContext(Dispatchers.IO) {
+                                                repository.getComments(currentItem.id)
                                             }
                                         }
                                     },
-                                    enabled = commentText.isNotBlank() && commentAuthor.isNotBlank() && !isSubmittingComment,
-                                    modifier = Modifier.align(Alignment.End)
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+
+                        // Add comment form
+                        item {
+                            DashboardSurfaceCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(9.dp)) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    if (isSubmittingComment) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
-                                            strokeWidth = 2.dp
+                                    Text("Add Comment", style = MaterialTheme.typography.labelLarge)
+                                    if (employeeName.isBlank()) {
+                                        OutlinedTextField(
+                                            value = commentAuthor,
+                                            onValueChange = { commentAuthor = it },
+                                            label = { Text("Your Name") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(4.dp)
                                         )
-                                    } else {
-                                        Text("Submit")
+                                    }
+                                    OutlinedTextField(
+                                        value = commentText,
+                                        onValueChange = { commentText = it },
+                                        label = { Text("Comment") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        minLines = 2,
+                                        maxLines = 4,
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                    Button(
+                                        onClick = {
+                                            val author = commentAuthor.ifBlank { "Unknown" }
+                                            val text = commentText.trim()
+                                            if (text.isNotBlank()) {
+                                                coroutineScope.launch {
+                                                    isSubmittingComment = true
+                                                    try {
+                                                        withContext(Dispatchers.IO) {
+                                                            repository.addComment(itemId, author, text, tabletId)
+                                                        }
+                                                        commentText = ""
+                                                        val updated = withContext(Dispatchers.IO) {
+                                                            repository.getComments(itemId)
+                                                        }
+                                                        comments = updated
+                                                    } catch (_: Exception) {
+                                                    } finally {
+                                                        isSubmittingComment = false
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = commentText.isNotBlank() && commentAuthor.isNotBlank() && !isSubmittingComment,
+                                        modifier = Modifier.align(Alignment.End)
+                                    ) {
+                                        if (isSubmittingComment) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Text("Submit")
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    item { Spacer(modifier = Modifier.height(32.dp)) }
+                        item { Spacer(modifier = Modifier.height(32.dp)) }
+                    }
                 }
             }
+        }
+
+        // Delete Confirm Dialog
+        if (showDeleteConfirmDialog && currentItem != null) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirmDialog = false },
+                title = { Text("Delete Item?") },
+                text = { Text("Are you sure you want to delete ${currentItem.name}? This will remove the item permanently across all devices.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteConfirmDialog = false
+                            coroutineScope.launch {
+                                withContext(Dispatchers.IO) {
+                                    repository.deleteItem(currentItem.id)
+                                }
+                                onBack() // close detail view
+                            }
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) { Text("Delete") }
+                },
+                dismissButton = { TextButton(onClick = { showDeleteConfirmDialog = false }) { Text("Cancel") } }
+            )
         }
     }
 
@@ -700,7 +1208,11 @@ private fun DetailSection(
 }
 
 @Composable
-private fun CommentCard(comment: SupplyComment, modifier: Modifier = Modifier) {
+private fun CommentCard(
+    comment: SupplyComment,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val formattedTime = remember(comment.createdAt) {
         runCatching {
             val instant = Instant.parse(comment.createdAt)
@@ -751,11 +1263,24 @@ private fun CommentCard(comment: SupplyComment, modifier: Modifier = Modifier) {
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Text(
-                        formattedTime,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            formattedTime,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete Comment",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
                 }
                 MarkdownText(comment.text, style = MaterialTheme.typography.bodyMedium)
             }
@@ -837,6 +1362,7 @@ private fun ItemBarcodeSection(
 
         SupplyScannerOverlay(
             barcodeStore = barcodeStore,
+            isModalActive = itemScanResult != null,
             onDismiss = { barcodeStore.setScanMode(ScanMode.Idle) },
             onKnownBarcode = { foundItem, barcode ->
                 if (foundItem.id == item.id) {
@@ -852,7 +1378,7 @@ private fun ItemBarcodeSection(
         itemScanResult?.let { barcode ->
             val onOtherItem = barcodeStore.lookup(barcode)?.let { it != item.id } ?: false
             AlertDialog(
-                onDismissRequest = { itemScanResult = null; barcodeStore.setScanMode(ScanMode.Idle) },
+                onDismissRequest = { itemScanResult = null },
                 title = { Text(if (onOtherItem) "Move barcode?" else "Link barcode?") },
                 text = {
                     if (onOtherItem)
@@ -868,9 +1394,63 @@ private fun ItemBarcodeSection(
                     }) { Text(if (onOtherItem) "Move" else "Link") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { itemScanResult = null; barcodeStore.setScanMode(ScanMode.Idle) }) { Text("Cancel") }
+                    TextButton(onClick = { itemScanResult = null }) { Text("Cancel") }
                 }
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SideActionButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    checked: Boolean = false,
+    bold: Boolean = false,
+    interactive: Boolean = true
+) {
+    val isDark = isSystemInDarkTheme()
+    val bgColor = if (checked) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        if (isDark) Color(0xFF2E3B4E) else Color(0xFFE4E8ED)
+    }
+    val textColor = if (checked) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        if (isDark) Color(0xFFE2EDF7) else Color(0xFF1E2A38)
+    }
+    val shape = RoundedCornerShape(6.dp)
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(elevation = 1.5.dp, shape = shape, clip = false)
+            .clip(shape)
+            .background(bgColor)
+            .then(
+                if (interactive) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = textColor.copy(alpha = 0.8f),
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium),
+            color = textColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

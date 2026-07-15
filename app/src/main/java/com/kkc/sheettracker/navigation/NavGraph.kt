@@ -879,7 +879,7 @@ private fun MultiBackStackNavigation(
                 modifier = Modifier
                     .graphicsLayer { alpha = navBarAlpha },
                 currentDestination = TopLevelTab.toDestination(selectedTab),
-                minimized = isInViewer,
+                minimized = isInViewer || navBarDeco.searchDecoration != null,
                 destinations = visibleDestinations,
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
@@ -891,11 +891,7 @@ private fun MultiBackStackNavigation(
                 extendedControls = navBarDeco.extendedControls,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
-                        if (employeeName.isNotBlank()) {
-                            launchTimecardApp(context, employeeName)
-                        } else {
-                            showHoursLoginDialog = true
-                        }
+                        launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() })
                     } else {
                         coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
                     }
@@ -3063,7 +3059,7 @@ private fun LegacySingleStackNavigation(
                 modifier = Modifier
                     .graphicsLayer { alpha = navBarAlpha },
                 currentDestination = currentNavDest,
-                minimized = isInViewer,
+                minimized = isInViewer || navBarDeco.searchDecoration != null,
                 destinations = visibleDestinations,
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
@@ -3075,11 +3071,7 @@ private fun LegacySingleStackNavigation(
                 extendedControls = navBarDeco.extendedControls,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
-                        if (employeeName.isNotBlank()) {
-                            launchTimecardApp(legacyContext, employeeName)
-                        } else {
-                            showHoursLoginDialog = true
-                        }
+                        launchTimecardApp(legacyContext, employeeName.takeIf { it.isNotBlank() })
                         return@AppBottomNavBar
                     }
                     if (currentRoute == dest.route) return@AppBottomNavBar
@@ -3400,28 +3392,11 @@ private fun HoursTabHost(
     isTabSelected: Boolean
 ) {
     val context = LocalContext.current
-    var sessionName by remember { mutableStateOf(employeeName.ifBlank { null }) }
-    var showLoginDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(isTabSelected) {
         if (isTabSelected) {
-            if (sessionName != null) {
-                launchTimecardApp(context, sessionName)
-            } else {
-                showLoginDialog = true
-            }
+            launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() })
         }
-    }
-
-    if (showLoginDialog) {
-        HoursLoginDialog(
-            onLogin = { name ->
-                sessionName = name
-                showLoginDialog = false
-                launchTimecardApp(context, name)
-            },
-            onDismiss = { showLoginDialog = false }
-        )
     }
 
     NavHost(navController = navController, startDestination = "hours", modifier = Modifier.fillMaxSize()) {
@@ -3437,6 +3412,7 @@ private fun launchTimecardApp(
 ) {
     val intent = android.content.Intent().apply {
         setClassName("com.example.timecard", "com.example.timecard.MainActivity")
+        putExtra("extra_launched_by_kkc", true)
         if (autoLoginInput != null) putExtra("extra_auto_login", autoLoginInput)
         if (jobNumber != null) putExtra("extra_job_number", jobNumber)
         if (hours != null) putExtra("extra_hours", hours)
