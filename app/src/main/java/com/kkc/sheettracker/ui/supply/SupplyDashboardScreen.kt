@@ -7,12 +7,21 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
@@ -152,10 +161,46 @@ fun SupplyDashboardScreen(
         savedTabOrder = preferencesStore.getSupplyTabOrder()
     }
     val supplyTabs = remember(categories, isAdminMode, savedTabOrder) {
-        buildSupplyTabsList(categories, isAdminMode, savedTabOrder)
+        // Ensure utility tabs are always at the beginning of the savedTabOrder
+        val utilityIds = listOfNotNull(
+            "updates",
+            "needs_attention",
+            if (isAdminMode) "to_order" else null
+        )
+        val cleanOrder = utilityIds + savedTabOrder.filter { it !in utilityIds }
+        buildSupplyTabsList(categories, isAdminMode, cleanOrder)
     }
-    val tabCount = supplyTabs.size
-    val pagerState = rememberPagerState(pageCount = { tabCount })
+    val boardPageIndex = if (isAdminMode) 3 else 2
+    val pagerState = rememberPagerState(pageCount = { boardPageIndex + 1 })
+    val boardScrollState = rememberLazyListState()
+
+    val sortedCategories = remember(categories, savedTabOrder) {
+        val catMap = categories.associateBy { it.id }
+        val sorted = mutableListOf<SupplyCategory>()
+        savedTabOrder.forEach { id ->
+            catMap[id]?.let { sorted.add(it) }
+        }
+        categories.forEach { cat ->
+            if (!sorted.contains(cat)) sorted.add(cat)
+        }
+        sorted
+    }
+
+    val selectedTabIndex by remember(supplyTabs, pagerState.currentPage, boardScrollState, sortedCategories) {
+        derivedStateOf {
+            if (pagerState.currentPage < boardPageIndex) {
+                pagerState.currentPage
+            } else {
+                val visibleIndex = boardScrollState.firstVisibleItemIndex
+                val activeCat = sortedCategories.getOrNull(visibleIndex)
+                if (activeCat != null) {
+                    supplyTabs.indexOfFirst { it.id == activeCat.id }.coerceAtLeast(boardPageIndex)
+                } else {
+                    boardPageIndex
+                }
+            }
+        }
+    }
 
     val specialtyStore = remember(basePath, tabletId) {
         SpecialtyProgressStore(File(basePath), tabletId, readOnly = false)
@@ -179,9 +224,9 @@ fun SupplyDashboardScreen(
 
     // Categories can reload smaller/empty while the pager still points at a former category page.
     // Snap back into range so the tab row never reads an index past the tab list.
-    LaunchedEffect(tabCount) {
-        if (pagerState.currentPage > tabCount - 1) {
-            pagerState.scrollToPage(tabCount - 1)
+    LaunchedEffect(boardPageIndex) {
+        if (pagerState.currentPage > boardPageIndex) {
+            pagerState.scrollToPage(boardPageIndex)
         }
     }
 
@@ -365,7 +410,6 @@ fun SupplyDashboardScreen(
 
             else -> {
                 DashboardSurfaceCard(contentPadding = PaddingValues(vertical = 6.dp)) {
-                    val selectedTabIndex = pagerState.currentPage.coerceIn(0, tabCount - 1)
                     SecondaryScrollableTabRow(
                         selectedTabIndex = selectedTabIndex,
                         containerColor = TabRowDefaults.primaryContainerColor,
@@ -379,14 +423,30 @@ fun SupplyDashboardScreen(
                     ) {
                         supplyTabs.forEachIndexed { index, tabItem ->
                             Tab(
-                                selected = pagerState.currentPage == index,
-                                onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                                selected = selectedTabIndex == index,
+                                onClick = {
+                                    scope.launch {
+                                        if (tabItem.type is SupplyTabType.CategoryTab) {
+                                            pagerState.animateScrollToPage(boardPageIndex)
+                                            val catIndex = sortedCategories.indexOf(tabItem.type.category)
+                                            if (catIndex >= 0) {
+                                                boardScrollState.animateScrollToItem(catIndex)
+                                            }
+                                        } else {
+                                            pagerState.animateScrollToPage(index)
+                                        }
+                                    }
+                                },
                                 text = {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Text(tabItem.name, maxLines = 1)
+                                        Text(
+                                            tabItem.name.uppercase(java.util.Locale.getDefault()),
+                                            maxLines = 1,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                        )
                                         when (val type = tabItem.type) {
                                             SupplyTabType.Updates -> {
                                                 if (notificationCount > 0) {
@@ -427,104 +487,87 @@ fun SupplyDashboardScreen(
                     state = pagerState,
                     modifier = Modifier.weight(1f)
                 ) { page ->
-                    val tabItem = supplyTabs.getOrNull(page)
-                    if (tabItem != null) {
-                        when (val type = tabItem.type) {
-                            SupplyTabType.Updates -> UpdatesPage(
-                                notifications = notifications,
-                                categories = categories,
-                                subscriptionManager = subscriptionManager,
-                                onOpenItem = ::openDetailModal,
-                                reloadUpdates = { scope.launch { reloadUpdates() } },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                            SupplyTabType.NeedsAttention -> NeedsAttentionPage(
-                                items = items,
-                                categories = categories,
-                                onOpenItem = ::openDetailModal,
-                                onLongPress = { item -> statusSheetItem = items.firstOrNull { it.id == item.id } },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                            SupplyTabType.ToOrder -> ToOrderPage(
-                                groups = toOrderGroups,
-                                loading = toOrderLoading,
-                                onToggleComplete = { jobFolder, resolvedItem, completed ->
-                                    scope.launch {
-                                        withContext(Dispatchers.IO) {
-                                            specialtyStore.setCompletion(
-                                                jobFolderName = jobFolder,
-                                                itemId = resolvedItem.item.id,
-                                                completionKey = SpecialtyProgressStore.ITEM_COMPLETION_KEY,
-                                                completed = completed,
-                                                completedBy = employeeName.ifBlank { "Floor" },
-                                                completedAt = java.time.Instant.now().toString()
-                                            )
-                                            // Auto-fill orderDate on first check-off
-                                            if (completed && resolvedItem.item.orderDate.isNullOrBlank()) {
-                                                val today = defaultToOrderDate(java.time.LocalDate.now())
-                                                val item = resolvedItem.item
-                                                specialtyStore.updateToOrderItem(
-                                                    jobFolderName = jobFolder,
-                                                    itemId = item.id,
-                                                    name = item.name,
-                                                    cabinetNumbers = item.cabinetNumbers,
-                                                    supplier = item.supplier,
-                                                    model = item.model,
-                                                    orderDate = today,
-                                                    tracking = item.tracking,
-                                                    orderUrl = item.orderUrl,
-                                                    notes = item.notes,
-                                                    quantity = item.quantity,
-                                                    material = item.material,
-                                                    dimensions = item.dimensions
-                                                )
-                                            }
-                                        }
-                                        toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
-                                    }
-                                },
-                                onEditItem = { jobFolder, resolvedItem ->
-                                    editingToOrderItem = Pair(jobFolder, resolvedItem)
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                            is SupplyTabType.CategoryTab -> {
-                                val category = type.category
+                    if (page == boardPageIndex) {
+                        LazyRow(
+                            state = boardScrollState,
+                            modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp)
+                        ) {
+                            items(sortedCategories, key = { it.id }) { category ->
                                 val categoryItems = items.filter { it.categoryId == category.id }
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .verticalScroll(rememberScrollState())
-                                        .padding(bottom = 160.dp),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    CategoryAddHeader(
-                                        category = category,
-                                        onAddItem = { openNewItemModal(category.id) }
-                                    )
-                                    DashboardWidgetRenderer(
-                                        widgets = buildSupplyCategoryWidgets(
-                                            category = category,
-                                            items = categoryItems,
-                                            isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id),
-                                            notificationCount = notifications.count { it.item.categoryId == category.id }
-                                        ),
-                                        onItemClick = { item ->
-                                            if (item is DashboardInventoryItemModel) {
-                                                openDetailModal(item.id)
+                                CategoryBoardColumn(
+                                    category = category,
+                                    items = categoryItems,
+                                    onAddItem = { openNewItemModal(category.id) },
+                                    onOpenItem = ::openDetailModal,
+                                    onLongPress = { item -> statusSheetItem = item }
+                                )
+                            }
+                        }
+                    } else {
+                        val tabItem = supplyTabs.getOrNull(page)
+                        if (tabItem != null) {
+                            when (val type = tabItem.type) {
+                                SupplyTabType.Updates -> UpdatesPage(
+                                    notifications = notifications,
+                                    categories = categories,
+                                    subscriptionManager = subscriptionManager,
+                                    onOpenItem = ::openDetailModal,
+                                    reloadUpdates = { scope.launch { reloadUpdates() } },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                SupplyTabType.NeedsAttention -> NeedsAttentionPage(
+                                    items = items,
+                                    categories = categories,
+                                    onOpenItem = ::openDetailModal,
+                                    onLongPress = { item -> statusSheetItem = items.firstOrNull { it.id == item.id } },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                SupplyTabType.ToOrder -> ToOrderPage(
+                                    groups = toOrderGroups,
+                                    loading = toOrderLoading,
+                                    onToggleComplete = { jobFolder, resolvedItem, completed ->
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                specialtyStore.setCompletion(
+                                                    jobFolderName = jobFolder,
+                                                    itemId = resolvedItem.item.id,
+                                                    completionKey = SpecialtyProgressStore.ITEM_COMPLETION_KEY,
+                                                    completed = completed,
+                                                    completedBy = employeeName.ifBlank { "Floor" },
+                                                    completedAt = java.time.Instant.now().toString()
+                                                )
+                                                // Auto-fill orderDate on first check-off
+                                                if (completed && resolvedItem.item.orderDate.isNullOrBlank()) {
+                                                    val today = defaultToOrderDate(java.time.LocalDate.now())
+                                                    val item = resolvedItem.item
+                                                    specialtyStore.updateToOrderItem(
+                                                        jobFolderName = jobFolder,
+                                                        itemId = item.id,
+                                                        name = item.name,
+                                                        cabinetNumbers = item.cabinetNumbers,
+                                                        supplier = item.supplier,
+                                                        model = item.model,
+                                                        orderDate = today,
+                                                        tracking = item.tracking,
+                                                        orderUrl = item.orderUrl,
+                                                        notes = item.notes,
+                                                        quantity = item.quantity,
+                                                        material = item.material,
+                                                        dimensions = item.dimensions
+                                                    )
+                                                }
                                             }
-                                        },
-                                        onItemLongPress = { item ->
-                                            statusSheetItem = items.firstOrNull { it.id == item.id }
+                                            toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
                                         }
-                                    )
-                                    if (categoryItems.isEmpty()) {
-                                        EmptyCategoryAddCard(
-                                            category = category,
-                                            onAddItem = { openNewItemModal(category.id) }
-                                        )
-                                    }
-                                }
+                                    },
+                                    onEditItem = { jobFolder, resolvedItem ->
+                                        editingToOrderItem = Pair(jobFolder, resolvedItem)
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                else -> {}
                             }
                         }
                     }
@@ -711,18 +754,36 @@ fun SupplyDashboardScreen(
                 onDismiss = { dismissSupplyModal() },
                 headerTint = null
             ) {
+                val categoryTabs = remember(supplyTabs) {
+                    supplyTabs.filter { it.type is SupplyTabType.CategoryTab }
+                }
                 SupplyTabReorderScreen(
-                    availableTabs = supplyTabs,
+                    availableTabs = categoryTabs,
                     preferencesStore = preferencesStore,
                     onOrderChanged = { newOrder ->
-                        val selectedTabId = supplyTabs.getOrNull(pagerState.currentPage)?.id
+                        val selectedTabId = supplyTabs.getOrNull(selectedTabIndex)?.id
                         savedTabOrder = newOrder
                         if (selectedTabId != null) {
-                            val nextTabs = buildSupplyTabsList(categories, isAdminMode, newOrder)
+                            val utilityIds = listOfNotNull(
+                                "updates",
+                                "needs_attention",
+                                if (isAdminMode) "to_order" else null
+                            )
+                            val cleanOrder = utilityIds + newOrder.filter { it !in utilityIds }
+                            val nextTabs = buildSupplyTabsList(categories, isAdminMode, cleanOrder)
                             val newIndex = nextTabs.indexOfFirst { it.id == selectedTabId }
                             if (newIndex >= 0) {
                                 scope.launch {
-                                    pagerState.scrollToPage(newIndex)
+                                    val nextTabItem = nextTabs.getOrNull(newIndex)
+                                    if (nextTabItem?.type is SupplyTabType.CategoryTab) {
+                                        pagerState.scrollToPage(boardPageIndex)
+                                        val catIndex = newOrder.indexOf(nextTabItem.type.category.id)
+                                        if (catIndex >= 0) {
+                                            boardScrollState.scrollToItem(catIndex)
+                                        }
+                                    } else {
+                                        pagerState.scrollToPage(newIndex)
+                                    }
                                 }
                             }
                         }
@@ -806,6 +867,7 @@ fun SupplyDashboardScreen(
 
         SupplyScannerOverlay(
             barcodeStore = barcodeStore,
+            isModalActive = knownBarcodeResult != null || unknownBarcodeResult != null,
             onDismiss = { barcodeStore.setScanMode(ScanMode.Idle) },
             onKnownBarcode = { item, barcode -> knownBarcodeResult = Pair(item, barcode) },
             onUnknownBarcode = { barcode -> unknownBarcodeResult = barcode }
@@ -829,7 +891,7 @@ fun SupplyDashboardScreen(
                     knownBarcodeResult = null
                     activeModal = SupplyDashboardModal.Detail(item.id)
                 },
-                onDismiss = { knownBarcodeResult = null; barcodeStore.setScanMode(ScanMode.Idle) }
+                onDismiss = { knownBarcodeResult = null }
             )
         }
 
@@ -848,7 +910,7 @@ fun SupplyDashboardScreen(
                     pendingNewItemBarcode = barcode
                     openNewItemModal(currentCategoryId ?: categories.firstOrNull()?.id ?: "")
                 },
-                onDismiss = { unknownBarcodeResult = null; barcodeStore.setScanMode(ScanMode.Idle) }
+                onDismiss = { unknownBarcodeResult = null }
             )
         }
     }
@@ -1711,6 +1773,159 @@ private fun ToOrderEditDialog(
                     },
                     enabled = name.isNotBlank()
                 ) { Text("Save") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BoardCard(
+    item: SupplyItem,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val tier = item.status.let { SUPPLY_STATUS_PRIORITY[it] } ?: 99
+    val baseColor = supplyStatusColor(tier)
+    val (chipBgColor, chipTextColor) = getSoftStatusColors(item.status, baseColor)
+
+    androidx.compose.material3.Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
+        shape = RoundedCornerShape(6.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFD5DFE5))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StatusChip(
+                text = item.status,
+                backgroundColor = chipBgColor,
+                contentColor = chipTextColor
+            )
+            Text(
+                text = item.name,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1E2A38)
+                ),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+            val description = remember(item) {
+                val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
+                val notes = item.notes?.takeIf { it.isNotBlank() }
+                val sku = item.fields["sku"]?.takeIf { it.isNotBlank() }
+                listOfNotNull(
+                    quantity?.let { "Qty: $it" },
+                    sku?.let { "SKU: $sku" },
+                    notes?.replace("\n", " ")
+                ).joinToString(" • ")
+            }
+            if (description.isNotEmpty()) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryBoardColumn(
+    category: SupplyCategory,
+    items: List<SupplyItem>,
+    onAddItem: () -> Unit,
+    onOpenItem: (String) -> Unit,
+    onLongPress: (SupplyItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isDark = isSystemInDarkTheme()
+    val columnBgColor = if (isDark) Color(0xFF1C2B3E) else Color(0xFFEDF2F5)
+    val headerColor = if (isDark) Color(0xFF2C5E66) else Color(0xFF356A73)
+
+    androidx.compose.material3.Card(
+        modifier = modifier
+            .width(300.dp)
+            .fillMaxHeight(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = columnBgColor)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(headerColor)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = category.name.uppercase(),
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (items.isEmpty()) {
+                    Text(
+                        text = "No items in this category.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(8.dp)
+                    )
+                } else {
+                    items.forEach { item ->
+                        BoardCard(
+                            item = item,
+                            onClick = { onOpenItem(item.id) },
+                            onLongClick = { onLongPress(item) }
+                        )
+                    }
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onAddItem() }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = null,
+                        tint = if (isDark) Color(0xFF4FA7C0) else Color(0xFF356A73),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Add another card",
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                            color = if (isDark) Color(0xFF4FA7C0) else Color(0xFF356A73)
+                        )
+                    )
+                }
             }
         }
     }
