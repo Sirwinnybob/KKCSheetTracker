@@ -202,6 +202,7 @@ fun ReferenceModalHost(
     isDarkTheme: Boolean,
     hasPlans: Boolean,
     hasAssembly: Boolean,
+    selectedCabinet: Int?,
     hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
@@ -219,6 +220,15 @@ fun ReferenceModalHost(
         refreshGeneration = refreshGeneration,
         isDarkTheme = isDarkTheme
     )
+
+    // Part-tap jump: only exists while the modal is open (the Host early-returns when closed),
+    // so the reference-doc I/O in rememberReferenceViewerData is not paid for on every screen
+    // composition. Jumps to the active doc's page for the tapped cabinet, else shows the note.
+    LaunchedEffect(selectedCabinet, snapshot.docType) {
+        val cabinet = selectedCabinet ?: return@LaunchedEffect
+        val target = resolveJumpPage(referenceData.navigatorCabinetToPages, cabinet)
+        if (target != null) state.setPage(target) else state.showNoRefNote()
+    }
 
     // "No reference for this cabinet" transient note — visibility is owned by the state
     // (cleared immediately by setDocType/setPage). This effect only runs the auto-hide timer:

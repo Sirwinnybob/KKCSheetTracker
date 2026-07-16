@@ -379,21 +379,6 @@ fun SheetViewerScreen(
         hasAssemblyReference -> ReferenceDocType.ASSEMBLY
         else -> null
     }
-    val modalReferenceData = com.kkc.sheettracker.ui.viewer.rememberReferenceViewerData(
-        jobRepository = jobRepository,
-        jobFolderName = jobFolderName,
-        docType = referenceModal.snapshot.docType,
-        refreshGeneration = scanState.snapshot.generation,
-        isDarkTheme = isDarkTheme
-    )
-    LaunchedEffect(selectedCabinetNumber, referenceModal.snapshot.isOpen, referenceModal.snapshot.docType) {
-        val cabinet = selectedCabinetNumber
-        if (!referenceModal.snapshot.isOpen || cabinet == null) return@LaunchedEffect
-        val target = com.kkc.sheettracker.ui.components.resolveJumpPage(
-            modalReferenceData.navigatorCabinetToPages, cabinet
-        )
-        if (target != null) referenceModal.setPage(target) else referenceModal.showNoRefNote()
-    }
 
     LaunchedEffect(pdfMarkupStore, jobFolderName) {
         if (pdfMarkupStore == null) {
@@ -1695,6 +1680,7 @@ fun SheetViewerScreen(
             isDarkTheme = isDarkTheme,
             hasPlans = hasPlansReference,
             hasAssembly = hasAssemblyReference,
+            selectedCabinet = selectedCabinetNumber,
             hazeState = null,
             modifier = Modifier.fillMaxSize()
         )
