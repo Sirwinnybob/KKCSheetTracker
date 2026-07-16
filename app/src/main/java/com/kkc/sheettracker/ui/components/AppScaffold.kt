@@ -69,6 +69,7 @@ import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import com.kkc.sheettracker.ui.timecard.BgPickerSheet
 import com.kkc.sheettracker.ui.timecard.TimecardIcon
+import com.kkc.sheettracker.ui.components.SupplyIcon
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -116,7 +117,7 @@ enum class NavDestination(
     SEARCH("search", "Search", Icons.Filled.Search, Icons.Outlined.Search),
     HOURS("hours", "Hours", Icons.Filled.AccessTime, Icons.Outlined.AccessTime),
     TIMECARD("timecard", "Timeclock", TimecardIcon, TimecardIcon),
-    SUPPLY("supply", "Supply", Icons.Filled.ShoppingCart, Icons.Outlined.ShoppingCart),
+    SUPPLY("supply", "Supply", SupplyIcon, SupplyIcon),
     SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
