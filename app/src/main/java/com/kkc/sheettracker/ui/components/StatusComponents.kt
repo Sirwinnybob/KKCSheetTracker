@@ -183,11 +183,14 @@ fun ProgressCard(
     onToggleExpanded: () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    useBounceClick: Boolean = false,
     showBottomProgressBar: Boolean = false,
     segmentedStatusCounts: StatusCounts? = null,
     materialSegments: List<MaterialSegmentData>? = null,
     hidePrimaryProgressBar: Boolean = false,
     showExpandToggle: Boolean = true,
+    titleStyle: androidx.compose.ui.text.TextStyle? = null,
+    titleContent: (@Composable ColumnScope.() -> Unit)? = null,
     headerLeading: (@Composable ColumnScope.() -> Unit)? = null,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
     inlineContent: (@Composable ColumnScope.() -> Unit)? = null,
@@ -200,6 +203,7 @@ fun ProgressCard(
         status = cardStatus,
         modifier = modifier,
         onClick = onClick,
+        useBounceClick = useBounceClick,
         shape = MaterialTheme.shapes.medium,
         tonalElevation = 3.dp
     ) {
@@ -218,11 +222,15 @@ fun ProgressCard(
                         Spacer(Modifier.width(KKCSpacing.m))
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        if (titleContent != null) {
+                            titleContent()
+                        } else {
+                            Text(
+                                title,
+                                style = titleStyle ?: MaterialTheme.typography.titleMedium,
+                                fontWeight = if (titleStyle != null) titleStyle.fontWeight else FontWeight.SemiBold
+                            )
+                        }
                         Spacer(Modifier.height(KKCSpacing.textLineGap))
                         Text(
                             subtitle,

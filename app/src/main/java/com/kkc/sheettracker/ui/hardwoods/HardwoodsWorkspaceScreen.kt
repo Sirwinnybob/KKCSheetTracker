@@ -114,6 +114,7 @@ import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.ChangedBadge
 import com.kkc.sheettracker.ui.components.ProgressPill
 import com.kkc.sheettracker.ui.components.ProgressState
@@ -816,8 +817,7 @@ fun HardwoodsWorkspaceScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         "${job?.folderName ?: jobFolderName} - Hardwoods",
@@ -858,12 +858,8 @@ fun HardwoodsWorkspaceScreen(
                         Text(if (showReferencePane) "Hide PDF" else "Show PDF")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars
-            )
+                
+                )
         },
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->

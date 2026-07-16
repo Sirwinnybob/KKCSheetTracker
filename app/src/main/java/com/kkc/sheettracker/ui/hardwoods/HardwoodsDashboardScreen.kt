@@ -44,6 +44,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -165,26 +166,21 @@ fun HardwoodsDashboardScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         "Hardwoods Dashboard",
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
+                
                 actions = {
                     RefreshIconButton(
                         loading = scanState.status == ScanStatus.LOADING,
                         onClick = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
                     )
                 },
-                windowInsets = WindowInsets.statusBars
-            )
+                )
         }
     ) { padding ->
         if (loading) {

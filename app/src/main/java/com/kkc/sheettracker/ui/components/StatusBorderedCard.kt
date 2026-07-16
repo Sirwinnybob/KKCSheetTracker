@@ -26,6 +26,7 @@ fun StatusBorderedCard(
     status: SheetStatus,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    useBounceClick: Boolean = false,
     shape: Shape = MaterialTheme.shapes.medium,
     containerColor: Color = MaterialTheme.colorScheme.surface,
     tonalElevation: Dp = 3.dp,
@@ -65,7 +66,11 @@ fun StatusBorderedCard(
         containerColor
     }
     val clickableModifier = if (onClick != null) {
-        Modifier.clickable(onClick = onClick)
+        if (useBounceClick) {
+            Modifier.bounceClick(onClick = onClick)
+        } else {
+            Modifier.clickable(onClick = onClick)
+        }
     } else {
         Modifier
     }
@@ -103,6 +108,7 @@ fun StatusBorderedCard(
     state: ProgressState,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    useBounceClick: Boolean = false,
     shape: Shape = MaterialTheme.shapes.medium,
     containerColor: Color = MaterialTheme.colorScheme.surface,
     tonalElevation: Dp = 3.dp,
@@ -119,6 +125,7 @@ fun StatusBorderedCard(
         status = status,
         modifier = modifier,
         onClick = onClick,
+        useBounceClick = useBounceClick,
         shape = shape,
         containerColor = containerColor,
         tonalElevation = tonalElevation,

@@ -5,12 +5,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -19,9 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sell
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
@@ -35,13 +31,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.platform.LocalFocusManager
+import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -67,7 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.RefreshIconButton
-import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
@@ -84,7 +80,6 @@ import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.DeliverySchedulePickerJob
 import com.kkc.sheettracker.data.models.JobLabel
-import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
@@ -140,7 +135,9 @@ fun AssemblyJobsScreen(
                    else minOf(serverGridCols, 3)
     val context = LocalContext.current
     val uiPrefs = remember { UiPreferencesStore(context) }
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(""))
+    }
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("assembly")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
@@ -148,12 +145,37 @@ fun AssemblyJobsScreen(
     val adminMode by AdminModeController.enabled.collectAsState()
     LaunchedEffect(adminMode) {
         if (adminMode) {
-            query = ""
+            query = TextFieldValue("")
             sortByName = false
             boardView = false
         }
     }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
+
+    val navBarDeco = LocalNavBarDecoration.current
+    val focusManager = LocalFocusManager.current
+    val currentQuery = query
+    SideEffect {
+        if (!adminMode) {
+            navBarDeco.searchDecoration = NavBarSearchDecoration(
+                searchTextValue    = currentQuery,
+                onSearchTextChange = { query = it },
+                onGo               = { focusManager.clearFocus() },
+                isPartsEnabled     = false,
+                onParts            = {},
+                contextLine        = if (currentQuery.text.isNotBlank())
+                                         "Filtering jobs by \"${currentQuery.text}\"" else "",
+                placeholder        = "Search jobs...",
+                showParts          = false,
+                onScan             = null
+            )
+        } else {
+            navBarDeco.searchDecoration = null
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { navBarDeco.searchDecoration = null }
+    }
     val scanState by assemblyScanCoordinator.state.collectAsState()
     val cncProgressVersion by progressStore.progressVersion.collectAsState()
     val hardwoodProgressVersion by hardwoodsProgressStore.progressVersion.collectAsState()
@@ -189,20 +211,20 @@ fun AssemblyJobsScreen(
         val complete = specialtyCards.sumOf { it.completedItems }
         complete to total
     }
-    val filtered = remember(allCards, query, sortByName) {
-        val base = if (query.isBlank()) {
+    val filtered = remember(allCards, query.text, sortByName) {
+        val queryStr = query.text
+        val base = if (queryStr.isBlank()) {
             allCards
         } else {
-            allCards.filter {
-                it.jobNumber.contains(query, ignoreCase = true) ||
-                    it.jobName.contains(query, ignoreCase = true) ||
-                    it.folderName.contains(query, ignoreCase = true)
+            allCards.filter { card ->
+                card.jobNumber.contains(queryStr, ignoreCase = true) ||
+                    card.jobName.contains(queryStr, ignoreCase = true)
             }
         }
         if (sortByName) {
             base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
         } else {
-            base // already in production order from listJobs
+            base // already in production order
         }
     }
 
@@ -294,19 +316,15 @@ fun AssemblyJobsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         "KKC Dashboard - Assembly",
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars,
+                
+                
                 actions = {
                     RefreshIconButton(
                         loading = scanState.status == ScanStatus.LOADING,
@@ -330,19 +348,8 @@ fun AssemblyJobsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Filter jobs by number or name...") },
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-                enabled = !adminMode
-            )
             Text(
-                text = if (query.isBlank()) {
+                text = if (query.text.isBlank()) {
                     "${filtered.size} jobs"
                 } else {
                     "Showing ${filtered.size} of ${allCards.size} jobs"
@@ -709,7 +716,6 @@ fun AssemblyJobsScreen(
         )
     }
 
-    val navBarDeco = LocalNavBarDecoration.current
     val labelEditJob = editingLabelsFor
     DisposableEffect(navBarDeco) {
         onDispose { navBarDeco.extendedControls = null }

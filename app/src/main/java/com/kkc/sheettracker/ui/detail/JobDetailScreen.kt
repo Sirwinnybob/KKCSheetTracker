@@ -21,6 +21,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Print
 import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
@@ -48,6 +54,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,6 +73,7 @@ import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.CountStatusChip
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.PageStatusBar
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
@@ -94,7 +102,9 @@ fun JobDetailScreen(
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onLeaveWhileClockedIn: () -> Unit = {},
     onSubmitPendingBadParts: ((Material) -> Unit)? = null,
-    clockInState: ClockInState? = null
+    clockInState: ClockInState? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -177,21 +187,24 @@ fun JobDetailScreen(
         onDispose { if (shouldNotify && !suppressLeavePrompt) notifyFn() }
     }
 
+    val slowBoundsTransform = remember {
+        BoundsTransform { _, _ ->
+            tween(durationMillis = 300, easing = FastOutSlowInEasing)
+        }
+    }
+
+    val sharedBoundsModifier = Modifier
+
     Scaffold(
+        modifier = sharedBoundsModifier,
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         job?.folderName ?: "Loading...",
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -368,8 +381,12 @@ fun JobDetailScreen(
                                 color = statusColors.completeBorder,
                                 forceFilled = counts.total > 0 && counts.complete >= counts.total
                             )
-                            CountStatusChip("Bad", counts.bad, statusColors.bad)
-                            CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
+                            if (counts.bad > 0) {
+                                CountStatusChip("Bad", counts.bad, statusColors.bad)
+                            }
+                            if (counts.skipped > 0) {
+                                CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
+                            }
                             if (pendingBadPartCount > 0 && onSubmitPendingBadParts != null) {
                                 TextButton(
                                     onClick = { onSubmitPendingBadParts(material) },

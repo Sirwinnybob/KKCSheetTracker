@@ -10,6 +10,16 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarColors
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import coil.compose.rememberAsyncImagePainter
 import coil.decode.SvgDecoder
@@ -73,4 +83,34 @@ fun Modifier.headerBackground(): Modifier {
             }
             drawContent()
         }
+}
+
+/**
+ * Unified application TopAppBar that applies themed background artwork and standard shadow
+ * elevation automatically. Prevents code duplication and ensures a consistent visual style
+ * across all shop floor and administration screens.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun KKCTopAppBar(
+    title: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    navigationIcon: @Composable () -> Unit = {},
+    actions: @Composable RowScope.() -> Unit = {},
+    windowInsets: WindowInsets = WindowInsets.statusBars,
+    colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors(
+        containerColor = Color.Transparent,
+        titleContentColor = MaterialTheme.colorScheme.onSurface
+    )
+) {
+    TopAppBar(
+        title = title,
+        modifier = modifier
+            .headerBackground()
+            .shadow(elevation = 2.dp, clip = false),
+        navigationIcon = navigationIcon,
+        actions = actions,
+        windowInsets = windowInsets,
+        colors = colors
+    )
 }

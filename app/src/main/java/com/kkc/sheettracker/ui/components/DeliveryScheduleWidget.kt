@@ -1,6 +1,8 @@
 package com.kkc.sheettracker.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,9 +36,10 @@ fun DeliveryScheduleWidget(
     if (!shouldShowDeliveryScheduleWidget(schedule, showWhenEmpty)) return
 
     Surface(
-        tonalElevation = 2.dp,
+        shape = RoundedCornerShape(9.dp),
+        color = MaterialTheme.colorScheme.surface,
         modifier = modifier
-            .fillMaxWidth()
+            .shadow(elevation = 2.dp, shape = RoundedCornerShape(9.dp), clip = false)
             .clickable { onTap() }
     ) {
         Column(modifier = Modifier.padding(horizontal = KKCSpacing.s, vertical = KKCSpacing.xs)) {

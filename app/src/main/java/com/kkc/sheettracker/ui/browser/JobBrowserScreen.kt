@@ -2,8 +2,6 @@ package com.kkc.sheettracker.ui.browser
 
 import android.util.Log
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,15 +13,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import com.kkc.sheettracker.ui.components.animateEntrance
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sell
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,12 +34,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -61,9 +60,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.platform.LocalFocusManager
+import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.AppStateFeatureFlags
@@ -95,6 +98,7 @@ import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.CountStatusChip
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import com.kkc.sheettracker.ui.components.mergeActiveReorder
 import com.kkc.sheettracker.ui.components.PinButton
@@ -134,7 +138,9 @@ fun JobBrowserScreen(
     onViewCoverSheet: (Job) -> Unit,
     onView3D: (Job) -> Unit,
     onSearchClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val serverGridCols = remember { jobRepository.getBoardGridColumns() }
     val orientation = LocalConfiguration.current.orientation
@@ -142,19 +148,46 @@ fun JobBrowserScreen(
                    else minOf(serverGridCols, 3)
     val context = LocalContext.current
     val uiPrefs = remember { UiPreferencesStore(context) }
-    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchQuery by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(""))
+    }
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("jobs")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     val adminMode by AdminModeController.enabled.collectAsState()
     LaunchedEffect(adminMode) {
         if (adminMode) {
-            searchQuery = ""
+            searchQuery = TextFieldValue("")
             sortByName = false
             boardView = false
         }
     }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
+
+    val navBarDeco = LocalNavBarDecoration.current
+    val focusManager = LocalFocusManager.current
+    val currentSearchQuery = searchQuery
+    SideEffect {
+        if (!adminMode) {
+            navBarDeco.searchDecoration = NavBarSearchDecoration(
+                searchTextValue    = currentSearchQuery,
+                onSearchTextChange = { searchQuery = it },
+                onGo               = { focusManager.clearFocus() },
+                isPartsEnabled     = false,
+                onParts            = {},
+                contextLine        = if (currentSearchQuery.text.isNotBlank())
+                                         "Filtering jobs by \"${currentSearchQuery.text}\"" else "",
+                placeholder        = "Search jobs...",
+                showParts          = false,
+                onScan             = null
+            )
+        } else {
+            navBarDeco.searchDecoration = null
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { navBarDeco.searchDecoration = null }
+    }
     val listState = rememberLazyListState()
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -165,6 +198,11 @@ fun JobBrowserScreen(
         deliveryScheduleRepository.fetchSchedule()
     }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    val initialLoadComplete = rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(600)
+        initialLoadComplete.value = true
+    }
     // Persists badge data across LazyColumn item recycling — prevents height shift on re-scroll
     val badgeCache = remember(scanState.snapshot.generation) { mutableStateMapOf<String, JobBadgeState>() }
     val useAppState = appFlags.jobsEnabled
@@ -178,13 +216,14 @@ fun JobBrowserScreen(
         }
     }
 
-    val filteredJobs = remember(jobs, searchQuery, sortByName, progressVersion) {
-        val base = if (searchQuery.isBlank()) {
+    val filteredJobs = remember(jobs, searchQuery.text, sortByName, progressVersion) {
+        val queryStr = searchQuery.text
+        val base = if (queryStr.isBlank()) {
             jobs
         } else {
             jobs.filter { job ->
-                job.jobNumber.contains(searchQuery, ignoreCase = true) ||
-                    job.jobName.contains(searchQuery, ignoreCase = true)
+                job.jobNumber.contains(queryStr, ignoreCase = true) ||
+                    job.jobName.contains(queryStr, ignoreCase = true)
             }
         }
         if (sortByName) {
@@ -336,19 +375,13 @@ fun JobBrowserScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         "KKC Dashboard - CNC",
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars,
                 actions = {
                     RefreshIconButton(
                         loading = scanState.status == ScanStatus.LOADING,
@@ -372,23 +405,12 @@ fun JobBrowserScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Filter jobs by number or name...") },
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-                enabled = !adminMode
-            )
             SortToggleBar(
                 sortByName = sortByName,
                 onSortChange = { if (!adminMode) sortByName = it }
             )
             Text(
-                text = if (searchQuery.isBlank()) {
+                text = if (searchQuery.text.isBlank()) {
                     "${filteredJobs.size} jobs"
                 } else {
                     "Showing ${filteredJobs.size} of ${jobs.size} jobs"
@@ -456,7 +478,7 @@ fun JobBrowserScreen(
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
                             )
                         }
-                        items(pinnedUiStates, key = { "pinned_${it.job.folderName}" }) { uiState ->
+                        itemsIndexed(pinnedUiStates, key = { _, it -> "pinned_${it.job.folderName}" }) { index, uiState ->
                             val pos = positionMap[uiState.job.folderName]
                             val label = if (pos != null) "$pos of ${filteredJobs.size}" else null
                             JobBrowserRow(
@@ -470,6 +492,9 @@ fun JobBrowserScreen(
                                 onView3D = onView3D,
                                 onHistoryClick = { selectedHistoryJob = it },
                                 sortByName = sortByName,
+                                modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
                                 pinnedFolderNames = pinnedFolderNames,
                                 onTogglePin = onTogglePin,
                                 positionLabel = label,
@@ -479,7 +504,7 @@ fun JobBrowserScreen(
                             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                         }
                     }
-                    items(activeOrder, key = { it }) { folderName ->
+                    itemsIndexed(activeOrder, key = { _, folderName -> folderName }) { index, folderName ->
                         val uiState = activeUiStatesByFolder[folderName]
                         if (uiState != null) {
                             ReorderableItem(reorderState, key = folderName) {
@@ -494,6 +519,9 @@ fun JobBrowserScreen(
                                     onView3D = onView3D,
                                     onHistoryClick = { selectedHistoryJob = it },
                                     sortByName = sortByName,
+                                    modifier = Modifier.animateEntrance(index + pinnedUiStates.size, initialLoadComplete.value),
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope,
                                     pinnedFolderNames = pinnedFolderNames,
                                     onTogglePin = onTogglePin,
                                     adminMode = adminMode,
@@ -521,7 +549,7 @@ fun JobBrowserScreen(
                                     .padding(horizontal = 4.dp, vertical = 8.dp)
                             )
                         }
-                        items(pendingUiStates, key = { "pending_${it.job.folderName}" }) { uiState ->
+                        itemsIndexed(pendingUiStates, key = { _, it -> "pending_${it.job.folderName}" }) { index, uiState ->
                             JobBrowserRow(
                                 uiState = uiState,
                                 scanGeneration = scanState.snapshot.generation,
@@ -533,6 +561,9 @@ fun JobBrowserScreen(
                                 onView3D = onView3D,
                                 onHistoryClick = { selectedHistoryJob = it },
                                 sortByName = sortByName,
+                                modifier = Modifier.animateEntrance(index + pinnedUiStates.size + activeOrder.size, initialLoadComplete.value),
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
                                 pinnedFolderNames = pinnedFolderNames,
                                 onTogglePin = onTogglePin,
                                 adminMode = adminMode,
@@ -575,7 +606,6 @@ fun JobBrowserScreen(
         showScheduleDialog = false
     }
 
-    val navBarDeco = LocalNavBarDecoration.current
     val labelEditJob = editingLabelsFor
     DisposableEffect(navBarDeco) {
         onDispose { navBarDeco.extendedControls = null }
@@ -666,6 +696,9 @@ private fun JobBrowserRow(
     onView3D: (Job) -> Unit,
     onHistoryClick: (String) -> Unit,
     sortByName: Boolean,
+    modifier: Modifier = Modifier,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     pinnedFolderNames: List<String> = emptyList(),
     onTogglePin: (String, Boolean) -> Unit = { _, _ -> },
     positionLabel: String? = null,
@@ -696,6 +729,14 @@ private fun JobBrowserRow(
     val counts = uiState.counts
     val statusColors = KKCThemeColors.statusColors
 
+    val slowBoundsTransform = remember {
+        BoundsTransform { _, _ ->
+            tween(durationMillis = 300, easing = FastOutSlowInEasing)
+        }
+    }
+
+    val sharedBoundsModifier = Modifier
+
     ProgressCard(
         title = job.folderName,
         subtitle = "${counts.complete}/${counts.total} complete",
@@ -704,6 +745,36 @@ private fun JobBrowserRow(
         segmentedStatusCounts = counts,
         materialSegments = uiState.materialSegments,
         showExpandToggle = false,
+        modifier = modifier.then(sharedBoundsModifier),
+        useBounceClick = true,
+        titleContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = job.jobNumber,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 18.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                    ),
+                    maxLines = 1
+                )
+                if (job.jobName.isNotBlank()) {
+                    Text(
+                        text = "– ${job.jobName}",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 16.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        },
         headerActions = {
             if (positionLabel != null) {
                 StatusChip(
@@ -742,17 +813,11 @@ private fun JobBrowserRow(
                 color = statusColors.completeBorder,
                 forceFilled = counts.total > 0 && counts.complete >= counts.total
             )
-            CountStatusChip("Bad", counts.bad, statusColors.bad)
-            CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
-            // Always render so the row is always TextButton-height (40dp) — prevents
-            // animateContentSize from firing when History first becomes available
-            val hasHistory = badges?.revisionCount?.let { it > 0 } ?: false
-            TextButton(
-                onClick = { onHistoryClick(job.folderName) },
-                enabled = hasHistory,
-                modifier = Modifier.alpha(if (hasHistory) 1f else 0f)
-            ) {
-                Text("History")
+            if (counts.bad > 0) {
+                CountStatusChip("Bad", counts.bad, statusColors.bad)
+            }
+            if (counts.skipped > 0) {
+                CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
             }
             val isPinned = job.folderName in pinnedFolderNames
             PinButton(isPinned = isPinned, onClick = { onTogglePin(job.folderName, isPinned) })
@@ -774,24 +839,39 @@ private fun JobBrowserRow(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .height(40.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (badges?.hasDeliverySheet == true) {
-                    FilterChip(
-                        selected = false,
-                        onClick = { onViewCoverSheet(job) },
-                        label = { Text("Cover Sheet") }
-                    )
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (badges?.hasDeliverySheet == true) {
+                        FilterChip(
+                            selected = false,
+                            onClick = { onViewCoverSheet(job) },
+                            label = { Text("Cover Sheet") }
+                        )
+                    }
+                    if (badges?.hasThreeDAssets == true) {
+                        FilterChip(
+                            selected = false,
+                            onClick = { onView3D(job) },
+                            label = { Text("View 3D") }
+                        )
+                    }
                 }
-                if (badges?.hasThreeDAssets == true) {
-                    FilterChip(
-                        selected = false,
-                        onClick = { onView3D(job) },
-                        label = { Text("View 3D") }
-                    )
+                // Always render so card height stays stable before badges load
+                val hasHistory = badges?.revisionCount?.let { it > 0 } ?: false
+                TextButton(
+                    onClick = { onHistoryClick(job.folderName) },
+                    enabled = hasHistory,
+                    modifier = Modifier.alpha(if (hasHistory) 1f else 0f)
+                ) {
+                    Text("History")
                 }
             }
         },

@@ -14,6 +14,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.kkc.sheettracker.ui.components.bounceClick
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -403,7 +404,7 @@ private fun CncRemakeMaterialCard(
     DashboardSurfaceCard(
         modifier = Modifier
             .width(268.dp)
-            .clickable(onClick = onClick)
+            .bounceClick(onClick = onClick)
             .border(width = 2.dp, color = remakeColor, shape = tileShape),
         shape = tileShape,
         contentPadding = PaddingValues(12.dp)
@@ -464,8 +465,17 @@ private fun CncRemakeMaterialCard(
                     state = ProgressState.from(item?.counts?.complete ?: 0, item?.counts?.total ?: 0)
                 )
             }
+            val fraction = item?.completionFraction?.coerceIn(0f, 1f) ?: 0f
+            val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = fraction,
+                animationSpec = androidx.compose.animation.core.spring(
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
+                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy
+                ),
+                label = "remakeProgress"
+            )
             LinearProgressIndicator(
-                progress = { item?.completionFraction?.coerceIn(0f, 1f) ?: 0f },
+                progress = { animatedFraction },
                 modifier = Modifier.fillMaxWidth(),
                 color = remakeColor,
                 trackColor = remakeColor.copy(alpha = 0.2f)
@@ -585,7 +595,7 @@ private fun CncRecentMaterialCard(
     DashboardSurfaceCard(
         modifier = Modifier
             .width(268.dp)
-            .clickable(onClick = onClick)
+            .bounceClick(onClick = onClick)
             .border(
                 width = 1.dp,
                 color = DashboardSurfaceDefaults.outlineColor(tileAccent).copy(alpha = 0.45f),
@@ -653,8 +663,17 @@ private fun CncRecentMaterialCard(
                     }
                 )
             }
+            val fraction = item?.completionFraction?.coerceIn(0f, 1f) ?: 0f
+            val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = fraction,
+                animationSpec = androidx.compose.animation.core.spring(
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
+                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy
+                ),
+                label = "recentProgress"
+            )
             LinearProgressIndicator(
-                progress = { item?.completionFraction?.coerceIn(0f, 1f) ?: 0f },
+                progress = { animatedFraction },
                 modifier = Modifier.fillMaxWidth(),
                 color = KKCThemeColors.statusColors.completeBorder,
                 trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)

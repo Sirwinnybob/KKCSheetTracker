@@ -39,6 +39,7 @@ import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -225,10 +226,7 @@ fun ReferencePdfViewerScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
+                
                 windowInsets = androidx.compose.foundation.layout.WindowInsets.statusBars
             )
         }

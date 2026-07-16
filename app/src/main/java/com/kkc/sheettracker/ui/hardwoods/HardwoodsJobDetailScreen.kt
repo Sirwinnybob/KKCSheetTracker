@@ -35,6 +35,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
@@ -137,19 +138,15 @@ fun HardwoodsJobDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         job.folderName.ifBlank { "Hardwoods Job" },
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars,
+                
+                
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")

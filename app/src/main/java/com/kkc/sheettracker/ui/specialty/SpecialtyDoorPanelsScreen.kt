@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.data.DoorCutUnitTypeMetadata
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.filterDoorCutRowsToSheets as sharedFilterDoorCutRowsToSheets
@@ -98,8 +99,7 @@ fun SpecialtyDoorPanelsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         "Door Panels",
@@ -111,12 +111,8 @@ fun SpecialtyDoorPanelsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars
-            )
+                
+                )
         }
     ) { padding ->
         LazyColumn(

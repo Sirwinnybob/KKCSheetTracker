@@ -51,6 +51,7 @@ import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 import kotlinx.coroutines.Dispatchers
@@ -98,19 +99,15 @@ fun AssemblyDashboardScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         "Assembly",
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars,
+                
+                
                 actions = {
                     RefreshIconButton(
                         loading = scanState.status == ScanStatus.LOADING,

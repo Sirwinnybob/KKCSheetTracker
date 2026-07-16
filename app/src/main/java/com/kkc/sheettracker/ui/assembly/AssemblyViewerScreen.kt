@@ -111,6 +111,7 @@ import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.SplitFullscreen
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
@@ -673,12 +674,8 @@ fun AssemblyViewerScreen(
                             }
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    windowInsets = WindowInsets.statusBars
-                )
+                    
+                    )
         }
     ) { padding ->
         val containerSize = LocalWindowInfo.current.containerSize

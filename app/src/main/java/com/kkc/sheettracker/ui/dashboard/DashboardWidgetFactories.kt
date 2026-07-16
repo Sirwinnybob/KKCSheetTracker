@@ -36,6 +36,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -57,6 +61,7 @@ import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.supply.supplyStatusColor
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -386,8 +391,7 @@ fun DashboardShell(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     val displayTitle = if (!subtitle.isNullOrBlank()) {
                         "KKC Dashboard - $subtitle"
@@ -506,7 +510,15 @@ fun DashboardWidgetRenderer(
                         )
                     }
                     widget.progressFraction?.let { fraction ->
-                        LinearProgressIndicator(progress = { fraction }, modifier = androidx.compose.ui.Modifier.fillMaxWidth())
+                        val animatedFraction by animateFloatAsState(
+                            targetValue = fraction,
+                            animationSpec = spring(
+                                stiffness = Spring.StiffnessLow,
+                                dampingRatio = Spring.DampingRatioNoBouncy
+                            ),
+                            label = "widgetProgressFraction"
+                        )
+                        LinearProgressIndicator(progress = { animatedFraction }, modifier = androidx.compose.ui.Modifier.fillMaxWidth())
                     }
                 }
 

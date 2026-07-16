@@ -50,6 +50,7 @@ import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.specialty.SpecialtyChecklistRow
 import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import com.kkc.sheettracker.ui.specialty.checklistTogglesForItem
@@ -92,8 +93,7 @@ fun AssemblyJobDetailScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         jobFolderName,
@@ -105,10 +105,7 @@ fun AssemblyJobDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
+                
                 windowInsets = androidx.compose.foundation.layout.WindowInsets.statusBars
             )
         }

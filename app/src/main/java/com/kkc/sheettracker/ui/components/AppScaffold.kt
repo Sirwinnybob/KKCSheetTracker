@@ -364,16 +364,16 @@ private fun MorphingNavBar(
     val showExtended    = extendedControls != null
     val hasDecoration   = searchDecoration != null || cncDecoration != null ||
                           specialtyDecoration != null || penDecoration != null
-    // Decorations belong to the minimized, non-extended bar only.
-    val showDecorations = minimized && !showExtended && hasDecoration
+    // Decorations belong to the non-extended bar (can be minimized or full size).
+    val showDecorations = !showExtended && hasDecoration
     // Labels only in the roomy full bar (not minimized, not showing extended controls).
     val showLabels      = !minimized && !showExtended
 
-    // Icons morph: 22 (full+labels) → 20 (minimized pill) → 18 (decoration/extended).
+    // Icons morph: 22 (full+labels) → 20 (minimized pill) → 18 (decoration/extended when minimized).
     val minIconSize by animateDpAsState(
         targetValue   = when {
             showExtended    -> 18.dp
-            showDecorations -> 18.dp
+            showDecorations && minimized -> 18.dp
             minimized       -> 20.dp
             else            -> 22.dp
         },

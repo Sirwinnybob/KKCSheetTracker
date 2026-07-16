@@ -68,12 +68,12 @@ val BuiltInKKCThemeTokens = KKCThemeTokens(
     name = "KKC Default",
     light = KKCThemePalette(
         primary = Color(0xFF1E5FAF),
-        background = Color(0xFFEFF4FA),
+        background = Color(0xFFF5F2EB),
         surface = Color.White
     ),
     dark = KKCThemePalette(
         primary = Color(0xFF79B2FF),
-        background = Color(0xFF040A14),
+        background = Color(0xFF0A1224),
         surface = Color(0xFF162438)
     ),
     lightStatus = LightStatusColors,

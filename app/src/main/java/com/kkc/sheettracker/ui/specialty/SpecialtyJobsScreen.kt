@@ -63,6 +63,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
@@ -225,19 +226,15 @@ fun SpecialtyJobsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         "KKC Dashboard - Specialty",
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                windowInsets = WindowInsets.statusBars,
+                
+                
                 actions = {
                     RefreshIconButton(
                         loading = scanState.status == ScanStatus.LOADING,

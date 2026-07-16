@@ -25,6 +25,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.runtime.getValue
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 
 enum class ProgressState {
@@ -98,9 +102,17 @@ fun ProgressPill(
                 }
             }
     ) {
+        val animatedFraction by animateFloatAsState(
+            targetValue = fraction,
+            animationSpec = spring(
+                stiffness = Spring.StiffnessLow,
+                dampingRatio = Spring.DampingRatioNoBouncy
+            ),
+            label = "progressPillFraction"
+        )
         Box(
             modifier = Modifier
-                .fillMaxWidth(fraction)
+                .fillMaxWidth(animatedFraction)
                 .fillMaxHeight()
                 .background(fillColor)
         )

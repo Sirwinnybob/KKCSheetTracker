@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -43,8 +44,9 @@ fun SortToggleBar(
         shape = RoundedCornerShape(9.dp),
         color = trackColor,
         modifier = modifier
-            .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
+            .shadow(elevation = 2.dp, shape = RoundedCornerShape(9.dp), clip = false)
+            .fillMaxWidth()
             .height(48.dp)
     ) {
         Row(modifier = Modifier.padding(4.dp)) {

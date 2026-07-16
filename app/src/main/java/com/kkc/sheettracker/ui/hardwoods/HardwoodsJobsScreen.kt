@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -346,18 +347,14 @@ fun HardwoodsJobsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.headerBackground(),
+            KKCTopAppBar(
                 title = {
                     Text(
                         "KKC Dashboard - Hardwoods",
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
+                
                 actions = {
                     RefreshIconButton(
                         loading = scanState.status == ScanStatus.LOADING,
@@ -377,8 +374,7 @@ fun HardwoodsJobsScreen(
                     }
                     TopBarClock()
                 },
-                windowInsets = WindowInsets.statusBars
-            )
+                )
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {

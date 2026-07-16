@@ -4,6 +4,16 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -879,7 +889,7 @@ private fun MultiBackStackNavigation(
                 modifier = Modifier
                     .graphicsLayer { alpha = navBarAlpha },
                 currentDestination = TopLevelTab.toDestination(selectedTab),
-                minimized = isInViewer || navBarDeco.searchDecoration != null,
+                minimized = isInViewer || (navBarDeco.searchDecoration != null && selectedTab != TopLevelTab.JOBS),
                 destinations = visibleDestinations,
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
@@ -1025,6 +1035,7 @@ private fun DashboardTabHost(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun JobsTabHost(
     navController: NavHostController,
@@ -1062,11 +1073,36 @@ private fun JobsTabHost(
     val onTogglePin: (String, Boolean) -> Unit = { folder, pinned ->
         coroutineScope.launch { pinnedJobsStore.toggle(folder, pinned) }
     }
-    NavHost(
-        navController = navController,
-        startDestination = "jobs",
-        modifier = Modifier.fillMaxSize()
-    ) {
+    SharedTransitionLayout {
+        NavHost(
+            navController = navController,
+            startDestination = "jobs",
+            modifier = Modifier.fillMaxSize(),
+            enterTransition = {
+                slideInHorizontally(
+                    initialOffsetX = { it },
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(200))
+            },
+            exitTransition = {
+                slideOutHorizontally(
+                    targetOffsetX = { -it },
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(200))
+            },
+            popEnterTransition = {
+                slideInHorizontally(
+                    initialOffsetX = { -it },
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(200))
+            },
+            popExitTransition = {
+                slideOutHorizontally(
+                    targetOffsetX = { it },
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(200))
+            }
+        ) {
         composable("jobs") {
             when (workMode) {
                 WorkMode.CNC -> {
@@ -1083,6 +1119,8 @@ private fun JobsTabHost(
                         isDebugBuild = isDebugBuild,
                         pinnedFolderNames = pinnedFolderNames,
                         onTogglePin = onTogglePin,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this,
                         onJobClick = { job ->
                             navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
                                 launchSingleTop = true
@@ -1280,6 +1318,8 @@ private fun JobsTabHost(
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
                 clockInState = clockInState,
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this,
                 onLeaveWhileClockedIn = {
                     if (isClockedInHere) {
                         val dest = navController.currentDestination?.route ?: ""
@@ -1690,6 +1730,7 @@ private fun JobsTabHost(
         }
     }
 }
+}
 
 @Composable
 private fun SearchTabHost(
@@ -1876,6 +1917,7 @@ private fun SupplyTabHost(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun LegacySingleStackNavigation(
     scanCoordinator: ScanCoordinator,
@@ -2136,11 +2178,36 @@ private fun LegacySingleStackNavigation(
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
                 ) {
-                NavHost(
-                    navController = navController,
-                    startDestination = startRoute,
-                    modifier = Modifier.fillMaxSize()
-                ) {
+                SharedTransitionLayout {
+                    NavHost(
+                        navController = navController,
+                        startDestination = startRoute,
+                        modifier = Modifier.fillMaxSize(),
+                        enterTransition = {
+                            slideInHorizontally(
+                                initialOffsetX = { it },
+                                animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            ) + fadeIn(animationSpec = tween(200))
+                        },
+                        exitTransition = {
+                            slideOutHorizontally(
+                                targetOffsetX = { -it },
+                                animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            ) + fadeOut(animationSpec = tween(200))
+                        },
+                        popEnterTransition = {
+                            slideInHorizontally(
+                                initialOffsetX = { -it },
+                                animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            ) + fadeIn(animationSpec = tween(200))
+                        },
+                        popExitTransition = {
+                            slideOutHorizontally(
+                                targetOffsetX = { it },
+                                animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            ) + fadeOut(animationSpec = tween(200))
+                        }
+                    ) {
                     composable("dashboard") {
                         when (workMode) {
                             WorkMode.CNC -> {
@@ -2225,6 +2292,8 @@ private fun LegacySingleStackNavigation(
                                 basePath = basePath,
                                 tabletId = tabletId,
                                 isDebugBuild = isDebugBuild,
+                                sharedTransitionScope = this@SharedTransitionLayout,
+                                animatedVisibilityScope = this,
                                 onJobClick = { job ->
                                     navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}")
                                 },
@@ -2424,6 +2493,8 @@ private fun LegacySingleStackNavigation(
                         isClockedInHere = isClockedInHere,
                         onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
                         clockInState = clockInState,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this,
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                         onMaterialClick = { material, startPage ->
                             openSheetLegacy(folderName, material.pdfFilename, startPage)
@@ -3007,6 +3078,7 @@ private fun LegacySingleStackNavigation(
                     )
                 }
                 }
+                }
 
                 if (showHoursLoginDialog) {
                     HoursLoginDialog(
@@ -3059,7 +3131,7 @@ private fun LegacySingleStackNavigation(
                 modifier = Modifier
                     .graphicsLayer { alpha = navBarAlpha },
                 currentDestination = currentNavDest,
-                minimized = isInViewer || navBarDeco.searchDecoration != null,
+                minimized = isInViewer || (navBarDeco.searchDecoration != null && currentNavDest != NavDestination.JOBS),
                 destinations = visibleDestinations,
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
