@@ -24,6 +24,7 @@ fun rememberReferenceViewerData(
     jobFolderName: String,
     docType: ReferenceDocType,
     refreshGeneration: Long,
+    // reserved for popup/full-screen theming; kept for shared-signature symmetry
     isDarkTheme: Boolean
 ): ReferenceViewerData {
     val sheetIndex by produceState<CabinetSheetIndex?>(
@@ -118,6 +119,9 @@ fun rememberReferenceViewerData(
             buildPlanViewLabelsFromPageToRoom(pageToRoom)
         }
     }
+    // File-backed fallback lookup — off the main thread via produceState (see sheetIndex above).
+    // produceState's key1/key2/key3 overload only covers 3 keys; 4+ keys resolves to the
+    // vararg `keys` overload, which requires positional (not named) arguments.
     val defaultPdfFilename by produceState(
         documentIndex?.pdfFilename?.takeIf { it.isNotBlank() }.orEmpty(),
         documentIndex,
