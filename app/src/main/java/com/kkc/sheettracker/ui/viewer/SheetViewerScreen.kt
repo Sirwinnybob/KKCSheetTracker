@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Warning
@@ -335,6 +336,7 @@ fun SheetViewerScreen(
     var selectedPartNumber by remember { mutableStateOf<Int?>(null) }
     var selectedCabinetNumber by remember { mutableStateOf<Int?>(null) }
     var showReferenceDocDialog by remember { mutableStateOf(false) }
+    val referenceModal = com.kkc.sheettracker.ui.components.rememberReferenceModalOverlayState()
     var showFullPdfPage by remember { mutableStateOf(false) }
     var markupEnabled by remember(jobFolderName, pdfFilename) { mutableStateOf(false) }
     var markupStrokesVisible by remember(jobFolderName, pdfFilename) { mutableStateOf(true) }
@@ -371,6 +373,26 @@ fun SheetViewerScreen(
     }
     val hasThreeDAssets by produceState(false, jobFolderName) {
         value = withContext(Dispatchers.IO) { jobRepository.hasThreeDAssets(jobFolderName) }
+    }
+    val defaultModalDoc: ReferenceDocType? = when {
+        hasPlansReference -> ReferenceDocType.PLANS_ELEVATIONS
+        hasAssemblyReference -> ReferenceDocType.ASSEMBLY
+        else -> null
+    }
+    val modalReferenceData = com.kkc.sheettracker.ui.viewer.rememberReferenceViewerData(
+        jobRepository = jobRepository,
+        jobFolderName = jobFolderName,
+        docType = referenceModal.snapshot.docType,
+        refreshGeneration = scanState.snapshot.generation,
+        isDarkTheme = isDarkTheme
+    )
+    LaunchedEffect(selectedCabinetNumber, referenceModal.snapshot.isOpen, referenceModal.snapshot.docType) {
+        val cabinet = selectedCabinetNumber
+        if (!referenceModal.snapshot.isOpen || cabinet == null) return@LaunchedEffect
+        val target = com.kkc.sheettracker.ui.components.resolveJumpPage(
+            modalReferenceData.navigatorCabinetToPages, cabinet
+        )
+        if (target != null) referenceModal.setPage(target) else referenceModal.showNoRefNote()
     }
 
     LaunchedEffect(pdfMarkupStore, jobFolderName) {
@@ -1316,6 +1338,7 @@ fun SheetViewerScreen(
             )
         },
     ) { padding ->
+        Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1369,6 +1392,19 @@ fun SheetViewerScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                        if (hasAssemblyReference || hasPlansReference) {
+                            AssistChip(
+                                onClick = { referenceModal.toggleOpen(defaultModalDoc) },
+                                label = { Text("Popup Viewer") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Filled.OpenInNew,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(AssistChipDefaults.IconSize)
+                                    )
+                                }
+                            )
+                        }
                         val remakeLabel = currentPageRemake?.label?.takeIf { it.isNotBlank() }
                         if (remakeLabel != null) {
                             AssistChip(
@@ -1650,6 +1686,18 @@ fun SheetViewerScreen(
                     }
                 }
             )
+        }
+        com.kkc.sheettracker.ui.components.ReferenceModalHost(
+            state = referenceModal,
+            jobRepository = jobRepository,
+            jobFolderName = jobFolderName,
+            refreshGeneration = scanState.snapshot.generation,
+            isDarkTheme = isDarkTheme,
+            hasPlans = hasPlansReference,
+            hasAssembly = hasAssemblyReference,
+            hazeState = null,
+            modifier = Modifier.fillMaxSize()
+        )
         }
     }
 
