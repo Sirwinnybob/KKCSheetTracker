@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.components
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
@@ -43,9 +44,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
+import com.kkc.sheettracker.ui.viewer.rememberReferenceViewerData
 import dev.chrisbanes.haze.HazeDefaults
+import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 
 data class ReferenceModalSnapshot(
@@ -82,6 +87,9 @@ class ReferenceModalOverlayState internal constructor(
     var noRefNoteToken by mutableStateOf(0)
         private set
 
+    var noRefNoteVisible by mutableStateOf(false)
+        private set
+
     fun toggleOpen(defaultDocType: ReferenceDocType?) = setOpen(!snapshot.isOpen, defaultDocType)
 
     fun setOpen(open: Boolean, defaultDocType: ReferenceDocType?) {
@@ -94,19 +102,27 @@ class ReferenceModalOverlayState internal constructor(
     }
 
     fun setDocType(docType: ReferenceDocType) {
+        clearNoRefNote()
         if (snapshot.docType == docType) return
         snapshot = snapshot.withDocType(docType)
         persist()
     }
 
     fun setPage(page: Int) {
+        clearNoRefNote()
         val next = snapshot.withPage(page)
         if (next == snapshot) return
         snapshot = next
         persist()
     }
 
-    fun showNoRefNote() { noRefNoteToken += 1 }
+    fun showNoRefNote() {
+        noRefNoteVisible = true
+        noRefNoteToken += 1
+    }
+
+    /** Transient (not persisted) — hides the "no reference" note immediately. */
+    fun clearNoRefNote() { if (noRefNoteVisible) noRefNoteVisible = false }
 
     fun updateModalBounds(x: Float, y: Float, width: Float, height: Float, persistNow: Boolean) {
         val next = snapshot.copy(modalX = x, modalY = y, modalWidth = width, modalHeight = height)
@@ -180,23 +196,23 @@ fun rememberReferenceModalOverlayState(): ReferenceModalOverlayState {
 @Composable
 fun ReferenceModalHost(
     state: ReferenceModalOverlayState,
-    jobRepository: com.kkc.sheettracker.data.JobRepository,
+    jobRepository: JobRepository,
     jobFolderName: String,
     refreshGeneration: Long,
     isDarkTheme: Boolean,
     hasPlans: Boolean,
     hasAssembly: Boolean,
-    hazeState: dev.chrisbanes.haze.HazeState? = null,
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
     val snapshot = state.snapshot
     if (!snapshot.isOpen) return
 
-    androidx.activity.compose.BackHandler(enabled = snapshot.isOpen) {
+    BackHandler(enabled = snapshot.isOpen) {
         state.setOpen(false, null)
     }
 
-    val referenceData = com.kkc.sheettracker.ui.viewer.rememberReferenceViewerData(
+    val referenceData = rememberReferenceViewerData(
         jobRepository = jobRepository,
         jobFolderName = jobFolderName,
         docType = snapshot.docType,
@@ -204,22 +220,26 @@ fun ReferenceModalHost(
         isDarkTheme = isDarkTheme
     )
 
-    // "No reference for this cabinet" transient note — cleared on doc change or next successful jump.
-    var noteVisibleForToken by remember { mutableStateOf(-1) }
+    // "No reference for this cabinet" transient note — visibility is owned by the state
+    // (cleared immediately by setDocType/setPage). This effect only runs the auto-hide timer:
+    // each showNoRefNote() bumps noRefNoteToken, restarting the 2500ms countdown, and the
+    // token-equality guard prevents a stale timer from hiding a freshly-shown note.
     LaunchedEffect(state.noRefNoteToken) {
-        if (state.noRefNoteToken > 0) {
-            noteVisibleForToken = state.noRefNoteToken
+        if (state.noRefNoteToken > 0 && state.noRefNoteVisible) {
+            val tokenAtStart = state.noRefNoteToken
             kotlinx.coroutines.delay(2500)
-            if (noteVisibleForToken == state.noRefNoteToken) noteVisibleForToken = -1
+            if (state.noRefNoteToken == tokenAtStart) state.clearNoRefNote()
         }
     }
-    val showNote = noteVisibleForToken == state.noRefNoteToken && state.noRefNoteToken > 0
+    val showNote = state.noRefNoteVisible
 
     val margin = 12f
     val minWidth = 300f
     val minHeight = 360f
     val density = LocalDensity.current.density
 
+    // zIndex 9f is intentionally below the calculator overlay's zIndex(10f) so the calculator
+    // stays on top when both overlays are open at once.
     Box(modifier = modifier.fillMaxSize().zIndex(9f)) {
         BoxWithConstraints(
             modifier = Modifier
@@ -311,7 +331,7 @@ fun ReferenceModalHost(
                     }
 
                     Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                        com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer(
+                        UnifiedReferenceViewer(
                             modifier = Modifier.fillMaxSize(),
                             displayPage = snapshot.pageForActiveDoc(),
                             onDisplayPageChange = { state.setPage(it) },
