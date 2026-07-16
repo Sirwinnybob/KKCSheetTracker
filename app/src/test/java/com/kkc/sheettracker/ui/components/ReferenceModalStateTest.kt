@@ -57,4 +57,28 @@ class ReferenceModalStateTest {
         assertNull(resolveJumpPage(map, 99))
         assertNull(resolveJumpPage(emptyMap(), 3))
     }
+
+    @Test
+    fun coerce_keepsCurrentDocWhenAvailable() {
+        assertEquals(
+            ReferenceDocType.ASSEMBLY,
+            coerceDocTypeForOpen(ReferenceDocType.ASSEMBLY, hasPlans = true, hasAssembly = true, ReferenceDocType.PLANS_ELEVATIONS)
+        )
+    }
+
+    @Test
+    fun coerce_switchesToFallbackWhenCurrentUnavailable() {
+        assertEquals(
+            ReferenceDocType.PLANS_ELEVATIONS,
+            coerceDocTypeForOpen(ReferenceDocType.ASSEMBLY, hasPlans = true, hasAssembly = false, ReferenceDocType.PLANS_ELEVATIONS)
+        )
+    }
+
+    @Test
+    fun coerce_keepsCurrentWhenNoFallback() {
+        assertEquals(
+            ReferenceDocType.ASSEMBLY,
+            coerceDocTypeForOpen(ReferenceDocType.ASSEMBLY, hasPlans = false, hasAssembly = false, null)
+        )
+    }
 }

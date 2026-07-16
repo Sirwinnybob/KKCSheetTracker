@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,6 +79,21 @@ data class ReferenceModalSnapshot(
 fun resolveJumpPage(cabinetToPages: Map<String, List<Int>>, cabinet: Int): Int? =
     cabinetToPages[cabinet.toString()]?.firstOrNull()
 
+/**
+ * Resolves the doc type to show when opening the popup: keep the user's persisted [current] doc
+ * when its reference is still available, otherwise fall back to [fallback] (or [current] if none).
+ */
+fun coerceDocTypeForOpen(
+    current: ReferenceDocType,
+    hasPlans: Boolean,
+    hasAssembly: Boolean,
+    fallback: ReferenceDocType?
+): ReferenceDocType {
+    val available = (current == ReferenceDocType.PLANS_ELEVATIONS && hasPlans) ||
+                    (current == ReferenceDocType.ASSEMBLY && hasAssembly)
+    return if (available) current else (fallback ?: current)
+}
+
 class ReferenceModalOverlayState internal constructor(
     private val prefs: SharedPreferences
 ) {
@@ -90,11 +106,17 @@ class ReferenceModalOverlayState internal constructor(
     var noRefNoteVisible by mutableStateOf(false)
         private set
 
-    fun toggleOpen(defaultDocType: ReferenceDocType?) = setOpen(!snapshot.isOpen, defaultDocType)
+    fun toggleOpen(hasPlans: Boolean, hasAssembly: Boolean, fallbackDoc: ReferenceDocType?) =
+        setOpen(!snapshot.isOpen, hasPlans, hasAssembly, fallbackDoc)
 
-    fun setOpen(open: Boolean, defaultDocType: ReferenceDocType?) {
+    fun setOpen(
+        open: Boolean,
+        hasPlans: Boolean = false,
+        hasAssembly: Boolean = false,
+        fallbackDoc: ReferenceDocType? = null
+    ) {
         var next = snapshot
-        if (open && defaultDocType != null) next = next.withDocType(defaultDocType)
+        if (open) next = next.withDocType(coerceDocTypeForOpen(next.docType, hasPlans, hasAssembly, fallbackDoc))
         next = next.copy(isOpen = open)
         if (next == snapshot) return
         snapshot = next
@@ -210,7 +232,7 @@ fun ReferenceModalHost(
     if (!snapshot.isOpen) return
 
     BackHandler(enabled = snapshot.isOpen) {
-        state.setOpen(false, null)
+        state.setOpen(false)
     }
 
     val referenceData = rememberReferenceViewerData(
@@ -223,8 +245,14 @@ fun ReferenceModalHost(
 
     // Part-tap jump: only exists while the modal is open (the Host early-returns when closed),
     // so the reference-doc I/O in rememberReferenceViewerData is not paid for on every screen
-    // composition. Jumps to the active doc's page for the tapped cabinet, else shows the note.
-    LaunchedEffect(selectedCabinet, snapshot.docType) {
+    // composition. `handledCabinet` is seeded with the cabinet selected at open time, so reopening
+    // the modal does NOT auto-jump to the already-selected part — the jump fires only on a FRESH
+    // tap while open. Toggling docType must not auto-jump (setDocType restores that doc's last
+    // page), so docType is intentionally not a key here.
+    var handledCabinet by remember { mutableStateOf(selectedCabinet) }
+    LaunchedEffect(selectedCabinet) {
+        if (selectedCabinet == handledCabinet) return@LaunchedEffect
+        handledCabinet = selectedCabinet
         val cabinet = selectedCabinet ?: return@LaunchedEffect
         val target = resolveJumpPage(referenceData.navigatorCabinetToPages, cabinet)
         if (target != null) state.setPage(target) else state.showNoRefNote()
@@ -248,8 +276,7 @@ fun ReferenceModalHost(
     val minHeight = 360f
     val density = LocalDensity.current.density
 
-    // zIndex 9f is intentionally below the calculator overlay's zIndex(10f) so the calculator
-    // stays on top when both overlays are open at once.
+    // zIndex within this screen's overlay Box; calculator overlay is composed separately in NavGraph
     Box(modifier = modifier.fillMaxSize().zIndex(9f)) {
         BoxWithConstraints(
             modifier = Modifier
@@ -335,7 +362,7 @@ fun ReferenceModalHost(
                                 label = { Text("Assembly", maxLines = 1) }
                             )
                         }
-                        IconButton(onClick = { state.setOpen(false, null) }) {
+                        IconButton(onClick = { state.setOpen(false) }) {
                             Icon(Icons.Filled.Close, contentDescription = "Close reference popup")
                         }
                     }
@@ -382,6 +409,36 @@ fun ReferenceModalHost(
                             }
                         }
                     }
+                }
+
+                // Resize corner (mirrors CalculatorPanel's ◢ handle): drag to change width/height.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(28.dp)
+                        .pointerInput(vw, vh) {
+                            var liveW = 0f
+                            var liveH = 0f
+                            detectDragGestures(
+                                onDragStart = { val s = state.snapshot; liveW = s.modalWidth; liveH = s.modalHeight },
+                                onDragEnd = {
+                                    val s = state.snapshot
+                                    state.updateModalBounds(s.modalX, s.modalY, s.modalWidth, s.modalHeight, true)
+                                }
+                            ) { change, drag ->
+                                change.consume()
+                                liveW = (liveW + drag.x / density).coerceIn(minWidth, maxWDp)
+                                liveH = (liveH + drag.y / density).coerceIn(minHeight, maxHDp)
+                                state.updateModalBounds(state.snapshot.modalX, state.snapshot.modalY, liveW, liveH, false)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "◢",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

@@ -1379,7 +1379,7 @@ fun SheetViewerScreen(
                         )
                         if (hasAssemblyReference || hasPlansReference) {
                             AssistChip(
-                                onClick = { referenceModal.toggleOpen(defaultModalDoc) },
+                                onClick = { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) },
                                 label = { Text("Popup Viewer") },
                                 leadingIcon = {
                                     Icon(
