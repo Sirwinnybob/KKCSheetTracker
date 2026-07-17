@@ -93,7 +93,8 @@ data class Part(
 enum class ReferenceDocType {
     ASSEMBLY,
     PLANS_ELEVATIONS,
-    DELIVERY_SHEETS
+    DELIVERY_SHEETS,
+    SHEET
 }
 
 data class JobPdfRef(

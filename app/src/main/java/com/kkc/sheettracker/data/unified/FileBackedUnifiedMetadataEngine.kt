@@ -452,12 +452,18 @@ class FileBackedUnifiedMetadataEngine(
         if (docType == ReferenceDocType.DELIVERY_SHEETS) {
             return UnifiedReferenceLookup(getPdfCatalog(jobFolderName).catalog.deliverySheet?.pdfFilename)
         }
+        if (docType == ReferenceDocType.SHEET) {
+            // Not a lookup-able reference document — the CNC sheet PDF is supplied directly by the
+            // caller (see ReferenceModalHost's sheetPdfFilename/sheetPdfFile), never resolved here.
+            return UnifiedReferenceLookup(null)
+        }
         val staticData = loadStaticJobData(jobFolderName)
         val sheetIndex = staticData?.cabinetSheetIndex
         val fromIndex = when (docType) {
             ReferenceDocType.ASSEMBLY -> sheetIndex?.documents?.assembly?.pdfFilename
             ReferenceDocType.PLANS_ELEVATIONS -> sheetIndex?.documents?.plansElevations?.pdfFilename
             ReferenceDocType.DELIVERY_SHEETS -> null
+            ReferenceDocType.SHEET -> null
         }?.takeIf { it.isNotBlank() }
         if (fromIndex != null) return UnifiedReferenceLookup(fromIndex)
 
@@ -465,6 +471,7 @@ class FileBackedUnifiedMetadataEngine(
             ReferenceDocType.ASSEMBLY -> "assembly sheets"
             ReferenceDocType.PLANS_ELEVATIONS -> "plans & elevations"
             ReferenceDocType.DELIVERY_SHEETS -> "delivery sheets"
+            ReferenceDocType.SHEET -> "sheet"
         }
         val jobDir = File(baseDir, jobFolderName)
         if (!jobDir.isDirectory) return UnifiedReferenceLookup(null)

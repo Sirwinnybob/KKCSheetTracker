@@ -105,6 +105,7 @@ fun ReferencePdfViewerScreen(
                             ReferenceDocType.ASSEMBLY -> "Assembly Sheets"
                             ReferenceDocType.PLANS_ELEVATIONS -> "Plans & Elevations"
                             ReferenceDocType.DELIVERY_SHEETS -> "Cover Sheet"
+                            ReferenceDocType.SHEET -> "Sheet"
                         },
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
