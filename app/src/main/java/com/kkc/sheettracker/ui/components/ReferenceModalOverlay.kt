@@ -323,9 +323,9 @@ fun ReferenceModalHost(
     // Page-keyed bitmap cache scoped to the current sheetPdfFile: revisiting an already-resolved
     // page is instant, and switching to a different Sheet PDF/job starts with a fresh, empty map
     // (remember(sheetPdfFile) reallocates it) so bitmaps never leak across different files.
-    val sheetBitmapCache = remember(sheetPdfFile) { mutableMapOf<Int, Bitmap>() }
+    val sheetBitmapCache = remember(sheetPdfFile, refreshGeneration) { mutableMapOf<Int, Bitmap>() }
 
-    LaunchedEffect(sheetPdfFile) {
+    LaunchedEffect(sheetPdfFile, refreshGeneration) {
         val file = sheetPdfFile ?: return@LaunchedEffect
         sheetTotalPages = withContext(Dispatchers.IO) {
             runCatching {
@@ -336,7 +336,7 @@ fun ReferenceModalHost(
         }
     }
 
-    LaunchedEffect(snapshot.sheetPage, sheetPdfFile) {
+    LaunchedEffect(snapshot.sheetPage, sheetPdfFile, refreshGeneration) {
         // Clear immediately so the loading indicator shows on every page change instead of the
         // previous page's stale bitmap lingering until the new extraction/render finishes.
         sheetBitmap = null
