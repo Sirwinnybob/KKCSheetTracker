@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.kkc.sheettracker.ui.components.animateEntrance
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.GridView
@@ -69,6 +71,7 @@ import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
 import com.kkc.sheettracker.data.JobBoardRequestStore
@@ -130,6 +133,11 @@ fun SpecialtyJobsScreen(
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("specialty")) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    val initialLoadComplete = rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(600)
+        initialLoadComplete.value = true
+    }
     val adminMode by AdminModeController.enabled.collectAsState()
     LaunchedEffect(adminMode) {
         if (adminMode) {
@@ -375,7 +383,7 @@ fun SpecialtyJobsScreen(
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
                                 )
                             }
-                            items(pinnedCards, key = { "pinned_${it.folderName}" }) { card ->
+                            itemsIndexed(pinnedCards, key = { _, card -> "pinned_${card.folderName}" }) { index, card ->
                                 val statusCounts = remember(card.totalItems, card.completedItems) {
                                     StatusCounts(
                                         total = card.totalItems.coerceAtLeast(0),
@@ -388,8 +396,38 @@ fun SpecialtyJobsScreen(
                                 val pos = positionMap[card.folderName]
                                 val posLabel = if (pos != null) "$pos of ${filteredCards.size}" else null
                                 ProgressCard(
+                                    modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
                                     title = card.folderName,
                                     subtitle = "${card.completedItems}/${card.totalItems} complete",
+                                    useBounceClick = true,
+                                    titleContent = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = card.jobNumber,
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontSize = 18.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                                                ),
+                                                maxLines = 1
+                                            )
+                                            if (card.jobName.isNotBlank()) {
+                                                Text(
+                                                    text = "– ${card.jobName}",
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        fontSize = 16.sp,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                    ),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    },
                                     fraction = card.completionFraction,
                                     expanded = false,
                                     onToggleExpanded = {},
@@ -444,21 +482,51 @@ fun SpecialtyJobsScreen(
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                             }
                         }
-                        items(activeOrder, key = { it }) { activeFolderName ->
-                        val card = activeCardsByFolder[activeFolderName]
-                        if (card != null) {
-                        ReorderableItem(reorderState, key = activeFolderName) {
-                            val statusCounts = remember(card.totalItems, card.completedItems) {
-                                StatusCounts(
-                                    total = card.totalItems.coerceAtLeast(0),
-                                    complete = card.completedItems.coerceIn(0, card.totalItems.coerceAtLeast(0)),
-                                    bad = 0,
-                                    skipped = 0,
-                                    notStarted = (card.totalItems - card.completedItems).coerceAtLeast(0)
-                                )
-                            }
-                            ProgressCard(
-                                title = card.folderName,
+                        itemsIndexed(activeOrder, key = { _, folderName -> folderName }) { index, activeFolderName ->
+                                val card = activeCardsByFolder[activeFolderName]
+                                if (card != null) {
+                                    ReorderableItem(reorderState, key = activeFolderName) {
+                                        val statusCounts = remember(card.totalItems, card.completedItems) {
+                                            StatusCounts(
+                                                total = card.totalItems.coerceAtLeast(0),
+                                                complete = card.completedItems.coerceIn(0, card.totalItems.coerceAtLeast(0)),
+                                                bad = 0,
+                                                skipped = 0,
+                                                notStarted = (card.totalItems - card.completedItems).coerceAtLeast(0)
+                                            )
+                                        }
+                                        ProgressCard(
+                                            modifier = Modifier.animateEntrance(index + pinnedCards.size, initialLoadComplete.value),
+                                            title = card.folderName,
+                                            useBounceClick = true,
+                                            titleContent = {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = card.jobNumber,
+                                                        style = MaterialTheme.typography.titleMedium.copy(
+                                                            fontSize = 18.sp,
+                                                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                                                        ),
+                                                        maxLines = 1
+                                                    )
+                                                    if (card.jobName.isNotBlank()) {
+                                                        Text(
+                                                            text = "– ${card.jobName}",
+                                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                                fontSize = 16.sp,
+                                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                            ),
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1,
+                                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                            modifier = Modifier.weight(1f)
+                                                        )
+                                                    }
+                                                }
+                                            },
                                 subtitle = "${card.completedItems}/${card.totalItems} complete",
                                 fraction = card.completionFraction,
                                 expanded = false,
@@ -552,7 +620,7 @@ fun SpecialtyJobsScreen(
                                         .padding(horizontal = 4.dp, vertical = 8.dp)
                                 )
                             }
-                            items(pendingCards, key = { "pending_${it.folderName}" }) { card ->
+                            itemsIndexed(pendingCards, key = { _, card -> "pending_${card.folderName}" }) { index, card ->
                                 val statusCounts = remember(card.totalItems, card.completedItems) {
                                     StatusCounts(
                                         total = card.totalItems.coerceAtLeast(0),
@@ -563,7 +631,37 @@ fun SpecialtyJobsScreen(
                                     )
                                 }
                                 ProgressCard(
+                                    modifier = Modifier.animateEntrance(index + pinnedCards.size + activeOrder.size, initialLoadComplete.value),
                                     title = card.folderName,
+                                    useBounceClick = true,
+                                    titleContent = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = card.jobNumber,
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontSize = 18.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                                                ),
+                                                maxLines = 1
+                                            )
+                                            if (card.jobName.isNotBlank()) {
+                                                Text(
+                                                    text = "– ${card.jobName}",
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        fontSize = 16.sp,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                    ),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    },
                                     subtitle = "${card.completedItems}/${card.totalItems} complete",
                                     fraction = card.completionFraction,
                                     expanded = false,

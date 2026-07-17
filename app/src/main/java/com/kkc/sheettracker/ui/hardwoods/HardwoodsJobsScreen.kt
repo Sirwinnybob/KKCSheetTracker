@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import com.kkc.sheettracker.ui.components.animateEntrance
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
@@ -75,6 +77,8 @@ import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
@@ -144,6 +148,11 @@ fun HardwoodsJobsScreen(
     var expandedJobs by rememberSaveable { mutableStateOf(setOf<String>()) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    val initialLoadComplete = rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(600)
+        initialLoadComplete.value = true
+    }
     val adminMode by AdminModeController.enabled.collectAsState()
     LaunchedEffect(adminMode) {
         if (adminMode) {
@@ -489,14 +498,44 @@ fun HardwoodsJobsScreen(
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
                             )
                         }
-                        items(pinnedUiStates, key = { "pinned_${it.job.folderName}" }) { uiState ->
+                        itemsIndexed(pinnedUiStates, key = { _, uiState -> "pinned_${uiState.job.folderName}" }) { index, uiState ->
                             val job = uiState.job
                             val counts = uiState.counts
                             val docSegments = uiState.docSegments
                             val pos = positionMap[job.folderName]
                             val label = if (pos != null) "$pos of ${filtered.size}" else null
                             ProgressCard(
+                                modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
                                 title = job.folderName,
+                                useBounceClick = true,
+                                titleContent = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = job.jobNumber,
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            maxLines = 1
+                                        )
+                                        if (job.jobName.isNotBlank()) {
+                                            Text(
+                                                text = "– ${job.jobName}",
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                ),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                },
                                 subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done",
                                 fraction = counts.completionFraction,
                                 expanded = false,
@@ -530,20 +569,21 @@ fun HardwoodsJobsScreen(
                             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                         }
                     }
-                    items(activeOrder, key = { it }) { activeFolderName ->
-                    val uiState = activeUiStatesByFolder[activeFolderName]
-                    if (uiState != null) {
-                        ReorderableItem(reorderState, key = activeFolderName) {
-                        val job = uiState.job
-                        val badge = badgeCache[job.folderName]
-                        val counts = uiState.counts
-                        val docCount = uiState.docCount
-                        val docSegments = uiState.docSegments
-                        val availableDocTypes = uiState.availableDocTypes
-                        val subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done"
+                    itemsIndexed(activeOrder, key = { _, folderName -> folderName }) { index, activeFolderName ->
+                        val uiState = activeUiStatesByFolder[activeFolderName]
+                        if (uiState != null) {
+                            ReorderableItem(reorderState, key = activeFolderName) {
+                                val job = uiState.job
+                                val badge = badgeCache[job.folderName]
+                                val counts = uiState.counts
+                                val docCount = uiState.docCount
+                                val docSegments = uiState.docSegments
+                                val availableDocTypes = uiState.availableDocTypes
+                                val subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done"
 
-                        ProgressCard(
-                            title = job.folderName,
+                                ProgressCard(
+                                    modifier = Modifier.animateEntrance(index + pinnedUiStates.size, initialLoadComplete.value),
+                                    title = job.folderName,
                             subtitle = subtitle,
                             fraction = counts.completionFraction,
                             expanded = job.folderName in expandedJobs,
@@ -656,7 +696,7 @@ fun HardwoodsJobsScreen(
                                     .padding(horizontal = 4.dp, vertical = 8.dp)
                             )
                         }
-                        items(pendingUiStates, key = { "pending_${it.job.folderName}" }) { uiState ->
+                        itemsIndexed(pendingUiStates, key = { _, uiState -> "pending_${uiState.job.folderName}" }) { index, uiState ->
                             val job = uiState.job
                             val badge = badgeCache[job.folderName]
                             val counts = uiState.counts
@@ -666,6 +706,7 @@ fun HardwoodsJobsScreen(
                             val subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done"
 
                             ProgressCard(
+                                modifier = Modifier.animateEntrance(index + pinnedUiStates.size + activeUiStates.size, initialLoadComplete.value),
                                 title = job.folderName,
                                 subtitle = subtitle,
                                 fraction = counts.completionFraction,
