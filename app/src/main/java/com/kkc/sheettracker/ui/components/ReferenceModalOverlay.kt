@@ -59,19 +59,39 @@ data class ReferenceModalSnapshot(
     val docType: ReferenceDocType = ReferenceDocType.PLANS_ELEVATIONS,
     val plansPage: Int = 1,
     val assemblyPage: Int = 1,
+    val sheetPage: Int = 1,
     val modalX: Float = 24f,
     val modalY: Float = 24f,
     val modalWidth: Float = 360f,
     val modalHeight: Float = 480f
 ) {
-    fun pageForActiveDoc(): Int =
-        if (docType == ReferenceDocType.ASSEMBLY) assemblyPage else plansPage
+    fun pageForActiveDoc(): Int = when (docType) {
+        ReferenceDocType.ASSEMBLY -> assemblyPage
+        ReferenceDocType.SHEET -> sheetPage
+        else -> plansPage
+    }
 
-    fun withDocType(next: ReferenceDocType): ReferenceModalSnapshot = copy(docType = next)
+    /**
+     * Switches doc type. When switching to [ReferenceDocType.SHEET] with [syncPage] provided,
+     * snaps the Sheet tab's page to it (the main viewer's current Sheet page) — a one-time sync
+     * on tab switch, not continuous following. Ignored for any other target doc type.
+     */
+    fun withDocType(next: ReferenceDocType, syncPage: Int? = null): ReferenceModalSnapshot {
+        val base = copy(docType = next)
+        return if (next == ReferenceDocType.SHEET && syncPage != null) {
+            base.copy(sheetPage = syncPage.coerceAtLeast(1))
+        } else {
+            base
+        }
+    }
 
     fun withPage(page: Int): ReferenceModalSnapshot {
         val safe = page.coerceAtLeast(1)
-        return if (docType == ReferenceDocType.ASSEMBLY) copy(assemblyPage = safe) else copy(plansPage = safe)
+        return when (docType) {
+            ReferenceDocType.ASSEMBLY -> copy(assemblyPage = safe)
+            ReferenceDocType.SHEET -> copy(sheetPage = safe)
+            else -> copy(plansPage = safe)
+        }
     }
 }
 

@@ -81,4 +81,59 @@ class ReferenceModalStateTest {
             coerceDocTypeForOpen(ReferenceDocType.ASSEMBLY, hasPlans = false, hasAssembly = false, null)
         )
     }
+
+    @Test
+    fun pageForActiveDoc_returnsSheetPage() {
+        val snap = ReferenceModalSnapshot(
+            docType = ReferenceDocType.SHEET,
+            plansPage = 4,
+            assemblyPage = 9,
+            sheetPage = 12
+        )
+        assertEquals(12, snap.pageForActiveDoc())
+    }
+
+    @Test
+    fun withPage_updatesOnlySheetPageWhenDocTypeIsSheet() {
+        val snap = ReferenceModalSnapshot(
+            docType = ReferenceDocType.SHEET,
+            plansPage = 4,
+            assemblyPage = 9,
+            sheetPage = 12
+        )
+        val updated = snap.withPage(20)
+        assertEquals(4, updated.plansPage)
+        assertEquals(9, updated.assemblyPage)
+        assertEquals(20, updated.sheetPage)
+    }
+
+    @Test
+    fun withDocType_syncsSheetPageWhenProvided() {
+        val snap = ReferenceModalSnapshot(
+            docType = ReferenceDocType.PLANS_ELEVATIONS,
+            sheetPage = 3
+        )
+        val switched = snap.withDocType(ReferenceDocType.SHEET, syncPage = 17)
+        assertEquals(ReferenceDocType.SHEET, switched.docType)
+        assertEquals(17, switched.sheetPage)
+    }
+
+    @Test
+    fun withDocType_noSyncKeepsExistingSheetPage() {
+        val snap = ReferenceModalSnapshot(
+            docType = ReferenceDocType.PLANS_ELEVATIONS,
+            sheetPage = 3
+        )
+        val switched = snap.withDocType(ReferenceDocType.SHEET)
+        assertEquals(ReferenceDocType.SHEET, switched.docType)
+        assertEquals(3, switched.sheetPage)
+    }
+
+    @Test
+    fun withDocType_syncPageIgnoredForNonSheetTarget() {
+        val snap = ReferenceModalSnapshot(docType = ReferenceDocType.SHEET, plansPage = 4)
+        val switched = snap.withDocType(ReferenceDocType.PLANS_ELEVATIONS, syncPage = 99)
+        assertEquals(ReferenceDocType.PLANS_ELEVATIONS, switched.docType)
+        assertEquals(4, switched.plansPage)
+    }
 }
