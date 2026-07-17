@@ -452,11 +452,6 @@ class FileBackedUnifiedMetadataEngine(
         if (docType == ReferenceDocType.DELIVERY_SHEETS) {
             return UnifiedReferenceLookup(getPdfCatalog(jobFolderName).catalog.deliverySheet?.pdfFilename)
         }
-        if (docType == ReferenceDocType.SHEET) {
-            // Not a lookup-able reference document — the CNC sheet PDF is supplied directly by the
-            // caller (see ReferenceModalHost's sheetPdfFilename/sheetPdfFile), never resolved here.
-            return UnifiedReferenceLookup(null)
-        }
         val staticData = loadStaticJobData(jobFolderName)
         val sheetIndex = staticData?.cabinetSheetIndex
         val fromIndex = when (docType) {
