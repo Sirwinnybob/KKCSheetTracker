@@ -48,11 +48,13 @@ data class NavBarPenDecoration(
 )
 
 class NavBarDecorationState {
+    var owner: String by mutableStateOf("")
     var searchDecoration: NavBarSearchDecoration? by mutableStateOf(null)
     var cncDecoration: NavBarCncDecoration? by mutableStateOf(null)
     var specialtyDecoration: NavBarSpecialtyDecoration? by mutableStateOf(null)
     var penDecoration: NavBarPenDecoration? by mutableStateOf(null)
     var extendedControls: (@Composable RowScope.() -> Unit)? by mutableStateOf(null)
+    var keepSearchDeco: Boolean by mutableStateOf(false)
 }
 
 val LocalNavBarDecoration = compositionLocalOf { NavBarDecorationState() }

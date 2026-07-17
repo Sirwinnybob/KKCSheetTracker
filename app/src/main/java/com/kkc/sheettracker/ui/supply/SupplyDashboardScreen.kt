@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.Dp
 import com.kkc.sheettracker.data.SupplyChange
 import com.kkc.sheettracker.data.SupplyNotificationItem
 import com.kkc.sheettracker.data.SupplyRepository
+import com.kkc.sheettracker.data.SupplySubscriptionData
 import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.models.ALL_SUPPLY_STATUSES
 import com.kkc.sheettracker.data.models.SUPPLY_STATUS_PRIORITY
@@ -131,7 +132,8 @@ fun SupplyDashboardScreen(
     basePath: String,
     tabletId: String,
     employeeName: String,
-    subscriptionManager: SupplySubscriptionManager
+    subscriptionManager: SupplySubscriptionManager,
+    active: Boolean = true
 ) {
     val context = LocalContext.current
     val repository = remember(basePath) { SupplyRepository(basePath) }
@@ -158,21 +160,39 @@ fun SupplyDashboardScreen(
     val navBarDeco = LocalNavBarDecoration.current
     val currentSearchQuery = searchQuery
     SideEffect {
-        navBarDeco.searchDecoration = NavBarSearchDecoration(
-            searchTextValue    = currentSearchQuery,
-            onSearchTextChange = { searchQuery = it },
-            onGo               = {},          // free-text filter: no explicit submit needed
-            isPartsEnabled     = false,
-            onParts            = {},
-            contextLine        = if (currentSearchQuery.text.isNotBlank())
-                                     "Filtering buckets by \"${currentSearchQuery.text}\"" else "",
-            placeholder        = "Search Inventory...",
-            showParts          = false,
-            onScan             = { barcodeStore.setScanMode(ScanMode.Global) }
-        )
+        if (active) {
+            navBarDeco.owner = "supply"
+            navBarDeco.searchDecoration = NavBarSearchDecoration(
+                searchTextValue    = currentSearchQuery,
+                onSearchTextChange = { searchQuery = it },
+                onGo               = {},          // free-text filter: no explicit submit needed
+                isPartsEnabled     = false,
+                onParts            = {},
+                contextLine        = if (currentSearchQuery.text.isNotBlank())
+                                       "Filtering buckets by \"${currentSearchQuery.text}\"" else "",
+                placeholder        = "Search Inventory...",
+                showParts          = false,
+                onScan             = { barcodeStore.setScanMode(ScanMode.Global) }
+            )
+        }
+    }
+    // After transition settles, reset keepSearchDeco to allow icons to shrink to 18dp
+    // (mirrors Supply→Jobs where icons grow during slide)
+    LaunchedEffect(active) {
+        if (active) {
+            kotlinx.coroutines.delay(350)
+            navBarDeco.keepSearchDeco = false
+        }
     }
     DisposableEffect(Unit) {
-        onDispose { navBarDeco.searchDecoration = null }
+        onDispose {
+            if (navBarDeco.owner == "supply") {
+                if (!navBarDeco.keepSearchDeco) {
+                    navBarDeco.searchDecoration = null
+                }
+                navBarDeco.owner = ""
+            }
+        }
     }
     var itemToConfirmLink by remember { mutableStateOf<Pair<SupplyItem, String>?>(null) }
     var pendingNewItemBarcode by remember { mutableStateOf<String?>(null) }
@@ -367,18 +387,6 @@ fun SupplyDashboardScreen(
                             activeModal = SupplyDashboardModal.ReorderTabs
                         }
                     )
-                    val activeTab = supplyTabs.getOrNull(pagerState.currentPage)
-                    if (activeTab?.type is SupplyTabType.CategoryTab) {
-                        val currentCat = activeTab.type.category
-                        val isSubscribed = subscriptionData.subscribedCategoryIds.contains(currentCat.id)
-                        DropdownMenuItem(
-                            text = { Text(if (isSubscribed) "Unsubscribe from Category" else "Subscribe to Category") },
-                            onClick = {
-                                showOverflowMenu = false
-                                scope.launch { subscriptionManager.toggleCategorySubscription(currentCat.id) }
-                            }
-                        )
-                    }
                 }
             }
         },
@@ -520,6 +528,8 @@ fun SupplyDashboardScreen(
                                     category = category,
                                     items = categoryItems,
                                     headerColor = headerColors[category.id] ?: palette[0],
+                                    subscriptionManager = subscriptionManager,
+                                    subscriptionData = subscriptionData,
                                     onAddItem = { openNewItemModal(category.id) },
                                     onOpenItem = ::openDetailModal,
                                     onLongPress = { item -> statusSheetItem = item }
@@ -1866,6 +1876,8 @@ private fun CategoryBoardColumn(
     category: SupplyCategory,
     items: List<SupplyItem>,
     headerColor: Color,
+    subscriptionManager: SupplySubscriptionManager,
+    subscriptionData: SupplySubscriptionData,
     onAddItem: () -> Unit,
     onOpenItem: (String) -> Unit,
     onLongPress: (SupplyItem) -> Unit,
@@ -1873,6 +1885,8 @@ private fun CategoryBoardColumn(
 ) {
     val isDark = isSystemInDarkTheme()
     val columnBgColor = if (isDark) Color(0xFF1C2B3E) else Color(0xFFEDF2F5)
+    val scope = rememberCoroutineScope()
+    val isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id)
 
     androidx.compose.material3.Card(
         modifier = modifier
@@ -1885,11 +1899,13 @@ private fun CategoryBoardColumn(
         CategoryColumnLayout(
             modifier = Modifier.fillMaxHeight(),
             header = {
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(headerColor)
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = category.name.uppercase(),
@@ -1898,8 +1914,20 @@ private fun CategoryBoardColumn(
                             color = Color.White
                         ),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
+                    IconButton(
+                        onClick = { scope.launch { subscriptionManager.toggleCategorySubscription(category.id) } },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isSubscribed) Icons.Filled.Notifications else Icons.Outlined.Notifications,
+                            contentDescription = if (isSubscribed) "Unsubscribe from category" else "Subscribe to category",
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             },
             content = {

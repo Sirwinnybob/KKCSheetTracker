@@ -1,13 +1,13 @@
 package com.kkc.sheettracker.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -15,7 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -27,7 +29,6 @@ import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.ui.components.AdminPasswordDialog
-import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
@@ -143,8 +144,8 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
-                
-                
+
+
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -158,11 +159,43 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                // Extra bottom padding so the last section (Admin) clears the app's bottom nav bar.
                 .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 160.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            SettingsSection(title = "Appearance", accentColor = MaterialTheme.colorScheme.primary) {
+            // ── Work Mode ────────────────────────────────────────────────
+            Text("Work Mode", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                WorkModeIconTile(
+                    label = "CNC",
+                    isSelected = workMode == WorkMode.CNC,
+                    onClick = { onWorkModeChanged(WorkMode.CNC) },
+                    modifier = Modifier.weight(1f)
+                )
+                WorkModeIconTile(
+                    label = "Hardwoods",
+                    isSelected = workMode == WorkMode.HARDWOODS,
+                    onClick = { onWorkModeChanged(WorkMode.HARDWOODS) },
+                    modifier = Modifier.weight(1f)
+                )
+                WorkModeIconTile(
+                    label = "Assembly",
+                    isSelected = workMode == WorkMode.ASSEMBLY,
+                    onClick = { onWorkModeChanged(WorkMode.ASSEMBLY) },
+                    modifier = Modifier.weight(1f)
+                )
+                WorkModeIconTile(
+                    label = "Specialty",
+                    isSelected = workMode == WorkMode.SPECIALTY,
+                    onClick = { onWorkModeChanged(WorkMode.SPECIALTY) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // ── Appearance ───────────────────────────────────────────────
+            SettingsCard(title = "Appearance") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -212,30 +245,6 @@ fun SettingsScreen(
 
                 HorizontalDivider()
 
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Tablet Theme", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "Tablet path: $basePath\\.metadata\\themes",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "Author on server: Y:\\Ready Jobs\\.metadata\\themes",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "Fleet default: ${themeCatalog.syncedDefaultThemeId ?: "Built-in default"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "Active: ${themeCatalog.activeTheme.name}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
                 ExposedDropdownMenuBox(
                     expanded = themeDropdownExpanded,
                     onExpandedChange = { themeDropdownExpanded = it }
@@ -251,9 +260,10 @@ fun SettingsScreen(
                         supportingText = {
                             Text(if (selectedId == null) "Using fleet default" else "Applies only to this tablet")
                         },
+                        colors = filledFieldColors(),
                         modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                         readOnly = true,
-                        shape = MaterialTheme.shapes.medium
+                        shape = RoundedCornerShape(12.dp)
                     )
                     ExposedDropdownMenu(
                         expanded = themeDropdownExpanded,
@@ -276,19 +286,19 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    OutlinedButton(
+                    Button(
                         onClick = {
                             onThemeOverrideChanged(null)
                             onThemeFollowSyncedDefaultChanged(true)
                         },
                         enabled = themeCatalog.overrideThemeId != null,
-                        shape = MaterialTheme.shapes.medium
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text("Use Fleet Default")
                     }
                     OutlinedButton(
                         onClick = onThemeCatalogReload,
-                        shape = MaterialTheme.shapes.medium
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text("Reload Themes")
                     }
@@ -309,38 +319,11 @@ fun SettingsScreen(
                     )
                 }
 
-                Text("Work Mode", style = MaterialTheme.typography.bodyLarge)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = workMode == WorkMode.CNC,
-                        onClick = { onWorkModeChanged(WorkMode.CNC) },
-                        label = { Text("CNC") }
-                    )
-                    FilterChip(
-                        selected = workMode == WorkMode.HARDWOODS,
-                        onClick = { onWorkModeChanged(WorkMode.HARDWOODS) },
-                        label = { Text("Hardwoods") }
-                    )
-                    FilterChip(
-                        selected = workMode == WorkMode.ASSEMBLY,
-                        onClick = { onWorkModeChanged(WorkMode.ASSEMBLY) },
-                        label = { Text("Assembly") }
-                    )
-                    FilterChip(
-                        selected = workMode == WorkMode.SPECIALTY,
-                        onClick = { onWorkModeChanged(WorkMode.SPECIALTY) },
-                        label = { Text("Specialty") }
-                    )
-                }
-
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenAssemblyViewerDefaults() }
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -352,18 +335,20 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Text(
-                        "Open",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    OutlinedButton(
+                        onClick = onOpenAssemblyViewerDefaults,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text("Open", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenSpecialtyViewerDefaults() }
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -375,18 +360,18 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Text(
-                        "Open",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    OutlinedButton(
+                        onClick = onOpenSpecialtyViewerDefaults,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text("Open", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
 
-            SettingsSection(
-                title = "Tablet",
-                accentColor = MaterialTheme.colorScheme.tertiary
-            ) {
+            // ── Tablet ───────────────────────────────────────────────────
+            SettingsCard(title = "Tablet") {
                 ExposedDropdownMenuBox(
                     expanded = employeeDropdownExpanded && filteredEmployees.isNotEmpty(),
                     onExpandedChange = { employeeDropdownExpanded = it }
@@ -402,7 +387,7 @@ fun SettingsScreen(
                         supportingText = { Text("Used for auto-login to the Hours Tracker. Leave blank to be prompted each time.") },
                         modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
                         singleLine = true,
-                        shape = MaterialTheme.shapes.medium
+                        shape = RoundedCornerShape(12.dp)
                     )
                     if (filteredEmployees.isNotEmpty()) {
                         ExposedDropdownMenu(
@@ -436,7 +421,7 @@ fun SettingsScreen(
                                     employeeNameDirty = false
                                     employeeNameSaved = true
                                 },
-                                shape = MaterialTheme.shapes.medium
+                                shape = RoundedCornerShape(8.dp)
                             ) {
                                 Text("Save Name")
                             }
@@ -459,9 +444,10 @@ fun SettingsScreen(
                     },
                     label = { Text("Tablet ID") },
                     supportingText = { Text("Used for progress file naming. Must be unique per tablet.") },
+                    colors = filledFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = MaterialTheme.shapes.medium
+                    shape = RoundedCornerShape(12.dp)
                 )
 
                 if (tabletIdDirty || tabletSaved) {
@@ -478,7 +464,7 @@ fun SettingsScreen(
                                     tabletSaved = true
                                 },
                                 enabled = editTabletId.trim().isNotBlank(),
-                                shape = MaterialTheme.shapes.medium
+                                shape = RoundedCornerShape(8.dp)
                             ) {
                                 Text("Save Tablet ID")
                             }
@@ -494,10 +480,8 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSection(
-                title = "Data Source",
-                accentColor = MaterialTheme.colorScheme.secondary
-            ) {
+            // ── Data Source ──────────────────────────────────────────────
+            SettingsCard(title = "Data Source") {
                 OutlinedTextField(
                     value = editBasePath,
                     onValueChange = {
@@ -506,9 +490,10 @@ fun SettingsScreen(
                     },
                     label = { Text("Ready Jobs Folder Path") },
                     supportingText = { Text("Path to the synced Ready Jobs folder on this tablet.") },
+                    colors = filledFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = MaterialTheme.shapes.medium
+                    shape = RoundedCornerShape(12.dp)
                 )
 
                 if (basePathDirty || basePathSaved) {
@@ -525,7 +510,7 @@ fun SettingsScreen(
                                     basePathSaved = true
                                 },
                                 enabled = editBasePath.trim().isNotBlank(),
-                                shape = MaterialTheme.shapes.medium
+                                shape = RoundedCornerShape(8.dp)
                             ) {
                                 Text("Save Path (app will restart)")
                             }
@@ -541,10 +526,8 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSection(
-                title = "Syncthing",
-                accentColor = MaterialTheme.colorScheme.primary
-            ) {
+            // ── Syncthing ────────────────────────────────────────────────
+            SettingsCard(title = "Syncthing") {
                 OutlinedTextField(
                     value = editSyncthingApiKey,
                     onValueChange = {
@@ -553,11 +536,12 @@ fun SettingsScreen(
                     },
                     label = { Text("Syncthing API Key") },
                     supportingText = { Text("Used for localhost API checks at 127.0.0.1:8384.") },
+                    colors = filledFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = MaterialTheme.shapes.medium,
+                    shape = RoundedCornerShape(12.dp),
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password
                     )
                 )
@@ -576,7 +560,7 @@ fun SettingsScreen(
                                     syncthingApiKeySaved = true
                                 },
                                 enabled = editSyncthingApiKey.trim().isNotBlank(),
-                                shape = MaterialTheme.shapes.medium
+                                shape = RoundedCornerShape(8.dp)
                             ) {
                                 Text("Save API Key")
                             }
@@ -591,10 +575,10 @@ fun SettingsScreen(
                     }
                 }
 
-                Text(
-                    text = "Status: ${syncthingStatusText(syncthingStatus.status)}",
-                    style = MaterialTheme.typography.bodyMedium
+                SettingsStatusBadge(
+                    status = syncthingStatus.status
                 )
+
                 syncthingStatus.lastCheckedAtMs?.let { checkedAt ->
                     Text(
                         text = "Last check: ${formatStatusTime(checkedAt)}",
@@ -616,14 +600,14 @@ fun SettingsScreen(
                 ) {
                     OutlinedButton(
                         onClick = onSyncthingCheckNow,
-                        shape = MaterialTheme.shapes.medium,
+                        shape = RoundedCornerShape(8.dp),
                         enabled = syncthingApiKey.isNotBlank()
                     ) {
                         Text("Check Now")
                     }
                     Button(
                         onClick = onSyncthingStartNow,
-                        shape = MaterialTheme.shapes.medium,
+                        shape = RoundedCornerShape(8.dp),
                         enabled = syncthingApiKey.isNotBlank()
                     ) {
                         Text("Start Now")
@@ -631,10 +615,8 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSection(
-                title = "Timeclock",
-                accentColor = MaterialTheme.colorScheme.secondary
-            ) {
+            // ── Timeclock ────────────────────────────────────────────────
+            SettingsCard(title = "Timeclock") {
                 OutlinedTextField(
                     value = editServerIp,
                     onValueChange = {
@@ -644,9 +626,10 @@ fun SettingsScreen(
                     label = { Text("Server IP address") },
                     placeholder = { Text("Auto (mDNS discovery)") },
                     supportingText = { Text("Leave blank to use automatic discovery. Enter an IP to skip mDNS.") },
+                    colors = filledFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = MaterialTheme.shapes.medium,
+                    shape = RoundedCornerShape(12.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
                 )
                 Row(
@@ -677,10 +660,8 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSection(
-                title = "About",
-                accentColor = MaterialTheme.colorScheme.outline
-            ) {
+            // ── About ────────────────────────────────────────────────────
+            SettingsCard(title = "About") {
                 Text(
                     "KKC Sheet Tracker v${BuildConfig.VERSION_NAME}",
                     style = MaterialTheme.typography.bodySmall,
@@ -694,16 +675,13 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSection(
-                title = "Admin",
-                accentColor = MaterialTheme.colorScheme.tertiary
-            ) {
+            // ── Admin ────────────────────────────────────────────────────
+            SettingsCard(title = "Admin") {
                 if (!adminMode) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showAdminDialog = true }
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -715,11 +693,13 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Text(
-                            "Unlock",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        OutlinedButton(
+                            onClick = { showAdminDialog = true },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Text("Unlock", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 } else {
                     Text(
@@ -752,50 +732,136 @@ fun SettingsScreen(
     }
 }
 
-private fun syncthingStatusText(status: SyncthingServiceStatus): String {
-    return when (status) {
-        SyncthingServiceStatus.CHECKING -> "Checking"
-        SyncthingServiceStatus.RUNNING -> "Running"
-        SyncthingServiceStatus.NOT_RUNNING -> "Not running"
-        SyncthingServiceStatus.START_FAILED -> "Start failed"
-        SyncthingServiceStatus.API_KEY_REQUIRED -> "API key required"
-    }
-}
+// ── Private composables ─────────────────────────────────────────────────────
 
-private fun formatStatusTime(timestampMs: Long): String {
-    return DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
+@Composable
+private fun SettingsCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(2.dp, RoundedCornerShape(12.dp), clip = false),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            content()
+        }
+    }
 }
 
 @Composable
-private fun SettingsSection(
-    title: String,
-    accentColor: Color,
-    content: @Composable ColumnScope.() -> Unit
+private fun WorkModeIconTile(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .padding(top = 6.dp, bottom = 6.dp)
-                .width(4.dp)
-                .fillMaxHeight()
-                .clip(MaterialTheme.shapes.small)
-                .background(accentColor)
-        )
-        Surface(
-            tonalElevation = 3.dp,
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 8.dp)
+    val bgColor = if (isSelected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    val textColor = if (isSelected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    val borderColor = if (isSelected) {
+        Color.Transparent
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+
+    Surface(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(12.dp))
+            .then(
+                if (!isSelected) Modifier.border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                else Modifier
+            )
+            .shadow(if (isSelected) 0.dp else 1.dp, RoundedCornerShape(12.dp), clip = false)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = bgColor,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+            // Placeholder icon slot — replace with custom SVG/Image icon later
+            Box(
+                modifier = Modifier.size(48.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                content()
+                // Icon placeholder
             }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+                color = textColor
+            )
         }
     }
+}
+
+@Composable
+private fun SettingsStatusBadge(status: SyncthingServiceStatus) {
+    val (bgColor, text) = when (status) {
+        SyncthingServiceStatus.CHECKING -> MaterialTheme.colorScheme.tertiaryContainer to "Checking"
+        SyncthingServiceStatus.RUNNING -> MaterialTheme.colorScheme.primaryContainer to "Running"
+        SyncthingServiceStatus.NOT_RUNNING -> MaterialTheme.colorScheme.errorContainer to "Not running"
+        SyncthingServiceStatus.START_FAILED -> MaterialTheme.colorScheme.errorContainer to "Start failed"
+        SyncthingServiceStatus.API_KEY_REQUIRED -> MaterialTheme.colorScheme.tertiaryContainer to "API key required"
+    }
+    val textColor = when (status) {
+        SyncthingServiceStatus.CHECKING -> MaterialTheme.colorScheme.onTertiaryContainer
+        SyncthingServiceStatus.RUNNING -> MaterialTheme.colorScheme.onPrimaryContainer
+        SyncthingServiceStatus.NOT_RUNNING -> MaterialTheme.colorScheme.onErrorContainer
+        SyncthingServiceStatus.START_FAILED -> MaterialTheme.colorScheme.onErrorContainer
+        SyncthingServiceStatus.API_KEY_REQUIRED -> MaterialTheme.colorScheme.onTertiaryContainer
+    }
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(bgColor)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = "Status: $text",
+            style = MaterialTheme.typography.labelMedium,
+            color = textColor,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun filledFieldColors(): TextFieldColors {
+    val containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    return OutlinedTextFieldDefaults.colors(
+        unfocusedContainerColor = containerColor,
+        unfocusedBorderColor = Color.Transparent,
+        focusedContainerColor = containerColor,
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+    )
+}
+
+// ── Private helper functions ────────────────────────────────────────────────
+
+private fun formatStatusTime(timestampMs: Long): String {
+    return DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
 }

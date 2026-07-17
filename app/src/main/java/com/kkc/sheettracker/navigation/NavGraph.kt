@@ -727,7 +727,8 @@ private fun MultiBackStackNavigation(
                         onClockIn = onClockIn,
                         onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
                         onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) },
-                        onUiVisibilityChanged = { viewerUiVisible = it }
+                        onUiVisibilityChanged = { viewerUiVisible = it },
+                        active = selectedTab == TopLevelTab.JOBS
                     )
                 }
 
@@ -834,7 +835,8 @@ private fun MultiBackStackNavigation(
                         basePath = basePath,
                         tabletId = tabletId,
                         employeeName = employeeName,
-                        subscriptionManager = supplySubscriptionManager
+                        subscriptionManager = supplySubscriptionManager,
+                        active = selectedTab == TopLevelTab.SUPPLY
                     )
                 }
 
@@ -889,7 +891,7 @@ private fun MultiBackStackNavigation(
                 modifier = Modifier
                     .graphicsLayer { alpha = navBarAlpha },
                 currentDestination = TopLevelTab.toDestination(selectedTab),
-                minimized = isInViewer || (navBarDeco.searchDecoration != null && selectedTab != TopLevelTab.JOBS),
+                minimized = isInViewer || (selectedTab == TopLevelTab.SUPPLY && navBarDeco.searchDecoration != null && !navBarDeco.keepSearchDeco),
                 destinations = visibleDestinations,
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
@@ -903,7 +905,12 @@ private fun MultiBackStackNavigation(
                     if (dest == NavDestination.HOURS) {
                         launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() })
                     } else {
-                        coordinator.navigateTopLevel(TopLevelTab.fromDestination(dest))
+                        val targetTab = TopLevelTab.fromDestination(dest)
+                        if ((selectedTab == TopLevelTab.JOBS || selectedTab == TopLevelTab.SUPPLY) &&
+                            (targetTab == TopLevelTab.JOBS || targetTab == TopLevelTab.SUPPLY)) {
+                            navBarDeco.keepSearchDeco = true
+                        }
+                        coordinator.navigateTopLevel(targetTab)
                     }
                 }
             )
@@ -1065,7 +1072,8 @@ private fun JobsTabHost(
     onClockIn: (jobNumber: String, jobName: String, folderName: String, tabType: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    onUiVisibilityChanged: (Boolean) -> Unit = {}
+    onUiVisibilityChanged: (Boolean) -> Unit = {},
+    active: Boolean = true
 ) {
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     val coroutineScope = rememberCoroutineScope()
@@ -1153,7 +1161,8 @@ private fun JobsTabHost(
                             }
                         },
                         onSearchClick = onSearchClick,
-                        onSettingsClick = onSettingsClick
+                        onSettingsClick = onSettingsClick,
+                        active = active
                     )
                 }
                 WorkMode.HARDWOODS -> {
@@ -1200,7 +1209,8 @@ private fun JobsTabHost(
                             }
                         },
                         onSearchClick = onSearchClick,
-                        onSettingsClick = onSettingsClick
+                        onSettingsClick = onSettingsClick,
+                        active = active
                     )
                 }
                 WorkMode.ASSEMBLY -> {
@@ -1248,7 +1258,8 @@ private fun JobsTabHost(
                             }
                         },
                         onSearchClick = onSearchClick,
-                        onSettingsClick = onSettingsClick
+                        onSettingsClick = onSettingsClick,
+                        active = active
                     )
                 }
                 WorkMode.SPECIALTY -> {
@@ -1268,7 +1279,8 @@ private fun JobsTabHost(
                             }
                         },
                         onSearchClick = onSearchClick,
-                        onSettingsClick = onSettingsClick
+                        onSettingsClick = onSettingsClick,
+                        active = active
                     )
                 }
             }
@@ -1899,7 +1911,8 @@ private fun SupplyTabHost(
     basePath: String,
     tabletId: String,
     employeeName: String,
-    subscriptionManager: SupplySubscriptionManager
+    subscriptionManager: SupplySubscriptionManager,
+    active: Boolean = true
 ) {
     NavHost(
         navController = navController,
@@ -1911,7 +1924,8 @@ private fun SupplyTabHost(
                 basePath = basePath,
                 tabletId = tabletId,
                 employeeName = employeeName,
-                subscriptionManager = subscriptionManager
+                subscriptionManager = subscriptionManager,
+                active = active
             )
         }
     }
@@ -2333,6 +2347,7 @@ private fun LegacySingleStackNavigation(
                                 },
                                 pinnedFolderNames = pinnedFolderNames,
                                 onTogglePin = onTogglePin,
+                                active = (currentNavDest == NavDestination.JOBS)
                             )
                         }
                         WorkMode.HARDWOODS -> {
@@ -2384,6 +2399,7 @@ private fun LegacySingleStackNavigation(
                                 },
                                 pinnedFolderNames = pinnedFolderNames,
                                 onTogglePin = onTogglePin,
+                                active = (currentNavDest == NavDestination.JOBS)
                             )
                         }
                         WorkMode.ASSEMBLY -> {
@@ -2440,6 +2456,7 @@ private fun LegacySingleStackNavigation(
                                 },
                                 pinnedFolderNames = pinnedFolderNames,
                                 onTogglePin = onTogglePin,
+                                active = (currentNavDest == NavDestination.JOBS)
                             )
                         }
                         WorkMode.SPECIALTY -> {
@@ -2468,6 +2485,7 @@ private fun LegacySingleStackNavigation(
                                 },
                                 pinnedFolderNames = pinnedFolderNames,
                                 onTogglePin = onTogglePin,
+                                active = (currentNavDest == NavDestination.JOBS)
                             )
                         }
                     }
@@ -3018,7 +3036,8 @@ private fun LegacySingleStackNavigation(
                         basePath = basePath,
                         tabletId = tabletId,
                         employeeName = employeeName,
-                        subscriptionManager = supplySubscriptionManager
+                        subscriptionManager = supplySubscriptionManager,
+                        active = (currentNavDest == NavDestination.SUPPLY)
                     )
                 }
 
@@ -3131,7 +3150,7 @@ private fun LegacySingleStackNavigation(
                 modifier = Modifier
                     .graphicsLayer { alpha = navBarAlpha },
                 currentDestination = currentNavDest,
-                minimized = isInViewer || (navBarDeco.searchDecoration != null && currentNavDest != NavDestination.JOBS),
+                minimized = isInViewer || (currentNavDest == NavDestination.SUPPLY && navBarDeco.searchDecoration != null && !navBarDeco.keepSearchDeco),
                 destinations = visibleDestinations,
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
@@ -3149,6 +3168,10 @@ private fun LegacySingleStackNavigation(
                     if (currentRoute == dest.route) return@AppBottomNavBar
                     check(dest.route in visibleDestinations.map { it.route }) {
                         "Invalid top-level destination route: ${dest.route}"
+                    }
+                    if ((currentNavDest == NavDestination.JOBS || currentNavDest == NavDestination.SUPPLY) &&
+                        (dest == NavDestination.JOBS || dest == NavDestination.SUPPLY)) {
+                        navBarDeco.keepSearchDeco = true
                     }
                     navController.navigate(dest.route) {
                         popUpTo(navController.graph.findStartDestination().id) {

@@ -140,7 +140,8 @@ fun JobBrowserScreen(
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    active: Boolean = true
 ) {
     val serverGridCols = remember { jobRepository.getBoardGridColumns() }
     val orientation = LocalConfiguration.current.orientation
@@ -165,10 +166,12 @@ fun JobBrowserScreen(
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
 
     val navBarDeco = LocalNavBarDecoration.current
+    val listBottomPadding = if (navBarDeco.searchDecoration != null) 172.dp else 112.dp
     val focusManager = LocalFocusManager.current
     val currentSearchQuery = searchQuery
     SideEffect {
-        if (!adminMode) {
+        if (active) {
+            navBarDeco.owner = "jobs_cnc"
             navBarDeco.searchDecoration = NavBarSearchDecoration(
                 searchTextValue    = currentSearchQuery,
                 onSearchTextChange = { searchQuery = it },
@@ -176,17 +179,22 @@ fun JobBrowserScreen(
                 isPartsEnabled     = false,
                 onParts            = {},
                 contextLine        = if (currentSearchQuery.text.isNotBlank())
-                                         "Filtering jobs by \"${currentSearchQuery.text}\"" else "",
+                                       "Filtering jobs by \"${currentSearchQuery.text}\"" else "",
                 placeholder        = "Search jobs...",
                 showParts          = false,
                 onScan             = null
             )
-        } else {
-            navBarDeco.searchDecoration = null
         }
     }
     DisposableEffect(Unit) {
-        onDispose { navBarDeco.searchDecoration = null }
+        onDispose {
+            if (navBarDeco.owner == "jobs_cnc") {
+                if (!navBarDeco.keepSearchDeco) {
+                    navBarDeco.searchDecoration = null
+                }
+                navBarDeco.owner = ""
+            }
+        }
     }
     val listState = rememberLazyListState()
     val scanState by scanCoordinator.state.collectAsState()
@@ -466,7 +474,7 @@ fun JobBrowserScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
-                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = listBottomPadding),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     if (pinnedUiStates.isNotEmpty()) {

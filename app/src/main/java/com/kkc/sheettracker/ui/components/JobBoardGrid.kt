@@ -105,13 +105,15 @@ fun JobBoardGrid(
     }
 
     var expandedItem by remember { mutableStateOf<JobBoardItem?>(null) }
+    val navBarDeco = LocalNavBarDecoration.current
+    val listBottomPadding = if (navBarDeco.searchDecoration != null) 172.dp else 112.dp
 
     SharedTransitionLayout(modifier = modifier) {
         Box(modifier = Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 112.dp),
+                contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = listBottomPadding),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {

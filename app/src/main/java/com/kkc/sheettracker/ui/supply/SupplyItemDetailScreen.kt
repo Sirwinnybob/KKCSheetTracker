@@ -75,6 +75,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.CheckCircle
 
 private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp")
 
@@ -111,6 +112,7 @@ fun SupplyItemDetailScreen(
     var captureTargetFile by remember { mutableStateOf<File?>(null) }
 
     var showStatusSheet by remember { mutableStateOf(false) }
+    var showLabelsDropdown by remember { mutableStateOf(false) }
 
     fun loadData() {
         coroutineScope.launch {
@@ -540,7 +542,60 @@ fun SupplyItemDetailScreen(
 
                             Text("ADD TO CARD", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SideActionButton(onClick = { showStatusSheet = true }, icon = Icons.Default.Bookmark, text = "Labels")
+                                Box {
+                                    SideActionButton(onClick = { showLabelsDropdown = true }, icon = Icons.Default.Bookmark, text = "Labels")
+                                    DropdownMenu(
+                                        expanded = showLabelsDropdown,
+                                        onDismissRequest = { showLabelsDropdown = false }
+                                    ) {
+                                        ALL_SUPPLY_STATUSES.forEach { status ->
+                                            val tier = SUPPLY_STATUS_PRIORITY[status] ?: 99
+                                            val baseColor = supplyStatusColor(tier)
+                                            val (chipBgColor, chipTextColor) = getSoftStatusColors(status, baseColor)
+                                            val isSelected = currentItem.status == status
+                                            DropdownMenuItem(
+                                                onClick = {
+                                                    showLabelsDropdown = false
+                                                    coroutineScope.launch {
+                                                        withContext(Dispatchers.IO) {
+                                                            runCatching {
+                                                                repository.setStatus(
+                                                                    itemId, status,
+                                                                    employeeName.ifBlank { "Floor" }, tabletId
+                                                                )
+                                                            }
+                                                        }
+                                                        val updated = withContext(Dispatchers.IO) {
+                                                            runCatching { repository.getItem(itemId) }.getOrNull()
+                                                        }
+                                                        if (updated != null) item = updated
+                                                    }
+                                                },
+                                                text = {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                    ) {
+                                                        StatusChip(
+                                                            text = status,
+                                                            backgroundColor = chipBgColor,
+                                                            contentColor = chipTextColor
+                                                        )
+                                                        if (isSelected) {
+                                                            Icon(
+                                                                imageVector = Icons.Filled.CheckCircle,
+                                                                contentDescription = "Current",
+                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier.heightIn(min = 36.dp)
+                                            )
+                                        }
+                                    }
+                                }
                                 SideActionButton(onClick = { galleryLauncher.launch("image/*") }, icon = Icons.Default.AttachFile, text = "Attachment")
 
                                 // Existing attachments

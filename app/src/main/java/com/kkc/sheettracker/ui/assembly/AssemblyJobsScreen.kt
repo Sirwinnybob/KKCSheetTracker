@@ -127,7 +127,8 @@ fun AssemblyJobsScreen(
     onOpenHardwoodsChange: (jobFolderName: String, docType: HardwoodDocType, rowId: String) -> Unit,
     onViewCoverSheet: (AssemblyJobCard) -> Unit,
     onSearchClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    active: Boolean = true
 ) {
     val serverGridCols = remember { jobRepository.getBoardGridColumns() }
     val orientation = LocalConfiguration.current.orientation
@@ -153,10 +154,12 @@ fun AssemblyJobsScreen(
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
 
     val navBarDeco = LocalNavBarDecoration.current
+    val listBottomPadding = if (navBarDeco.searchDecoration != null) 172.dp else 112.dp
     val focusManager = LocalFocusManager.current
     val currentQuery = query
     SideEffect {
-        if (!adminMode) {
+        if (active) {
+            navBarDeco.owner = "jobs_assembly"
             navBarDeco.searchDecoration = NavBarSearchDecoration(
                 searchTextValue    = currentQuery,
                 onSearchTextChange = { query = it },
@@ -164,17 +167,22 @@ fun AssemblyJobsScreen(
                 isPartsEnabled     = false,
                 onParts            = {},
                 contextLine        = if (currentQuery.text.isNotBlank())
-                                         "Filtering jobs by \"${currentQuery.text}\"" else "",
+                                       "Filtering jobs by \"${currentQuery.text}\"" else "",
                 placeholder        = "Search jobs...",
                 showParts          = false,
                 onScan             = null
             )
-        } else {
-            navBarDeco.searchDecoration = null
         }
     }
     DisposableEffect(Unit) {
-        onDispose { navBarDeco.searchDecoration = null }
+        onDispose {
+            if (navBarDeco.owner == "jobs_assembly") {
+                if (!navBarDeco.keepSearchDeco) {
+                    navBarDeco.searchDecoration = null
+                }
+                navBarDeco.owner = ""
+            }
+        }
     }
     val scanState by assemblyScanCoordinator.state.collectAsState()
     val cncProgressVersion by progressStore.progressVersion.collectAsState()
@@ -429,7 +437,7 @@ fun AssemblyJobsScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         state = listState,
-                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
+                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = listBottomPadding),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         if (pinnedUiStates.isNotEmpty()) {

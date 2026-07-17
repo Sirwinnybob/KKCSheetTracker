@@ -35,11 +35,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.platform.LocalFocusManager
+import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -113,7 +115,8 @@ fun SpecialtyJobsScreen(
     onTogglePin: (folderName: String, isCurrentlyPinned: Boolean) -> Unit = { _, _ -> },
     onJobClick: (com.kkc.sheettracker.data.models.SpecialtyJobCard) -> Unit,
     onSearchClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    active: Boolean = true
 ) {
     val serverGridCols = remember { jobRepository.getBoardGridColumns() }
     val orientation = LocalConfiguration.current.orientation
@@ -121,19 +124,54 @@ fun SpecialtyJobsScreen(
                    else minOf(serverGridCols, 3)
     val context = LocalContext.current
     val uiPrefs = remember { UiPreferencesStore(context) }
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(""))
+    }
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("specialty")) }
     var showScheduleDialog by remember { mutableStateOf(false) }
     val adminMode by AdminModeController.enabled.collectAsState()
     LaunchedEffect(adminMode) {
         if (adminMode) {
-            query = ""
+            query = TextFieldValue("")
             sortByName = false
             boardView = false
         }
     }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
+
+    val navBarDeco = LocalNavBarDecoration.current
+    val listBottomPadding = if (navBarDeco.searchDecoration != null) 172.dp else 112.dp
+    val focusManager = LocalFocusManager.current
+    val currentQuery = query
+    SideEffect {
+        if (active) {
+            navBarDeco.owner = "jobs_specialty"
+            navBarDeco.searchDecoration = NavBarSearchDecoration(
+                searchTextValue    = currentQuery,
+                onSearchTextChange = { query = it },
+                onGo               = { focusManager.clearFocus() },
+                isPartsEnabled     = false,
+                onParts            = {},
+                contextLine        = if (currentQuery.text.isNotBlank())
+                                       "Filtering jobs by \"${currentQuery.text}\"" else "",
+                placeholder        = "Search jobs...",
+                showParts          = false,
+                onScan             = null
+            )
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            if (navBarDeco.owner == "jobs_specialty") {
+                if (!navBarDeco.keepSearchDeco) {
+                    navBarDeco.searchDecoration = null
+                }
+                navBarDeco.owner = ""
+            }
+        }
+    }
+
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
     val deliverySchedule = remember(scanState.snapshot.generation) {
@@ -154,12 +192,13 @@ fun SpecialtyJobsScreen(
             all // already in production order from listJobs
         }
     }
-    val filteredCards = remember(cards, query) {
-        if (query.isBlank()) cards
+    val filteredCards = remember(cards, query.text) {
+        val queryStr = query.text
+        if (queryStr.isBlank()) cards
         else cards.filter { card ->
-            card.jobNumber.contains(query, ignoreCase = true) ||
-                card.jobName.contains(query, ignoreCase = true) ||
-                card.folderName.contains(query, ignoreCase = true)
+            card.jobNumber.contains(queryStr, ignoreCase = true) ||
+                card.jobName.contains(queryStr, ignoreCase = true) ||
+                card.folderName.contains(queryStr, ignoreCase = true)
         }
     }
 
@@ -258,19 +297,8 @@ fun SpecialtyJobsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Filter jobs by number or name...") },
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-                enabled = !adminMode
-            )
             Text(
-                text = if (query.isBlank()) {
+                text = if (query.text.isBlank()) {
                     "${filteredCards.size} jobs"
                 } else {
                     "Showing ${filteredCards.size} of ${cards.size} jobs"
@@ -335,7 +363,7 @@ fun SpecialtyJobsScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         state = listState,
-                        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 112.dp),
+                        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = listBottomPadding),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         if (pinnedCards.isNotEmpty()) {
@@ -596,7 +624,6 @@ fun SpecialtyJobsScreen(
         )
     }
 
-    val navBarDeco = LocalNavBarDecoration.current
     val labelEditJob = editingLabelsFor
     DisposableEffect(navBarDeco) {
         onDispose { navBarDeco.extendedControls = null }

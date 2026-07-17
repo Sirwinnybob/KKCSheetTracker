@@ -34,12 +34,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.platform.LocalFocusManager
+import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
@@ -125,7 +127,8 @@ fun HardwoodsJobsScreen(
     onViewCoverSheet: (HardwoodJob) -> Unit,
     onView3D: (HardwoodJob) -> Unit,
     onSearchClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    active: Boolean = true
 ) {
     val serverGridCols = remember { jobRepository.getBoardGridColumns() }
     val orientation = LocalConfiguration.current.orientation
@@ -133,7 +136,9 @@ fun HardwoodsJobsScreen(
                    else minOf(serverGridCols, 3)
     val context = LocalContext.current
     val uiPrefs = remember { UiPreferencesStore(context) }
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(""))
+    }
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("hardwoods")) }
     var expandedJobs by rememberSaveable { mutableStateOf(setOf<String>()) }
@@ -142,12 +147,45 @@ fun HardwoodsJobsScreen(
     val adminMode by AdminModeController.enabled.collectAsState()
     LaunchedEffect(adminMode) {
         if (adminMode) {
-            query = ""
+            query = TextFieldValue("")
             sortByName = false
             boardView = false
         }
     }
     LaunchedEffect(sortByName) { if (sortByName) boardView = false }
+
+    val navBarDeco = LocalNavBarDecoration.current
+    val listBottomPadding = if (navBarDeco.searchDecoration != null) 172.dp else 112.dp
+    val focusManager = LocalFocusManager.current
+    val currentQuery = query
+    SideEffect {
+        if (active) {
+            navBarDeco.owner = "jobs_hardwoods"
+            navBarDeco.searchDecoration = NavBarSearchDecoration(
+                searchTextValue    = currentQuery,
+                onSearchTextChange = { query = it },
+                onGo               = { focusManager.clearFocus() },
+                isPartsEnabled     = false,
+                onParts            = {},
+                contextLine        = if (currentQuery.text.isNotBlank())
+                                       "Filtering jobs by \"${currentQuery.text}\"" else "",
+                placeholder        = "Search jobs...",
+                showParts          = false,
+                onScan             = null
+            )
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            if (navBarDeco.owner == "jobs_hardwoods") {
+                if (!navBarDeco.keepSearchDeco) {
+                    navBarDeco.searchDecoration = null
+                }
+                navBarDeco.owner = ""
+            }
+        }
+    }
+
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
     val jobs = scanState.snapshot.jobs
@@ -160,11 +198,12 @@ fun HardwoodsJobsScreen(
     // Cleared on each new scan generation so stale data never lingers.
     val badgeCache = remember(scanState.snapshot.generation) { mutableStateMapOf<String, HardwoodsJobBadgeState>() }
 
-    val filtered = remember(jobs, query, sortByName) {
-        val base = if (query.isBlank()) jobs else jobs.filter {
-            it.jobNumber.contains(query, ignoreCase = true) ||
-                it.jobName.contains(query, ignoreCase = true) ||
-                it.folderName.contains(query, ignoreCase = true)
+    val filtered = remember(jobs, query.text, sortByName) {
+        val queryStr = query.text
+        val base = if (queryStr.isBlank()) jobs else jobs.filter {
+            it.jobNumber.contains(queryStr, ignoreCase = true) ||
+                it.jobName.contains(queryStr, ignoreCase = true) ||
+                it.folderName.contains(queryStr, ignoreCase = true)
         }
         if (sortByName) {
             base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
@@ -378,20 +417,9 @@ fun HardwoodsJobsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Filter jobs by number or name...") },
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-                enabled = !adminMode
-            )
             SortToggleBar(sortByName = sortByName, onSortChange = { if (!adminMode) sortByName = it })
             Text(
-                text = if (query.isBlank()) {
+                text = if (query.text.isBlank()) {
                     "${filtered.size} jobs"
                 } else {
                     "Showing ${filtered.size} of ${jobs.size} jobs"
@@ -449,7 +477,7 @@ fun HardwoodsJobsScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
-                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = listBottomPadding),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     if (pinnedUiStates.isNotEmpty()) {
@@ -777,7 +805,6 @@ fun HardwoodsJobsScreen(
         )
     }
 
-    val navBarDeco = LocalNavBarDecoration.current
     val labelEditJob = editingLabelsFor
     DisposableEffect(navBarDeco) {
         onDispose { navBarDeco.extendedControls = null }
