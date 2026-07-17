@@ -2,9 +2,13 @@ package com.kkc.sheettracker.ui.components
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -21,7 +25,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,13 +55,17 @@ import androidx.compose.ui.zIndex
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.viewer.DiagramView
 import com.kkc.sheettracker.ui.viewer.ReferenceViewerData
 import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
+import com.kkc.sheettracker.ui.viewer.extractLargestEmbeddedImage
 import com.kkc.sheettracker.ui.viewer.rememberReferenceViewerData
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class ReferenceModalSnapshot(
     val isOpen: Boolean = false,
@@ -302,6 +313,32 @@ fun ReferenceModalHost(
         if (target != null) state.setPage(target) else state.showNoRefNote()
     }
 
+    // Sheet tab bitmap resolution: mirrors the main viewer's diagram crop (extractLargestEmbeddedImage)
+    // with a full-page render fallback for pages with no extractable embedded image. Keyed on
+    // sheetPdfFile so switching sheets/jobs resets state instead of showing a stale bitmap; the page
+    // count effect is separate from the per-page bitmap effect since it only needs to run once per file.
+    var sheetBitmap by remember(sheetPdfFile) { mutableStateOf<Bitmap?>(null) }
+    var sheetTotalPages by remember(sheetPdfFile) { mutableStateOf(0) }
+
+    LaunchedEffect(sheetPdfFile) {
+        val file = sheetPdfFile ?: return@LaunchedEffect
+        sheetTotalPages = withContext(Dispatchers.IO) {
+            runCatching {
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                    PdfRenderer(fd).use { it.pageCount }
+                }
+            }.getOrDefault(0)
+        }
+    }
+
+    LaunchedEffect(snapshot.sheetPage, sheetPdfFile) {
+        val file = sheetPdfFile ?: run { sheetBitmap = null; return@LaunchedEffect }
+        val pageIndex = snapshot.sheetPage - 1
+        sheetBitmap = withContext(Dispatchers.IO) {
+            extractLargestEmbeddedImage(file, pageIndex) ?: renderSheetPageFallback(file, pageIndex)
+        }
+    }
+
     // "No reference for this cabinet" transient note — visibility is owned by the state
     // (cleared immediately by setDocType/setPage). This effect only runs the auto-hide timer:
     // each showNoRefNote() bumps noRefNoteToken, restarting the 2500ms countdown, and the
@@ -419,34 +456,81 @@ fun ReferenceModalHost(
                     }
 
                     Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                        UnifiedReferenceViewer(
-                            modifier = Modifier.fillMaxSize(),
-                            displayPage = snapshot.pageForActiveDoc(),
-                            onDisplayPageChange = { state.setPage(it) },
-                            defaultPdfFilename = referenceData.defaultPdfFilename,
-                            pdfFileForFilename = { filename ->
-                                if (snapshot.docType == ReferenceDocType.SHEET && filename == sheetPdfFilename) {
-                                    sheetPdfFile
-                                } else {
+                        if (snapshot.docType == ReferenceDocType.SHEET) {
+                            val bmp = sheetBitmap
+                            if (bmp != null) {
+                                DiagramView(
+                                    bitmap = bmp,
+                                    parts = emptyList(),
+                                    selectedPartNumber = null,
+                                    diagramBboxes = emptyMap(),
+                                    resetZoomTrigger = snapshot.sheetPage,
+                                    onTapPart = {},
+                                    onLongPressPart = {},
+                                    modifier = Modifier.fillMaxSize(),
+                                    onTapEmpty = null
+                                )
+                            } else {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator()
+                                }
+                            }
+                            if (sheetTotalPages > 1) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                                    tonalElevation = 3.dp,
+                                    shape = MaterialTheme.shapes.medium,
+                                    modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        IconButton(
+                                            onClick = { state.setPage(snapshot.sheetPage - 1) },
+                                            enabled = snapshot.sheetPage > 1,
+                                            modifier = Modifier.size(38.dp)
+                                        ) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous", modifier = Modifier.size(20.dp))
+                                        }
+                                        Text("${snapshot.sheetPage}/$sheetTotalPages", style = MaterialTheme.typography.labelMedium)
+                                        IconButton(
+                                            onClick = { state.setPage(snapshot.sheetPage + 1) },
+                                            enabled = snapshot.sheetPage < sheetTotalPages,
+                                            modifier = Modifier.size(38.dp)
+                                        ) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            UnifiedReferenceViewer(
+                                modifier = Modifier.fillMaxSize(),
+                                displayPage = snapshot.pageForActiveDoc(),
+                                onDisplayPageChange = { state.setPage(it) },
+                                defaultPdfFilename = referenceData.defaultPdfFilename,
+                                pdfFileForFilename = { filename ->
                                     jobRepository.getJobRootPdfFile(
                                         jobFolderName = jobFolderName,
                                         pdfFilename = filename,
                                         preferDarkMode = isDarkTheme
                                     )
-                                }
-                            },
-                            fileIdentitySeed = refreshGeneration,
-                            preferDarkMode = isDarkTheme,
-                            virtualMapping = referenceData.virtualMapping,
-                            navigatorCabinetToPages = referenceData.navigatorCabinetToPages,
-                            navigatorPlanViewLabels = referenceData.navigatorPlanViewLabels,
-                            navigatorWarningMessage = referenceData.warningMessage,
-                            missingText = "Reference PDF not found.",
-                            unreadableText = "Unable to read PDF pages.",
-                            showHeaderRow = false,
-                            showNavigationButtons = true,
-                            compactArrows = true
-                        )
+                                },
+                                fileIdentitySeed = refreshGeneration,
+                                preferDarkMode = isDarkTheme,
+                                virtualMapping = referenceData.virtualMapping,
+                                navigatorCabinetToPages = referenceData.navigatorCabinetToPages,
+                                navigatorPlanViewLabels = referenceData.navigatorPlanViewLabels,
+                                navigatorWarningMessage = referenceData.warningMessage,
+                                missingText = "Reference PDF not found.",
+                                unreadableText = "Unable to read PDF pages.",
+                                showHeaderRow = false,
+                                showNavigationButtons = true,
+                                compactArrows = true
+                            )
+                        }
                         if (showNote) {
                             Surface(
                                 color = MaterialTheme.colorScheme.errorContainer,
@@ -497,5 +581,33 @@ fun ReferenceModalHost(
                 }
             }
         }
+    }
+}
+
+/**
+ * Full-page render fallback for the popup's Sheet tab, used only when [extractLargestEmbeddedImage]
+ * finds no embedded diagram image on the page. Standalone PdfRenderer render — no caching.
+ */
+private fun renderSheetPageFallback(pdfFile: File, pageIndex: Int): Bitmap? {
+    if (!pdfFile.exists()) return null
+    return try {
+        ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+            PdfRenderer(fd).use { renderer ->
+                if (pageIndex !in 0 until renderer.pageCount) return null
+                renderer.openPage(pageIndex).use { page ->
+                    val scale = 2
+                    val bmp = Bitmap.createBitmap(
+                        page.width * scale,
+                        page.height * scale,
+                        Bitmap.Config.ARGB_8888
+                    )
+                    bmp.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    bmp
+                }
+            }
+        }
+    } catch (e: Exception) {
+        null
     }
 }

@@ -2866,7 +2866,7 @@ private fun resizeThumbnail(src: Bitmap, maxW: Int = 420, maxH: Int = 280): Bitm
     return Bitmap.createScaledBitmap(src, tw, th, false)
 }
 
-private fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int): Bitmap? {
+internal fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int): Bitmap? {
     var doc: PDDocument? = null
     return try {
         doc = PDDocument.load(pdfFile)
@@ -3243,7 +3243,7 @@ private fun MarkupPdfPageView(
 }
 
 @Composable
-private fun DiagramView(
+internal fun DiagramView(
     bitmap: Bitmap,
     parts: List<Part>,
     selectedPartNumber: Int?,
