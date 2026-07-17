@@ -122,7 +122,8 @@ fun coerceDocTypeForOpen(
     hasAssembly: Boolean,
     fallback: ReferenceDocType?
 ): ReferenceDocType {
-    val available = (current == ReferenceDocType.PLANS_ELEVATIONS && hasPlans) ||
+    val available = current == ReferenceDocType.SHEET ||
+                    (current == ReferenceDocType.PLANS_ELEVATIONS && hasPlans) ||
                     (current == ReferenceDocType.ASSEMBLY && hasAssembly)
     return if (available) current else (fallback ?: current)
 }

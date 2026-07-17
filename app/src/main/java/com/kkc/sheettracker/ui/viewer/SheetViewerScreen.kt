@@ -466,7 +466,11 @@ fun SheetViewerScreen(
             "SheetViewer reload job=$jobFolderName pdf=$pdfFilename page=$currentPage strokes=${localMarkupStrokes.size} deleted=${localMarkupDeletedIds.size}"
         )
     }
-    val penMarkupOverlayActive = markupEnabled
+    // Pen/markup drawing only applies to the Sheet (CNC PDF) view — the ref-doc topContent branch
+    // (Plans & Elev./Assembly via UnifiedReferenceViewer) doesn't render any markup overlay, so
+    // leaving this true while mainViewRef.snapshot.mode != null would float the markup toolbar
+    // uselessly over a reference doc and silently carry "draw mode" back into a later Sheet session.
+    val penMarkupOverlayActive = markupEnabled && mainViewRef.snapshot.mode == null
     val hasMarkupHistory = remember(localMarkupStrokes.size, localMarkupDeletedIds.size) {
         localMarkupStrokes.any { it.id !in localMarkupDeletedIds }
     }
@@ -1332,14 +1336,16 @@ fun SheetViewerScreen(
                             }
                         }
                     }
-                    IconButton(
-                        onClick = { markupEnabled = !markupEnabled }
-                    ) {
-                        Icon(
-                            Icons.Default.Create,
-                            contentDescription = if (markupEnabled) "Disable pen mode" else "Enable pen mode",
-                            tint = if (markupEnabled) MaterialTheme.colorScheme.primary else topBarTextColor
-                        )
+                    if (mainViewRef.snapshot.mode == null) {
+                        IconButton(
+                            onClick = { markupEnabled = !markupEnabled }
+                        ) {
+                            Icon(
+                                Icons.Default.Create,
+                                contentDescription = if (markupEnabled) "Disable pen mode" else "Enable pen mode",
+                                tint = if (markupEnabled) MaterialTheme.colorScheme.primary else topBarTextColor
+                            )
+                        }
                     }
                     Box {
                         IconButton(onClick = { showViewerMenu = true }) {

@@ -83,6 +83,18 @@ class ReferenceModalStateTest {
     }
 
     @Test
+    fun coerce_sheetAlwaysAvailable() {
+        assertEquals(
+            ReferenceDocType.SHEET,
+            coerceDocTypeForOpen(ReferenceDocType.SHEET, hasPlans = true, hasAssembly = true, ReferenceDocType.PLANS_ELEVATIONS)
+        )
+        assertEquals(
+            ReferenceDocType.SHEET,
+            coerceDocTypeForOpen(ReferenceDocType.SHEET, hasPlans = false, hasAssembly = false, null)
+        )
+    }
+
+    @Test
     fun pageForActiveDoc_returnsSheetPage() {
         val snap = ReferenceModalSnapshot(
             docType = ReferenceDocType.SHEET,
