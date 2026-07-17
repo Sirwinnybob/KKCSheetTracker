@@ -1413,41 +1413,46 @@ fun SheetViewerScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                        val showPopupSegment = hasAssemblyReference || hasPlansReference
+                        val segmentCount = if (showPopupSegment) 4 else 3
                         SingleChoiceSegmentedButtonRow {
                             SegmentedButton(
                                 selected = mainViewRef.snapshot.mode == null,
                                 onClick = { mainViewRef.setMode(null) },
                                 enabled = true,
-                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                                label = { Text("Sheet", maxLines = 1) }
+                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = segmentCount),
+                                label = { Text("Sheet", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
                             )
                             SegmentedButton(
                                 selected = mainViewRef.snapshot.mode == ReferenceDocType.PLANS_ELEVATIONS,
                                 onClick = { mainViewRef.setMode(ReferenceDocType.PLANS_ELEVATIONS) },
                                 enabled = hasPlansReference,
-                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                                label = { Text("Plans & Elev.", maxLines = 1) }
+                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = segmentCount),
+                                label = { Text("Plans & Elev.", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
                             )
                             SegmentedButton(
                                 selected = mainViewRef.snapshot.mode == ReferenceDocType.ASSEMBLY,
                                 onClick = { mainViewRef.setMode(ReferenceDocType.ASSEMBLY) },
                                 enabled = hasAssemblyReference,
-                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                                label = { Text("Assembly", maxLines = 1) }
+                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = segmentCount),
+                                label = { Text("Assembly", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
                             )
-                        }
-                        if (hasAssemblyReference || hasPlansReference) {
-                            AssistChip(
-                                onClick = { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) },
-                                label = { Text("Popup Viewer") },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Filled.OpenInNew,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(AssistChipDefaults.IconSize)
-                                    )
-                                }
-                            )
+                            if (showPopupSegment) {
+                                SegmentedButton(
+                                    selected = referenceModal.snapshot.isOpen,
+                                    onClick = { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) },
+                                    enabled = true,
+                                    shape = SegmentedButtonDefaults.itemShape(index = 3, count = segmentCount),
+                                    icon = {
+                                        Icon(
+                                            Icons.Filled.OpenInNew,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    label = { Text("Popup", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
+                                )
+                            }
                         }
                         val remakeLabel = currentPageRemake?.label?.takeIf { it.isNotBlank() }
                         if (remakeLabel != null) {
