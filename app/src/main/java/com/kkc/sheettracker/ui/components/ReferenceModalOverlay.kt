@@ -48,6 +48,7 @@ import androidx.compose.ui.zIndex
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.viewer.ReferenceViewerData
 import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
 import com.kkc.sheettracker.ui.viewer.rememberReferenceViewerData
 import dev.chrisbanes.haze.HazeDefaults
@@ -263,18 +264,11 @@ fun ReferenceModalHost(
         state.setOpen(false)
     }
 
-    val refDocData = rememberReferenceViewerData(
-        jobRepository = jobRepository,
-        jobFolderName = jobFolderName,
-        docType = snapshot.docType,
-        refreshGeneration = refreshGeneration,
-        isDarkTheme = isDarkTheme
-    )
-    // The Sheet tab isn't a reference document looked up by JobRepository — it's the CNC PDF
-    // already open behind the popup. Override with the caller-supplied file/filename directly;
-    // no virtual mapping or cabinet index applies to it.
     val referenceData = if (snapshot.docType == ReferenceDocType.SHEET) {
-        refDocData.copy(
+        // The Sheet tab isn't a reference document looked up by JobRepository — it's the CNC PDF
+        // already open behind the popup. Build the viewer data directly from the caller-supplied
+        // file/filename; no virtual mapping, cabinet index, or JobRepository lookup applies to it.
+        ReferenceViewerData(
             defaultPdfFilename = sheetPdfFilename,
             virtualMapping = null,
             navigatorCabinetToPages = emptyMap(),
@@ -282,7 +276,13 @@ fun ReferenceModalHost(
             warningMessage = null
         )
     } else {
-        refDocData
+        rememberReferenceViewerData(
+            jobRepository = jobRepository,
+            jobFolderName = jobFolderName,
+            docType = snapshot.docType,
+            refreshGeneration = refreshGeneration,
+            isDarkTheme = isDarkTheme
+        )
     }
 
     // Part-tap jump: only exists while the modal is open (the Host early-returns when closed),
@@ -394,7 +394,7 @@ fun ReferenceModalHost(
                             SegmentedButton(
                                 selected = snapshot.docType == ReferenceDocType.SHEET,
                                 onClick = { state.setDocType(ReferenceDocType.SHEET, syncPage = currentSheetPage) },
-                                enabled = true,
+                                enabled = true, // Sheet is the CNC PDF already open behind the popup — always available.
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
                                 label = { Text("Sheet", maxLines = 1) }
                             )
