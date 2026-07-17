@@ -53,6 +53,7 @@ import com.kkc.sheettracker.ui.viewer.rememberReferenceViewerData
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
+import java.io.File
 
 data class ReferenceModalSnapshot(
     val isOpen: Boolean = false,
@@ -249,6 +250,9 @@ fun ReferenceModalHost(
     hasPlans: Boolean,
     hasAssembly: Boolean,
     selectedCabinet: Int?,
+    sheetPdfFilename: String,
+    sheetPdfFile: File?,
+    currentSheetPage: Int,
     hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
@@ -259,13 +263,27 @@ fun ReferenceModalHost(
         state.setOpen(false)
     }
 
-    val referenceData = rememberReferenceViewerData(
+    val refDocData = rememberReferenceViewerData(
         jobRepository = jobRepository,
         jobFolderName = jobFolderName,
         docType = snapshot.docType,
         refreshGeneration = refreshGeneration,
         isDarkTheme = isDarkTheme
     )
+    // The Sheet tab isn't a reference document looked up by JobRepository — it's the CNC PDF
+    // already open behind the popup. Override with the caller-supplied file/filename directly;
+    // no virtual mapping or cabinet index applies to it.
+    val referenceData = if (snapshot.docType == ReferenceDocType.SHEET) {
+        refDocData.copy(
+            defaultPdfFilename = sheetPdfFilename,
+            virtualMapping = null,
+            navigatorCabinetToPages = emptyMap(),
+            navigatorPlanViewLabels = emptyMap(),
+            warningMessage = null
+        )
+    } else {
+        refDocData
+    }
 
     // Part-tap jump: only exists while the modal is open (the Host early-returns when closed),
     // so the reference-doc I/O in rememberReferenceViewerData is not paid for on every screen
@@ -277,6 +295,8 @@ fun ReferenceModalHost(
     LaunchedEffect(selectedCabinet) {
         if (selectedCabinet == handledCabinet) return@LaunchedEffect
         handledCabinet = selectedCabinet
+        // Nothing to jump to on the Sheet tab — it IS the current sheet.
+        if (snapshot.docType == ReferenceDocType.SHEET) return@LaunchedEffect
         val cabinet = selectedCabinet ?: return@LaunchedEffect
         val target = resolveJumpPage(referenceData.navigatorCabinetToPages, cabinet)
         if (target != null) state.setPage(target) else state.showNoRefNote()
@@ -372,17 +392,24 @@ fun ReferenceModalHost(
                     ) {
                         SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
                             SegmentedButton(
+                                selected = snapshot.docType == ReferenceDocType.SHEET,
+                                onClick = { state.setDocType(ReferenceDocType.SHEET, syncPage = currentSheetPage) },
+                                enabled = true,
+                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+                                label = { Text("Sheet", maxLines = 1) }
+                            )
+                            SegmentedButton(
                                 selected = snapshot.docType == ReferenceDocType.PLANS_ELEVATIONS,
                                 onClick = { state.setDocType(ReferenceDocType.PLANS_ELEVATIONS) },
                                 enabled = hasPlans,
-                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                                 label = { Text("Plans & Elev.", maxLines = 1) }
                             )
                             SegmentedButton(
                                 selected = snapshot.docType == ReferenceDocType.ASSEMBLY,
                                 onClick = { state.setDocType(ReferenceDocType.ASSEMBLY) },
                                 enabled = hasAssembly,
-                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
                                 label = { Text("Assembly", maxLines = 1) }
                             )
                         }
@@ -398,11 +425,15 @@ fun ReferenceModalHost(
                             onDisplayPageChange = { state.setPage(it) },
                             defaultPdfFilename = referenceData.defaultPdfFilename,
                             pdfFileForFilename = { filename ->
-                                jobRepository.getJobRootPdfFile(
-                                    jobFolderName = jobFolderName,
-                                    pdfFilename = filename,
-                                    preferDarkMode = isDarkTheme
-                                )
+                                if (snapshot.docType == ReferenceDocType.SHEET && filename == sheetPdfFilename) {
+                                    sheetPdfFile
+                                } else {
+                                    jobRepository.getJobRootPdfFile(
+                                        jobFolderName = jobFolderName,
+                                        pdfFilename = filename,
+                                        preferDarkMode = isDarkTheme
+                                    )
+                                }
                             },
                             fileIdentitySeed = refreshGeneration,
                             preferDarkMode = isDarkTheme,
