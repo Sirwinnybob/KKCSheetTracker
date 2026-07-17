@@ -20,6 +20,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -57,10 +58,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -121,6 +127,7 @@ import com.kkc.sheettracker.ui.components.SheetStatusBadge
 import com.kkc.sheettracker.ui.components.SortColumn
 import com.kkc.sheettracker.ui.components.SortDirection
 import com.kkc.sheettracker.ui.components.SortHeader
+import com.kkc.sheettracker.ui.components.animateEntrance
 import com.kkc.sheettracker.ui.components.VerticalSplitLayout
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.markup.DrawingTool
@@ -1396,90 +1403,171 @@ fun SheetViewerScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (chips.isNotEmpty() || sheetSizeLabel != null) {
+                        val leftChips = remember(chips, sheetSizeLabel) {
+                            chips + listOfNotNull(sheetSizeLabel)
+                        }
+                        if (leftChips.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
                                     .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                chips.forEach { label ->
-                                    AssistChip(
-                                        onClick = {},
-                                        label = { Text(label) },
-                                        colors = AssistChipDefaults.assistChipColors(
-                                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                    )
-                                }
-                                if (sheetSizeLabel != null) {
-                                    AssistChip(
-                                        onClick = {},
-                                        label = { Text(sheetSizeLabel) },
-                                        colors = AssistChipDefaults.assistChipColors(
-                                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                    )
+                                Surface(
+                                    shape = RoundedCornerShape(9.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                                    shadowElevation = 2.dp,
+                                    modifier = Modifier.height(40.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxHeight(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        leftChips.forEachIndexed { i, label ->
+                                            if (i > 0) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .width(1.dp)
+                                                        .fillMaxHeight()
+                                                        .background(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.24f))
+                                                )
+                                            }
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                                                    .padding(horizontal = 16.dp)
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         } else {
                             Spacer(Modifier.weight(1f))
                         }
                         val segmentCount = if (resolvedShowPopupSegment) 4 else 3
-                        SingleChoiceSegmentedButtonRow {
-                            SegmentedButton(
-                                selected = mainViewRef.snapshot.mode == null,
-                                onClick = { mainViewRef.setMode(null) },
-                                enabled = true,
-                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = segmentCount),
-                                label = { Text("Sheet", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
-                            )
-                            SegmentedButton(
-                                selected = mainViewRef.snapshot.mode == ReferenceDocType.PLANS_ELEVATIONS,
-                                onClick = { mainViewRef.setMode(ReferenceDocType.PLANS_ELEVATIONS) },
-                                enabled = hasPlansReference,
-                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = segmentCount),
-                                label = { Text("Plans & Elev.", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
-                            )
-                            SegmentedButton(
-                                selected = mainViewRef.snapshot.mode == ReferenceDocType.ASSEMBLY,
-                                onClick = { mainViewRef.setMode(ReferenceDocType.ASSEMBLY) },
-                                enabled = hasAssemblyReference,
-                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = segmentCount),
-                                label = { Text("Assembly", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
-                            )
-                            if (resolvedShowPopupSegment) {
-                                SegmentedButton(
-                                    selected = referenceModal.snapshot.isOpen,
-                                    onClick = { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) },
-                                    enabled = true,
-                                    shape = SegmentedButtonDefaults.itemShape(index = 3, count = segmentCount),
-                                    icon = {
-                                        Icon(
-                                            Icons.Filled.OpenInNew,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    },
-                                    label = { Text("Popup", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
-                                )
-                            }
-                        }
-                        val remakeLabel = currentPageRemake?.label?.takeIf { it.isNotBlank() }
-                        if (remakeLabel != null) {
-                            AssistChip(
-                                onClick = {},
-                                enabled = false,
-                                label = { Text(remakeLabel) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Warning,
-                                        contentDescription = "Remake"
+                        val rightRowShape = RoundedCornerShape(9.dp)
+                        Surface(
+                            shape = rightRowShape,
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                            shadowElevation = 2.dp,
+                            modifier = Modifier
+                                .width(if (resolvedShowPopupSegment) 440.dp else 330.dp)
+                                .height(40.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxHeight(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Button 0: Sheet
+                                val isSheetSelected = mainViewRef.snapshot.mode == null
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .background(if (isSheetSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                        .clickable { mainViewRef.setMode(null) }
+                                        .padding(horizontal = 12.dp)
+                                ) {
+                                    Text(
+                                        text = "Sheet",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (isSheetSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1
                                     )
                                 }
-                            )
+
+                                // Divider 1
+                                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+
+                                // Button 1: Plans & Elev.
+                                val isPlansSelected = mainViewRef.snapshot.mode == ReferenceDocType.PLANS_ELEVATIONS
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .background(if (isPlansSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                        .clickable(enabled = hasPlansReference) { mainViewRef.setMode(ReferenceDocType.PLANS_ELEVATIONS) }
+                                        .padding(horizontal = 12.dp)
+                                ) {
+                                    Text(
+                                        text = "Plans & Elev.",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (isPlansSelected) MaterialTheme.colorScheme.onSecondaryContainer else if (hasPlansReference) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                        maxLines = 1
+                                    )
+                                }
+
+                                // Divider 2
+                                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+
+                                // Button 2: Assembly
+                                val isAssemblySelected = mainViewRef.snapshot.mode == ReferenceDocType.ASSEMBLY
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .background(if (isAssemblySelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                        .clickable(enabled = hasAssemblyReference) { mainViewRef.setMode(ReferenceDocType.ASSEMBLY) }
+                                        .padding(horizontal = 12.dp)
+                                ) {
+                                    Text(
+                                        text = "Assembly",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (isAssemblySelected) MaterialTheme.colorScheme.onSecondaryContainer else if (hasAssemblyReference) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                        maxLines = 1
+                                    )
+                                }
+
+                                if (resolvedShowPopupSegment) {
+                                    // Divider 3
+                                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+
+                                    // Button 3: Popup
+                                    val isPopupSelected = referenceModal.snapshot.isOpen
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .background(if (isPopupSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                            .clickable { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) }
+                                            .padding(horizontal = 12.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "Popup",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = if (isPopupSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Default.OpenInNew,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                                tint = if (isPopupSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     val remadePartNames = currentPageRemake?.remadeParts
@@ -1708,6 +1796,7 @@ fun SheetViewerScreen(
                     badParts = badParts,
                     draftBadParts = draftBadParts,
                     summary = summary,
+                    isDarkTheme = isDarkTheme,
                     selectedPartType = selectedPartType,
                     onSelectPartType = { selectedPartType = if (selectedPartType == it) null else it },
                     selectedPartNumber = selectedPartNumber,
@@ -3501,6 +3590,7 @@ private fun PartsTable(
     badParts: Set<Int>,
     draftBadParts: Set<Int>,
     summary: List<Pair<String, Int>>,
+    isDarkTheme: Boolean,
     selectedPartType: String?,
     onSelectPartType: (String) -> Unit,
     selectedPartNumber: Int?,
@@ -3525,54 +3615,102 @@ private fun PartsTable(
     onToggleBadPart: (Part) -> Unit
 ) {
     val actionColWidth = 40.dp
+    var initialLoadComplete by remember(parts) { mutableStateOf(false) }
+    LaunchedEffect(parts) {
+        delay(300)
+        initialLoadComplete = true
+    }
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            summary.forEach { (name, count) ->
-                FilterChip(
-                    selected = selectedPartType == name,
-                    onClick = { onSelectPartType(name) },
-                    label = { Text("$name ($count)") }
-                )
+            if (summary.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(9.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.height(40.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxHeight(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        summary.forEachIndexed { i, (name, count) ->
+                            if (i > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(1.dp)
+                                        .fillMaxHeight()
+                                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                                )
+                            }
+                            val isSelected = selectedPartType == name
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                    .clickable { onSelectPartType(name) }
+                                    .padding(horizontal = 16.dp)
+                            ) {
+                                Text(
+                                    text = "$name ($count)",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
         // Fixed width for the marker column — not resizable.
         val rotColWidth = 20.dp
 
-        Row(
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+            shadowElevation = 2.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .padding(horizontal = 16.dp, vertical = 4.dp)
         ) {
-            // Marker column header — muted, not sortable.
-            Text(
-                "*",
-                modifier = Modifier.width(rotColWidth),
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-            )
-            SortHeader("#", Modifier.width(numberColDp.dp), sortColumn == SortColumn.NUMBER, sortDirection) { onSortChange(SortColumn.NUMBER) }
-            ResizeHandle(onDrag = onResizeNumber)
-            SortHeader("Width", Modifier.width(widthColDp.dp), sortColumn == SortColumn.WIDTH, sortDirection) { onSortChange(SortColumn.WIDTH) }
-            ResizeHandle(onDrag = onResizeWidth)
-            SortHeader("Length", Modifier.width(lengthColDp.dp), sortColumn == SortColumn.LENGTH, sortDirection) { onSortChange(SortColumn.LENGTH) }
-            ResizeHandle(onDrag = onResizeLength)
-            SortHeader("Name", Modifier.weight(nameWeight), sortColumn == SortColumn.NAME, sortDirection) { onSortChange(SortColumn.NAME) }
-            ResizeHandle(onDrag = onResizeNameWeight)
-            SortHeader("Cab", Modifier.width(cabColDp.dp), sortColumn == SortColumn.CAB, sortDirection) { onSortChange(SortColumn.CAB) }
-            ResizeHandle(onDrag = onResizeCab)
-            SortHeader("Room", Modifier.width(roomColDp.dp), sortColumn == SortColumn.ROOM, sortDirection) { onSortChange(SortColumn.ROOM) }
-            ResizeHandle(onDrag = onResizeRoom)
-            Spacer(Modifier.width(actionColWidth))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                // Marker column header — muted, not sortable.
+                Text(
+                    "*",
+                    modifier = Modifier.width(rotColWidth),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                )
+                SortHeader("#", Modifier.width(numberColDp.dp), sortColumn == SortColumn.NUMBER, sortDirection) { onSortChange(SortColumn.NUMBER) }
+                ResizeHandle(onDrag = onResizeNumber)
+                SortHeader("Width", Modifier.width(widthColDp.dp), sortColumn == SortColumn.WIDTH, sortDirection) { onSortChange(SortColumn.WIDTH) }
+                ResizeHandle(onDrag = onResizeWidth)
+                SortHeader("Length", Modifier.width(lengthColDp.dp), sortColumn == SortColumn.LENGTH, sortDirection) { onSortChange(SortColumn.LENGTH) }
+                ResizeHandle(onDrag = onResizeLength)
+                SortHeader("Name", Modifier.weight(nameWeight), sortColumn == SortColumn.NAME, sortDirection) { onSortChange(SortColumn.NAME) }
+                ResizeHandle(onDrag = onResizeNameWeight)
+                SortHeader("Cab", Modifier.width(cabColDp.dp), sortColumn == SortColumn.CAB, sortDirection) { onSortChange(SortColumn.CAB) }
+                ResizeHandle(onDrag = onResizeCab)
+                SortHeader("Room", Modifier.width(roomColDp.dp), sortColumn == SortColumn.ROOM, sortDirection) { onSortChange(SortColumn.ROOM) }
+                ResizeHandle(onDrag = onResizeRoom)
+                Spacer(Modifier.width(actionColWidth))
+            }
         }
 
         LazyColumn(contentPadding = PaddingValues(bottom = 160.dp)) {
@@ -3580,66 +3718,91 @@ private fun PartsTable(
                 val isBad = part.number in badParts
                 val isDraft = part.number in draftBadParts
                 val isSelected = part.number == selectedPartNumber
-                val zebra = if (rowIndex % 2 == 0) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
+                val zebra = if (rowIndex % 2 == 0) {
+                    if (isDarkTheme) Color(0xFF2E4057) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
 
-                Row(
+                val baseColor = when {
+                    isBad -> KKCThemeColors.statusColors.bad.copy(alpha = 0.12f)
+                    isDraft -> KKCThemeColors.statusColors.skip.copy(alpha = 0.12f)
+                    isSelected -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.24f)
+                    else -> zebra
+                }
+                val opaqueBackgroundColor = if (baseColor.alpha < 1f) {
+                    baseColor.compositeOver(MaterialTheme.colorScheme.surface)
+                } else {
+                    baseColor
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = opaqueBackgroundColor,
+                    border = BorderStroke(
+                        1.dp,
+                        when {
+                            isBad -> KKCThemeColors.statusColors.bad.copy(alpha = 0.4f)
+                            isDraft -> KKCThemeColors.statusColors.skip.copy(alpha = 0.4f)
+                            isSelected -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f)
+                            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        }
+                    ),
+                    shadowElevation = 2.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .combinedClickable(
-                            onClick = { onPartClick(part) },
-                            onLongClick = { onPartLongPress(part) }
-                        )
-                        .background(
-                            when {
-                                isBad -> KKCThemeColors.statusColors.bad.copy(alpha = 0.18f)
-                                isDraft -> KKCThemeColors.statusColors.skip.copy(alpha = 0.18f)
-                                isSelected -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.34f)
-                                else -> zebra
-                            }
-                        )
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .animateEntrance(rowIndex, initialLoadComplete)
                 ) {
-                    // Rotation and banding markers share the same fixed-width column.
-                    // Spacers after each data cell match the 16dp ResizeHandle gaps in the header,
-                    // keeping all columns aligned.
-                    PartMarkers(
-                        rotated = part.rotated,
-                        banding = part.banding,
-                        modifier = Modifier.width(rotColWidth)
-                    )
-                    Text("${part.number}", Modifier.width(numberColDp.dp), style = DimensionTextStyle)
-                    Spacer(Modifier.width(16.dp))
-                    Text("${part.width}", Modifier.width(widthColDp.dp), style = DimensionTextStyle)
-                    Spacer(Modifier.width(16.dp))
-                    Text("${part.length}", Modifier.width(lengthColDp.dp), style = DimensionTextStyle)
-                    Spacer(Modifier.width(16.dp))
-                    Text(part.name, Modifier.weight(nameWeight), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.width(16.dp))
-                    Text("${part.cabNumber}", Modifier.width(cabColDp.dp), fontSize = 13.sp)
-                    Spacer(Modifier.width(16.dp))
-                    Text(part.room, Modifier.width(roomColDp.dp), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.width(16.dp))
-
-                    IconButton(
-                        onClick = { onToggleBadPart(part) },
+                    Row(
                         modifier = Modifier
-                            .width(actionColWidth)
-                            .height(32.dp)
+                            .combinedClickable(
+                                onClick = { onPartClick(part) },
+                                onLongClick = { onPartLongPress(part) }
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Default.Warning,
-                            contentDescription = if (isBad) "Unflag part" else "Flag bad part",
-                            tint = when {
-                                isBad -> KKCThemeColors.statusColors.bad
-                                isDraft -> KKCThemeColors.statusColors.skip
-                                else -> MaterialTheme.colorScheme.outlineVariant
-                            },
-                            modifier = Modifier.size(20.dp)
+                        // Rotation and banding markers share the same fixed-width column.
+                        // Spacers after each data cell match the 16dp ResizeHandle gaps in the header,
+                        // keeping all columns aligned.
+                        PartMarkers(
+                            rotated = part.rotated,
+                            banding = part.banding,
+                            modifier = Modifier.width(rotColWidth)
                         )
+                        Text("${part.number}", Modifier.width(numberColDp.dp), style = DimensionTextStyle)
+                        Spacer(Modifier.width(16.dp))
+                        Text("${part.width}", Modifier.width(widthColDp.dp), style = DimensionTextStyle)
+                        Spacer(Modifier.width(16.dp))
+                        Text("${part.length}", Modifier.width(lengthColDp.dp), style = DimensionTextStyle)
+                        Spacer(Modifier.width(16.dp))
+                        Text(part.name, Modifier.weight(nameWeight), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.width(16.dp))
+                        Text("${part.cabNumber}", Modifier.width(cabColDp.dp), fontSize = 13.sp)
+                        Spacer(Modifier.width(16.dp))
+                        Text(part.room, Modifier.width(roomColDp.dp), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.width(16.dp))
+
+                        IconButton(
+                            onClick = { onToggleBadPart(part) },
+                            modifier = Modifier
+                                .width(actionColWidth)
+                                .height(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = if (isBad) "Unflag part" else "Flag bad part",
+                                tint = when {
+                                    isBad -> KKCThemeColors.statusColors.bad
+                                    isDraft -> KKCThemeColors.statusColors.skip
+                                    else -> MaterialTheme.colorScheme.outlineVariant
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
         }
     }
@@ -3758,4 +3921,13 @@ private fun formatSheetDimensions(dimensions: List<Double>?): String? {
     fun fmt(value: Double): String =
         if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
     return "${fmt(dimensions[0])} × ${fmt(dimensions[1])}"
+}
+
+private fun getSegmentShape(index: Int, count: Int, cornerRadius: androidx.compose.ui.unit.Dp): androidx.compose.ui.graphics.Shape {
+    return when {
+        count <= 1 -> androidx.compose.foundation.shape.RoundedCornerShape(cornerRadius)
+        index == 0 -> androidx.compose.foundation.shape.RoundedCornerShape(topStart = cornerRadius, bottomStart = cornerRadius)
+        index == count - 1 -> androidx.compose.foundation.shape.RoundedCornerShape(topEnd = cornerRadius, bottomEnd = cornerRadius)
+        else -> androidx.compose.foundation.shape.RoundedCornerShape(0.dp)
+    }
 }

@@ -73,7 +73,7 @@ val BuiltInKKCThemeTokens = KKCThemeTokens(
     ),
     dark = KKCThemePalette(
         primary = Color(0xFF79B2FF),
-        background = Color(0xFF0A1224),
+        background = Color.Black,
         surface = Color(0xFF162438)
     ),
     lightStatus = LightStatusColors,

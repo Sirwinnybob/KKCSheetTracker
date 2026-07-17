@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.dashboard
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -419,17 +420,25 @@ fun DashboardShell(
         },
         floatingActionButton = floatingActionButton
     ) { padding ->
+        val backgroundBrush = if (isSystemInDarkTheme()) {
+            androidx.compose.ui.graphics.Brush.verticalGradient(
+                colors = listOf(
+                    androidx.compose.ui.graphics.Color.Black,
+                    androidx.compose.ui.graphics.Color.Black
+                )
+            )
+        } else {
+            androidx.compose.ui.graphics.Brush.verticalGradient(
+                colors = listOf(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    androidx.compose.ui.graphics.Color.Transparent
+                )
+            )
+        }
         Box(
             modifier = androidx.compose.ui.Modifier
                 .fillMaxSize()
-                .background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                            androidx.compose.ui.graphics.Color.Transparent
-                        )
-                    )
-                )
+                .background(backgroundBrush)
         ) {
             Column(
                 modifier = androidx.compose.ui.Modifier

@@ -243,7 +243,7 @@ fun SupplyDashboardScreen(
 
     val selectedTabIndex by remember(supplyTabs, pagerState.currentPage, boardScrollState, sortedCategories) {
         derivedStateOf {
-            if (pagerState.currentPage < boardPageIndex) {
+            val idx = if (pagerState.currentPage < boardPageIndex) {
                 pagerState.currentPage
             } else {
                 val visibleIndex = boardScrollState.firstVisibleItemIndex
@@ -254,6 +254,7 @@ fun SupplyDashboardScreen(
                     boardPageIndex
                 }
             }
+            idx.coerceIn(0, supplyTabs.lastIndex.coerceAtLeast(0))
         }
     }
 
@@ -390,13 +391,6 @@ fun SupplyDashboardScreen(
                 }
             }
         },
-        floatingActionButton = {
-            currentCategoryId?.let { catId ->
-                FloatingActionButton(onClick = { openNewItemModal(catId) }) {
-                    Icon(Icons.Filled.Add, contentDescription = "Add item")
-                }
-            }
-        }
     ) {
         // Pick mode banner
         AnimatedVisibility(visible = pickPendingBarcode != null, enter = expandVertically(), exit = shrinkVertically()) {
@@ -515,7 +509,7 @@ fun SupplyDashboardScreen(
                         }
                         LazyRow(
                             state = boardScrollState,
-                            modifier = Modifier.fillMaxSize().padding(top = 12.dp, bottom = 90.dp),
+                            modifier = Modifier.fillMaxSize().padding(top = 12.dp, bottom = 120.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(horizontal = 16.dp)
                         ) {
@@ -1826,8 +1820,13 @@ private fun BoardCard(
                 onLongClick = onLongClick
             ),
         shape = RoundedCornerShape(6.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFD5DFE5))
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surface else Color.White
+        ),
+        border = BorderStroke(
+            1.dp,
+            if (isSystemInDarkTheme()) MaterialTheme.colorScheme.outlineVariant else Color(0xFFD5DFE5)
+        )
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -1842,7 +1841,7 @@ private fun BoardCard(
                 text = item.name,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1E2A38)
+                    color = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.onSurface else Color(0xFF1E2A38)
                 ),
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis

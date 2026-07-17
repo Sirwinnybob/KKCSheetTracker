@@ -182,6 +182,14 @@ fun HardwoodsJobsScreen(
                 showParts          = false,
                 onScan             = null
             )
+        } else if (navBarDeco.owner == "jobs_hardwoods") {
+            // TabLayer keeps this screen mounted when the Jobs tab loses focus (no
+            // dispose), so the active→false transition must clear ownership itself —
+            // DisposableEffect below only catches real composition removal.
+            if (!navBarDeco.keepSearchDeco) {
+                navBarDeco.searchDecoration = null
+            }
+            navBarDeco.owner = ""
         }
     }
     DisposableEffect(Unit) {
@@ -584,6 +592,34 @@ fun HardwoodsJobsScreen(
                                 ProgressCard(
                                     modifier = Modifier.animateEntrance(index + pinnedUiStates.size, initialLoadComplete.value),
                                     title = job.folderName,
+                            titleContent = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = job.jobNumber,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        maxLines = 1
+                                    )
+                                    if (job.jobName.isNotBlank()) {
+                                        Text(
+                                            text = "– ${job.jobName}",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            },
                             subtitle = subtitle,
                             fraction = counts.completionFraction,
                             expanded = job.folderName in expandedJobs,
@@ -708,6 +744,34 @@ fun HardwoodsJobsScreen(
                             ProgressCard(
                                 modifier = Modifier.animateEntrance(index + pinnedUiStates.size + activeUiStates.size, initialLoadComplete.value),
                                 title = job.folderName,
+                                titleContent = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = job.jobNumber,
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            maxLines = 1
+                                        )
+                                        if (job.jobName.isNotBlank()) {
+                                            Text(
+                                                text = "– ${job.jobName}",
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                ),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                },
                                 subtitle = subtitle,
                                 fraction = counts.completionFraction,
                                 expanded = job.folderName in expandedJobs,

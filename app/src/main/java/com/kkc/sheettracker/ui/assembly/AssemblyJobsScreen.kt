@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.kkc.sheettracker.ui.components.animateEntrance
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.GridView
@@ -61,6 +63,7 @@ import com.kkc.sheettracker.data.UiPreferencesStore
 import android.content.res.Configuration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
@@ -143,6 +146,11 @@ fun AssemblyJobsScreen(
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView("assembly")) }
     var selectedHistoryJob by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    val initialLoadComplete = rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(600)
+        initialLoadComplete.value = true
+    }
     val adminMode by AdminModeController.enabled.collectAsState()
     LaunchedEffect(adminMode) {
         if (adminMode) {
@@ -172,6 +180,14 @@ fun AssemblyJobsScreen(
                 showParts          = false,
                 onScan             = null
             )
+        } else if (navBarDeco.owner == "jobs_assembly") {
+            // TabLayer keeps this screen mounted when the Jobs tab loses focus (no
+            // dispose), so the active→false transition must clear ownership itself —
+            // DisposableEffect below only catches real composition removal.
+            if (!navBarDeco.keepSearchDeco) {
+                navBarDeco.searchDecoration = null
+            }
+            navBarDeco.owner = ""
         }
     }
     DisposableEffect(Unit) {
@@ -449,7 +465,7 @@ fun AssemblyJobsScreen(
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
                                 )
                             }
-                            items(pinnedUiStates, key = { "pinned_${it.card.folderName}" }) { uiState ->
+                            itemsIndexed(pinnedUiStates, key = { _, uiState -> "pinned_${uiState.card.folderName}" }) { index, uiState ->
                                 val card = uiState.card
                                 val badge = badgeCache[card.folderName]
                                 val cncCounts = uiState.cncCounts
@@ -458,8 +474,38 @@ fun AssemblyJobsScreen(
                                 val pos = positionMap[card.folderName]
                                 val label = if (pos != null) "$pos of ${filtered.size}" else null
                                 ProgressCard(
+                                    modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
                                     title = card.folderName,
                                     subtitle = uiState.subtitle,
+                                    useBounceClick = true,
+                                    titleContent = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = card.jobNumber,
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontSize = 18.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                                                ),
+                                                maxLines = 1
+                                            )
+                                            if (card.jobName.isNotBlank()) {
+                                                Text(
+                                                    text = "– ${card.jobName}",
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        fontSize = 16.sp,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                    ),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    },
                                     fraction = if (combinedCounts.total <= 0) 0f else combinedCounts.complete.toFloat() / combinedCounts.total.toFloat(),
                                     expanded = false,
                                     onToggleExpanded = {},
@@ -496,7 +542,7 @@ fun AssemblyJobsScreen(
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                             }
                         }
-                        items(activeOrder, key = { it }) { activeFolderName ->
+                        itemsIndexed(activeOrder, key = { _, it -> it }) { index, activeFolderName ->
                         val uiState = activeUiStatesByFolder[activeFolderName]
                         if (uiState != null) {
                         ReorderableItem(reorderState, key = activeFolderName) {
@@ -516,8 +562,38 @@ fun AssemblyJobsScreen(
                             val combinedCounts = uiState.combinedCounts
                             val subtitle = uiState.subtitle
                             ProgressCard(
+                                modifier = Modifier.animateEntrance(index + pinnedUiStates.size, initialLoadComplete.value),
                                 title = card.folderName,
                                 subtitle = subtitle,
+                                useBounceClick = true,
+                                titleContent = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = card.jobNumber,
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 18.sp,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                                            ),
+                                            maxLines = 1
+                                        )
+                                        if (card.jobName.isNotBlank()) {
+                                            Text(
+                                                text = "– ${card.jobName}",
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontSize = 16.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                ),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                },
                                 fraction = if (combinedCounts.total <= 0) 0f else combinedCounts.complete.toFloat() / combinedCounts.total.toFloat(),
                                 expanded = false,
                                 onToggleExpanded = {},
@@ -602,7 +678,7 @@ fun AssemblyJobsScreen(
                                         .padding(horizontal = 4.dp, vertical = 8.dp)
                                 )
                             }
-                            items(pendingUiStates, key = { "pending_${it.card.folderName}" }) { uiState ->
+                            itemsIndexed(pendingUiStates, key = { _, uiState -> "pending_${uiState.card.folderName}" }) { index, uiState ->
                                 val card = uiState.card
                                 val badge = badgeCache[card.folderName]
                                 LaunchedEffect(card.folderName, scanState.snapshot.generation) {
@@ -619,8 +695,38 @@ fun AssemblyJobsScreen(
                                 val combinedCounts = uiState.combinedCounts
                                 val subtitle = uiState.subtitle
                                 ProgressCard(
+                                    modifier = Modifier.animateEntrance(index + pinnedUiStates.size + activeUiStates.size, initialLoadComplete.value),
                                     title = card.folderName,
                                     subtitle = subtitle,
+                                    useBounceClick = true,
+                                    titleContent = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = card.jobNumber,
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontSize = 18.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                                                ),
+                                                maxLines = 1
+                                            )
+                                            if (card.jobName.isNotBlank()) {
+                                                Text(
+                                                    text = "– ${card.jobName}",
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        fontSize = 16.sp,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                    ),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    },
                                     fraction = if (combinedCounts.total <= 0) 0f else combinedCounts.complete.toFloat() / combinedCounts.total.toFloat(),
                                     expanded = false,
                                     onToggleExpanded = {},

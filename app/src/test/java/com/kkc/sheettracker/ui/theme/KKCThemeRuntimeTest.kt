@@ -11,7 +11,7 @@ class KKCThemeRuntimeTest {
         val scheme = BuiltInKKCThemeTokens.toColorScheme(darkTheme = false)
 
         assertEquals(Color(0xFF1E5FAF), scheme.primary)
-        assertEquals(Color(0xFFEFF4FA), scheme.background)
+        assertEquals(Color(0xFFF5F2EB), scheme.background)
         assertEquals(Color.White, scheme.surface)
     }
 

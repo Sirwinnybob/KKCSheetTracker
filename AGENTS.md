@@ -53,4 +53,7 @@ cd C:\Scripts\KKCSheetTracker
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
+## Development & Deployment Rules
+- **NEVER** run `adb uninstall` or uninstall the app from connected devices without explicit user permission.
+
 ## Imported Claude Cowork project instructions

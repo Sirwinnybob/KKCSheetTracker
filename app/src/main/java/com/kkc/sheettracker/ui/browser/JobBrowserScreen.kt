@@ -184,6 +184,14 @@ fun JobBrowserScreen(
                 showParts          = false,
                 onScan             = null
             )
+        } else if (navBarDeco.owner == "jobs_cnc") {
+            // TabLayer keeps this screen mounted when the Jobs tab loses focus (no
+            // dispose), so the active→false transition must clear ownership itself —
+            // DisposableEffect below only catches real composition removal.
+            if (!navBarDeco.keepSearchDeco) {
+                navBarDeco.searchDecoration = null
+            }
+            navBarDeco.owner = ""
         }
     }
     DisposableEffect(Unit) {
