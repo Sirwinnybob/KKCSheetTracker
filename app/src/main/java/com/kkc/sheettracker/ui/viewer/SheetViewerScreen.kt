@@ -1391,49 +1391,42 @@ fun SheetViewerScreen(
                     inferSheetFiles(currentPageMetadata)
                 }
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    if (chips.isNotEmpty() || sheetSizeLabel != null) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            chips.forEach { label ->
-                                AssistChip(
-                                    onClick = {},
-                                    label = { Text(label) },
-                                    colors = AssistChipDefaults.assistChipColors(
-                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                )
-                            }
-                            if (sheetSizeLabel != null) {
-                                AssistChip(
-                                    onClick = {},
-                                    label = { Text(sheetSizeLabel) },
-                                    colors = AssistChipDefaults.assistChipColors(
-                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            pdfFilename,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
+                        if (chips.isNotEmpty() || sheetSizeLabel != null) {
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                chips.forEach { label ->
+                                    AssistChip(
+                                        onClick = {},
+                                        label = { Text(label) },
+                                        colors = AssistChipDefaults.assistChipColors(
+                                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    )
+                                }
+                                if (sheetSizeLabel != null) {
+                                    AssistChip(
+                                        onClick = {},
+                                        label = { Text(sheetSizeLabel) },
+                                        colors = AssistChipDefaults.assistChipColors(
+                                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    )
+                                }
+                            }
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
                         val segmentCount = if (resolvedShowPopupSegment) 4 else 3
                         SingleChoiceSegmentedButtonRow {
                             SegmentedButton(
