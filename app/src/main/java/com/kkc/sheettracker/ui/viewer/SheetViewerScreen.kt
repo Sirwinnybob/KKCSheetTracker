@@ -337,6 +337,14 @@ fun SheetViewerScreen(
     var selectedCabinetNumber by remember { mutableStateOf<Int?>(null) }
     var showReferenceDocDialog by remember { mutableStateOf(false) }
     val referenceModal = com.kkc.sheettracker.ui.components.rememberReferenceModalOverlayState()
+    val mainViewRef = rememberMainViewReferenceState()
+    val mainViewReferenceData = rememberReferenceViewerData(
+        jobRepository = jobRepository,
+        jobFolderName = jobFolderName,
+        docType = mainViewRef.snapshot.mode ?: ReferenceDocType.PLANS_ELEVATIONS,
+        refreshGeneration = scanState.snapshot.generation,
+        isDarkTheme = isDarkTheme
+    )
     var showFullPdfPage by remember { mutableStateOf(false) }
     var markupEnabled by remember(jobFolderName, pdfFilename) { mutableStateOf(false) }
     var markupStrokesVisible by remember(jobFolderName, pdfFilename) { mutableStateOf(true) }
@@ -1377,6 +1385,29 @@ fun SheetViewerScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                        SingleChoiceSegmentedButtonRow {
+                            SegmentedButton(
+                                selected = mainViewRef.snapshot.mode == null,
+                                onClick = { mainViewRef.setMode(null) },
+                                enabled = true,
+                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+                                label = { Text("Sheet", maxLines = 1) }
+                            )
+                            SegmentedButton(
+                                selected = mainViewRef.snapshot.mode == ReferenceDocType.PLANS_ELEVATIONS,
+                                onClick = { mainViewRef.setMode(ReferenceDocType.PLANS_ELEVATIONS) },
+                                enabled = hasPlansReference,
+                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
+                                label = { Text("Plans & Elev.", maxLines = 1) }
+                            )
+                            SegmentedButton(
+                                selected = mainViewRef.snapshot.mode == ReferenceDocType.ASSEMBLY,
+                                onClick = { mainViewRef.setMode(ReferenceDocType.ASSEMBLY) },
+                                enabled = hasAssemblyReference,
+                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+                                label = { Text("Assembly", maxLines = 1) }
+                            )
+                        }
                         if (hasAssemblyReference || hasPlansReference) {
                             AssistChip(
                                 onClick = { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) },
@@ -1493,7 +1524,33 @@ fun SheetViewerScreen(
                     .weight(1f),
                 aspectRatio = bitmapAspectRatio,
                 topContent = { topModifier ->
-                    Crossfade(targetState = bitmap, animationSpec = tween(150), label = "viewerBitmap") { activeBitmap ->
+                    if (mainViewRef.snapshot.mode != null) {
+                        UnifiedReferenceViewer(
+                            modifier = topModifier.fillMaxWidth(),
+                            displayPage = mainViewRef.snapshot.pageForMode(),
+                            onDisplayPageChange = { mainViewRef.setPage(it) },
+                            defaultPdfFilename = mainViewReferenceData.defaultPdfFilename,
+                            pdfFileForFilename = { filename ->
+                                jobRepository.getJobRootPdfFile(
+                                    jobFolderName = jobFolderName,
+                                    pdfFilename = filename,
+                                    preferDarkMode = isDarkTheme
+                                )
+                            },
+                            fileIdentitySeed = scanState.snapshot.generation,
+                            preferDarkMode = isDarkTheme,
+                            virtualMapping = mainViewReferenceData.virtualMapping,
+                            navigatorCabinetToPages = mainViewReferenceData.navigatorCabinetToPages,
+                            navigatorPlanViewLabels = mainViewReferenceData.navigatorPlanViewLabels,
+                            navigatorWarningMessage = mainViewReferenceData.warningMessage,
+                            missingText = "Reference PDF not found.",
+                            unreadableText = "Unable to read PDF pages.",
+                            showHeaderRow = false,
+                            showNavigationButtons = true,
+                            compactArrows = true
+                        )
+                    } else {
+                        Crossfade(targetState = bitmap, animationSpec = tween(150), label = "viewerBitmap") { activeBitmap ->
                         if (activeBitmap != null) {
                             if (showFullPdfPage || markupEnabled) {
                                 MarkupPdfPageView(
@@ -1560,6 +1617,7 @@ fun SheetViewerScreen(
                         } else {
                             SheetLoadingPlaceholder(modifier = topModifier.fillMaxWidth())
                         }
+                    }
                     }
                 },
                 bottomContent = { bottomModifier ->
@@ -1672,6 +1730,15 @@ fun SheetViewerScreen(
                 }
             )
         }
+        LaunchedEffect(selectedCabinetNumber, mainViewRef.snapshot.mode) {
+            val cabinet = selectedCabinetNumber ?: return@LaunchedEffect
+            if (mainViewRef.snapshot.mode == null) return@LaunchedEffect
+            val target = com.kkc.sheettracker.ui.components.resolveJumpPage(
+                mainViewReferenceData.navigatorCabinetToPages,
+                cabinet
+            )
+            if (target != null) mainViewRef.setPage(target)
+        }
         com.kkc.sheettracker.ui.components.ReferenceModalHost(
             state = referenceModal,
             jobRepository = jobRepository,
@@ -1681,6 +1748,9 @@ fun SheetViewerScreen(
             hasPlans = hasPlansReference,
             hasAssembly = hasAssemblyReference,
             selectedCabinet = selectedCabinetNumber,
+            sheetPdfFilename = pdfFilename,
+            sheetPdfFile = pdfFile,
+            currentSheetPage = currentPage,
             hazeState = null,
             modifier = Modifier.fillMaxSize()
         )
