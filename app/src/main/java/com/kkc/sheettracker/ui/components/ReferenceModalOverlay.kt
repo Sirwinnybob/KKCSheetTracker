@@ -319,6 +319,10 @@ fun ReferenceModalHost(
     // count effect is separate from the per-page bitmap effect since it only needs to run once per file.
     var sheetBitmap by remember(sheetPdfFile) { mutableStateOf<Bitmap?>(null) }
     var sheetTotalPages by remember(sheetPdfFile) { mutableStateOf(0) }
+    // Page-keyed bitmap cache scoped to the current sheetPdfFile: revisiting an already-resolved
+    // page is instant, and switching to a different Sheet PDF/job starts with a fresh, empty map
+    // (remember(sheetPdfFile) reallocates it) so bitmaps never leak across different files.
+    val sheetBitmapCache = remember(sheetPdfFile) { mutableMapOf<Int, Bitmap>() }
 
     LaunchedEffect(sheetPdfFile) {
         val file = sheetPdfFile ?: return@LaunchedEffect
@@ -332,11 +336,26 @@ fun ReferenceModalHost(
     }
 
     LaunchedEffect(snapshot.sheetPage, sheetPdfFile) {
-        val file = sheetPdfFile ?: run { sheetBitmap = null; return@LaunchedEffect }
+        // Clear immediately so the loading indicator shows on every page change instead of the
+        // previous page's stale bitmap lingering until the new extraction/render finishes.
+        sheetBitmap = null
+        val file = sheetPdfFile ?: return@LaunchedEffect
         val pageIndex = snapshot.sheetPage - 1
-        sheetBitmap = withContext(Dispatchers.IO) {
+        val cached = sheetBitmapCache[pageIndex]
+        if (cached != null) {
+            sheetBitmap = cached
+            return@LaunchedEffect
+        }
+        // Mirrors SheetViewerScreen's render effect: debounce so a fast page-turn cancels this
+        // effect before the expensive extraction/render work even starts.
+        kotlinx.coroutines.delay(150L)
+        val resolved = withContext(Dispatchers.IO) {
             extractLargestEmbeddedImage(file, pageIndex) ?: renderSheetPageFallback(file, pageIndex)
         }
+        if (resolved != null) {
+            sheetBitmapCache[pageIndex] = resolved
+        }
+        sheetBitmap = resolved
     }
 
     // "No reference for this cabinet" transient note — visibility is owned by the state
@@ -608,6 +627,7 @@ private fun renderSheetPageFallback(pdfFile: File, pageIndex: Int): Bitmap? {
             }
         }
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         null
     }
 }
