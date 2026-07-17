@@ -416,6 +416,21 @@ fun SheetViewerScreen(
         if (unavailable) mainViewRef.setMode(null)
     }
 
+    // The main-view segmented row below sizes its shapes off `segmentCount` (see
+    // SegmentedButtonDefaults.itemShape(index = 2, ...) for the Assembly segment, which is the
+    // last item when count == 3 but a middle item once count == 4). Driving that directly off
+    // hasAssemblyReference/hasPlansReference would make Assembly's OWN corner shape flip
+    // (end-cap -> middle -> end-cap) on every job load, because those flags read false during
+    // the produceState transient right after a job switch (see comment above at lines 383-385)
+    // even for a job that genuinely has reference documents. Hold the previously-resolved value
+    // stable through that transient and only update once BOTH lookups have actually resolved for
+    // the current job, mirroring the gate used for the mode-coercion effect above.
+    var resolvedShowPopupSegment by remember { mutableStateOf(false) }
+    LaunchedEffect(jobFolderName, hasPlansReferenceState, hasAssemblyReferenceState) {
+        if (hasPlansReferenceState == null || hasAssemblyReferenceState == null) return@LaunchedEffect
+        resolvedShowPopupSegment = hasPlansReferenceState == true || hasAssemblyReferenceState == true
+    }
+
     LaunchedEffect(pdfMarkupStore, jobFolderName) {
         if (pdfMarkupStore == null) {
             markupContentVersion = 0L
@@ -1413,8 +1428,7 @@ fun SheetViewerScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        val showPopupSegment = hasAssemblyReference || hasPlansReference
-                        val segmentCount = if (showPopupSegment) 4 else 3
+                        val segmentCount = if (resolvedShowPopupSegment) 4 else 3
                         SingleChoiceSegmentedButtonRow {
                             SegmentedButton(
                                 selected = mainViewRef.snapshot.mode == null,
@@ -1437,7 +1451,7 @@ fun SheetViewerScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 2, count = segmentCount),
                                 label = { Text("Assembly", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
                             )
-                            if (showPopupSegment) {
+                            if (resolvedShowPopupSegment) {
                                 SegmentedButton(
                                     selected = referenceModal.snapshot.isOpen,
                                     onClick = { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) },
