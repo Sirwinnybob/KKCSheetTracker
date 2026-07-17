@@ -338,13 +338,20 @@ fun SheetViewerScreen(
     var showReferenceDocDialog by remember { mutableStateOf(false) }
     val referenceModal = com.kkc.sheettracker.ui.components.rememberReferenceModalOverlayState()
     val mainViewRef = rememberMainViewReferenceState()
-    val mainViewReferenceData = rememberReferenceViewerData(
-        jobRepository = jobRepository,
-        jobFolderName = jobFolderName,
-        docType = mainViewRef.snapshot.mode ?: ReferenceDocType.PLANS_ELEVATIONS,
-        refreshGeneration = scanState.snapshot.generation,
-        isDarkTheme = isDarkTheme
-    )
+    // Only pay for the reference-doc lookup (JobRepository.getCabinetSheetIndex plus potential
+    // findReferencePdfFilename I/O) when a reference pane is actually shown. The Sheet case
+    // (mode == null, the common case) skips rememberReferenceViewerData entirely — mirrors the
+    // fix already applied to the popup viewer's ReferenceModalHost (see ReferenceModalOverlay.kt,
+    // commit d094237).
+    val mainViewReferenceData = mainViewRef.snapshot.mode?.let { mode ->
+        rememberReferenceViewerData(
+            jobRepository = jobRepository,
+            jobFolderName = jobFolderName,
+            docType = mode,
+            refreshGeneration = scanState.snapshot.generation,
+            isDarkTheme = isDarkTheme
+        )
+    }
     var showFullPdfPage by remember { mutableStateOf(false) }
     var markupEnabled by remember(jobFolderName, pdfFilename) { mutableStateOf(false) }
     var markupStrokesVisible by remember(jobFolderName, pdfFilename) { mutableStateOf(true) }
@@ -373,12 +380,17 @@ fun SheetViewerScreen(
     val cabinetSheetIndex by produceState<CabinetSheetIndex?>(null, jobFolderName) {
         value = withContext(Dispatchers.IO) { jobRepository.getCabinetSheetIndex(jobFolderName) }
     }
-    val hasAssemblyReference by produceState(false, jobFolderName) {
+    // Boolean? (not Boolean): null means "not yet resolved for this job", which lets the
+    // mode-coercion effect below tell a fresh produceState reset (job just changed) apart from a
+    // resolved "this job genuinely has no reference document" result.
+    val hasAssemblyReferenceState by produceState<Boolean?>(null, jobFolderName) {
         value = withContext(Dispatchers.IO) { jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY) }
     }
-    val hasPlansReference by produceState(false, jobFolderName) {
+    val hasPlansReferenceState by produceState<Boolean?>(null, jobFolderName) {
         value = withContext(Dispatchers.IO) { jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS) }
     }
+    val hasAssemblyReference = hasAssemblyReferenceState == true
+    val hasPlansReference = hasPlansReferenceState == true
     val hasThreeDAssets by produceState(false, jobFolderName) {
         value = withContext(Dispatchers.IO) { jobRepository.hasThreeDAssets(jobFolderName) }
     }
@@ -386,6 +398,22 @@ fun SheetViewerScreen(
         hasPlansReference -> ReferenceDocType.PLANS_ELEVATIONS
         hasAssemblyReference -> ReferenceDocType.ASSEMBLY
         else -> null
+    }
+    // mainViewRef's mode is a single global preference (MainViewReferenceState.kt), not scoped to
+    // the current job. Without this, leaving the toggle on "Plans & Elev."/"Assembly" while
+    // viewing a job, then opening a different job that lacks that reference document, would land
+    // on UnifiedReferenceViewer's "Reference PDF not found" state instead of the Sheet.
+    // Gate on the nullable *State values (not hasPlansReference/hasAssemblyReference themselves)
+    // so this only evaluates once BOTH lookups have resolved for the current job — otherwise the
+    // single frame where produceState has reset to its initial `null` right after a job switch
+    // would read as "unavailable" and cause a false-positive reset even when the new job DOES
+    // have the reference document.
+    LaunchedEffect(jobFolderName, hasPlansReferenceState, hasAssemblyReferenceState) {
+        if (hasPlansReferenceState == null || hasAssemblyReferenceState == null) return@LaunchedEffect
+        val mode = mainViewRef.snapshot.mode
+        val unavailable = (mode == ReferenceDocType.PLANS_ELEVATIONS && !hasPlansReference) ||
+            (mode == ReferenceDocType.ASSEMBLY && !hasAssemblyReference)
+        if (unavailable) mainViewRef.setMode(null)
     }
 
     LaunchedEffect(pdfMarkupStore, jobFolderName) {
@@ -1524,12 +1552,13 @@ fun SheetViewerScreen(
                     .weight(1f),
                 aspectRatio = bitmapAspectRatio,
                 topContent = { topModifier ->
-                    if (mainViewRef.snapshot.mode != null) {
+                    val mainViewRefData = mainViewReferenceData
+                    if (mainViewRefData != null) {
                         UnifiedReferenceViewer(
                             modifier = topModifier.fillMaxWidth(),
                             displayPage = mainViewRef.snapshot.pageForMode(),
                             onDisplayPageChange = { mainViewRef.setPage(it) },
-                            defaultPdfFilename = mainViewReferenceData.defaultPdfFilename,
+                            defaultPdfFilename = mainViewRefData.defaultPdfFilename,
                             pdfFileForFilename = { filename ->
                                 jobRepository.getJobRootPdfFile(
                                     jobFolderName = jobFolderName,
@@ -1539,10 +1568,10 @@ fun SheetViewerScreen(
                             },
                             fileIdentitySeed = scanState.snapshot.generation,
                             preferDarkMode = isDarkTheme,
-                            virtualMapping = mainViewReferenceData.virtualMapping,
-                            navigatorCabinetToPages = mainViewReferenceData.navigatorCabinetToPages,
-                            navigatorPlanViewLabels = mainViewReferenceData.navigatorPlanViewLabels,
-                            navigatorWarningMessage = mainViewReferenceData.warningMessage,
+                            virtualMapping = mainViewRefData.virtualMapping,
+                            navigatorCabinetToPages = mainViewRefData.navigatorCabinetToPages,
+                            navigatorPlanViewLabels = mainViewRefData.navigatorPlanViewLabels,
+                            navigatorWarningMessage = mainViewRefData.warningMessage,
                             missingText = "Reference PDF not found.",
                             unreadableText = "Unable to read PDF pages.",
                             showHeaderRow = false,
@@ -1730,14 +1759,31 @@ fun SheetViewerScreen(
                 }
             )
         }
-        LaunchedEffect(selectedCabinetNumber, mainViewRef.snapshot.mode) {
+        // Part-tap jump: mirrors ReferenceModalHost's handledCabinet pattern (ReferenceModalOverlay.kt).
+        // `handledMainCabinet` is seeded with the cabinet selected at composition start and only
+        // updates on a genuinely FRESH cabinet selection — keyed on selectedCabinetNumber alone
+        // (not mode), so toggling Sheet/Plans/Assembly never re-fires the jump and each mode keeps
+        // its own last-viewed page across toggles.
+        var handledMainCabinet by remember { mutableStateOf(selectedCabinetNumber) }
+        LaunchedEffect(selectedCabinetNumber) {
+            if (selectedCabinetNumber == handledMainCabinet) return@LaunchedEffect
+            handledMainCabinet = selectedCabinetNumber
             val cabinet = selectedCabinetNumber ?: return@LaunchedEffect
-            if (mainViewRef.snapshot.mode == null) return@LaunchedEffect
+            val mode = mainViewRef.snapshot.mode ?: return@LaunchedEffect
+            val refData = mainViewReferenceData ?: return@LaunchedEffect
             val target = com.kkc.sheettracker.ui.components.resolveJumpPage(
-                mainViewReferenceData.navigatorCabinetToPages,
+                refData.navigatorCabinetToPages,
                 cabinet
             )
-            if (target != null) mainViewRef.setPage(target)
+            if (target != null) {
+                mainViewRef.setPage(target)
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        "No reference sheet for this cabinet in ${if (mode == ReferenceDocType.ASSEMBLY) "Assembly" else "Plans"}."
+                    )
+                }
+            }
         }
         com.kkc.sheettracker.ui.components.ReferenceModalHost(
             state = referenceModal,
