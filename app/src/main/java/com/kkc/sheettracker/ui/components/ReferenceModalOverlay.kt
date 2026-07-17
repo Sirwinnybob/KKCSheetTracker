@@ -143,10 +143,11 @@ class ReferenceModalOverlayState internal constructor(
         persist()
     }
 
-    fun setDocType(docType: ReferenceDocType) {
+    fun setDocType(docType: ReferenceDocType, syncPage: Int? = null) {
         clearNoRefNote()
-        if (snapshot.docType == docType) return
-        snapshot = snapshot.withDocType(docType)
+        val next = snapshot.withDocType(docType, syncPage)
+        if (next == snapshot) return
+        snapshot = next
         persist()
     }
 
@@ -190,6 +191,7 @@ class ReferenceModalOverlayState internal constructor(
             .putString(KEY_DOC, snapshot.docType.name)
             .putInt(KEY_PLANS_PAGE, snapshot.plansPage)
             .putInt(KEY_ASM_PAGE, snapshot.assemblyPage)
+            .putInt(KEY_SHEET_PAGE, snapshot.sheetPage)
             .putFloat(KEY_X, snapshot.modalX)
             .putFloat(KEY_Y, snapshot.modalY)
             .putFloat(KEY_W, snapshot.modalWidth)
@@ -203,6 +205,7 @@ class ReferenceModalOverlayState internal constructor(
         private const val KEY_DOC = "refmodal_doc"
         private const val KEY_PLANS_PAGE = "refmodal_plans_page"
         private const val KEY_ASM_PAGE = "refmodal_asm_page"
+        private const val KEY_SHEET_PAGE = "refmodal_sheet_page"
         private const val KEY_X = "refmodal_x_dp"
         private const val KEY_Y = "refmodal_y_dp"
         private const val KEY_W = "refmodal_w_dp"
@@ -220,6 +223,7 @@ class ReferenceModalOverlayState internal constructor(
                 docType = doc,
                 plansPage = prefs.getInt(KEY_PLANS_PAGE, 1),
                 assemblyPage = prefs.getInt(KEY_ASM_PAGE, 1),
+                sheetPage = prefs.getInt(KEY_SHEET_PAGE, 1),
                 modalX = prefs.getFloat(KEY_X, 24f),
                 modalY = prefs.getFloat(KEY_Y, 24f),
                 modalWidth = prefs.getFloat(KEY_W, 360f),
