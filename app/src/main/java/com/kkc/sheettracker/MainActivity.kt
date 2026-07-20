@@ -121,8 +121,15 @@ class MainActivity : ComponentActivity() {
                         if (step != null) {
                             OnboardingGate(
                                 step = step,
+                                notificationsBlocked = notificationsPermanentlyBlocked(),
                                 onRequestNotifications = {
+                                    getSharedPreferences("kkc_tracker", MODE_PRIVATE).edit()
+                                        .putBoolean("notif_permission_requested", true)
+                                        .apply()
                                     requestPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                                },
+                                onOpenNotificationSettings = {
+                                    launchNotificationSettingsIntent()
                                 },
                                 onConfirmStorageAccess = {
                                     launchOnboardingSettingsIntent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
@@ -634,6 +641,26 @@ class MainActivity : ComponentActivity() {
     private fun launchOnboardingSettingsIntent(action: String) {
         onboardingSettingsLauncher.launch(
             Intent(action).apply { data = Uri.parse("package:$packageName") }
+        )
+    }
+
+    private fun notificationsPermanentlyBlocked(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) return false
+        val hasAskedBefore = getSharedPreferences("kkc_tracker", MODE_PRIVATE)
+            .getBoolean("notif_permission_requested", false)
+        return hasAskedBefore && !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun launchNotificationSettingsIntent() {
+        onboardingSettingsLauncher.launch(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            }
         )
     }
 

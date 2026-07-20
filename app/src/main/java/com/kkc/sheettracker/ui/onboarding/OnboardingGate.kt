@@ -9,7 +9,9 @@ import com.kkc.sheettracker.onboarding.OnboardingStep
 @Composable
 fun OnboardingGate(
     step: OnboardingStep,
+    notificationsBlocked: Boolean,
     onRequestNotifications: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
     onConfirmStorageAccess: () -> Unit,
     onConfirmInstallPermission: () -> Unit
 ) {
@@ -18,10 +20,21 @@ fun OnboardingGate(
             onDismissRequest = {},
             title = { Text("Notifications Needed") },
             text = {
-                Text("Sheet Tracker uses notifications for clock-in/out reminders. Tap OK to allow.")
+                Text(
+                    if (notificationsBlocked) {
+                        "Sheet Tracker uses notifications for clock-in/out reminders. " +
+                            "Android is blocking the prompt — tap Open Settings to allow it there."
+                    } else {
+                        "Sheet Tracker uses notifications for clock-in/out reminders. Tap OK to allow."
+                    }
+                )
             },
             confirmButton = {
-                Button(onClick = onRequestNotifications) { Text("OK") }
+                Button(
+                    onClick = if (notificationsBlocked) onOpenNotificationSettings else onRequestNotifications
+                ) {
+                    Text(if (notificationsBlocked) "Open Settings" else "OK")
+                }
             }
         )
         OnboardingStep.STORAGE_ACCESS -> AlertDialog(
