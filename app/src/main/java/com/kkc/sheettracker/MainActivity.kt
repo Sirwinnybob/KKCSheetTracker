@@ -1,6 +1,7 @@
 package com.kkc.sheettracker
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -648,9 +649,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchOnboardingSettingsIntent(action: String) {
-        onboardingSettingsLauncher.launch(
-            Intent(action).apply { data = Uri.parse("package:$packageName") }
-        )
+        try {
+            onboardingSettingsLauncher.launch(
+                Intent(action).apply { data = Uri.parse("package:$packageName") }
+            )
+        } catch (_: ActivityNotFoundException) {
+            if (action == Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION) {
+                onboardingSettingsLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        }
     }
 
     private fun shouldPromptForSyncthingKey(prefs: android.content.SharedPreferences): Boolean {
