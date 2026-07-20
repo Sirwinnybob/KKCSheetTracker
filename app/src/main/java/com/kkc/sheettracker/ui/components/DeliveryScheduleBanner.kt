@@ -53,16 +53,20 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import com.kkc.sheettracker.data.models.DeliveryJob
 
 internal fun shouldShowDeliveryScheduleBanner(
@@ -112,7 +116,10 @@ fun DeliveryScheduleBanner(
     if (!shouldShowDeliveryScheduleBanner(schedule, showWhenEmpty)) return
 
     var bannerExpanded by rememberSaveable { mutableStateOf(false) }
-    var expandedDays by remember(schedule) { mutableStateOf(daysWithDeliveries(schedule)) }
+    var expandedDays by remember { mutableStateOf(daysWithDeliveries(schedule)) }
+    LaunchedEffect(schedule) {
+        expandedDays = expandedDays + daysWithDeliveries(schedule)
+    }
     val today = remember { LocalDate.now().dayOfWeek }
     val totalCount = remember(schedule) { totalDeliveryCount(schedule) }
 
@@ -187,6 +194,7 @@ private fun DeliveryDayStrip(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Max)
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = KKCSpacing.l, vertical = KKCSpacing.s),
         horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xs)
@@ -301,6 +309,15 @@ private fun DeliveryDaySegment(
                 overflow = TextOverflow.Visible,
                 modifier = Modifier
                     .align(Alignment.Center)
+                    .layout { measurable, constraints ->
+                        val placeable = measurable.measure(Constraints(maxWidth = constraints.maxHeight))
+                        layout(placeable.height, placeable.width) {
+                            placeable.place(
+                                x = -(placeable.width - placeable.height) / 2,
+                                y = -(placeable.height - placeable.width) / 2
+                            )
+                        }
+                    }
                     .graphicsLayer { rotationZ = -90f }
             )
         }
@@ -337,7 +354,7 @@ private fun DeliveryBannerJobRow(
             }
         }
         if (job.address.isNotBlank()) {
-            IconButton(onClick = onOpenMaps, modifier = Modifier.size(28.dp)) {
+            IconButton(onClick = onOpenMaps, modifier = Modifier.size(40.dp)) {
                 Icon(
                     imageVector = Icons.Default.LocationOn,
                     contentDescription = "Open in Maps",
