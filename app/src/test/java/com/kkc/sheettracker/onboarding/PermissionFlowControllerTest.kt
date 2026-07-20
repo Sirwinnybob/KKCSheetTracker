@@ -53,7 +53,7 @@ class PermissionFlowControllerTest {
     @Test
     fun `pre-Android 13 devices skip the notifications step`() {
         val snapshot = PermissionSnapshot(
-            sdkInt = 29,
+            sdkInt = 31,
             notificationsGranted = false,
             storageGranted = false,
             installUnknownAppsGranted = false

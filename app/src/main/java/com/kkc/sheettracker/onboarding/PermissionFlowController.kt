@@ -20,7 +20,7 @@ object PermissionFlowController {
         if (snapshot.sdkInt >= Build.VERSION_CODES.TIRAMISU && !snapshot.notificationsGranted) {
             return OnboardingStep.NOTIFICATIONS
         }
-        if (snapshot.sdkInt >= Build.VERSION_CODES.Q && !snapshot.storageGranted) {
+        if (snapshot.sdkInt >= Build.VERSION_CODES.R && !snapshot.storageGranted) {
             return OnboardingStep.STORAGE_ACCESS
         }
         if (!snapshot.installUnknownAppsGranted) {
