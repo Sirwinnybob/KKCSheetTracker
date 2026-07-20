@@ -159,6 +159,17 @@ class SheetViewerScreenTest {
     }
 
     @Test
+    fun cncSheetViewerTitle_putsJobNumberBeforeMaterialName() {
+        assertEquals("12345 - Maple", cncSheetViewerTitle("12345", "Maple"))
+    }
+
+    @Test
+    fun cncSheetViewerTitle_fallsBackToMaterialWhenJobNumberMissing() {
+        assertEquals("Maple", cncSheetViewerTitle(null, "Maple"))
+        assertEquals("Maple", cncSheetViewerTitle("   ", "Maple"))
+    }
+
+    @Test
     fun partMarkers_returnsIndependentRotationAndBandingMarkers() {
         assertEquals(emptyList<PartMarker>(), partMarkers(rotated = false, banding = null))
         assertEquals(listOf(PartMarker.Rotation), partMarkers(rotated = true, banding = null))

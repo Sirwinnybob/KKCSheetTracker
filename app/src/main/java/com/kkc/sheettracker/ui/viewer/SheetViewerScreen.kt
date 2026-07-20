@@ -255,6 +255,11 @@ internal fun resolveSheetViewerMarkupStoreConfig(
 
 internal fun cncSheetViewerUiVisible(): Boolean = true
 
+internal fun cncSheetViewerTitle(jobNumber: String?, materialName: String): String {
+    val number = jobNumber?.trim().orEmpty()
+    return if (number.isBlank()) materialName else "$number - $materialName"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SheetViewerScreen(
@@ -1012,6 +1017,10 @@ fun SheetViewerScreen(
             if (dashIdx >= 0) name.substring(dashIdx + 3) else name
         }
     }
+    val currentJobNumber = scanState.snapshot.jobs
+        .firstOrNull { it.folderName == jobFolderName }
+        ?.jobNumber
+    val viewerTitle = cncSheetViewerTitle(currentJobNumber, materialName)
     val topBarColor = when (sheetStatus) {
         SheetStatus.COMPLETE -> KKCThemeColors.statusColors.complete
         SheetStatus.SKIPPED -> KKCThemeColors.statusColors.skip
@@ -1280,7 +1289,7 @@ fun SheetViewerScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            materialName,
+                            viewerTitle,
                             style = MaterialTheme.typography.titleMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
