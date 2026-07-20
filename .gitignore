@@ -31,3 +31,5 @@ qa_artifacts/
 .DS_Store
 Thumbs.db
 .claude/worktrees/
+
+.superpowers/
