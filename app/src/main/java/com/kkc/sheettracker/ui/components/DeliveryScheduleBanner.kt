@@ -117,8 +117,11 @@ fun DeliveryScheduleBanner(
 
     var bannerExpanded by rememberSaveable { mutableStateOf(false) }
     var expandedDays by remember { mutableStateOf(daysWithDeliveries(schedule)) }
+    var previousDeliveryDays by remember { mutableStateOf(daysWithDeliveries(schedule)) }
     LaunchedEffect(schedule) {
-        expandedDays = expandedDays + daysWithDeliveries(schedule)
+        val currentDeliveryDays = daysWithDeliveries(schedule)
+        expandedDays = expandedDays + (currentDeliveryDays - previousDeliveryDays)
+        previousDeliveryDays = currentDeliveryDays
     }
     val today = remember { LocalDate.now().dayOfWeek }
     val totalCount = remember(schedule) { totalDeliveryCount(schedule) }
@@ -354,7 +357,7 @@ private fun DeliveryBannerJobRow(
             }
         }
         if (job.address.isNotBlank()) {
-            IconButton(onClick = onOpenMaps, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onOpenMaps) {
                 Icon(
                     imageVector = Icons.Default.LocationOn,
                     contentDescription = "Open in Maps",
