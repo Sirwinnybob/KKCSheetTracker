@@ -4,6 +4,8 @@
 
 The current `DeliveryScheduleWidget` (compact grid of 5 day columns × AM/PM, all crammed into one small always-visible row) is hard to read on a tablet — small text, no hierarchy, no indication of which day is "today." This redesign turns it into a collapsible, animated dropdown banner that's legible at a glance and expands to show full delivery detail inline, without needing the full-screen dialog just to look at the schedule.
 
+Also included: the address field gains explicit support for raw coordinates (exact pin drop) alongside its existing free-text/Plus-Code behavior.
+
 Scope is Android-only (`KKCSheetTracker`). No server/data-model changes — `DeliverySchedule`, `DeliveryJob`, `DELIVERY_DAYS`, etc. (`data/models/DeliveryScheduleModels.kt`) are unchanged. `DeliveryScheduleDialog.kt` is unchanged in implementation, but its role narrows to **admin editing only**.
 
 ---
@@ -29,7 +31,7 @@ Inside: a horizontally-scrollable `Row` (`horizontalScroll`, only engages if con
   - Day header: `"$dayCount — $dayName"` (+ `" — Today"` suffix when it's the current day), bold, colored per the day-state rule below.
   - `AM` section label, then either job cards or italic `"No deliveries"` if the AM slot is empty.
   - `PM` section label, same treatment.
-  - Each job card: job number (bold), description, and — only if `address.isNotBlank()` — a small `Icons.Default.LocationOn` icon button that fires the same `geo:` intent `DeliveryAddressActionsRow` already uses in `DeliveryScheduleDialog.kt`. No copy-to-clipboard action here (that stays in the admin edit sheet inside the dialog) — this view is read-only.
+  - Each job card: job number (bold), description, and — only if `address.isNotBlank()` — a small `Icons.Default.LocationOn` icon button that fires `Intent(Intent.ACTION_VIEW, deliveryMapsUri(address))` (see Address Bar section below — same shared helper `DeliveryAddressActionsRow` uses). No copy-to-clipboard action here (that stays in the admin edit sheet inside the dialog) — this view is read-only.
 - Width transition (collapsed chip ↔ expanded card) animates via `animateContentSize` (or `expandHorizontally`/`shrinkHorizontally` + the existing `DeliverySizeSpring`), consistent with the spring specs already in the codebase rather than introducing a new easing curve.
 
 **Per-day expand state**: `remember { mutableStateOf<Set<String>>(...) }` seeded from `DELIVERY_DAYS.filter { day -> schedule has any job that day }` whenever `schedule` changes (`LaunchedEffect(schedule)` or `remember(schedule)`), but every segment — including empty ones — is independently tappable to toggle membership in that set. This lets someone collapse a busy day to scan others, or peek an empty day.
@@ -41,6 +43,42 @@ Computed once per composition from `LocalDate.now().dayOfWeek` compared against 
 - `index == today` → highlighted: primary-color border/background tint (mirrors the `WED` treatment in the approved mockup — 2dp primary border or primary container background).
 - `index > today` → normal, full-opacity, no special tint.
 - If today is Saturday or Sunday (not in `DELIVERY_DAYS`), no day gets the "today" highlight — all 5 days render greyed (the week's deliveries have already happened).
+
+---
+
+## Address Bar — Coordinates & Plus Codes
+
+The address field (`DeliveryJob.address`) is free text today, and the maps launch always does `Uri.parse("geo:0,0?q=${URLEncoder.encode(address, "UTF-8")}")`. Plus Codes (e.g. `8FVC9G8V+5V` or `8FVC9G8V+5V Portland, OR`) already resolve correctly through that `q=` search — no code change needed there. Raw coordinates (e.g. `45.523, -122.676`) currently go through the same search path, which usually works but doesn't guarantee an exact pin/zoom. This adds explicit coordinate detection so those get a precise `geo:lat,lng` launch instead.
+
+### New file: `ui/components/DeliveryAddressUtil.kt`
+Shared by both `DeliveryScheduleDialog.kt` and `DeliveryScheduleBanner.kt` so the logic exists once.
+
+```kotlin
+fun parseDeliveryCoordinates(address: String): Pair<Double, Double>? {
+    val parts = address.split(",").map { it.trim() }
+    if (parts.size != 2) return null
+    val lat = parts[0].toDoubleOrNull() ?: return null
+    val lng = parts[1].toDoubleOrNull() ?: return null
+    if (lat !in -90.0..90.0 || lng !in -180.0..180.0) return null
+    return lat to lng
+}
+
+fun deliveryMapsUri(address: String): Uri {
+    val coords = parseDeliveryCoordinates(address)
+    return if (coords != null) {
+        Uri.parse("geo:${coords.first},${coords.second}?q=${coords.first},${coords.second}")
+    } else {
+        Uri.parse("geo:0,0?q=${URLEncoder.encode(address, "UTF-8")}")
+    }
+}
+```
+
+- A bare `"lat,lng"` string (both parts parse as `Double`, within valid ranges) → `geo:lat,lng?q=lat,lng`, which drops an exact pin and zooms there. Anything else (street address, Plus Code, Plus Code + locality, unparseable junk) → falls through to the existing `geo:0,0?q=<encoded text>` search behavior, unchanged from today.
+- **Modified: `DeliveryScheduleDialog.kt`** — `DeliveryAddressActionsRow`'s "Open in Maps" button switches from its inline `URLEncoder.encode` + `geo:0,0?q=` construction to `context.startActivity(Intent(Intent.ACTION_VIEW, deliveryMapsUri(address)))`. The "Copy" button is untouched.
+- **New banner's maps icon** (see below) uses the same `deliveryMapsUri(address)` helper.
+
+### Field hint text
+Both address entry points in `DeliveryScheduleDialog.kt` — `DeliveryJobDetailSheet`'s edit field and `DeliveryAddJobPanel`'s manual-add field — get their `OutlinedTextField` `label` changed from `"Address"` to `"Address, coordinates, or Plus Code"`. No input masking or validation on save; the field stays plain free text, detection only happens at maps-launch time.
 
 ---
 
@@ -104,6 +142,8 @@ The existing `if (showScheduleDialog) { DeliveryScheduleDialog(...) }` block at 
 6. **Weekend edge case**: with device date on Sat/Sun (or force via test), confirm all 5 days render greyed, none highlighted.
 7. **Overflow scroll**: with 3+ days expanded simultaneously (enough to overflow a tablet-width screen), confirm the day strip scrolls horizontally rather than clipping or overlapping.
 8. **Maps icon**: job with a non-blank address shows the location icon; tapping it fires the `geo:` intent. Job without an address shows no icon.
-9. **Admin edit entry point**: `isAdminMode = true` shows the edit icon on the collapsed header; tapping it opens `DeliveryScheduleDialog` in admin mode, independent of banner expand/collapse state. `isAdminMode = false` shows no edit icon, and there is no way to reach `DeliveryScheduleDialog` from the banner.
-10. **Empty schedule**: non-admin sees banner hidden entirely; admin sees banner with `"0 — Deliveries This Week"` and all 5 days collapsed by default.
-11. **Regression — existing tests**: `DeliveryScheduleWidgetTest.kt` migrates to cover the renamed show/hide helper; `DeliveryScheduleRequestStoreTest.kt` and `DeliveryScheduleRepositoryTest.kt` are unaffected (no data-layer changes).
+9. **Coordinate detection**: address `"45.523, -122.676"` → maps intent launches with `geo:45.523,-122.676?q=45.523,-122.676` (exact pin). Address `"8FVC9G8V+5V Portland, OR"` (Plus Code) and a normal street address both still launch via `geo:0,0?q=<encoded text>`, unchanged from today. Malformed near-coordinate text (e.g. `"45.5, abc"`, out-of-range values) falls through to the search path, not a crash.
+10. **Address field hints**: both the admin edit sheet and the manual-add panel in `DeliveryScheduleDialog.kt` show the updated `"Address, coordinates, or Plus Code"` label.
+11. **Admin edit entry point**: `isAdminMode = true` shows the edit icon on the collapsed header; tapping it opens `DeliveryScheduleDialog` in admin mode, independent of banner expand/collapse state. `isAdminMode = false` shows no edit icon, and there is no way to reach `DeliveryScheduleDialog` from the banner.
+12. **Empty schedule**: non-admin sees banner hidden entirely; admin sees banner with `"0 — Deliveries This Week"` and all 5 days collapsed by default.
+13. **Regression — existing tests**: `DeliveryScheduleWidgetTest.kt` migrates to cover the renamed show/hide helper; `DeliveryScheduleRequestStoreTest.kt` and `DeliveryScheduleRepositoryTest.kt` are unaffected (no data-layer changes).
