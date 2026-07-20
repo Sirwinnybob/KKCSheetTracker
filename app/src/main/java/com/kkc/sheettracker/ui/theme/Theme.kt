@@ -101,7 +101,8 @@ fun KKCTheme(
 
     CompositionLocalProvider(
         LocalKKCStatusColors provides statusColors,
-        LocalKKCThemeTokens provides themeTokens
+        LocalKKCThemeTokens provides themeTokens,
+        LocalKKCIsDarkTheme provides darkTheme
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

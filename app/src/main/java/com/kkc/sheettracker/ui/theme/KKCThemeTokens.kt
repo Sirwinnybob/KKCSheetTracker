@@ -62,6 +62,7 @@ data class KKCThemeShapeTokens(
 )
 
 val LocalKKCThemeTokens = staticCompositionLocalOf { BuiltInKKCThemeTokens }
+val LocalKKCIsDarkTheme = staticCompositionLocalOf { false }
 
 val BuiltInKKCThemeTokens = KKCThemeTokens(
     id = KKCThemeRepository.BUILT_IN_THEME_ID,

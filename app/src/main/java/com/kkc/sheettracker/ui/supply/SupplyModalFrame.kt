@@ -12,7 +12,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
@@ -121,7 +121,7 @@ fun SupplyModalFrame(
                 enter = SupplyModalEnter,
                 exit = SupplyModalExit
             ) {
-                val modalBgColor = if (isSystemInDarkTheme()) Color(0xFF1B2028) else Color(0xFFFFFFFF)
+                val modalBgColor = if (LocalKKCIsDarkTheme.current) Color(0xFF1B2028) else Color(0xFFFFFFFF)
                 Surface(
                     modifier = modifier
                         .fillMaxWidth()

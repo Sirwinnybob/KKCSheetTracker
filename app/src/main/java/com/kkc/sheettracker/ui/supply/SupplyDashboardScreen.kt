@@ -21,8 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.derivedStateOf
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -490,7 +490,7 @@ fun SupplyDashboardScreen(
                     modifier = Modifier.weight(1f)
                 ) { page ->
                     if (page == boardPageIndex) {
-                        val isDark = isSystemInDarkTheme()
+                        val isDark = LocalKKCIsDarkTheme.current
                         val palette = if (isDark) HEADER_COLORS_DARK else HEADER_COLORS_LIGHT
                         // Greedy coloring: pick a color that differs from the previous neighbor
                         val headerColors = remember(sortedCategories, isDark) {
@@ -1821,11 +1821,11 @@ private fun BoardCard(
             ),
         shape = RoundedCornerShape(6.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surface else Color.White
+            containerColor = if (LocalKKCIsDarkTheme.current) MaterialTheme.colorScheme.surface else Color.White
         ),
         border = BorderStroke(
             1.dp,
-            if (isSystemInDarkTheme()) MaterialTheme.colorScheme.outlineVariant else Color(0xFFD5DFE5)
+            if (LocalKKCIsDarkTheme.current) MaterialTheme.colorScheme.outlineVariant else Color(0xFFD5DFE5)
         )
     ) {
         Column(
@@ -1841,7 +1841,7 @@ private fun BoardCard(
                 text = item.name,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    color = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.onSurface else Color(0xFF1E2A38)
+                    color = if (LocalKKCIsDarkTheme.current) MaterialTheme.colorScheme.onSurface else Color(0xFF1E2A38)
                 ),
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
@@ -1882,7 +1882,7 @@ private fun CategoryBoardColumn(
     onLongPress: (SupplyItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalKKCIsDarkTheme.current
     val columnBgColor = if (isDark) Color(0xFF1C2B3E) else Color(0xFFEDF2F5)
     val scope = rememberCoroutineScope()
     val isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id)
