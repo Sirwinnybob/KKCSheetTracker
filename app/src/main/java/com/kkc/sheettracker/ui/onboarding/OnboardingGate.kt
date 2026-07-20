@@ -4,7 +4,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import com.kkc.sheettracker.onboarding.OnboardingStep
 
 @Composable
@@ -14,13 +13,17 @@ fun OnboardingGate(
     onConfirmStorageAccess: () -> Unit,
     onConfirmInstallPermission: () -> Unit
 ) {
-    LaunchedEffect(step) {
-        if (step == OnboardingStep.NOTIFICATIONS) {
-            onRequestNotifications()
-        }
-    }
     when (step) {
-        OnboardingStep.NOTIFICATIONS -> Unit
+        OnboardingStep.NOTIFICATIONS -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Notifications Needed") },
+            text = {
+                Text("Sheet Tracker uses notifications for clock-in/out reminders. Tap OK to allow.")
+            },
+            confirmButton = {
+                Button(onClick = onRequestNotifications) { Text("OK") }
+            }
+        )
         OnboardingStep.STORAGE_ACCESS -> AlertDialog(
             onDismissRequest = {},
             title = { Text("Storage Access Needed") },
