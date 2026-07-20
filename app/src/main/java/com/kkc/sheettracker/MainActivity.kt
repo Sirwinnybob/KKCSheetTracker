@@ -170,7 +170,11 @@ class MainActivity : ComponentActivity() {
         updateManager = UpdateManager(
             activity = this,
             onRequestInstallPermission = { onGranted ->
-                pendingSettingsReturnAction = onGranted
+                pendingSettingsReturnAction = {
+                    if (packageManager.canRequestPackageInstalls()) {
+                        onGranted()
+                    }
+                }
                 launchOnboardingSettingsIntent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
             }
         ).apply {
