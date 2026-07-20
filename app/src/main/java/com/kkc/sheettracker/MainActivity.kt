@@ -284,7 +284,7 @@ class MainActivity : ComponentActivity() {
             val syncthingStatus by syncthingSupervisor.status.collectAsState()
             val syncthingApiKey by syncthingSupervisor.apiKey.collectAsState()
             val composeScope = rememberCoroutineScope()
-            var showSyncthingSetupPrompt by rememberSaveable { mutableStateOf(true) }
+            var showSyncthingSetupPrompt by rememberSaveable { mutableStateOf(shouldPromptForSyncthingKey(prefs)) }
             var setupApiKeyInput by rememberSaveable { mutableStateOf("") }
             var acknowledgedSyncFailureAttemptAtMs by rememberSaveable { mutableStateOf<Long?>(null) }
             var showViewOnlyNotice by rememberSaveable { mutableStateOf(isViewOnlyMode) }
@@ -481,7 +481,10 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             dismissButton = {
-                                TextButton(onClick = { showSyncthingSetupPrompt = false }) {
+                                TextButton(onClick = {
+                                    prefs.edit().putLong("last_syncthing_prompt_at_ms", System.currentTimeMillis()).apply()
+                                    showSyncthingSetupPrompt = false
+                                }) {
                                     Text("Later")
                                 }
                             }
@@ -646,6 +649,12 @@ class MainActivity : ComponentActivity() {
         onboardingSettingsLauncher.launch(
             Intent(action).apply { data = Uri.parse("package:$packageName") }
         )
+    }
+
+    private fun shouldPromptForSyncthingKey(prefs: android.content.SharedPreferences): Boolean {
+        val syncthingPromptIntervalMs = 12 * 60 * 60 * 1000L
+        val lastPromptAtMs = prefs.getLong("last_syncthing_prompt_at_ms", 0L)
+        return System.currentTimeMillis() - lastPromptAtMs >= syncthingPromptIntervalMs
     }
 
     private fun notificationsPermanentlyBlocked(): Boolean {
