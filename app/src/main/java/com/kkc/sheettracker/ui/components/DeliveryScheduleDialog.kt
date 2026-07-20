@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -107,7 +106,6 @@ import com.kkc.sheettracker.data.models.DeliverySchedule
 import com.kkc.sheettracker.data.models.DeliverySchedulePickerJob
 import com.kkc.sheettracker.data.models.DeliverySlot
 import com.kkc.sheettracker.ui.theme.KKCSpacing
-import java.net.URLEncoder
 
 private val DeliverySizeSpring: FiniteAnimationSpec<IntSize> =
     spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
@@ -787,7 +785,7 @@ private fun DeliveryJobDetailSheet(
                 OutlinedTextField(
                     value = editAddress,
                     onValueChange = { editAddress = it },
-                    label = { Text("Address") },
+                    label = { Text("Address, coordinates, or Plus Code") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -851,8 +849,7 @@ private fun DeliveryJobDetailSheet(
 private fun DeliveryAddressActionsRow(address: String, context: Context) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = {
-            val encoded = URLEncoder.encode(address, "UTF-8")
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encoded")))
+            context.startActivity(Intent(Intent.ACTION_VIEW, deliveryMapsUri(address)))
         }) {
             Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(KKCSpacing.xxs))
@@ -1036,7 +1033,7 @@ private fun DeliveryAddJobPanel(
             OutlinedTextField(
                 value = manualAddress,
                 onValueChange = { manualAddress = it },
-                label = { Text("Address") },
+                label = { Text("Address, coordinates, or Plus Code") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
