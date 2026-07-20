@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val EXTRA_VIEW_ONLY_MODE = "extra_view_only_mode"
+        const val SYNCTHING_PROMPT_INTERVAL_MS = 12 * 60 * 60 * 1000L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -456,8 +457,12 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (showSyncthingSetupPrompt && syncthingApiKey.isBlank()) {
+                        val dismissSyncthingPrompt = {
+                            prefs.edit().putLong("last_syncthing_prompt_at_ms", System.currentTimeMillis()).apply()
+                            showSyncthingSetupPrompt = false
+                        }
                         AlertDialog(
-                            onDismissRequest = { showSyncthingSetupPrompt = false },
+                            onDismissRequest = dismissSyncthingPrompt,
                             title = { Text("Syncthing API Key Required") },
                             text = {
                                 OutlinedTextField(
@@ -481,10 +486,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             dismissButton = {
-                                TextButton(onClick = {
-                                    prefs.edit().putLong("last_syncthing_prompt_at_ms", System.currentTimeMillis()).apply()
-                                    showSyncthingSetupPrompt = false
-                                }) {
+                                TextButton(onClick = dismissSyncthingPrompt) {
                                     Text("Later")
                                 }
                             }
@@ -652,9 +654,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun shouldPromptForSyncthingKey(prefs: android.content.SharedPreferences): Boolean {
-        val syncthingPromptIntervalMs = 12 * 60 * 60 * 1000L
         val lastPromptAtMs = prefs.getLong("last_syncthing_prompt_at_ms", 0L)
-        return System.currentTimeMillis() - lastPromptAtMs >= syncthingPromptIntervalMs
+        return System.currentTimeMillis() - lastPromptAtMs >= SYNCTHING_PROMPT_INTERVAL_MS
     }
 
     private fun notificationsPermanentlyBlocked(): Boolean {
