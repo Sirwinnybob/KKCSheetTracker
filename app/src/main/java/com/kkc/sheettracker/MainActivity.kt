@@ -160,7 +160,13 @@ class MainActivity : ComponentActivity() {
 
         val useLegacyUpdatePrompt = DeviceOwnerUpdateFallback(this)
             .shouldUseLegacyPrompt(basePath = basePath, tabletId = tabletId)
-        updateManager = UpdateManager(this).apply {
+        updateManager = UpdateManager(
+            activity = this,
+            onRequestInstallPermission = { onGranted ->
+                pendingSettingsReturnAction = onGranted
+                launchOnboardingSettingsIntent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+            }
+        ).apply {
             this.basePath = basePath
             this.tabletId = tabletId
             isSilentUpdateSupported = !useLegacyUpdatePrompt

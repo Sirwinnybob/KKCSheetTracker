@@ -2,14 +2,11 @@ package com.kkc.sheettracker.update
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.provider.Settings
 import android.text.InputType
 import android.util.Log
 import android.widget.EditText
@@ -41,7 +38,10 @@ data class ApkInfo(
     val versionName: String
 )
 
-class UpdateManager(private val activity: Activity) {
+class UpdateManager(
+    private val activity: Activity,
+    private val onRequestInstallPermission: (onGranted: () -> Unit) -> Unit
+) {
 
     companion object {
         private const val TAG = "UpdateManager"
@@ -133,10 +133,6 @@ class UpdateManager(private val activity: Activity) {
      * uses it); state changes land asynchronously via applyUpdateScan.
      */
     fun checkForUpdates(checkSelf: Boolean = true): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-            requestStoragePermission()
-            return true
-        }
         Thread {
             val scan = scanForUpdates(checkSelf)
             activity.runOnUiThread { applyUpdateScan(scan, checkSelf) }
@@ -435,7 +431,7 @@ class UpdateManager(private val activity: Activity) {
 
     private fun installApk(apkFile: File) {
         if (!activity.packageManager.canRequestPackageInstalls()) {
-            requestInstallPermission()
+            onRequestInstallPermission { installApk(apkFile) }
             return
         }
         try {
@@ -492,39 +488,4 @@ class UpdateManager(private val activity: Activity) {
         }
     }
 
-    @SuppressLint("InlinedApi")
-    private fun requestStoragePermission() {
-        AlertDialog.Builder(activity)
-            .setTitle("Permission Required")
-            .setMessage("To check for updates, this app needs access to manage all files. Please grant this permission in the next screen.")
-            .setPositiveButton("OK") { _, _ ->
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                        addCategory("android.intent.category.DEFAULT")
-                        data = Uri.parse("package:${activity.packageName}")
-                    }
-                    activity.startActivity(intent)
-                } catch (_: Exception) {
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    activity.startActivity(intent)
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun requestInstallPermission() {
-        AlertDialog.Builder(activity)
-            .setTitle("Permission Required")
-            .setMessage("To perform updates, this app needs permission to install unknown apps. Please grant this permission in the next screen.")
-            .setPositiveButton("Settings") { _, _ ->
-                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                    data = Uri.parse("package:${activity.packageName}")
-                }
-                activity.startActivity(intent)
-            }
-            .setNegativeButton("Cancel", null)
-            .setCancelable(false)
-            .show()
-    }
 }
