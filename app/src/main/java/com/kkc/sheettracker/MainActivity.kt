@@ -54,6 +54,9 @@ import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.navigation.AppNavigation
 import com.kkc.sheettracker.navigation.WorkMode
+import com.kkc.sheettracker.onboarding.OnboardingStep
+import com.kkc.sheettracker.onboarding.PermissionFlowController
+import com.kkc.sheettracker.onboarding.PermissionSnapshot
 import com.kkc.sheettracker.sync.DataStoreSyncthingPreferencesStore
 import com.kkc.sheettracker.sync.SyncthingInstallResolver
 import com.kkc.sheettracker.sync.SyncthingIntentConfig
@@ -62,6 +65,7 @@ import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingSupervisor
 import androidx.lifecycle.lifecycleScope
 import com.kkc.sheettracker.ui.migration.MigrationRequiredScreen
+import com.kkc.sheettracker.ui.onboarding.OnboardingGate
 import com.kkc.sheettracker.ui.components.PersistentNavigationBarHider
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
 import com.kkc.sheettracker.ui.theme.KKCTheme
@@ -83,7 +87,18 @@ class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { /* permissions handled */ }
+    ) { refreshOnboardingStep() }
+
+    private val onboardingSettingsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val action = pendingSettingsReturnAction
+        pendingSettingsReturnAction = null
+        if (action != null) action() else refreshOnboardingStep()
+    }
+
+    private var pendingOnboardingStep by mutableStateOf<OnboardingStep?>(null)
+    private var pendingSettingsReturnAction: (() -> Unit)? = null
 
     private companion object {
         const val EXTRA_VIEW_ONLY_MODE = "extra_view_only_mode"
@@ -92,7 +107,36 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        requestStoragePermissions()
+
+        refreshOnboardingStep()
+        if (pendingOnboardingStep != null) {
+            setContent {
+                KKCTheme(darkTheme = androidx.compose.foundation.isSystemInDarkTheme()) {
+                    PersistentNavigationBarHider()
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        val step = pendingOnboardingStep
+                        if (step != null) {
+                            OnboardingGate(
+                                step = step,
+                                onRequestNotifications = {
+                                    requestPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                                },
+                                onConfirmStorageAccess = {
+                                    launchOnboardingSettingsIntent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                                },
+                                onConfirmInstallPermission = {
+                                    launchOnboardingSettingsIntent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            return
+        }
 
         val prefs = getSharedPreferences("kkc_tracker", MODE_PRIVATE)
         com.kkc.sheettracker.data.AdminModeController.init(this)
@@ -517,6 +561,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        refreshOnboardingStep()
         if (::syncthingSupervisor.isInitialized) {
             syncthingSupervisor.checkNow()
         }
@@ -553,6 +598,39 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    private fun refreshOnboardingStep() {
+        val next = PermissionFlowController.nextStep(currentPermissionSnapshot())
+        val wasPending = pendingOnboardingStep != null
+        pendingOnboardingStep = next
+        if (wasPending && next == null) {
+            recreate()
+        }
+    }
+
+    private fun currentPermissionSnapshot(): PermissionSnapshot {
+        val notificationsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else true
+        val storageGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else true
+        return PermissionSnapshot(
+            sdkInt = Build.VERSION.SDK_INT,
+            notificationsGranted = notificationsGranted,
+            storageGranted = storageGranted,
+            installUnknownAppsGranted = packageManager.canRequestPackageInstalls()
+        )
+    }
+
+    private fun launchOnboardingSettingsIntent(action: String) {
+        onboardingSettingsLauncher.launch(
+            Intent(action).apply { data = Uri.parse("package:$packageName") }
+        )
+    }
+
     private fun findDefaultBasePath(): String {
         val externalRoot = Environment.getExternalStorageDirectory().absolutePath
         val candidates = listOf(
@@ -563,37 +641,6 @@ class MainActivity : ComponentActivity() {
             if (File(path).isDirectory) return path
         }
         return candidates.first()
-    }
-
-    private fun requestStoragePermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val notificationGranted = ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!notificationGranted) {
-                requestPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                intent.data = Uri.parse("package:$packageName")
-                startActivity(intent)
-            }
-        } else {
-            val perms = arrayOf(
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            )
-            val needed = perms.filter {
-                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (needed.isNotEmpty()) {
-                requestPermissionLauncher.launch(needed.toTypedArray())
-            }
-        }
     }
 
     private fun handleNotificationIntent(intent: Intent?) {
