@@ -70,7 +70,7 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.List
-import androidx.compose.foundation.isSystemInDarkTheme
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Edit
@@ -1468,7 +1468,7 @@ private fun SideActionButton(
     bold: Boolean = false,
     interactive: Boolean = true
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalKKCIsDarkTheme.current
     val bgColor = if (checked) {
         MaterialTheme.colorScheme.primaryContainer
     } else {

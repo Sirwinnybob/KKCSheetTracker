@@ -26,7 +26,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -79,6 +78,7 @@ import com.kkc.sheettracker.ui.components.ProgressState
 import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.KKCSpacing
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlin.math.roundToInt
 
@@ -286,7 +286,7 @@ private fun HardwoodsOverviewCard(
 ) {
     val colors = KKCThemeColors.statusColors
     val completionFraction = totalCounts.completionFraction
-    val heroTint = if (isSystemInDarkTheme()) KKCAlpha.cardHeroTint else KKCAlpha.lightCardHeroTint
+    val heroTint = if (LocalKKCIsDarkTheme.current) KKCAlpha.cardHeroTint else KKCAlpha.lightCardHeroTint
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
