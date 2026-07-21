@@ -91,7 +91,7 @@ import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.ui.admin.JobLabelEditorNavBarControls
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
-import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
+import com.kkc.sheettracker.ui.components.DeliveryScheduleBanner
 import com.kkc.sheettracker.ui.components.JobBoardGrid
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.JobBoardItem
@@ -436,9 +436,10 @@ fun JobBrowserScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
 
-            DeliveryScheduleWidget(
+            DeliveryScheduleBanner(
                 schedule = deliverySchedule,
-                onTap = { showScheduleDialog = true },
+                isAdminMode = adminMode,
+                onEditRequested = { showScheduleDialog = true },
                 showWhenEmpty = adminMode,
                 modifier = Modifier
                     .fillMaxWidth()

@@ -105,7 +105,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
 
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
-import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
+import com.kkc.sheettracker.ui.components.DeliveryScheduleBanner
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 
@@ -401,9 +401,10 @@ fun AssemblyJobsScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
 
-            DeliveryScheduleWidget(
+            DeliveryScheduleBanner(
                 schedule = deliverySchedule,
-                onTap = { showScheduleDialog = true },
+                isAdminMode = adminMode,
+                onEditRequested = { showScheduleDialog = true },
                 showWhenEmpty = adminMode,
                 modifier = Modifier
                     .fillMaxWidth()

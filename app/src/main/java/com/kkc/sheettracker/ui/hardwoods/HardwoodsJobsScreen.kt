@@ -110,7 +110,7 @@ import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
-import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
+import com.kkc.sheettracker.ui.components.DeliveryScheduleBanner
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -446,9 +446,10 @@ fun HardwoodsJobsScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
 
-            DeliveryScheduleWidget(
+            DeliveryScheduleBanner(
                 schedule = deliverySchedule,
-                onTap = { showScheduleDialog = true },
+                isAdminMode = adminMode,
+                onEditRequested = { showScheduleDialog = true },
                 showWhenEmpty = adminMode,
                 modifier = Modifier
                     .fillMaxWidth()

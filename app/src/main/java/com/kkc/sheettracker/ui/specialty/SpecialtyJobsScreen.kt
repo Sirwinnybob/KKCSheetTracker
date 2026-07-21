@@ -101,7 +101,7 @@ import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
-import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
+import com.kkc.sheettracker.ui.components.DeliveryScheduleBanner
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -325,9 +325,10 @@ fun SpecialtyJobsScreen(
             )
             SortToggleBar(sortByName = sortByName, onSortChange = { if (!adminMode) sortByName = it })
 
-            DeliveryScheduleWidget(
+            DeliveryScheduleBanner(
                 schedule = deliverySchedule,
-                onTap = { showScheduleDialog = true },
+                isAdminMode = adminMode,
+                onEditRequested = { showScheduleDialog = true },
                 showWhenEmpty = adminMode,
                 modifier = Modifier
                     .fillMaxWidth()
