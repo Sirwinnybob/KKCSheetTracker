@@ -18,6 +18,7 @@ private val Context.adminSyncDataStore: DataStore<Preferences> by preferencesDat
 )
 
 private const val ADMIN_SYNC_PORT = 5002
+private const val DEFAULT_ADMIN_SYNC_IP = "192.168.1.15"
 
 private object AdminSyncConfigKeys {
     val serverIp = stringPreferencesKey("server_ip")
@@ -42,11 +43,11 @@ class AdminSyncConfig(private val dataStore: DataStore<Preferences>) {
         .catch { throwable ->
             if (throwable is IOException) emit(emptyPreferences()) else throw throwable
         }
-        .map { prefs -> prefs[AdminSyncConfigKeys.serverIp]?.takeIf { it.isNotBlank() } }
+        .map { prefs -> prefs[AdminSyncConfigKeys.serverIp]?.takeIf { it.isNotBlank() } ?: DEFAULT_ADMIN_SYNC_IP }
 
     suspend fun getManualIp(): String? =
         dataStore.data
-            .map { prefs -> prefs[AdminSyncConfigKeys.serverIp]?.takeIf { it.isNotBlank() } }
+            .map { prefs -> prefs[AdminSyncConfigKeys.serverIp]?.takeIf { it.isNotBlank() } ?: DEFAULT_ADMIN_SYNC_IP }
             .first()
 
     suspend fun setManualIp(ip: String?) {
