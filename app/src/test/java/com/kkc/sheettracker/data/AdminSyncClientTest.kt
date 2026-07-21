@@ -59,6 +59,11 @@ class AdminSyncClientTest {
         )
 
         assertTrue(result)
+        val recorded = server.takeRequest()
+        assertEquals("/api/admin-sync/job-board-edits", recorded.path)
+        val bodyText = recorded.body.readUtf8()
+        assertTrue(bodyText.contains("\"tabletId\":\"tablet-1\""))
+        assertTrue(bodyText.contains("\"folderName\":\"Job-A\""))
     }
 
     @Test
@@ -95,6 +100,11 @@ class AdminSyncClientTest {
         )
 
         assertEquals("123", result?.slot("monday", "am")?.jobs?.single()?.jobNumber)
+        val recorded = server.takeRequest()
+        assertEquals("/api/admin-sync/delivery-schedule", recorded.path)
+        val bodyText = recorded.body.readUtf8()
+        assertTrue(bodyText.contains("\"tabletId\":\"tablet-1\""))
+        assertTrue(bodyText.contains("\"slot\":\"monday_am\""))
     }
 
     @Test
@@ -107,5 +117,17 @@ class AdminSyncClientTest {
         )
 
         assertNull(result)
+    }
+
+    @Test
+    fun `serverUrl with trailing slash is normalized correctly`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"order":["Job-A"]}"""))
+        val clientWithTrailingSlash = AdminSyncClient(server.url("/").toString())
+
+        val result = clientWithTrailingSlash.applyProductionOrder(listOf("Job-A"), "tablet-1")
+
+        assertEquals(listOf("Job-A"), result)
+        val recorded = server.takeRequest()
+        assertEquals("/api/admin-sync/production-order", recorded.path)
     }
 }

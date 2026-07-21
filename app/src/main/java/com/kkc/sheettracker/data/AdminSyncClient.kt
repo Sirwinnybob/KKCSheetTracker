@@ -17,8 +17,9 @@ import java.util.concurrent.TimeUnit
  * (ProductionOrderRequestStore / JobBoardRequestStore / DeliveryScheduleRequestStore) — no retry
  * loop here, since a stalled UI gesture is worse than an immediate fallback.
  */
-class AdminSyncClient(private val serverUrl: String) {
+class AdminSyncClient(serverUrl: String) {
 
+    private val baseUrl = serverUrl.trimEnd('/')
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     companion object {
@@ -36,7 +37,7 @@ class AdminSyncClient(private val serverUrl: String) {
                 put("tabletId", tabletId)
             }.toString().toRequestBody(jsonMediaType)
             val request = Request.Builder()
-                .url("$serverUrl/api/admin-sync/production-order")
+                .url("$baseUrl/api/admin-sync/production-order")
                 .post(body)
                 .build()
             runCatching {
@@ -65,7 +66,7 @@ class AdminSyncClient(private val serverUrl: String) {
                 put("tabletId", tabletId)
             }.toString().toRequestBody(jsonMediaType)
             val request = Request.Builder()
-                .url("$serverUrl/api/admin-sync/job-board-edits")
+                .url("$baseUrl/api/admin-sync/job-board-edits")
                 .post(body)
                 .build()
             runCatching {
@@ -98,7 +99,7 @@ class AdminSyncClient(private val serverUrl: String) {
                 put("slotEdits", slotEditsArray)
             }.toString().toRequestBody(jsonMediaType)
             val httpRequest = Request.Builder()
-                .url("$serverUrl/api/admin-sync/delivery-schedule")
+                .url("$baseUrl/api/admin-sync/delivery-schedule")
                 .post(body)
                 .build()
             runCatching {
