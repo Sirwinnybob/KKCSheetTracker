@@ -89,7 +89,9 @@ import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobBoardRequestStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProductionOrderRequestStore
+import com.kkc.sheettracker.data.DeliveryScheduleEditRequest
 import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
+import com.kkc.sheettracker.data.DeliveryScheduleSlotEdit
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
@@ -210,8 +212,8 @@ fun HardwoodsJobsScreen(
     val progressVersion by progressStore.progressVersion.collectAsState()
     val jobs = scanState.snapshot.jobs
     val loading = scanState.status == ScanStatus.LOADING && jobs.isEmpty()
-    val deliverySchedule = remember(scanState.snapshot.generation) {
-        deliveryScheduleRepository.fetchSchedule()
+    var deliverySchedule by remember(scanState.snapshot.generation) {
+        mutableStateOf(deliveryScheduleRepository.fetchSchedule())
     }
 
     // Badge cache: keyed by folderName, populated off the main thread.
@@ -903,15 +905,39 @@ fun HardwoodsJobsScreen(
             availableJobs = deliveryPickerJobs,
             onQueueSlotEdit = { slot, jobs ->
                 saveScope.launch {
-                    withContext(Dispatchers.IO) {
-                        deliveryScheduleRequestStore.queueSlotEdit(slot, jobs, tabletId)
+                    val applied = adminSyncClient?.applyDeliverySchedule(
+                        DeliveryScheduleEditRequest(
+                            tabletId = tabletId,
+                            requestedAt = java.time.Instant.now().toString(),
+                            slotEdits = listOf(
+                                DeliveryScheduleSlotEdit(slot = slot.trim().lowercase(), jobs = jobs.take(3))
+                            )
+                        )
+                    )
+                    if (applied != null) {
+                        deliverySchedule = applied
+                    } else {
+                        withContext(Dispatchers.IO) {
+                            deliveryScheduleRequestStore.queueSlotEdit(slot, jobs, tabletId)
+                        }
                     }
                 }
             },
             onQueueReset = {
                 saveScope.launch {
-                    withContext(Dispatchers.IO) {
-                        deliveryScheduleRequestStore.queueReset(tabletId)
+                    val applied = adminSyncClient?.applyDeliverySchedule(
+                        DeliveryScheduleEditRequest(
+                            tabletId = tabletId,
+                            requestedAt = java.time.Instant.now().toString(),
+                            resetAll = true
+                        )
+                    )
+                    if (applied != null) {
+                        deliverySchedule = applied
+                    } else {
+                        withContext(Dispatchers.IO) {
+                            deliveryScheduleRequestStore.queueReset(tabletId)
+                        }
                     }
                 }
             }

@@ -77,7 +77,9 @@ import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.AdminSyncClient
 import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.JobBoardEdit
+import com.kkc.sheettracker.data.DeliveryScheduleEditRequest
 import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
+import com.kkc.sheettracker.data.DeliveryScheduleSlotEdit
 import com.kkc.sheettracker.data.JobBoardRequestStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProductionOrderRequestStore
@@ -194,8 +196,8 @@ fun SpecialtyJobsScreen(
 
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
-    val deliverySchedule = remember(scanState.snapshot.generation) {
-        deliveryScheduleRepository.fetchSchedule()
+    var deliverySchedule by remember(scanState.snapshot.generation) {
+        mutableStateOf(deliveryScheduleRepository.fetchSchedule())
     }
     // deriveJobCards() is a pure in-memory transform over already-resolved job state (no file
     // I/O), so it's safe to compute synchronously here. This matters beyond perf: activeOrder
@@ -724,15 +726,39 @@ fun SpecialtyJobsScreen(
             availableJobs = deliveryPickerJobs,
             onQueueSlotEdit = { slot, jobs ->
                 saveScope.launch {
-                    withContext(Dispatchers.IO) {
-                        deliveryScheduleRequestStore.queueSlotEdit(slot, jobs, tabletId)
+                    val applied = adminSyncClient?.applyDeliverySchedule(
+                        DeliveryScheduleEditRequest(
+                            tabletId = tabletId,
+                            requestedAt = java.time.Instant.now().toString(),
+                            slotEdits = listOf(
+                                DeliveryScheduleSlotEdit(slot = slot.trim().lowercase(), jobs = jobs.take(3))
+                            )
+                        )
+                    )
+                    if (applied != null) {
+                        deliverySchedule = applied
+                    } else {
+                        withContext(Dispatchers.IO) {
+                            deliveryScheduleRequestStore.queueSlotEdit(slot, jobs, tabletId)
+                        }
                     }
                 }
             },
             onQueueReset = {
                 saveScope.launch {
-                    withContext(Dispatchers.IO) {
-                        deliveryScheduleRequestStore.queueReset(tabletId)
+                    val applied = adminSyncClient?.applyDeliverySchedule(
+                        DeliveryScheduleEditRequest(
+                            tabletId = tabletId,
+                            requestedAt = java.time.Instant.now().toString(),
+                            resetAll = true
+                        )
+                    )
+                    if (applied != null) {
+                        deliverySchedule = applied
+                    } else {
+                        withContext(Dispatchers.IO) {
+                            deliveryScheduleRequestStore.queueReset(tabletId)
+                        }
                     }
                 }
             }
