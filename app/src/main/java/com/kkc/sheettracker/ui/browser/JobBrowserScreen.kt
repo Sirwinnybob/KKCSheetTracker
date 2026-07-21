@@ -76,6 +76,7 @@ import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
 import com.kkc.sheettracker.data.HardwoodsRepository
+import com.kkc.sheettracker.data.JobBoardEdit
 import com.kkc.sheettracker.data.JobBoardRequestStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProductionOrderRequestStore
@@ -652,8 +653,14 @@ fun JobBrowserScreen(
                             labelEditJob.labels.map { it.id } + label.id
                         }
                         saveScope.launch {
-                            withContext(Dispatchers.IO) {
-                                jobBoardRequestStore.queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
+                            val applied = adminSyncClient?.applyJobBoardEdits(
+                                listOf(JobBoardEdit(folderName = labelEditJob.folderName, labelIds = newIds)),
+                                tabletId
+                            ) ?: false
+                            if (!applied) {
+                                withContext(Dispatchers.IO) {
+                                    jobBoardRequestStore.queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
+                                }
                             }
                         }
                         editingLabelsFor = labelEditJob.copy(labels = allLabels.filter { it.id in newIds })
@@ -661,8 +668,14 @@ fun JobBrowserScreen(
                     onSetPendingDelivery = { pending ->
                         val newSection = if (pending) 1 else 0
                         saveScope.launch {
-                            withContext(Dispatchers.IO) {
-                                jobBoardRequestStore.queueBoardSectionEdit(labelEditJob.folderName, newSection, tabletId)
+                            val applied = adminSyncClient?.applyJobBoardEdits(
+                                listOf(JobBoardEdit(folderName = labelEditJob.folderName, boardSection = newSection)),
+                                tabletId
+                            ) ?: false
+                            if (!applied) {
+                                withContext(Dispatchers.IO) {
+                                    jobBoardRequestStore.queueBoardSectionEdit(labelEditJob.folderName, newSection, tabletId)
+                                }
                             }
                         }
                         editingLabelsFor = labelEditJob.copy(boardSection = newSection)

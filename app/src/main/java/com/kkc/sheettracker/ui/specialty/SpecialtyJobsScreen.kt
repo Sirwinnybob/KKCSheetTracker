@@ -55,6 +55,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,6 +74,9 @@ import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.AdminSyncClient
+import com.kkc.sheettracker.data.AdminSyncConfig
+import com.kkc.sheettracker.data.JobBoardEdit
 import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
 import com.kkc.sheettracker.data.JobBoardRequestStore
 import com.kkc.sheettracker.data.JobRepository
@@ -237,6 +241,11 @@ fun SpecialtyJobsScreen(
     val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
     val jobBoardRequestStore = remember(basePath) { JobBoardRequestStore(File(basePath)) }
     val deliveryScheduleRequestStore = remember(basePath) { DeliveryScheduleRequestStore(File(basePath)) }
+    val adminSyncConfig = remember { AdminSyncConfig.create(context) }
+    val adminSyncServerUrl by produceState<String?>(initialValue = null, adminSyncConfig) {
+        value = adminSyncConfig.getServerUrl()
+    }
+    val adminSyncClient = remember(adminSyncServerUrl) { adminSyncServerUrl?.let { AdminSyncClient(it) } }
     val deliveryPickerJobs = remember(filteredCards) {
         filteredCards.map {
             DeliverySchedulePickerJob(
@@ -750,8 +759,14 @@ fun SpecialtyJobsScreen(
                             labelEditJob.labels.map { it.id } + label.id
                         }
                         saveScope.launch {
-                            withContext(Dispatchers.IO) {
-                                jobBoardRequestStore.queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
+                            val applied = adminSyncClient?.applyJobBoardEdits(
+                                listOf(JobBoardEdit(folderName = labelEditJob.folderName, labelIds = newIds)),
+                                tabletId
+                            ) ?: false
+                            if (!applied) {
+                                withContext(Dispatchers.IO) {
+                                    jobBoardRequestStore.queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
+                                }
                             }
                         }
                         editingLabelsFor = labelEditJob.copy(labels = allLabels.filter { it.id in newIds })
@@ -759,8 +774,14 @@ fun SpecialtyJobsScreen(
                     onSetPendingDelivery = { pending ->
                         val newSection = if (pending) 1 else 0
                         saveScope.launch {
-                            withContext(Dispatchers.IO) {
-                                jobBoardRequestStore.queueBoardSectionEdit(labelEditJob.folderName, newSection, tabletId)
+                            val applied = adminSyncClient?.applyJobBoardEdits(
+                                listOf(JobBoardEdit(folderName = labelEditJob.folderName, boardSection = newSection)),
+                                tabletId
+                            ) ?: false
+                            if (!applied) {
+                                withContext(Dispatchers.IO) {
+                                    jobBoardRequestStore.queueBoardSectionEdit(labelEditJob.folderName, newSection, tabletId)
+                                }
                             }
                         }
                         editingLabelsFor = labelEditJob.copy(boardSection = newSection)

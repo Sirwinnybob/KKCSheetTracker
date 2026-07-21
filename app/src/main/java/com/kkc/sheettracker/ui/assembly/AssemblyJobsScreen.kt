@@ -68,6 +68,9 @@ import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.AdminSyncClient
+import com.kkc.sheettracker.data.AdminSyncConfig
+import com.kkc.sheettracker.data.JobBoardEdit
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
@@ -296,6 +299,11 @@ fun AssemblyJobsScreen(
     val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
     val jobBoardRequestStore = remember(basePath) { JobBoardRequestStore(File(basePath)) }
     val deliveryScheduleRequestStore = remember(basePath) { DeliveryScheduleRequestStore(File(basePath)) }
+    val adminSyncConfig = remember { AdminSyncConfig.create(context) }
+    val adminSyncServerUrl by produceState<String?>(initialValue = null, adminSyncConfig) {
+        value = adminSyncConfig.getServerUrl()
+    }
+    val adminSyncClient = remember(adminSyncServerUrl) { adminSyncServerUrl?.let { AdminSyncClient(it) } }
     val deliveryPickerJobs = remember(filtered) {
         filtered.map {
             DeliverySchedulePickerJob(
@@ -850,8 +858,14 @@ fun AssemblyJobsScreen(
                             labelEditJob.labels.map { it.id } + label.id
                         }
                         saveScope.launch {
-                            withContext(Dispatchers.IO) {
-                                jobBoardRequestStore.queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
+                            val applied = adminSyncClient?.applyJobBoardEdits(
+                                listOf(JobBoardEdit(folderName = labelEditJob.folderName, labelIds = newIds)),
+                                tabletId
+                            ) ?: false
+                            if (!applied) {
+                                withContext(Dispatchers.IO) {
+                                    jobBoardRequestStore.queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
+                                }
                             }
                         }
                         editingLabelsFor = labelEditJob.copy(labels = allLabels.filter { it.id in newIds })
@@ -859,8 +873,14 @@ fun AssemblyJobsScreen(
                     onSetPendingDelivery = { pending ->
                         val newSection = if (pending) 1 else 0
                         saveScope.launch {
-                            withContext(Dispatchers.IO) {
-                                jobBoardRequestStore.queueBoardSectionEdit(labelEditJob.folderName, newSection, tabletId)
+                            val applied = adminSyncClient?.applyJobBoardEdits(
+                                listOf(JobBoardEdit(folderName = labelEditJob.folderName, boardSection = newSection)),
+                                tabletId
+                            ) ?: false
+                            if (!applied) {
+                                withContext(Dispatchers.IO) {
+                                    jobBoardRequestStore.queueBoardSectionEdit(labelEditJob.folderName, newSection, tabletId)
+                                }
                             }
                         }
                         editingLabelsFor = labelEditJob.copy(boardSection = newSection)
