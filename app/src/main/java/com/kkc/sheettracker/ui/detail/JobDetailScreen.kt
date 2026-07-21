@@ -254,7 +254,7 @@ fun JobDetailScreen(
                     .fillMaxSize()
                     .padding(padding),
                 state = listState,
-                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 152.dp),
+                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 162.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item(key = "reference-doc-buttons") {
