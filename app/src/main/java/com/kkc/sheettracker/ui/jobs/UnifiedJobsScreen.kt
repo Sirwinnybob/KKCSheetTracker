@@ -241,7 +241,7 @@ fun UnifiedJobsScreen(
     var highlightedFolderName by remember { mutableStateOf<String?>(null) }
     val lazyIndexByFolderName = remember(pinnedCards, activeOrder.toList(), pendingCards) {
         val map = mutableMapOf<String, Int>()
-        var idx = 0
+        var idx = 2 // "header_job_count" + "header_deliveries_widget" lead every list-view LazyColumn
         if (pinnedCards.isNotEmpty()) {
             idx += 1 // pinned_header
             pinnedCards.forEach { card -> map.putIfAbsent(card.folderName, idx); idx += 1 }
@@ -367,21 +367,7 @@ fun UnifiedJobsScreen(
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding)) {
-            DeliveryScheduleBanner(
-                schedule = deliverySchedule,
-                isAdminMode = adminMode,
-                onEditRequested = { showScheduleDialog = true },
-                showWhenEmpty = adminMode,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                onJobSelected = { folderName ->
-                    query = TextFieldValue("")
-                    boardView = false
-                    pendingScrollTarget = folderName
-                }
-            )
+        Box(modifier = Modifier.padding(padding)) {
             AnimatedContent(
                 targetState = sortByName to boardView,
                 transitionSpec = {
@@ -418,13 +404,19 @@ fun UnifiedJobsScreen(
                                 )
                             }
                             item(key = "header_deliveries_widget") {
-                                DeliveryScheduleWidget(
+                                DeliveryScheduleBanner(
                                     schedule = deliverySchedule,
-                                    onTap = { showScheduleDialog = true },
+                                    isAdminMode = adminMode,
+                                    onEditRequested = { showScheduleDialog = true },
                                     showWhenEmpty = adminMode,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 2.dp)
+                                        .padding(vertical = 2.dp),
+                                    onJobSelected = { folderName ->
+                                        query = TextFieldValue("")
+                                        boardView = false
+                                        pendingScrollTarget = folderName
+                                    }
                                 )
                             }
 
@@ -461,13 +453,19 @@ fun UnifiedJobsScreen(
                                 )
                             }
                             item(key = "header_deliveries_widget", span = { GridItemSpan(maxLineSpan) }) {
-                                DeliveryScheduleWidget(
+                                DeliveryScheduleBanner(
                                     schedule = deliverySchedule,
-                                    onTap = { showScheduleDialog = true },
+                                    isAdminMode = adminMode,
+                                    onEditRequested = { showScheduleDialog = true },
                                     showWhenEmpty = adminMode,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 2.dp)
+                                        .padding(vertical = 2.dp),
+                                    onJobSelected = { folderName ->
+                                        query = TextFieldValue("")
+                                        boardView = false
+                                        pendingScrollTarget = folderName
+                                    }
                                 )
                             }
 
@@ -539,13 +537,19 @@ fun UnifiedJobsScreen(
                                 )
                             }
                             item(key = "header_deliveries_widget") {
-                                DeliveryScheduleWidget(
+                                DeliveryScheduleBanner(
                                     schedule = deliverySchedule,
-                                    onTap = { showScheduleDialog = true },
+                                    isAdminMode = adminMode,
+                                    onEditRequested = { showScheduleDialog = true },
                                     showWhenEmpty = adminMode,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 2.dp)
+                                        .padding(vertical = 2.dp),
+                                    onJobSelected = { folderName ->
+                                        query = TextFieldValue("")
+                                        boardView = false
+                                        pendingScrollTarget = folderName
+                                    }
                                 )
                             }
 
