@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -19,7 +20,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -41,23 +41,24 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 import java.time.LocalDate
 import android.content.Intent
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
@@ -111,7 +112,8 @@ fun DeliveryScheduleBanner(
     isAdminMode: Boolean,
     onEditRequested: () -> Unit,
     modifier: Modifier = Modifier,
-    showWhenEmpty: Boolean = false
+    showWhenEmpty: Boolean = false,
+    onJobSelected: (folderName: String) -> Unit = {}
 ) {
     if (!shouldShowDeliveryScheduleBanner(schedule, showWhenEmpty)) return
 
@@ -126,78 +128,90 @@ fun DeliveryScheduleBanner(
     val today = LocalDate.now().dayOfWeek
     val totalCount = remember(schedule) { totalDeliveryCount(schedule) }
 
+    val accentColor = MaterialTheme.colorScheme.primary
     Surface(
         shape = RoundedCornerShape(9.dp),
         color = MaterialTheme.colorScheme.surface,
         modifier = modifier.shadow(elevation = 2.dp, shape = RoundedCornerShape(9.dp), clip = false)
     ) {
-        Row(Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.04f))) {
-            Box(
-                Modifier
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-            Column(Modifier.weight(1f, fill = true)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { bannerExpanded = !bannerExpanded }
-                        .padding(horizontal = KKCSpacing.l, vertical = KKCSpacing.inCardSpacing),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "$totalCount — Deliveries This Week",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (isAdminMode) {
-                        IconButton(onClick = onEditRequested) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit delivery schedule")
-                        }
+        // Accent stripe is drawn post-layout against this Column's own measured size (drawBehind),
+        // not via a fillMaxHeight() sibling — that pattern doesn't reliably size against a subtree
+        // containing animateContentSize() (see DeliveryDaySegment), so it's avoided entirely here.
+        Column(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.04f))
+                .drawBehind {
+                    drawRect(color = accentColor, size = size.copy(width = 4.dp.toPx()))
+                }
+                .padding(start = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { bannerExpanded = !bannerExpanded }
+                    .padding(horizontal = KKCSpacing.l, vertical = KKCSpacing.inCardSpacing),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "$totalCount — Deliveries This Week",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                if (isAdminMode) {
+                    IconButton(onClick = onEditRequested) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit delivery schedule")
                     }
-                    Icon(
-                        imageVector = if (bannerExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                        contentDescription = if (bannerExpanded) "Collapse deliveries" else "Expand deliveries",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
-                AnimatedVisibility(
-                    visible = bannerExpanded,
-                    enter = expandVertically(DeliveryBannerSizeSpring) + fadeIn(DeliveryBannerFadeInTween),
-                    exit = shrinkVertically(DeliveryBannerSizeSpring) + fadeOut(DeliveryBannerFadeOutTween)
-                ) {
-                    DeliveryDayStrip(
-                        schedule = schedule,
-                        today = today,
-                        expandedDays = expandedDays,
-                        onToggleDay = { day ->
-                            expandedDays = if (day in expandedDays) expandedDays - day else expandedDays + day
-                        }
-                    )
-                }
+                Icon(
+                    imageVector = if (bannerExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                    contentDescription = if (bannerExpanded) "Collapse deliveries" else "Expand deliveries",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            AnimatedVisibility(
+                visible = bannerExpanded,
+                enter = expandVertically(DeliveryBannerSizeSpring) + fadeIn(DeliveryBannerFadeInTween),
+                exit = shrinkVertically(DeliveryBannerSizeSpring) + fadeOut(DeliveryBannerFadeOutTween)
+            ) {
+                DeliveryDayStrip(
+                    schedule = schedule,
+                    today = today,
+                    expandedDays = expandedDays,
+                    onToggleDay = { day ->
+                        expandedDays = if (day in expandedDays) expandedDays - day else expandedDays + day
+                    },
+                    onJobSelected = onJobSelected
+                )
             }
         }
     }
 }
 
 private val DeliveryDaySegmentCollapsedWidth = 48.dp
-private val DeliveryDaySegmentMinWidth = 140.dp
-private val DeliveryDaySegmentMaxWidth = 260.dp
+private val DeliveryDaySegmentExpandedWidth = 220.dp
+// Fixed, not intrinsic — IntrinsicSize.Max + fillMaxHeight() proved unreliable on-device
+// (confirmed twice: with and without animateContentSize() in the subtree, the whole day
+// strip would balloon to fill the remaining screen height instead of matching content).
+// A hardcoded height applied identically to every segment guarantees uniform row height
+// with zero measurement risk; any day with unusually many jobs scrolls within the fixed
+// box (see verticalScroll below) instead of being clipped.
+private val DeliveryDaySegmentHeight = 200.dp
+private val DeliveryDaySegmentWidthSpring: FiniteAnimationSpec<Dp> =
+    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
 
 @Composable
 private fun DeliveryDayStrip(
     schedule: DeliverySchedule,
     today: DayOfWeek,
     expandedDays: Set<String>,
-    onToggleDay: (String) -> Unit
+    onToggleDay: (String) -> Unit,
+    onJobSelected: (folderName: String) -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Max)
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = KKCSpacing.l, vertical = KKCSpacing.s),
         horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xs)
@@ -213,7 +227,8 @@ private fun DeliveryDayStrip(
                 state = state,
                 isExpanded = day in expandedDays,
                 schedule = schedule,
-                onToggle = { onToggleDay(day) }
+                onToggle = { onToggleDay(day) },
+                onJobSelected = onJobSelected
             )
         }
     }
@@ -227,7 +242,8 @@ private fun DeliveryDaySegment(
     state: DeliveryDayState,
     isExpanded: Boolean,
     schedule: DeliverySchedule,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    onJobSelected: (folderName: String) -> Unit
 ) {
     val context = LocalContext.current
     val isToday = state == DeliveryDayState.TODAY
@@ -238,15 +254,19 @@ private fun DeliveryDaySegment(
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
+    // animateDpAsState (a plain Dp value) rather than animateContentSize() — the latter's
+    // custom measurement node doesn't compose safely with the IntrinsicSize.Max height-matching
+    // on the parent Row (confirmed on-device: caused the whole strip to balloon to screen height).
+    val animatedWidth by animateDpAsState(
+        targetValue = if (isExpanded) DeliveryDaySegmentExpandedWidth else DeliveryDaySegmentCollapsedWidth,
+        animationSpec = DeliveryDaySegmentWidthSpring,
+        label = "daySegmentWidth"
+    )
 
     Box(
         modifier = Modifier
-            .animateContentSize()
-            .widthIn(
-                min = if (isExpanded) DeliveryDaySegmentMinWidth else DeliveryDaySegmentCollapsedWidth,
-                max = if (isExpanded) DeliveryDaySegmentMaxWidth else DeliveryDaySegmentCollapsedWidth
-            )
-            .fillMaxHeight()
+            .width(animatedWidth)
+            .height(DeliveryDaySegmentHeight)
             .clip(MaterialTheme.shapes.medium)
             .background(containerColor.copy(alpha = contentAlpha))
             .border(
@@ -258,7 +278,7 @@ private fun DeliveryDaySegment(
             .padding(KKCSpacing.s)
     ) {
         if (isExpanded) {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     text = buildString {
                         append(dayCount)
@@ -295,7 +315,9 @@ private fun DeliveryDaySegment(
                                 contentAlpha = contentAlpha,
                                 onOpenMaps = {
                                     context.startActivity(Intent(Intent.ACTION_VIEW, deliveryMapsUri(job.address)))
-                                }
+                                },
+                                onSelect = job.folderName.takeIf { it.isNotBlank() }
+                                    ?.let { folderName -> { onJobSelected(folderName) } }
                             )
                         }
                     }
@@ -331,16 +353,23 @@ private fun DeliveryDaySegment(
 private fun DeliveryBannerJobRow(
     job: DeliveryJob,
     contentAlpha: Float,
-    onOpenMaps: () -> Unit
+    onOpenMaps: () -> Unit,
+    onSelect: (() -> Unit)?
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(vertical = KKCSpacing.xxs)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = KKCSpacing.xxs)
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = contentAlpha))
+            .let { base -> if (onSelect != null) base.clickable(onClick = onSelect) else base }
+            .padding(horizontal = KKCSpacing.s, vertical = KKCSpacing.xs)
     ) {
         Column(Modifier.weight(1f)) {
             Text(
                 text = job.jobNumber.ifBlank { "(no job #)" },
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
                 maxLines = 1,
@@ -355,6 +384,14 @@ private fun DeliveryBannerJobRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+        }
+        if (onSelect != null) {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "Jump to job",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
+                modifier = Modifier.size(16.dp)
+            )
         }
         if (job.address.isNotBlank()) {
             IconButton(onClick = onOpenMaps) {

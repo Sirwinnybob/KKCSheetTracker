@@ -58,6 +58,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
@@ -92,6 +93,7 @@ import com.kkc.sheettracker.ui.admin.JobLabelEditorNavBarControls
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 import com.kkc.sheettracker.ui.components.DeliveryScheduleBanner
+import com.kkc.sheettracker.ui.components.deliveryJobHighlight
 import com.kkc.sheettracker.ui.components.JobBoardGrid
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.JobBoardItem
@@ -110,6 +112,7 @@ import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
@@ -205,6 +208,11 @@ fun JobBrowserScreen(
         }
     }
     val listState = rememberLazyListState()
+    // Deep-link target set by DeliveryScheduleBanner's onJobSelected — scrolled to and
+    // highlighted once the list has recomposed into list view with the filter cleared
+    // (see lazyIndexByFolderName / LaunchedEffect below, mirrors HardwoodsWorkspaceScreen).
+    var pendingScrollTarget by remember { mutableStateOf<String?>(null) }
+    var highlightedFolderName by remember { mutableStateOf<String?>(null) }
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
     val appJobModels by appStateStore.jobUiModels.collectAsState()
@@ -327,6 +335,63 @@ fun JobBrowserScreen(
     val activeOrder = remember(scanState.snapshot.generation) {
         mutableStateListOf(*activeUiStates.map { it.job.folderName }.toTypedArray())
     }
+
+    // Absolute LazyColumn item index per folderName, replicating the exact item {} /
+    // itemsIndexed(...) emission order below (pinned header/divider, active rows, pending
+    // header) so the deep-link scroll target can be resolved. Keyed on activeOrder's contents
+    // (not the SnapshotStateList instance) so drag-reorders keep the map current. When a
+    // folderName appears more than once (a pinned job also present in the active/pending
+    // section), the first — i.e. topmost — occurrence wins.
+    val lazyIndexByFolderName = remember(pinnedUiStates, activeOrder.toList(), pendingUiStates) {
+        val indexByFolder = mutableMapOf<String, Int>()
+        var index = 0
+        if (pinnedUiStates.isNotEmpty()) {
+            index += 1 // "pinned_header" item
+            pinnedUiStates.forEach { uiState ->
+                indexByFolder.putIfAbsent(uiState.job.folderName, index)
+                index += 1
+            }
+            index += 1 // "pinned_divider" item
+        }
+        activeOrder.forEach { folderName ->
+            indexByFolder.putIfAbsent(folderName, index)
+            index += 1
+        }
+        if (pendingUiStates.isNotEmpty()) {
+            index += 1 // "pending_header" item
+            pendingUiStates.forEach { uiState ->
+                indexByFolder.putIfAbsent(uiState.job.folderName, index)
+                index += 1
+            }
+        }
+        indexByFolder
+    }
+
+    // Fires once the deep-link target's index is resolvable (re-runs whenever filteredJobs
+    // changes, e.g. once the search-clear from onJobSelected below has actually taken effect).
+    // Mirrors HardwoodsWorkspaceScreen's scroll-to-row LaunchedEffect.
+    LaunchedEffect(pendingScrollTarget, filteredJobs) {
+        val target = pendingScrollTarget ?: return@LaunchedEffect
+        val idx = lazyIndexByFolderName[target]
+        if (idx != null) {
+            listState.animateScrollToItem(idx)
+            highlightedFolderName = target
+            pendingScrollTarget = null
+        } else {
+            // Not found (stale/deleted job) — give up cleanly, no stuck state.
+            pendingScrollTarget = null
+        }
+    }
+    // Separate effect keyed only on the highlight itself — NOT on filteredJobs. Keying the
+    // clear-timer on the list too meant any unrelated background refresh mid-highlight (badge
+    // load, scan tick) cancelled this coroutine before delay() completed, permanently orphaning
+    // highlightedFolderName since pendingScrollTarget was already null by then.
+    LaunchedEffect(highlightedFolderName) {
+        val target = highlightedFolderName ?: return@LaunchedEffect
+        delay(3000)
+        if (highlightedFolderName == target) highlightedFolderName = null
+    }
+
     val dragOffset = if (pinnedUiStates.isNotEmpty()) pinnedUiStates.size + 2 else 0
     val saveScope = rememberCoroutineScope()
     val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
@@ -441,6 +506,14 @@ fun JobBrowserScreen(
                 isAdminMode = adminMode,
                 onEditRequested = { showScheduleDialog = true },
                 showWhenEmpty = adminMode,
+                onJobSelected = { folderName ->
+                    // Clear filter + force list view so the target job's row is composed and
+                    // scrollable; the LaunchedEffect above resolves the actual scroll+highlight
+                    // once filteredJobs reflects the cleared search.
+                    searchQuery = TextFieldValue("")
+                    boardView = false
+                    pendingScrollTarget = folderName
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -515,6 +588,7 @@ fun JobBrowserScreen(
                                 pinnedFolderNames = pinnedFolderNames,
                                 onTogglePin = onTogglePin,
                                 positionLabel = label,
+                                highlighted = highlightedFolderName == uiState.job.folderName,
                             )
                         }
                         item(key = "pinned_divider") {
@@ -547,7 +621,8 @@ fun JobBrowserScreen(
                                     },
                                     dragHandleModifier = Modifier.draggableHandle(
                                         onDragStopped = { saveActiveOrder() }
-                                    )
+                                    ),
+                                    highlighted = highlightedFolderName == folderName,
                                 )
                             }
                         }
@@ -587,6 +662,7 @@ fun JobBrowserScreen(
                                 onEditLabels = {
                                     editingLabelsFor = if (editingLabelsFor?.folderName == uiState.job.folderName) null else uiState.job
                                 },
+                                highlighted = highlightedFolderName == uiState.job.folderName,
                             )
                         }
                     }
@@ -722,6 +798,7 @@ private fun JobBrowserRow(
     adminMode: Boolean = false,
     onEditLabels: (() -> Unit)? = null,
     dragHandleModifier: Modifier? = null,
+    highlighted: Boolean = false,
 ) {
     val job = uiState.job
 
@@ -755,6 +832,7 @@ private fun JobBrowserRow(
     val sharedBoundsModifier = Modifier
 
     ProgressCard(
+        modifier = modifier.then(sharedBoundsModifier).deliveryJobHighlight(active = highlighted),
         title = job.folderName,
         subtitle = "${counts.complete}/${counts.total} complete",
         fraction = uiState.completionFraction,
@@ -762,7 +840,6 @@ private fun JobBrowserRow(
         segmentedStatusCounts = counts,
         materialSegments = uiState.materialSegments,
         showExpandToggle = false,
-        modifier = modifier.then(sharedBoundsModifier),
         useBounceClick = true,
         titleContent = {
             Row(

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -63,6 +64,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
@@ -70,6 +72,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -112,6 +115,7 @@ import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 import com.kkc.sheettracker.ui.components.DeliveryScheduleBanner
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
+import com.kkc.sheettracker.ui.components.deliveryJobHighlight
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -355,6 +359,61 @@ fun HardwoodsJobsScreen(
     }
     val dragOffset = if (pinnedUiStates.isNotEmpty()) pinnedUiStates.size + 2 else 0
     val listState = rememberLazyListState()
+
+    // Deep-link-into-list mechanic for DeliveryScheduleBanner's onJobSelected: tapping a
+    // delivery job records a pending target folder, which this effect scrolls to and
+    // highlights once the list has recomposed (search cleared, board view forced off).
+    var pendingScrollTarget by remember { mutableStateOf<String?>(null) }
+    var highlightedFolderName by remember { mutableStateOf<String?>(null) }
+    // Absolute LazyColumn item index per folderName, replicating the exact item/itemsIndexed
+    // emission order below (including the conditional pinned/pending headers and the pinned
+    // divider). Recomputed every recomposition (not `remember`-gated) so drag-reorders of
+    // activeOrder — a SnapshotStateList whose mutations don't change its own identity — are
+    // always reflected; the lists involved are small so this is cheap.
+    val jobListIndexByFolder = run {
+        val indexByFolder = mutableMapOf<String, Int>()
+        var index = 0
+        if (pinnedUiStates.isNotEmpty()) {
+            index += 1 // pinned_header
+            pinnedUiStates.forEach { uiState ->
+                indexByFolder[uiState.job.folderName] = index
+                index += 1
+            }
+            index += 1 // pinned_divider
+        }
+        activeOrder.forEach { folderName ->
+            indexByFolder[folderName] = index
+            index += 1
+        }
+        if (pendingUiStates.isNotEmpty()) {
+            index += 1 // pending_header
+            pendingUiStates.forEach { uiState ->
+                indexByFolder[uiState.job.folderName] = index
+                index += 1
+            }
+        }
+        indexByFolder
+    }
+    LaunchedEffect(pendingScrollTarget, filtered) {
+        val target = pendingScrollTarget ?: return@LaunchedEffect
+        val idx = jobListIndexByFolder[target]
+        if (idx != null) {
+            listState.animateScrollToItem(idx)
+            highlightedFolderName = target
+            pendingScrollTarget = null
+        } else {
+            pendingScrollTarget = null // not found (stale/deleted job) - give up cleanly
+        }
+    }
+    // Separate effect keyed only on the highlight itself — NOT on filtered. Keying the
+    // clear-timer on the list too meant any unrelated background refresh mid-highlight (badge
+    // load, scan tick) cancelled this coroutine before delay() completed, permanently orphaning
+    // highlightedFolderName since pendingScrollTarget was already null by then.
+    LaunchedEffect(highlightedFolderName) {
+        val target = highlightedFolderName ?: return@LaunchedEffect
+        delay(3000)
+        if (highlightedFolderName == target) highlightedFolderName = null
+    }
     val saveScope = rememberCoroutineScope()
     val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
     val jobBoardRequestStore = remember(basePath) { JobBoardRequestStore(File(basePath)) }
@@ -453,7 +512,12 @@ fun HardwoodsJobsScreen(
                 showWhenEmpty = adminMode,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                onJobSelected = { folderName ->
+                    query = TextFieldValue("")
+                    boardView = false
+                    pendingScrollTarget = folderName
+                }
             )
 
             AnimatedContent(
@@ -513,8 +577,10 @@ fun HardwoodsJobsScreen(
                             val docSegments = uiState.docSegments
                             val pos = positionMap[job.folderName]
                             val label = if (pos != null) "$pos of ${filtered.size}" else null
+                            val isHighlighted = highlightedFolderName == job.folderName
                             ProgressCard(
-                                modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
+                                modifier = Modifier.animateEntrance(index, initialLoadComplete.value)
+                                    .deliveryJobHighlight(active = isHighlighted),
                                 title = job.folderName,
                                 useBounceClick = true,
                                 titleContent = {
@@ -589,9 +655,10 @@ fun HardwoodsJobsScreen(
                                 val docSegments = uiState.docSegments
                                 val availableDocTypes = uiState.availableDocTypes
                                 val subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done"
-
+                                val isHighlighted = highlightedFolderName == job.folderName
                                 ProgressCard(
-                                    modifier = Modifier.animateEntrance(index + pinnedUiStates.size, initialLoadComplete.value),
+                                    modifier = Modifier.animateEntrance(index + pinnedUiStates.size, initialLoadComplete.value)
+                                        .deliveryJobHighlight(active = isHighlighted),
                                     title = job.folderName,
                             titleContent = {
                                 Row(
@@ -741,9 +808,10 @@ fun HardwoodsJobsScreen(
                             val docSegments = uiState.docSegments
                             val availableDocTypes = uiState.availableDocTypes
                             val subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done"
-
+                            val isHighlighted = highlightedFolderName == job.folderName
                             ProgressCard(
-                                modifier = Modifier.animateEntrance(index + pinnedUiStates.size + activeUiStates.size, initialLoadComplete.value),
+                                modifier = Modifier.animateEntrance(index + pinnedUiStates.size + activeUiStates.size, initialLoadComplete.value)
+                                    .deliveryJobHighlight(active = isHighlighted),
                                 title = job.folderName,
                                 titleContent = {
                                     Row(

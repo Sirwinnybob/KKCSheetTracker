@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -51,6 +52,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -61,6 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -102,6 +105,7 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
 import com.kkc.sheettracker.ui.components.DeliveryScheduleBanner
+import com.kkc.sheettracker.ui.components.deliveryJobHighlight
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -233,6 +237,62 @@ fun SpecialtyJobsScreen(
     }
     val dragOffset = if (pinnedCards.isNotEmpty()) pinnedCards.size + 2 else 0
     val listState = rememberLazyListState()
+
+    // Deep-link target set by DeliveryScheduleBanner's onJobSelected (tap a delivery job in the
+    // expanded day-strip). pendingScrollTarget drives the scroll+highlight LaunchedEffect below;
+    // highlightedFolderName drives the temporary visual tint on the matching row.
+    var pendingScrollTarget by remember { mutableStateOf<String?>(null) }
+    var highlightedFolderName by remember { mutableStateOf<String?>(null) }
+
+    // Absolute LazyColumn item index for each folderName, replicating the exact item {...} /
+    // itemsIndexed(...) emission order below: optional "pinned_header" + pinned rows + optional
+    // "pinned_divider", then the active-order rows, then optional "pending_header" + pending rows.
+    val lazyIndexByFolderName = remember(pinnedCards, activeOrder.toList(), pendingCards) {
+        val map = mutableMapOf<String, Int>()
+        var idx = 0
+        if (pinnedCards.isNotEmpty()) {
+            idx += 1 // "pinned_header" item
+            pinnedCards.forEach { card ->
+                map[card.folderName] = idx
+                idx += 1
+            }
+            idx += 1 // "pinned_divider" item
+        }
+        activeOrder.forEach { folderName ->
+            map[folderName] = idx
+            idx += 1
+        }
+        if (pendingCards.isNotEmpty()) {
+            idx += 1 // "pending_header" item
+            pendingCards.forEach { card ->
+                map[card.folderName] = idx
+                idx += 1
+            }
+        }
+        map
+    }
+
+    LaunchedEffect(pendingScrollTarget, filteredCards) {
+        val target = pendingScrollTarget ?: return@LaunchedEffect
+        val idx = lazyIndexByFolderName[target]
+        if (idx != null) {
+            listState.animateScrollToItem(idx)
+            highlightedFolderName = target
+            pendingScrollTarget = null
+        } else {
+            pendingScrollTarget = null // not found (stale/deleted job) - give up cleanly
+        }
+    }
+    // Separate effect keyed only on the highlight itself — NOT on filteredCards. Keying the
+    // clear-timer on the list too meant any unrelated background refresh mid-highlight (badge
+    // load, scan tick) cancelled this coroutine before delay() completed, permanently orphaning
+    // highlightedFolderName since pendingScrollTarget was already null by then.
+    LaunchedEffect(highlightedFolderName) {
+        val target = highlightedFolderName ?: return@LaunchedEffect
+        delay(3000)
+        if (highlightedFolderName == target) highlightedFolderName = null
+    }
+
     val saveScope = rememberCoroutineScope()
     val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
     val jobBoardRequestStore = remember(basePath) { JobBoardRequestStore(File(basePath)) }
@@ -330,6 +390,11 @@ fun SpecialtyJobsScreen(
                 isAdminMode = adminMode,
                 onEditRequested = { showScheduleDialog = true },
                 showWhenEmpty = adminMode,
+                onJobSelected = { folderName ->
+                    query = TextFieldValue("")
+                    boardView = false
+                    pendingScrollTarget = folderName
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -404,8 +469,10 @@ fun SpecialtyJobsScreen(
                                 }
                                 val pos = positionMap[card.folderName]
                                 val posLabel = if (pos != null) "$pos of ${filteredCards.size}" else null
+                                val isHighlighted = highlightedFolderName == card.folderName
                                 ProgressCard(
-                                    modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
+                                    modifier = Modifier.animateEntrance(index, initialLoadComplete.value)
+                                        .deliveryJobHighlight(active = isHighlighted),
                                     title = card.folderName,
                                     subtitle = "${card.completedItems}/${card.totalItems} complete",
                                     useBounceClick = true,
@@ -504,8 +571,10 @@ fun SpecialtyJobsScreen(
                                                 notStarted = (card.totalItems - card.completedItems).coerceAtLeast(0)
                                             )
                                         }
+                                        val isHighlighted = highlightedFolderName == card.folderName
                                         ProgressCard(
-                                            modifier = Modifier.animateEntrance(index + pinnedCards.size, initialLoadComplete.value),
+                                            modifier = Modifier.animateEntrance(index + pinnedCards.size, initialLoadComplete.value)
+                                                .deliveryJobHighlight(active = isHighlighted),
                                             title = card.folderName,
                                             useBounceClick = true,
                                             titleContent = {
@@ -639,8 +708,10 @@ fun SpecialtyJobsScreen(
                                         notStarted = (card.totalItems - card.completedItems).coerceAtLeast(0)
                                     )
                                 }
+                                val isHighlighted = highlightedFolderName == card.folderName
                                 ProgressCard(
-                                    modifier = Modifier.animateEntrance(index + pinnedCards.size + activeOrder.size, initialLoadComplete.value),
+                                    modifier = Modifier.animateEntrance(index + pinnedCards.size + activeOrder.size, initialLoadComplete.value)
+                                        .deliveryJobHighlight(active = isHighlighted),
                                     title = card.folderName,
                                     useBounceClick = true,
                                     titleContent = {

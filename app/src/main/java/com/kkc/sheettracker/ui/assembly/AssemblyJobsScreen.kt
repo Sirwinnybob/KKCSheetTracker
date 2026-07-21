@@ -98,6 +98,7 @@ import com.kkc.sheettracker.ui.components.SortToggleBar
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
@@ -108,6 +109,7 @@ import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.ui.components.DeliveryScheduleBanner
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
+import com.kkc.sheettracker.ui.components.deliveryJobHighlight
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -292,6 +294,62 @@ fun AssemblyJobsScreen(
     }
     val dragOffset = if (pinnedUiStates.isNotEmpty()) pinnedUiStates.size + 2 else 0
     val listState = rememberLazyListState()
+
+    // Deep-link target set by DeliveryScheduleBanner's onJobSelected (tap a delivery job in the
+    // expanded day-strip). pendingScrollTarget drives the scroll+highlight LaunchedEffect below;
+    // highlightedFolderName drives the temporary visual tint on the matching row.
+    var pendingScrollTarget by remember { mutableStateOf<String?>(null) }
+    var highlightedFolderName by remember { mutableStateOf<String?>(null) }
+
+    // Absolute LazyColumn item index for each folderName, replicating the exact item {...} /
+    // itemsIndexed(...) emission order below: optional "pinned_header" + pinned rows + optional
+    // "pinned_divider", then the active-order rows, then optional "pending_header" + pending rows.
+    val lazyIndexByFolderName = remember(pinnedUiStates, activeOrder.toList(), pendingUiStates) {
+        val map = mutableMapOf<String, Int>()
+        var idx = 0
+        if (pinnedUiStates.isNotEmpty()) {
+            idx += 1 // "pinned_header" item
+            pinnedUiStates.forEach { uiState ->
+                map[uiState.card.folderName] = idx
+                idx += 1
+            }
+            idx += 1 // "pinned_divider" item
+        }
+        activeOrder.forEach { folderName ->
+            map[folderName] = idx
+            idx += 1
+        }
+        if (pendingUiStates.isNotEmpty()) {
+            idx += 1 // "pending_header" item
+            pendingUiStates.forEach { uiState ->
+                map[uiState.card.folderName] = idx
+                idx += 1
+            }
+        }
+        map
+    }
+
+    LaunchedEffect(pendingScrollTarget, filtered) {
+        val target = pendingScrollTarget ?: return@LaunchedEffect
+        val idx = lazyIndexByFolderName[target]
+        if (idx != null) {
+            listState.animateScrollToItem(idx)
+            highlightedFolderName = target
+            pendingScrollTarget = null
+        } else {
+            pendingScrollTarget = null // not found (stale/deleted job) - give up cleanly
+        }
+    }
+    // Separate effect keyed only on the highlight itself — NOT on filtered. Keying the
+    // clear-timer on the list too meant any unrelated background refresh mid-highlight (badge
+    // load, scan tick) cancelled this coroutine before delay() completed, permanently orphaning
+    // highlightedFolderName since pendingScrollTarget was already null by then.
+    LaunchedEffect(highlightedFolderName) {
+        val target = highlightedFolderName ?: return@LaunchedEffect
+        delay(3000)
+        if (highlightedFolderName == target) highlightedFolderName = null
+    }
+
     val saveScope = rememberCoroutineScope()
     val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
     val jobBoardRequestStore = remember(basePath) { JobBoardRequestStore(File(basePath)) }
@@ -406,6 +464,11 @@ fun AssemblyJobsScreen(
                 isAdminMode = adminMode,
                 onEditRequested = { showScheduleDialog = true },
                 showWhenEmpty = adminMode,
+                onJobSelected = { folderName ->
+                    query = TextFieldValue("")
+                    boardView = false
+                    pendingScrollTarget = folderName
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -474,8 +537,11 @@ fun AssemblyJobsScreen(
                                 val combinedCounts = uiState.combinedCounts
                                 val pos = positionMap[card.folderName]
                                 val label = if (pos != null) "$pos of ${filtered.size}" else null
+                                val isHighlighted = highlightedFolderName == card.folderName
                                 ProgressCard(
-                                    modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
+                                    modifier = Modifier
+                                        .animateEntrance(index, initialLoadComplete.value)
+                                        .deliveryJobHighlight(active = isHighlighted),
                                     title = card.folderName,
                                     subtitle = uiState.subtitle,
                                     useBounceClick = true,
@@ -562,8 +628,11 @@ fun AssemblyJobsScreen(
                             val hardwoodCounts = uiState.hardwoodCounts
                             val combinedCounts = uiState.combinedCounts
                             val subtitle = uiState.subtitle
+                            val isHighlighted = highlightedFolderName == card.folderName
                             ProgressCard(
-                                modifier = Modifier.animateEntrance(index + pinnedUiStates.size, initialLoadComplete.value),
+                                modifier = Modifier
+                                    .animateEntrance(index + pinnedUiStates.size, initialLoadComplete.value)
+                                    .deliveryJobHighlight(active = isHighlighted),
                                 title = card.folderName,
                                 subtitle = subtitle,
                                 useBounceClick = true,
@@ -695,8 +764,11 @@ fun AssemblyJobsScreen(
                                 val hardwoodCounts = uiState.hardwoodCounts
                                 val combinedCounts = uiState.combinedCounts
                                 val subtitle = uiState.subtitle
+                                val isHighlighted = highlightedFolderName == card.folderName
                                 ProgressCard(
-                                    modifier = Modifier.animateEntrance(index + pinnedUiStates.size + activeUiStates.size, initialLoadComplete.value),
+                                    modifier = Modifier
+                                        .animateEntrance(index + pinnedUiStates.size + activeUiStates.size, initialLoadComplete.value)
+                                        .deliveryJobHighlight(active = isHighlighted),
                                     title = card.folderName,
                                     subtitle = subtitle,
                                     useBounceClick = true,
