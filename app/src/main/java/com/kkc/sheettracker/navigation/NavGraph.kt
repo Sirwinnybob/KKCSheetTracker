@@ -108,10 +108,8 @@ import com.kkc.sheettracker.ui.hours.HoursLoginDialog
 import com.kkc.sheettracker.ui.timecard.TimecardScreen
 import com.kkc.sheettracker.ui.timecard.TimecardStore
 import com.kkc.sheettracker.ui.assembly.AssemblyJobDetailScreen
-import com.kkc.sheettracker.ui.assembly.AssemblyJobsScreen
 import com.kkc.sheettracker.ui.assembly.AssemblySearchScreen
 import com.kkc.sheettracker.ui.assembly.AssemblyViewerScreen
-import com.kkc.sheettracker.ui.browser.JobBrowserScreen
 import com.kkc.sheettracker.ui.settings.AssemblyViewerDefaultsScreen
 import com.kkc.sheettracker.ui.settings.SpecialtyViewerDefaultsScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
@@ -125,7 +123,6 @@ import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardScreen
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardSpec
 import com.kkc.sheettracker.ui.detail.JobDetailScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsJobDetailScreen
-import com.kkc.sheettracker.ui.hardwoods.HardwoodsJobsScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsSearchScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsWorkspaceScreen
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
@@ -137,7 +134,6 @@ import com.kkc.sheettracker.ui.supply.SupplyDashboardScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
 import com.kkc.sheettracker.ui.specialty.hasClosetRodCutList
-import com.kkc.sheettracker.ui.specialty.SpecialtyJobsScreen
 import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.viewer.ReferencePdfViewerScreen
 import com.kkc.sheettracker.ui.viewer.SheetViewerScreen
@@ -1115,178 +1111,88 @@ private fun JobsTabHost(
             }
         ) {
         composable("jobs") {
-            when (workMode) {
-                WorkMode.CNC -> {
-                    JobBrowserScreen(
-                        scanCoordinator = scanCoordinator,
-                        appStateStore = appStateStore,
-                        hardwoodsRepository = hardwoodsRepository,
-                        jobRepository = jobRepository,
-                        progressStore = progressStore,
-                        deliveryScheduleRepository = deliveryScheduleRepository,
-                        appStateFlags = appStateFlags,
-                        basePath = basePath,
-                        tabletId = tabletId,
-                        isDebugBuild = isDebugBuild,
-                        pinnedFolderNames = pinnedFolderNames,
-                        onTogglePin = onTogglePin,
-                        sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = this,
-                        onJobClick = { job ->
-                            navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
-                                launchSingleTop = true
-                            }
-                        },
-                        onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                            navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onViewCoverSheet = { job ->
-                            navController.navigate(
-                                referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
-                            ) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onView3D = { job ->
-                            val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
-                            navController.navigate(
-                                assemblyViewerRoute(
-                                    jobFolderName = job.folderName,
-                                    assemblyPage = target.assemblyPage,
-                                    plansPage = target.plansPage,
-                                    source = "3d",
-                                    room = target.room
-                                )
-                            ) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onSearchClick = onSearchClick,
-                        onSettingsClick = onSettingsClick,
-                        active = active
-                    )
-                }
-                WorkMode.HARDWOODS -> {
-                    HardwoodsJobsScreen(
-                        scanCoordinator = hardwoodsScanCoordinator,
-                        hardwoodsRepository = hardwoodsRepository,
-                        progressStore = hardwoodsProgressStore,
-                        jobRepository = jobRepository,
-                        deliveryScheduleRepository = deliveryScheduleRepository,
-                        basePath = basePath,
-                        tabletId = tabletId,
-                        isDebugBuild = isDebugBuild,
-                        pinnedFolderNames = pinnedFolderNames,
-                        onTogglePin = onTogglePin,
-                        onJobClick = { job ->
-                            navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
-                                launchSingleTop = true
-                            }
-                        },
-                        onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                            navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onViewCoverSheet = { job ->
-                            navController.navigate(
-                                referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
-                            ) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onView3D = { job ->
-                            val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
-                            navController.navigate(
-                                assemblyViewerRoute(
-                                    jobFolderName = job.folderName,
-                                    assemblyPage = target.assemblyPage,
-                                    plansPage = target.plansPage,
-                                    source = "3d",
-                                    room = target.room
-                                )
-                            ) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onSearchClick = onSearchClick,
-                        onSettingsClick = onSettingsClick,
-                        active = active
-                    )
-                }
-                WorkMode.ASSEMBLY -> {
-                    AssemblyJobsScreen(
-                        assemblyScanCoordinator = assemblyScanCoordinator,
-                        assemblyStateStore = assemblyStateStore,
-                        hardwoodsRepository = hardwoodsRepository,
-                        jobRepository = jobRepository,
-                        progressStore = progressStore,
-                        hardwoodsProgressStore = hardwoodsProgressStore,
-                        specialtyStateStore = specialtyStateStore,
-                        deliveryScheduleRepository = deliveryScheduleRepository,
-                        basePath = basePath,
-                        tabletId = tabletId,
-                        isDebugBuild = isDebugBuild,
-                        specialtyProgressVersionHint = specialtyProgressVersion,
-                        pinnedFolderNames = pinnedFolderNames,
-                        onTogglePin = onTogglePin,
-                        onJobClick = { card ->
-                            coroutineScope.launch {
-                                val d = assemblyViewerDefaultsStore.current()
-                                navController.navigate(
-                                    assemblyViewerRoute(
-                                        jobFolderName = card.folderName,
-                                        assemblyPage = 1,
-                                        plansPage = 1,
-                                        layout = d.layout,
-                                        firstPane = d.firstPane,
-                                        secondPane = d.secondPane,
-                                        hideUiOnOpen = d.hideUiOnOpen,
-                                    )
-                                ) { launchSingleTop = true }
-                            }
-                        },
-                        onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                            navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onViewCoverSheet = { card ->
-                            navController.navigate(
-                                referenceViewerRoute(card.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
-                            ) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onSearchClick = onSearchClick,
-                        onSettingsClick = onSettingsClick,
-                        active = active
-                    )
-                }
-                WorkMode.SPECIALTY -> {
-                    SpecialtyJobsScreen(
-                        specialtyScanCoordinator = specialtyScanCoordinator,
-                        specialtyStateStore = specialtyStateStore,
-                        jobRepository = jobRepository,
-                        deliveryScheduleRepository = deliveryScheduleRepository,
-                        basePath = basePath,
-                        tabletId = tabletId,
-                        isDebugBuild = isDebugBuild,
-                        pinnedFolderNames = pinnedFolderNames,
-                        onTogglePin = onTogglePin,
-                        onJobClick = { card ->
-                            navController.navigate(specialtyJobRoute(card.folderName)) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onSearchClick = onSearchClick,
-                        onSettingsClick = onSettingsClick,
-                        active = active
-                    )
-                }
+            val spec = when (workMode) {
+                WorkMode.CNC -> com.kkc.sheettracker.ui.jobs.rememberCncJobsSpec(
+                    scanCoordinator = scanCoordinator,
+                    appStateStore = appStateStore,
+                    progressStore = progressStore,
+                    jobRepository = jobRepository,
+                    hardwoodsRepository = hardwoodsRepository,
+                    coroutineScope = coroutineScope,
+                    onJobClick = { jobFolder ->
+                        navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
+                    },
+                    onView3D = { jobFolder ->
+                        val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
+                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
+                    },
+                    onViewCoverSheet = { jobFolder ->
+                        navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                    }
+                )
+                WorkMode.HARDWOODS -> com.kkc.sheettracker.ui.jobs.rememberHardwoodsJobsSpec(
+                    scanCoordinator = hardwoodsScanCoordinator,
+                    hardwoodsRepository = hardwoodsRepository,
+                    progressStore = hardwoodsProgressStore,
+                    jobRepository = jobRepository,
+                    coroutineScope = coroutineScope,
+                    onJobClick = { jobFolder ->
+                        navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
+                    },
+                    onView3D = { jobFolder ->
+                        val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
+                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
+                    },
+                    onViewCoverSheet = { jobFolder ->
+                        navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                    }
+                )
+                WorkMode.ASSEMBLY -> com.kkc.sheettracker.ui.jobs.rememberAssemblyJobsSpec(
+                    assemblyScanCoordinator = assemblyScanCoordinator,
+                    assemblyStateStore = assemblyStateStore,
+                    jobRepository = jobRepository,
+                    coroutineScope = coroutineScope,
+                    onJobClick = { jobFolder ->
+                        coroutineScope.launch {
+                            val d = assemblyViewerDefaultsStore.current()
+                            navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, layout = d.layout, firstPane = d.firstPane, secondPane = d.secondPane, hideUiOnOpen = d.hideUiOnOpen)) { launchSingleTop = true }
+                        }
+                    },
+                    onView3D = { jobFolder -> }, // not used
+                    onViewCoverSheet = { jobFolder ->
+                        navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                    }
+                )
+                WorkMode.SPECIALTY -> com.kkc.sheettracker.ui.jobs.rememberSpecialtyJobsSpec(
+                    specialtyScanCoordinator = specialtyScanCoordinator,
+                    specialtyStateStore = specialtyStateStore,
+                    jobRepository = jobRepository,
+                    coroutineScope = coroutineScope,
+                    onJobClick = { jobFolder ->
+                        navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
+                    }
+                )
             }
+
+            com.kkc.sheettracker.ui.jobs.UnifiedJobsScreen(
+                spec = spec,
+                jobRepository = jobRepository,
+                deliveryScheduleRepository = deliveryScheduleRepository,
+                basePath = basePath,
+                tabletId = tabletId,
+                isDebugBuild = isDebugBuild,
+                pinnedFolderNames = pinnedFolderNames,
+                onTogglePin = onTogglePin,
+                onJobClick = { model -> model.onCardClick() },
+                onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                    navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
+                        launchSingleTop = true
+                    }
+                },
+                onSearchClick = onSearchClick,
+                onSettingsClick = onSettingsClick,
+                active = active
+            )
         }
 
         composable(
@@ -2299,203 +2205,89 @@ private fun LegacySingleStackNavigation(
                     }
 
                     composable("jobs") {
-                    when (workMode) {
-                        WorkMode.CNC -> {
-                            JobBrowserScreen(
+                        val spec = when (workMode) {
+                            WorkMode.CNC -> com.kkc.sheettracker.ui.jobs.rememberCncJobsSpec(
                                 scanCoordinator = scanCoordinator,
                                 appStateStore = appStateStore,
-                                hardwoodsRepository = hardwoodsRepository,
-                                jobRepository = jobRepository,
                                 progressStore = progressStore,
-                                deliveryScheduleRepository = deliveryScheduleRepository,
-                                appStateFlags = appStateFlags,
-                                basePath = basePath,
-                                tabletId = tabletId,
-                                isDebugBuild = isDebugBuild,
-                                sharedTransitionScope = this@SharedTransitionLayout,
-                                animatedVisibilityScope = this,
-                                onJobClick = { job ->
-                                    navController.navigate("job/${URLEncoder.encode(job.folderName, "UTF-8")}")
+                                jobRepository = jobRepository,
+                                hardwoodsRepository = hardwoodsRepository,
+                                coroutineScope = legacyCoroutineScope,
+                                onJobClick = { jobFolder ->
+                                    navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                                 },
-                                onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                                    navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId))
+                                onView3D = { jobFolder ->
+                                    val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
+                                    navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                                 },
-                                onViewCoverSheet = { job ->
-                                    navController.navigate(
-                                        referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
-                                    ) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onView3D = { job ->
-                                    val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
-                                    navController.navigate(
-                                        assemblyViewerRoute(
-                                            jobFolderName = job.folderName,
-                                            assemblyPage = target.assemblyPage,
-                                            plansPage = target.plansPage,
-                                            source = "3d",
-                                            room = target.room
-                                        )
-                                    ) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onSearchClick = {
-                                    navController.navigate("search") {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onSettingsClick = {
-                                    navController.navigate("settings") {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                pinnedFolderNames = pinnedFolderNames,
-                                onTogglePin = onTogglePin,
-                                active = (currentNavDest == NavDestination.JOBS)
+                                onViewCoverSheet = { jobFolder ->
+                                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                                }
                             )
-                        }
-                        WorkMode.HARDWOODS -> {
-                            HardwoodsJobsScreen(
+                            WorkMode.HARDWOODS -> com.kkc.sheettracker.ui.jobs.rememberHardwoodsJobsSpec(
                                 scanCoordinator = hardwoodsScanCoordinator,
                                 hardwoodsRepository = hardwoodsRepository,
                                 progressStore = hardwoodsProgressStore,
                                 jobRepository = jobRepository,
-                                deliveryScheduleRepository = deliveryScheduleRepository,
-                                basePath = basePath,
-                                tabletId = tabletId,
-                                isDebugBuild = isDebugBuild,
-                                onJobClick = { job ->
-                                    navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}")
+                                coroutineScope = legacyCoroutineScope,
+                                onJobClick = { jobFolder ->
+                                    navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                                 },
-                                onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                                    navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId))
+                                onView3D = { jobFolder ->
+                                    val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
+                                    navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                                 },
-                                onViewCoverSheet = { job ->
-                                    navController.navigate(
-                                        referenceViewerRoute(job.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
-                                    ) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onView3D = { job ->
-                                    val target = resolveDefaultThreeDTarget(jobRepository, job.folderName)
-                                    navController.navigate(
-                                        assemblyViewerRoute(
-                                            jobFolderName = job.folderName,
-                                            assemblyPage = target.assemblyPage,
-                                            plansPage = target.plansPage,
-                                            source = "3d",
-                                            room = target.room
-                                        )
-                                    ) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onSearchClick = {
-                                    navController.navigate("search") {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onSettingsClick = {
-                                    navController.navigate("settings") {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                pinnedFolderNames = pinnedFolderNames,
-                                onTogglePin = onTogglePin,
-                                active = (currentNavDest == NavDestination.JOBS)
+                                onViewCoverSheet = { jobFolder ->
+                                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                                }
                             )
-                        }
-                        WorkMode.ASSEMBLY -> {
-                            AssemblyJobsScreen(
+                            WorkMode.ASSEMBLY -> com.kkc.sheettracker.ui.jobs.rememberAssemblyJobsSpec(
                                 assemblyScanCoordinator = assemblyScanCoordinator,
                                 assemblyStateStore = assemblyStateStore,
-                                hardwoodsRepository = hardwoodsRepository,
                                 jobRepository = jobRepository,
-                                progressStore = progressStore,
-                                hardwoodsProgressStore = hardwoodsProgressStore,
-                                specialtyStateStore = specialtyStateStore,
-                                deliveryScheduleRepository = deliveryScheduleRepository,
-                                basePath = basePath,
-                                tabletId = tabletId,
-                                isDebugBuild = isDebugBuild,
-                                specialtyProgressVersionHint = specialtyProgressVersion,
-                                onJobClick = { card ->
+                                coroutineScope = legacyCoroutineScope,
+                                onJobClick = { jobFolder ->
                                     legacyCoroutineScope.launch {
                                         val d = legacyAssemblyViewerDefaultsStore.current()
-                                        navController.navigate(
-                                            assemblyViewerRoute(
-                                                jobFolderName = card.folderName,
-                                                assemblyPage = 1,
-                                                plansPage = 1,
-                                                layout = d.layout,
-                                                firstPane = d.firstPane,
-                                                secondPane = d.secondPane,
-                                                hideUiOnOpen = d.hideUiOnOpen,
-                                            )
-                                        ) { launchSingleTop = true }
+                                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, layout = d.layout, firstPane = d.firstPane, secondPane = d.secondPane, hideUiOnOpen = d.hideUiOnOpen)) { launchSingleTop = true }
                                     }
                                 },
-                                onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                                    navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onViewCoverSheet = { card ->
-                                    navController.navigate(
-                                        referenceViewerRoute(card.folderName, ReferenceDocType.DELIVERY_SHEETS, 1)
-                                    ) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onSearchClick = {
-                                    navController.navigate("search") {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onSettingsClick = {
-                                    navController.navigate("settings") {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                pinnedFolderNames = pinnedFolderNames,
-                                onTogglePin = onTogglePin,
-                                active = (currentNavDest == NavDestination.JOBS)
+                                onView3D = { jobFolder -> }, // not used
+                                onViewCoverSheet = { jobFolder ->
+                                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                                }
                             )
-                        }
-                        WorkMode.SPECIALTY -> {
-                            SpecialtyJobsScreen(
+                            WorkMode.SPECIALTY -> com.kkc.sheettracker.ui.jobs.rememberSpecialtyJobsSpec(
                                 specialtyScanCoordinator = specialtyScanCoordinator,
                                 specialtyStateStore = specialtyStateStore,
                                 jobRepository = jobRepository,
-                                deliveryScheduleRepository = deliveryScheduleRepository,
-                                basePath = basePath,
-                                tabletId = tabletId,
-                                isDebugBuild = isDebugBuild,
-                                onJobClick = { card ->
-                                    navController.navigate(specialtyJobRoute(card.folderName)) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onSearchClick = {
-                                    navController.navigate("search") {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onSettingsClick = {
-                                    navController.navigate("settings") {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                pinnedFolderNames = pinnedFolderNames,
-                                onTogglePin = onTogglePin,
-                                active = (currentNavDest == NavDestination.JOBS)
+                                coroutineScope = legacyCoroutineScope,
+                                onJobClick = { jobFolder ->
+                                    navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
+                                }
                             )
                         }
+
+                        com.kkc.sheettracker.ui.jobs.UnifiedJobsScreen(
+                            spec = spec,
+                            jobRepository = jobRepository,
+                            deliveryScheduleRepository = deliveryScheduleRepository,
+                            basePath = basePath,
+                            tabletId = tabletId,
+                            isDebugBuild = isDebugBuild,
+                            pinnedFolderNames = pinnedFolderNames,
+                            onTogglePin = onTogglePin,
+                            onJobClick = { model -> model.onCardClick() },
+                            onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
+                                navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onSearchClick = { navController.navigate("search") { launchSingleTop = true } },
+                            onSettingsClick = { navController.navigate("settings") { launchSingleTop = true } },
+                            active = (currentNavDest == NavDestination.JOBS)
+                        )
                     }
-                }
 
                 composable(
                     "job/{folderName}",
