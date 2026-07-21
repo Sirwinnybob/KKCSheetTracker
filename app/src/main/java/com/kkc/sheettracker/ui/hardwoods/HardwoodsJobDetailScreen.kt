@@ -69,6 +69,17 @@ import com.kkc.sheettracker.ui.components.StatusSummaryRow
 import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
 import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 
+internal fun HardwoodStatusCounts.toStatusCounts(): StatusCounts {
+    val effectiveTotal = effectiveTotalPieces
+    val complete = (donePieces + badPieces).coerceAtMost(effectiveTotal)
+    val notStarted = (effectiveTotal - complete).coerceAtLeast(0)
+    return StatusCounts(
+        total = effectiveTotal,
+        complete = complete,
+        skipped = 0
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HardwoodsJobDetailScreen(
