@@ -102,6 +102,7 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.data.TimecardDiscovery
 import com.kkc.sheettracker.data.TimecardServerConfig
+import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.TimeclockMessagesRepository
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
 import com.kkc.sheettracker.ui.timecard.TimecardScreen
@@ -424,6 +425,7 @@ private fun MultiBackStackNavigation(
     val compactWidth = rememberCompactWidthClass()
     val context = LocalContext.current
     val timecardConfig = remember { TimecardServerConfig.create(context) }
+    val adminSyncConfig = remember { AdminSyncConfig.create(context) }
     val assemblyViewerDefaultsStore = remember { AssemblyViewerDefaultsStore.create(context) }
     val specialtyViewerDefaultsStore = remember { SpecialtyViewerDefaultsStore.create(context) }
     val pinnedJobsStore = remember { PinnedJobsStore.create(context) }
@@ -820,6 +822,7 @@ private fun MultiBackStackNavigation(
                             coordinator.navigateTopLevel(homeTab)
                         },
                         timecardConfig = timecardConfig,
+                        adminSyncConfig = adminSyncConfig,
                         assemblyViewerDefaultsStore = assemblyViewerDefaultsStore,
                         specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                         themeCatalog = themeCatalog,
@@ -1836,6 +1839,7 @@ private fun SettingsTabHost(
     onSyncthingStartNow: () -> Unit,
     onBack: () -> Unit,
     timecardConfig: TimecardServerConfig,
+    adminSyncConfig: AdminSyncConfig,
     assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore,
     specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
     themeCatalog: KKCThemeCatalog,
@@ -1874,6 +1878,7 @@ private fun SettingsTabHost(
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
                 timecardConfig = timecardConfig,
+                adminSyncConfig = adminSyncConfig,
                 themeCatalog = themeCatalog,
                 onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
                 onThemeOverrideChanged = onThemeOverrideChanged,
@@ -2033,6 +2038,7 @@ private fun LegacySingleStackNavigation(
 
     val legacyContext = LocalContext.current
     val legacyTimecardConfig = remember { TimecardServerConfig.create(legacyContext) }
+    val legacyAdminSyncConfig = remember { AdminSyncConfig.create(legacyContext) }
     val legacyAssemblyViewerDefaultsStore = remember { AssemblyViewerDefaultsStore.create(legacyContext) }
     val legacySpecialtyViewerDefaultsStore = remember { SpecialtyViewerDefaultsStore.create(legacyContext) }
     val legacyCoroutineScope = rememberCoroutineScope()
@@ -3067,6 +3073,7 @@ private fun LegacySingleStackNavigation(
                         employeeName = employeeName,
                         onEmployeeNameChanged = onEmployeeNameChanged,
                         timecardConfig = legacyTimecardConfig,
+                        adminSyncConfig = legacyAdminSyncConfig,
                         themeCatalog = themeCatalog,
                         onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
                         onThemeOverrideChanged = onThemeOverrideChanged,

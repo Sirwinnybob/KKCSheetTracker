@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.EmployeeDirectory
 import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.navigation.WorkMode
@@ -65,6 +66,7 @@ fun SettingsScreen(
     useStandardSheets: Boolean = false,
     onUseStandardSheetsChanged: (Boolean) -> Unit = {},
     timecardConfig: TimecardServerConfig,
+    adminSyncConfig: AdminSyncConfig,
     themeCatalog: KKCThemeCatalog = KKCThemeRepository.builtInCatalog(),
     onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit = {},
     onThemeOverrideChanged: (String?) -> Unit = {},
@@ -101,6 +103,12 @@ fun SettingsScreen(
     var editServerIp by remember(currentServerIp) { mutableStateOf(currentServerIp ?: "") }
     var serverIpDirty by remember(currentServerIp) { mutableStateOf(false) }
     var serverIpSaved by remember { mutableStateOf(false) }
+
+    val currentAdminSyncIp by adminSyncConfig.serverIpFlow.collectAsState(initial = null)
+    var editAdminSyncIp by remember(currentAdminSyncIp) { mutableStateOf(currentAdminSyncIp ?: "") }
+    var adminSyncIpDirty by remember(currentAdminSyncIp) { mutableStateOf(false) }
+    var adminSyncIpSaved by remember { mutableStateOf(false) }
+
     var themeDropdownExpanded by remember { mutableStateOf(false) }
     val timecardScope = rememberCoroutineScope()
 
@@ -132,6 +140,12 @@ fun SettingsScreen(
         if (serverIpSaved) {
             delay(1600)
             serverIpSaved = false
+        }
+    }
+    LaunchedEffect(adminSyncIpSaved) {
+        if (adminSyncIpSaved) {
+            delay(1600)
+            adminSyncIpSaved = false
         }
     }
 
@@ -654,6 +668,51 @@ fun SettingsScreen(
                             serverIpSaved = true
                         },
                         enabled = serverIpDirty
+                    ) {
+                        Text("Save")
+                    }
+                }
+            }
+
+            // ── Admin Sync ───────────────────────────────────────────────
+            SettingsCard(title = "Hours Tracker Admin Sync") {
+                OutlinedTextField(
+                    value = editAdminSyncIp,
+                    onValueChange = {
+                        editAdminSyncIp = it
+                        adminSyncIpDirty = (it.trim() != (currentAdminSyncIp ?: ""))
+                    },
+                    label = { Text("Hours Tracker server IP address") },
+                    placeholder = { Text("Not configured (fast path disabled)") },
+                    supportingText = { Text("Enables instant job order / job board / delivery schedule sync. Leave blank to always use the existing (slower) sync mechanism.") },
+                    colors = filledFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (adminSyncIpSaved) {
+                        Text(
+                            "Saved",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            timecardScope.launch {
+                                adminSyncConfig.setManualIp(editAdminSyncIp.ifBlank { null })
+                            }
+                            adminSyncIpDirty = false
+                            adminSyncIpSaved = true
+                        },
+                        enabled = adminSyncIpDirty
                     ) {
                         Text("Save")
                     }
