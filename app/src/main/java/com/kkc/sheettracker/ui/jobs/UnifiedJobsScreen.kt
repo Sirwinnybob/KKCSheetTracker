@@ -71,8 +71,9 @@ import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.ui.admin.JobLabelEditorNavBarControls
+import com.kkc.sheettracker.ui.components.DeliveryScheduleBanner
 import com.kkc.sheettracker.ui.components.DeliveryScheduleDialog
-import com.kkc.sheettracker.ui.components.DeliveryScheduleWidget
+import com.kkc.sheettracker.ui.components.deliveryJobHighlight
 import com.kkc.sheettracker.ui.components.HardwoodsRevisionHistorySheet
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -88,6 +89,7 @@ import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.animateEntrance
 import com.kkc.sheettracker.ui.components.mergeActiveReorder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
@@ -230,6 +232,48 @@ fun UnifiedJobsScreen(
     }
     val dragOffset = if (pinnedCards.isNotEmpty()) pinnedCards.size + 2 else 0
     val listState = rememberLazyListState()
+
+    // "Jump to job" from a tapped delivery — scroll the list to the matching card and highlight
+    // it. Index map mirrors the LazyColumn's exact item emission order below (pinned header +
+    // pinned cards + divider, then activeOrder, then pending header + pending cards).
+    var pendingScrollTarget by remember { mutableStateOf<String?>(null) }
+    var highlightedFolderName by remember { mutableStateOf<String?>(null) }
+    val lazyIndexByFolderName = remember(pinnedCards, activeOrder.toList(), pendingCards) {
+        val map = mutableMapOf<String, Int>()
+        var idx = 0
+        if (pinnedCards.isNotEmpty()) {
+            idx += 1 // pinned_header
+            pinnedCards.forEach { card -> map.putIfAbsent(card.folderName, idx); idx += 1 }
+            idx += 1 // pinned_divider
+        }
+        activeOrder.forEach { folderName -> map.putIfAbsent(folderName, idx); idx += 1 }
+        if (pendingCards.isNotEmpty()) {
+            idx += 1 // pending_header
+            pendingCards.forEach { card -> map.putIfAbsent(card.folderName, idx); idx += 1 }
+        }
+        map
+    }
+    LaunchedEffect(pendingScrollTarget, filteredCards) {
+        val target = pendingScrollTarget ?: return@LaunchedEffect
+        val idx = lazyIndexByFolderName[target]
+        if (idx != null) {
+            listState.animateScrollToItem(idx)
+            highlightedFolderName = target
+            pendingScrollTarget = null
+        } else {
+            pendingScrollTarget = null // not found (stale/deleted job) - give up cleanly
+        }
+    }
+    // Separate effect keyed only on the highlight itself — NOT on filteredCards. Keying the
+    // clear-timer on the list too meant any unrelated background refresh mid-highlight (badge
+    // load, scan tick) cancelled this coroutine before delay() completed, permanently orphaning
+    // highlightedFolderName since pendingScrollTarget was already null by then.
+    LaunchedEffect(highlightedFolderName) {
+        val target = highlightedFolderName ?: return@LaunchedEffect
+        delay(3000)
+        if (highlightedFolderName == target) highlightedFolderName = null
+    }
+
     val saveScope = rememberCoroutineScope()
     val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
     val deliveryScheduleRequestStore = remember(basePath) { DeliveryScheduleRequestStore(File(basePath)) }
@@ -324,13 +368,19 @@ fun UnifiedJobsScreen(
             )
             SortToggleBar(sortByName = sortByName, onSortChange = { if (!adminMode) sortByName = it })
 
-            DeliveryScheduleWidget(
+            DeliveryScheduleBanner(
                 schedule = deliverySchedule,
-                onTap = { showScheduleDialog = true },
+                isAdminMode = adminMode,
+                onEditRequested = { showScheduleDialog = true },
                 showWhenEmpty = adminMode,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                onJobSelected = { folderName ->
+                    query = TextFieldValue("")
+                    boardView = false
+                    pendingScrollTarget = folderName
+                }
             )
 
             AnimatedContent(
@@ -438,7 +488,8 @@ fun UnifiedJobsScreen(
                                         }
                                     }
                                     UnifiedJobCard(
-                                        modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
+                                        modifier = Modifier.animateEntrance(index, initialLoadComplete.value)
+                                            .deliveryJobHighlight(active = highlightedFolderName == card.folderName),
                                         model = card.copy(
                                             badges = card.badges + (loadedBadges ?: emptySet<JobBadge>()),
                                             onCardClick = { onJobClick(card) },
@@ -465,7 +516,8 @@ fun UnifiedJobsScreen(
                                     }
                                     ReorderableItem(reorderState, key = activeFolderName) {
                                         UnifiedJobCard(
-                                            modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
+                                            modifier = Modifier.animateEntrance(index, initialLoadComplete.value)
+                                                .deliveryJobHighlight(active = highlightedFolderName == card.folderName),
                                             model = card.copy(
                                                 badges = card.badges + (loadedBadges ?: emptySet<JobBadge>()),
                                                 onCardClick = { onJobClick(card) },
@@ -493,7 +545,8 @@ fun UnifiedJobsScreen(
                                         }
                                     }
                                     UnifiedJobCard(
-                                        modifier = Modifier.animateEntrance(index, initialLoadComplete.value),
+                                        modifier = Modifier.animateEntrance(index, initialLoadComplete.value)
+                                            .deliveryJobHighlight(active = highlightedFolderName == card.folderName),
                                         model = card.copy(
                                             badges = card.badges + (loadedBadges ?: emptySet<JobBadge>()),
                                             onCardClick = { onJobClick(card) },
