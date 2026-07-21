@@ -69,6 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
 import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.AdminSyncClient
+import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
@@ -332,6 +334,11 @@ fun JobBrowserScreen(
     val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
     val jobBoardRequestStore = remember(basePath) { JobBoardRequestStore(File(basePath)) }
     val deliveryScheduleRequestStore = remember(basePath) { DeliveryScheduleRequestStore(File(basePath)) }
+    val adminSyncConfig = remember { AdminSyncConfig.create(context) }
+    val adminSyncServerUrl by produceState<String?>(initialValue = null, adminSyncConfig) {
+        value = adminSyncConfig.getServerUrl()
+    }
+    val adminSyncClient = remember(adminSyncServerUrl) { adminSyncServerUrl?.let { AdminSyncClient(it) } }
     val deliveryPickerJobs = remember(filteredJobs) {
         filteredJobs.map {
             DeliverySchedulePickerJob(
@@ -356,7 +363,10 @@ fun JobBrowserScreen(
             folderNameOf = { it.folderName }
         )
         saveScope.launch {
-            withContext(Dispatchers.IO) { requestStore.writeRequest(newOrder, tabletId) }
+            val applied = adminSyncClient?.applyProductionOrder(newOrder, tabletId)
+            if (applied == null) {
+                withContext(Dispatchers.IO) { requestStore.writeRequest(newOrder, tabletId) }
+            }
         }
     }
 
