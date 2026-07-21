@@ -287,7 +287,7 @@ fun UnifiedJobsScreen(
             KKCTopAppBar(
                 title = {
                     Text(
-                        sanitizeModeTitle(spec.modeName),
+                        "KKC Dashboard - ${sanitizeModeTitle(spec.modeName)}",
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
