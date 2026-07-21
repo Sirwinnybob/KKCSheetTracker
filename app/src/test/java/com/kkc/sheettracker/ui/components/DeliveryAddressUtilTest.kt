@@ -52,6 +52,11 @@ class DeliveryAddressUtilTest {
     }
 
     @Test
+    fun parseDeliveryCoordinates_rejectsMixedValidAndInvalidParts() {
+        assertNull(parseDeliveryCoordinates("45.5, abc"))
+    }
+
+    @Test
     fun parseDeliveryCoordinates_rejectsBlank() {
         assertNull(parseDeliveryCoordinates(""))
         assertNull(parseDeliveryCoordinates("   "))

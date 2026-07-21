@@ -123,7 +123,7 @@ fun DeliveryScheduleBanner(
         expandedDays = expandedDays + (currentDeliveryDays - previousDeliveryDays)
         previousDeliveryDays = currentDeliveryDays
     }
-    val today = remember { LocalDate.now().dayOfWeek }
+    val today = LocalDate.now().dayOfWeek
     val totalCount = remember(schedule) { totalDeliveryCount(schedule) }
 
     Surface(
