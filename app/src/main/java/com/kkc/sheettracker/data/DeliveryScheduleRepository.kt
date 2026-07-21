@@ -9,6 +9,44 @@ import com.kkc.sheettracker.data.models.DELIVERY_DAYS
 import com.kkc.sheettracker.data.models.DELIVERY_PERIODS
 import java.io.File
 
+private val deliveryScheduleGson = GsonBuilder().create()
+
+/**
+ * Parses the delivery-schedule JSON shape (`{schemaVersion, slots: {...}}`) shared by the
+ * on-disk master file and the `/api/admin-sync/delivery-schedule` endpoint's response body — both
+ * use the identical shape, so this is reused by DeliveryScheduleRepository (file read) and
+ * AdminSyncClient (HTTP response) rather than duplicated.
+ */
+internal fun parseDeliverySchedule(json: String): DeliverySchedule {
+    val root = deliveryScheduleGson.fromJson(json, JsonObject::class.java) ?: return DeliverySchedule()
+    val slotsObj = root.getAsJsonObject("slots") ?: return DeliverySchedule()
+    val slots = mutableMapOf<String, DeliverySlot>()
+
+    for (day in DELIVERY_DAYS) {
+        for (period in DELIVERY_PERIODS) {
+            val key = "${day}_${period}"
+            val slotObj = slotsObj.getAsJsonObject(key)
+            val jobs = mutableListOf<DeliveryJob>()
+            if (slotObj != null) {
+                val jobsArr = slotObj.getAsJsonArray("jobs")
+                jobsArr?.forEach { elem ->
+                    val obj = elem.asJsonObject
+                    jobs.add(
+                        DeliveryJob(
+                            jobNumber = obj.get("jobNumber")?.takeIf { !it.isJsonNull }?.asString ?: "",
+                            description = obj.get("description")?.takeIf { !it.isJsonNull }?.asString ?: "",
+                            address = obj.get("address")?.takeIf { !it.isJsonNull }?.asString ?: "",
+                            folderName = obj.get("folderName")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                        )
+                    )
+                }
+            }
+            slots[key] = DeliverySlot(jobs = jobs)
+        }
+    }
+    return DeliverySchedule(slots = slots)
+}
+
 /**
  * Reads the delivery schedule from the shared network drive.
  * Storage path: {baseDir}/.metadata/delivery_schedule.json
@@ -17,41 +55,9 @@ import java.io.File
  */
 class DeliveryScheduleRepository(private val baseDir: File) {
 
-    private val gson = GsonBuilder().create()
-
     fun fetchSchedule(): DeliverySchedule {
         val file = File(baseDir, ".metadata/delivery_schedule.json")
         if (!file.exists() || !file.isFile) return DeliverySchedule()
-        return runCatching { parseSchedule(file.readText()) }.getOrElse { DeliverySchedule() }
-    }
-
-    private fun parseSchedule(json: String): DeliverySchedule {
-        val root = gson.fromJson(json, JsonObject::class.java) ?: return DeliverySchedule()
-        val slotsObj = root.getAsJsonObject("slots") ?: return DeliverySchedule()
-        val slots = mutableMapOf<String, DeliverySlot>()
-
-        for (day in DELIVERY_DAYS) {
-            for (period in DELIVERY_PERIODS) {
-                val key = "${day}_${period}"
-                val slotObj = slotsObj.getAsJsonObject(key)
-                val jobs = mutableListOf<DeliveryJob>()
-                if (slotObj != null) {
-                    val jobsArr = slotObj.getAsJsonArray("jobs")
-                    jobsArr?.forEach { elem ->
-                        val obj = elem.asJsonObject
-                        jobs.add(
-                            DeliveryJob(
-                                jobNumber = obj.get("jobNumber")?.takeIf { !it.isJsonNull }?.asString ?: "",
-                                description = obj.get("description")?.takeIf { !it.isJsonNull }?.asString ?: "",
-                                address = obj.get("address")?.takeIf { !it.isJsonNull }?.asString ?: "",
-                                folderName = obj.get("folderName")?.takeIf { !it.isJsonNull }?.asString ?: ""
-                            )
-                        )
-                    }
-                }
-                slots[key] = DeliverySlot(jobs = jobs)
-            }
-        }
-        return DeliverySchedule(slots = slots)
+        return runCatching { parseDeliverySchedule(file.readText()) }.getOrElse { DeliverySchedule() }
     }
 }
