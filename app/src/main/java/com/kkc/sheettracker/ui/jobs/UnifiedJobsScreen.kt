@@ -322,8 +322,6 @@ fun UnifiedJobsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
-            SortToggleBar(sortByName = sortByName, onSortChange = { if (!adminMode) sortByName = it })
-
             DeliveryScheduleWidget(
                 schedule = deliverySchedule,
                 onTap = { showScheduleDialog = true },
@@ -332,6 +330,8 @@ fun UnifiedJobsScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
             )
+
+            SortToggleBar(sortByName = sortByName, onSortChange = { if (!adminMode) sortByName = it })
 
             AnimatedContent(
                 targetState = sortByName to boardView,
