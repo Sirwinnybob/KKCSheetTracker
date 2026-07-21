@@ -228,7 +228,7 @@ fun UnifiedJobsScreen(
     val activeOrder = remember(scanGeneration) {
         mutableStateListOf(*activeCards.map { it.folderName }.toTypedArray())
     }
-    val dragOffset = if (pinnedCards.isNotEmpty()) pinnedCards.size + 2 else 0
+    val dragOffset = 3 + if (pinnedCards.isNotEmpty()) pinnedCards.size + 2 else 0
     val listState = rememberLazyListState()
     val saveScope = rememberCoroutineScope()
     val requestStore = remember(basePath) { ProductionOrderRequestStore(File(basePath)) }
@@ -311,28 +311,7 @@ fun UnifiedJobsScreen(
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding)) {
-            Text(
-                text = if (query.text.isBlank()) {
-                    "${filteredCards.size} jobs"
-                } else {
-                    "Showing ${filteredCards.size} of ${cards.size} jobs"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-            )
-            DeliveryScheduleWidget(
-                schedule = deliverySchedule,
-                onTap = { showScheduleDialog = true },
-                showWhenEmpty = adminMode,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-
-            SortToggleBar(sortByName = sortByName, onSortChange = { if (!adminMode) sortByName = it })
-
+        Box(modifier = Modifier.padding(padding)) {
             AnimatedContent(
                 targetState = sortByName to boardView,
                 transitionSpec = {
@@ -351,11 +330,52 @@ fun UnifiedJobsScreen(
                         }
                     }
                     filteredCards.isEmpty() -> {
-                        Box(
+                        LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
+                            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = listBottomPadding),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("No jobs found")
+                            item(key = "header_job_count") {
+                                Text(
+                                    text = if (query.text.isBlank()) {
+                                        "${filteredCards.size} jobs"
+                                    } else {
+                                        "Showing ${filteredCards.size} of ${cards.size} jobs"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                            item(key = "header_deliveries_widget") {
+                                DeliveryScheduleWidget(
+                                    schedule = deliverySchedule,
+                                    onTap = { showScheduleDialog = true },
+                                    showWhenEmpty = adminMode,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
+                            item(key = "header_sort_toggle") {
+                                SortToggleBar(
+                                    sortByName = sortByName,
+                                    onSortChange = { if (!adminMode) sortByName = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
+                            item(key = "empty_msg") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 40.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("No jobs found")
+                                }
+                            }
                         }
                     }
                     isBoardView -> {
@@ -366,6 +386,37 @@ fun UnifiedJobsScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            item(key = "header_job_count", span = { GridItemSpan(maxLineSpan) }) {
+                                Text(
+                                    text = if (query.text.isBlank()) {
+                                        "${filteredCards.size} jobs"
+                                    } else {
+                                        "Showing ${filteredCards.size} of ${cards.size} jobs"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                            item(key = "header_deliveries_widget", span = { GridItemSpan(maxLineSpan) }) {
+                                DeliveryScheduleWidget(
+                                    schedule = deliverySchedule,
+                                    onTap = { showScheduleDialog = true },
+                                    showWhenEmpty = adminMode,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
+                            item(key = "header_sort_toggle", span = { GridItemSpan(maxLineSpan) }) {
+                                SortToggleBar(
+                                    sortByName = sortByName,
+                                    onSortChange = { if (!adminMode) sortByName = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
                             itemsIndexed(activeCards, key = { _, card -> card.folderName }) { index, card ->
                                 val loadedBadges = badgeCache[card.folderName]
                                 LaunchedEffect(card.folderName, scanGeneration) {
@@ -421,6 +472,37 @@ fun UnifiedJobsScreen(
                             contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = listBottomPadding),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            item(key = "header_job_count") {
+                                Text(
+                                    text = if (query.text.isBlank()) {
+                                        "${filteredCards.size} jobs"
+                                    } else {
+                                        "Showing ${filteredCards.size} of ${cards.size} jobs"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                            item(key = "header_deliveries_widget") {
+                                DeliveryScheduleWidget(
+                                    schedule = deliverySchedule,
+                                    onTap = { showScheduleDialog = true },
+                                    showWhenEmpty = adminMode,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
+                            item(key = "header_sort_toggle") {
+                                SortToggleBar(
+                                    sortByName = sortByName,
+                                    onSortChange = { if (!adminMode) sortByName = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
                             if (pinnedCards.isNotEmpty()) {
                                 item(key = "pinned_header") {
                                     Text(

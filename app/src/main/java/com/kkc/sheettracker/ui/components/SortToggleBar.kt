@@ -44,7 +44,6 @@ fun SortToggleBar(
         shape = RoundedCornerShape(9.dp),
         color = trackColor,
         modifier = modifier
-            .padding(horizontal = 16.dp, vertical = 6.dp)
             .shadow(elevation = 2.dp, shape = RoundedCornerShape(9.dp), clip = false)
             .fillMaxWidth()
             .height(48.dp)
