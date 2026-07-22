@@ -1,13 +1,29 @@
 ---
 name: kkc-metadata-map
-description: "Use when tracing KKC Ready Jobs metadata ownership or parity: stale tablet jobs, CNC or hardwood tracker streams, Syncthing conflicts, tablet request sidecars, supply schema/status/comments, .time_cards, timeclock API fields, update-feed metadata, molding/moulding profile or dimension-override files, or deciding whether KKCSheetTracker, Ready Jobs Watcher, Hours Tracker, timeclock-hub, or updater-agent owns a file."
+description: >-
+  Use when tracing KKC Ready Jobs metadata ownership or parity, stale tablet
+  job data, missing jobs, CNC or hardwood tracker streams, Syncthing
+  conflicts, tablet request sidecars, supply schema/status/comments,
+  .time_cards, timeclock API fields, production_order.json,
+  delivery_schedule.json, update-feed metadata, admin metadata,
+  molding/moulding profile or dimension-override files, or deciding whether
+  KKCSheetTracker, Ready Jobs Watcher, Hours Tracker, timeclock-hub, or
+  updater-agent owns a file.
+metadata:
+  sync:
+    version: 2
+    hash: sha256-e754ff0434df2f2e0d30b321ebe29f72f15f38bc682faaa7732b88b763d414b9
 ---
-
 # KKC Metadata Map
 
 ## Overview
 
 Use this skill to answer: "Which system owns this metadata file, where is the source of truth, and where should debugging start?" Prefer owner evidence over guessing from symptoms.
+
+> **Deep reference:** a full evidence-backed cross-program audit of the shared metadata contract
+> (with write-safety analysis and an open-issue register) lives at
+> `C:\Scripts\Hours Tracker\METADATA_AUDIT.md`. When this map and the code disagree, trust the code,
+> fix the code, then update BOTH this skill and that audit doc (rules are in the audit's §1.4).
 
 ## System Boundaries
 
@@ -19,7 +35,7 @@ Use this skill to answer: "Which system owns this metadata file, where is the so
 | timeclock-hub | RTC-1000 punch clock REST hub and SQLite source of truth for punch-clock timeclock | `C:\Scripts\timeclock-hub` |
 | updater-agent | Android helper for installs/silent update behavior | `C:\Scripts\KKCSheetTracker\updater-agent` |
 
-Shared Ready Jobs usually appears on the PC as `Y:\Ready Jobs` and on the server as `\\192.168.1.15\KKC Jobs\Ready Jobs`.
+Shared Ready Jobs usually appears on the PC as `Y:\Ready Jobs` and on the Hours Tracker Docker server as `/mnt/KKC/Syncthing/KKC Jobs/Ready Jobs`.
 
 Cabinet Vision (external CAD database, not one of the five programs above) is the source of truth for the profile geometry that Ready Jobs Watcher's molding sync pulls from — see the moldings row below.
 
@@ -31,26 +47,26 @@ Cabinet Vision (external CAD database, not one of the five programs above) is th
 | `Y:\Ready Jobs\<job>\.metadata\cache_static.json` | Ready Jobs Watcher | Check mtime/content, then `metadata_cache.py` and watcher logs |
 | `Y:\Ready Jobs\<job>\CNC\.metadata\<pdf-stem>.json` | Ready Jobs Watcher | Check sidecar exists for each CNC PDF and parse errors in `cnc_scan.log` |
 | `Y:\Ready Jobs\<job>\CNC\.metadata\remake_bad_parts_candidates.json` | Ready Jobs Watcher | Check CNC scan log and scheduled cache refresh entries |
-| `Y:\Ready Jobs\<job>\CNC\.tracker\<tablet>.json` | KKCSheetTracker tablets | Legacy CNC sheet/action state written by tablet |
-| `Y:\Ready Jobs\<job>\CNC\.tracker\events\**\*.ndjson` | KKCSheetTracker tablets; Ready Jobs Watcher reads | Migrated CNC action stream; prefer over legacy JSON when present |
+| `Y:\Ready Jobs\<job>\CNC\.tracker\<tablet>.json` | KKCSheetTracker tablets | **LIVE channel** for CNC actions (carries `bad_part_submitted` alert marker, `ProgressStore.kt:818`). RJW consolidates then DELETES these files — consolidation is lossy for `bad_part_submitted` (see audit C-01) |
+| `Y:\Ready Jobs\<job>\CNC\.tracker\events\**\*.ndjson` | (designed for tablets) Ready Jobs Watcher reads | **DORMANT** as of 2026-07-09 — RJW's `tracker_action_stream.py` reader exists but the tablet writes NO ndjson (grep-confirmed). Legacy `<tablet>.json` above is the real channel |
 | `Y:\Ready Jobs\<job>\CNC\.tracker\consolidated.json` | Ready Jobs Watcher | Check tracker action stream/reconcile logs |
 | `Y:\Ready Jobs\<job>\CNC\.tracker\watcher_refresh_watcher.json` | Ready Jobs Watcher | Refresh heartbeat; not source-of-truth progress |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_index.json` | Ready Jobs Watcher | Compare against hardwood source files and watcher logs |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_revisions.json` | Ready Jobs Watcher | Check revision state before blaming tablet UI |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\board_stock_manual.json` | Hours Tracker/admin or manual source; Ready Jobs Watcher reads | Manual board-stock input folded into `cache_static.json` |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\board_stock_manual.json` | **writer external/unconfirmed** (manual/admin); RJW + tablet READ-ONLY | Manual board-stock input folded into `cache_static.json`; no writer found in the 3 audited programs (audit SK-05) |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\<tablet>.json` | KKCSheetTracker tablets | Hardwood completion/progress state |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\events\**\*.ndjson` | KKCSheetTracker tablets; Ready Jobs Watcher reads | Migrated hardwood action stream |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\events\**\*.ndjson` | (designed for tablets) Ready Jobs Watcher reads | **DORMANT** — no tablet producer as of 2026-07-09; live channel is `<tablet>.json` (audit SK-01) |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\<tablet>.markup.json` | KKCSheetTracker tablets | Hardwood ink/PDF markup state |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\.board_stock_*_<tablet>.json` | KKCSheetTracker tablets | Hardwood board-stock migration markers |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\watcher_refresh_watcher.json` | Ready Jobs Watcher | Hardwood refresh heartbeat |
 | `Y:\Ready Jobs\<job>\.metadata\cabinet_sheet_index.json` | Ready Jobs Watcher | Check `cabinet_sheet_indexer.py` and root PDF mtimes |
-| `Y:\Ready Jobs\.metadata\moldings\{Crown,Scribe,Base}\<profileId>.xml` | Ready Jobs Watcher (pulls from Cabinet Vision `Profile`/`Shape` tables, deletes obsolete profile files); Hours Tracker reads only | HT's molding library page caches parsed geometry by (mtime, size); check `moldings_sync.py` (skips rewrite when bytes match, not time-based), then Cabinet Vision DB connectivity |
+| `Y:\Ready Jobs\.metadata\moldings\{Crown,Scribe,Base}\<profileId>.xml` | Ready Jobs Watcher (pulls from Cabinet Vision `Profile`/`Shape` tables, deletes obsolete profile files); Hours Tracker reads only | HT's molding library page caches parsed geometry by (mtime, size); check `moldings_sync.py` (skips rewrite when bytes match, not time-based), then Cabinet Vision DB connectivity (audit SK-06) |
 | `Y:\Ready Jobs\<job>\.metadata\pdf_markup\.tracker\<tablet>.markup.json` | KKCSheetTracker tablets | Root/reference PDF markup |
 | `Y:\Ready Jobs\<job>\.metadata\pdf_markup\.tracker\<tablet>.json` | KKCSheetTracker tablets | Legacy PDF markup fallback |
 | `Y:\Ready Jobs\.metadata\crashes\*.json` | KKCSheetTracker Android | Read latest crash JSON, then match app version and route/screen |
-| `Y:\Ready Jobs\.metadata\material_mappings.json` | Hours Tracker/admin workflow; KKCSheetTracker reads | Shared material mapping for door-panel/specialty automation |
-| `Y:\Ready Jobs\.metadata\themes\active_theme.json`, `themes\*.json`, `themes\graphics\*.svg` | Admin/theme publishing; KKCSheetTracker reads | Global tablet theme and graphics assets |
-| `Y:\Ready Jobs\.metadata\timeclock_messages.json` | Admin/global message workflow; KKCSheetTracker reads | Global shop/tablet timeclock messages |
+| `Y:\Ready Jobs\.metadata\material_mappings.json` | **writer external/unconfirmed**; Hours Tracker + KKCSheetTracker READ-ONLY | Shared material mapping for door-panel/specialty automation. HT backend only reads (`specialty_store.py:31`); no writer among the 3 audited programs (audit SK-04) |
+| `Y:\Ready Jobs\.metadata\themes\active_theme.json`, `themes\*.json`, `themes\graphics\*.svg` | **external theme tool** (NOT Hours Tracker backend); KKCSheetTracker reads | Global tablet theme/graphics. HT backend has zero refs to these (audit SK-03) |
+| `Y:\Ready Jobs\.metadata\timeclock_messages.json` | **external message tool** (NOT Hours Tracker backend); KKCSheetTracker reads | Global shop/tablet timeclock messages. HT backend has zero refs (audit SK-03) |
 | `Y:\Ready Jobs\.metadata\sync_conflicts\<id>\manifest.json` | Ready Jobs Watcher | Root/global Syncthing conflict archive manifest |
 | `Y:\Ready Jobs\production_order.json` | Hours Tracker/admin workflow; Ready Jobs Watcher reads it | Check Hours Tracker admin state, then cache refresh into jobs |
 | `Y:\Ready Jobs\production_order_request.<tabletId>.json` | KKCSheetTracker tablet writes; Hours Tracker consumes | Per-tablet lineup request; malformed input may be quarantined, but transient I/O/lock/write failure must leave it for retry |
@@ -65,13 +81,14 @@ Cabinet Vision (external CAD database, not one of the five programs above) is th
 | `Y:\Ready Jobs\.supply\comments\<itemId>\<commentId>.json` | KKCSheetTracker tablets and Hours Tracker admin | Supply item comments |
 | `Y:\Ready Jobs\.supply\attachments\<itemId>\*` | Hours Tracker/admin workflow | Supply item uploaded attachments |
 | `Y:\Ready Jobs\<job>\.metadata\admin\rip_items.json` | Hours Tracker/admin workflow | Check Hours Tracker admin state before Android |
-| `Y:\Ready Jobs\<job>\.metadata\admin\checklist.json` | Hours Tracker/admin workflow | Check Hours Tracker admin state |
+| `Y:\Ready Jobs\<job>\.metadata\admin\checklist.json` | Hours Tracker/admin workflow; consumes tablet patch sidecars at read time | `admin_store.get_checklist` merges `checklist_patch.<tablet>.json` sidecars into this file and DELETES them — but only OUTSIDE a read-only context. A read inside `read_only_context()` (e.g. the handoff `checklist` source / `GET /api/handoff/sources`) merges in memory and leaves the sidecars intact (`admin_store.py:127,150,164`). Check HT admin state |
+| `Y:\Ready Jobs\<job>\.metadata\admin\checklist_patch.<tablet>.json` | KKCSheetTracker tablets (writer); Hours Tracker admin read CONSUMES | Tablet-authored checklist completion overlay (H-04 write-contention fix). The admin GET path folds it into `checklist.json` and unlinks it; read-only handoff discovery must NOT consume it — that gating lives in `admin_store._apply_checklist_patches` / `get_checklist` |
 | `Y:\Ready Jobs\<job>\.metadata\admin\rule_applications.json` | Hours Tracker/admin workflow | Check Hours Tracker admin rule code |
 | `Y:\Ready Jobs\<job>\.metadata\admin\board_stock.json` | Hours Tracker/admin workflow | Check Hours Tracker board stock/admin paths |
 | `Y:\Ready Jobs\<job>\.metadata\admin\specialty_items.json` | Hours Tracker/admin workflow; KKCSheetTracker may patch item fields | Check admin state and tablet specialty progress writes |
 | `Y:\Ready Jobs\<job>\.metadata\admin\.tracker\<tablet>.json` | KKCSheetTracker tablets | Specialty item/station completion state |
 | `Y:\Ready Jobs\<job>\.metadata\admin\tablet_items_<tablet>.json` | KKCSheetTracker tablets | Tablet-created specialty items |
-| `Y:\Ready Jobs\<job>\.metadata\admin\sheet_rip_done.json` | KKCSheetTracker tablets and Hours Tracker/admin | Manual sheet-rip completion state |
+| `Y:\Ready Jobs\<job>\.metadata\admin\sheet_rip_done.json` | **KKCSheetTracker tablets (writer); Hours Tracker READ-ONLY** | Manual sheet-rip completion state. HT only reads (`board_stock_store.py:232`); tablet is sole writer but shares one filename (lost-update risk, audit H-04/SK-02) |
 | `Y:\Ready Jobs\<job>\.metadata\admin\checklist_attachments\<itemId>\*` | Hours Tracker/admin workflow; KKCSheetTracker reads | Uploaded checklist attachments |
 | `Y:\Ready Jobs\<job>\.metadata\admin\specialty_attachments\<itemId>\*` | Hours Tracker/admin workflow; KKCSheetTracker reads | Uploaded specialty attachments |
 | `Y:\Ready Jobs\<job>\.metadata\sync_conflicts\<id>\manifest.json` | Ready Jobs Watcher | Per-job Syncthing conflict archive manifest |
@@ -136,7 +153,7 @@ Second caveat: if a Cabinet Vision molding profile is renamed or removed, Ready 
 | `C:\Scripts\Hours Tracker\backend\employee_mapping.json` | Hours Tracker | Alias/canonical employee mapping for imports/admin |
 | `C:\Scripts\Hours Tracker\backend\checklist_rules.json`, `%DATA_DIR%\checklist_rules.json` | Hours Tracker | Global checklist automation rules |
 | `C:\Scripts\Hours Tracker\backend\board_stock_materials.json`, `%DATA_DIR%\board_stock_materials.json` | Hours Tracker | Remembered board-stock material names |
-| `C:\Scripts\Hours Tracker\backend\molding_dimensions.json`, `%DATA_DIR%\molding_dimensions.json` | Hours Tracker | User-assigned molding dimension overrides (segment/overall/manual), keyed by `moldingId` (e.g. `"Crown:105"`); lives outside `Y:\Ready Jobs`, never touched by Ready Jobs Watcher |
+| `C:\Scripts\Hours Tracker\backend\molding_dimensions.json`, `%DATA_DIR%\molding_dimensions.json` | Hours Tracker | User-assigned molding dimension overrides (segment/overall/manual), keyed by `moldingId` (e.g. `"Crown:105"`); lives outside `Y:\Ready Jobs`, never touched by Ready Jobs Watcher (audit SK-06) |
 | `C:\Scripts\timeclock-hub\data\timeclock.db` | timeclock-hub | SQLite source of truth for RTC punch-clock employees/punches |
 | `C:\Scripts\timeclock-hub\data\timeclock.db.backup_*` | timeclock-hub cleanup/admin workflow | Backup before duplicate/local punch cleanup |
 | `C:\Scripts\timeclock-hub\downloaded-timeclock.db` | timeclock-hub admin/debug workflow | Local copy from `/api/db/download` |
@@ -299,4 +316,8 @@ adb shell dumpsys package com.example.timecard | Select-String "versionName|vers
 | Searching all hidden Syncthing folders as jobs | Filter to real job folders like `<jobnum> - <name>` |
 | Treating thumbnails/fullimages as source metadata | They are render caches; debug source JSON first |
 | Assuming mDNS should always work for timeclock | Current hub may have mDNS disabled; use manual/default IP checks |
-| Assuming Ready Jobs Watcher's molding library sync can overwrite Hours Tracker's saved dimensions | Different trees entirely: RJW only writes `.metadata\moldings\*.xml` geometry under `Y:\Ready Jobs`; HT's `molding_dimensions.json` lives in HT's own `DATA_DIR` and RJW never touches it |
+| Assuming CNC actions flow through `events\*.ndjson` | That reader is dormant; the tablet writes legacy `<tablet>.json` only (audit SK-01) |
+| Trusting a bad-part alert reached the engineer | RJW consolidation drops `bad_part_submitted` then deletes the source file (audit C-01) — verify the alert, don't assume |
+| Treating a `.sync-conflict-*` file as harmless | No program filters them; every metadata scan ingests them as a phantom writer (audit H-03) |
+| Assuming a "read-only" HT read never mutates | `admin_store.get_checklist` consumes+deletes tablet `checklist_patch.*.json` unless inside `read_only_context()`; any new read-only consumer (handoff sources) MUST enter that context or it steals tablet patches (audit H-04) |
+| Assuming Ready Jobs Watcher's molding library sync can overwrite Hours Tracker's saved dimensions | Different trees entirely: RJW only writes `.metadata\moldings\*.xml` geometry under `Y:\Ready Jobs`; HT's `molding_dimensions.json` lives in HT's own `DATA_DIR` and RJW never touches it (audit SK-06) |
