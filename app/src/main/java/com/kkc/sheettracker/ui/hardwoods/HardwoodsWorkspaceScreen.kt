@@ -84,8 +84,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalContext
@@ -871,7 +874,18 @@ fun HardwoodsWorkspaceScreen(
                     .fillMaxSize()
                     .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                Surface(
+                    shape = RoundedCornerShape(9.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    tonalElevation = 1.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                ) {
                     items(HardwoodDocType.entries.filter { it in availableDocTypes }, key = { it.name }) { docType ->
                         FilterChip(
                             selected = !showRipCutList && !showChangedOnly && selectedDocType == docType,
@@ -926,6 +940,7 @@ fun HardwoodsWorkspaceScreen(
                             )
                         }
                     }
+                }
                 }
                 if (!showRipCutList && selectedDoc != null) {
                     Spacer(Modifier.height(4.dp))
@@ -1163,8 +1178,9 @@ fun HardwoodsWorkspaceScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                            if (!isCollapsed) {
+                if (!isCollapsed) {
                                 items(sectionRows, key = { it.rowId }) { row ->
+                                    val animateItemMod = Modifier.animateItem()
                                     val rowUi = rowDisplayMap[row.rowId] ?: return@items
                                     val progress = rowProgressMap[selectedDoc.docType.name to row.rowId] ?: HardwoodRowProgress()
                                     val qty = row.qty.coerceAtLeast(0)
@@ -1228,6 +1244,7 @@ fun HardwoodsWorkspaceScreen(
                                         }
                                     }
                                     HardwoodsPartRow(
+                                        modifier = animateItemMod,
                                         rowUi = rowUi,
                                         qty = qty,
                                         progress = progress,
@@ -1346,6 +1363,7 @@ fun HardwoodsWorkspaceScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HardwoodsPartRow(
+    modifier: Modifier = Modifier,
     rowUi: HardwoodsRowUiModel,
     qty: Int,
     progress: HardwoodRowProgress,
@@ -1402,19 +1420,19 @@ private fun HardwoodsPartRow(
         Color.Transparent
     }
     val rowColor = completionTint.compositeOver(changedTint.compositeOver(baseRowColor))
-    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
-    Surface(
-        modifier = Modifier
+    val gradientTopColor = visuals.leftBorderColor.copy(alpha = 1f)
+    val gradientBottomColor = visuals.leftBorderColor.copy(alpha = 0.45f)
+    val borderStrokeColor = when (rowState) {
+        HardwoodsRowState.COMPLETE -> statusColors.completeBorder.copy(alpha = 0.4f)
+        HardwoodsRowState.SKIPPED, HardwoodsRowState.PARTIAL_SKIP -> statusColors.skipBorder.copy(alpha = 0.4f)
+        HardwoodsRowState.IN_PROGRESS -> statusColors.inProgressBorder.copy(alpha = 0.4f)
+        HardwoodsRowState.NOT_STARTED -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+    }
+    Card(
+        modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .drawBehind {
-                drawLine(
-                    color = dividerColor,
-                    start = Offset(0f, size.height - 1f),
-                    end = Offset(size.width, size.height - 1f),
-                    strokeWidth = 1f
-                )
-            }
+            .padding(horizontal = 2.dp, vertical = 2.dp)
             .combinedClickable(
                 onClick = {},
                 onLongClick = {
@@ -1422,9 +1440,13 @@ private fun HardwoodsPartRow(
                     onJump()
                 }
             ),
-        shape = RoundedCornerShape(5.dp),
-        color = rowColor,
-        tonalElevation = 0.5.dp
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = rowColor),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 2.dp,
+            pressedElevation = 4.dp
+        ),
+        border = BorderStroke(1.dp, borderStrokeColor)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1442,6 +1464,14 @@ private fun HardwoodsPartRow(
                                 end = Offset(size.width / 2f, size.height),
                                 strokeWidth = size.width,
                                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 7f), 0f)
+                            )
+                        } else if (rowState == HardwoodsRowState.COMPLETE || rowState == HardwoodsRowState.IN_PROGRESS) {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(gradientTopColor, gradientBottomColor),
+                                    startY = 0f,
+                                    endY = size.height
+                                )
                             )
                         } else {
                             drawRect(color = visuals.leftBorderColor)

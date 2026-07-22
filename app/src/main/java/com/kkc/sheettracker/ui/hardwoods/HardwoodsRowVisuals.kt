@@ -16,6 +16,14 @@ enum class HardwoodsRowState {
     PARTIAL_SKIP
 }
 
+fun HardwoodsRowState.leftBorderWidth() = when (this) {
+    HardwoodsRowState.NOT_STARTED -> 3.dp
+    HardwoodsRowState.IN_PROGRESS -> 5.dp
+    HardwoodsRowState.COMPLETE -> 5.dp
+    HardwoodsRowState.SKIPPED -> 4.dp
+    HardwoodsRowState.PARTIAL_SKIP -> 4.dp
+}
+
 @Immutable
 data class HardwoodsRowVisualStyle(
     val rowState: HardwoodsRowState,
@@ -63,10 +71,10 @@ fun hardwoodsRowVisualStyle(
         HardwoodsRowState.PARTIAL_SKIP -> status.skipBorder
     }
     val backgroundTint = when (state) {
-        HardwoodsRowState.COMPLETE -> status.completeBgRow.copy(alpha = 0.18f)
-        HardwoodsRowState.SKIPPED -> status.skipBgRow.copy(alpha = 0.22f)
+        HardwoodsRowState.COMPLETE -> status.completeBgRow.copy(alpha = 0.35f)
+        HardwoodsRowState.SKIPPED -> status.skipBgRow.copy(alpha = 0.32f)
         HardwoodsRowState.PARTIAL_SKIP -> status.skipBgRow.copy(alpha = 0.30f)
-        HardwoodsRowState.IN_PROGRESS -> status.inProgressBorder.copy(alpha = 0.14f)
+        HardwoodsRowState.IN_PROGRESS -> status.inProgressBorder.copy(alpha = 0.22f)
         HardwoodsRowState.NOT_STARTED -> widthBand.copy(alpha = 0.11f)
     }
     val progressFill = when (state) {
@@ -78,9 +86,9 @@ fun hardwoodsRowVisualStyle(
     return HardwoodsRowVisualStyle(
         rowState = state,
         leftBorderColor = borderColor,
-        leftBorderWidth = 3.dp,
+        leftBorderWidth = state.leftBorderWidth(),
         backgroundTint = backgroundTint,
-        widthBandColor = widthBand.copy(alpha = 0.82f),
+        widthBandColor = widthBand.copy(alpha = if (state == HardwoodsRowState.COMPLETE) 0.40f else 0.82f),
         progressFillColor = progressFill,
         progressTrackColor = status.notStarted.copy(alpha = 0.28f),
         skipOn = state == HardwoodsRowState.SKIPPED || state == HardwoodsRowState.PARTIAL_SKIP
