@@ -1077,6 +1077,8 @@ private fun JobsTabHost(
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     val pinnedFolderNames by pinnedJobsStore.pinnedFolderNames.collectAsState(initial = emptyList())
+    val jobsBackStack by navController.currentBackStackEntryAsState()
+    val jobsListActive = active && isJobsListRoute(jobsBackStack?.destination?.route)
     val onTogglePin: (String, Boolean) -> Unit = { folder, pinned ->
         coroutineScope.launch { pinnedJobsStore.toggle(folder, pinned) }
     }
@@ -1191,7 +1193,7 @@ private fun JobsTabHost(
                 },
                 onSearchClick = onSearchClick,
                 onSettingsClick = onSettingsClick,
-                active = active
+                active = jobsListActive
             )
         }
 
@@ -2285,7 +2287,7 @@ private fun LegacySingleStackNavigation(
                             },
                             onSearchClick = { navController.navigate("search") { launchSingleTop = true } },
                             onSettingsClick = { navController.navigate("settings") { launchSingleTop = true } },
-                            active = (currentNavDest == NavDestination.JOBS)
+                            active = currentNavDest == NavDestination.JOBS && isJobsListRoute(currentRoute)
                         )
                     }
 
@@ -3026,6 +3028,9 @@ internal fun homeTopLevelTabForWorkMode(workMode: WorkMode): TopLevelTab {
 internal fun specialtyJobRoute(jobFolderName: String): String {
     return "specialty/job/${URLEncoder.encode(jobFolderName, "UTF-8")}"
 }
+
+/** The Jobs list owns the scaffold search decoration only on its list route. */
+internal fun isJobsListRoute(route: String?): Boolean = route == "jobs"
 
 internal fun assemblyJobRoute(jobFolderName: String): String {
     return "assembly/job/${URLEncoder.encode(jobFolderName, "UTF-8")}"
