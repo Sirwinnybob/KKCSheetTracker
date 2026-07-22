@@ -1,6 +1,6 @@
 ---
 name: kkc-metadata-map
-description: Use when tracing KKC Ready Jobs metadata ownership, stale tablet job data, missing jobs, CNC or hardwood cache files, .time_cards, production_order.json, delivery_schedule.json, admin metadata, or deciding whether KKCSheetTracker, Ready Jobs Watcher, Hours Tracker, timeclock-hub, or updater-agent owns a file.
+description: Use when tracing KKC Ready Jobs metadata ownership, stale tablet job data, missing jobs, CNC or hardwood cache files, .time_cards, production_order.json, delivery_schedule.json, admin metadata, molding/moulding profile or dimension-override files, or deciding whether KKCSheetTracker, Ready Jobs Watcher, Hours Tracker, timeclock-hub, or updater-agent owns a file.
 ---
 
 # KKC Metadata Map
@@ -20,6 +20,8 @@ Use this skill to answer: "Which system owns this metadata file, where is the so
 | updater-agent | Android helper for installs/silent update behavior | `C:\Scripts\KKCSheetTracker\updater-agent` |
 
 Shared Ready Jobs usually appears on the PC as `Y:\Ready Jobs` and on the server as `\\192.168.1.15\KKC Jobs\Ready Jobs`.
+
+Cabinet Vision (external CAD database, not one of the five programs above) is the source of truth for the profile geometry that Ready Jobs Watcher's molding sync pulls from — see the moldings row below.
 
 ## Ownership Map
 
@@ -42,6 +44,7 @@ Shared Ready Jobs usually appears on the PC as `Y:\Ready Jobs` and on the server
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\.board_stock_*_<tablet>.json` | KKCSheetTracker tablets | Hardwood board-stock migration markers |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\watcher_refresh_watcher.json` | Ready Jobs Watcher | Hardwood refresh heartbeat |
 | `Y:\Ready Jobs\<job>\.metadata\cabinet_sheet_index.json` | Ready Jobs Watcher | Check `cabinet_sheet_indexer.py` and root PDF mtimes |
+| `Y:\Ready Jobs\.metadata\moldings\{Crown,Scribe,Base}\<profileId>.xml` | Ready Jobs Watcher (pulls from Cabinet Vision `Profile`/`Shape` tables, deletes obsolete profile files); Hours Tracker reads only | Geometry cached by (mtime, size); check `moldings_sync.py`, Cabinet Vision DB connectivity, then HT's molding library page |
 | `Y:\Ready Jobs\<job>\.metadata\pdf_markup\.tracker\<tablet>.markup.json` | KKCSheetTracker tablets | Root/reference PDF markup |
 | `Y:\Ready Jobs\<job>\.metadata\pdf_markup\.tracker\<tablet>.json` | KKCSheetTracker tablets | Legacy PDF markup fallback |
 | `Y:\Ready Jobs\.metadata\crashes\*.json` | KKCSheetTracker Android | Read latest crash JSON, then match app version and route/screen |
@@ -99,6 +102,8 @@ Shared Ready Jobs usually appears on the PC as `Y:\Ready Jobs` and on the server
 
 Important caveat: Hours Tracker normally does not own `<job>\.metadata\cache_static.json`. It only reads that file unless emergency legacy writes are enabled with `HOURS_TRACKER_ENABLE_LEGACY_CACHE_WRITES=1`.
 
+Second caveat: if a Cabinet Vision molding profile is renamed or removed, Ready Jobs Watcher deletes its obsolete `.xml` (`moldings_sync.py:186-193`); dimensions saved under that `moldingId` in `molding_dimensions.json` are not deleted, just orphaned until re-linked to a live profile.
+
 ## Local State
 
 | Path / State | Owner | First Debug Check |
@@ -117,6 +122,7 @@ Important caveat: Hours Tracker normally does not own `<job>\.metadata\cache_sta
 | `C:\Scripts\Hours Tracker\backend\employee_mapping.json` | Hours Tracker | Alias/canonical employee mapping for imports/admin |
 | `C:\Scripts\Hours Tracker\backend\checklist_rules.json`, `%DATA_DIR%\checklist_rules.json` | Hours Tracker | Global checklist automation rules |
 | `C:\Scripts\Hours Tracker\backend\board_stock_materials.json`, `%DATA_DIR%\board_stock_materials.json` | Hours Tracker | Remembered board-stock material names |
+| `C:\Scripts\Hours Tracker\backend\molding_dimensions.json`, `%DATA_DIR%\molding_dimensions.json` | Hours Tracker | User-assigned molding dimension overrides (segment/overall/manual), keyed by `moldingId` (e.g. `"Crown:105"`); lives outside `Y:\Ready Jobs`, never touched by Ready Jobs Watcher |
 | `C:\Scripts\timeclock-hub\data\timeclock.db` | timeclock-hub | SQLite source of truth for RTC punch-clock employees/punches |
 | `C:\Scripts\timeclock-hub\data\timeclock.db.backup_*` | timeclock-hub cleanup/admin workflow | Backup before duplicate/local punch cleanup |
 | `C:\Scripts\timeclock-hub\downloaded-timeclock.db` | timeclock-hub admin/debug workflow | Local copy from `/api/db/download` |
@@ -165,6 +171,8 @@ Important caveat: Hours Tracker normally does not own `<job>\.metadata\cache_sta
 | CNC progress/bad parts stale | `CNC\.tracker\*.json`, `events\*.ndjson`, `consolidated.json` |
 | Hardwoods rows/revisions wrong | `.metadata\hardwoods\cutlist_index.json`, `cutlist_revisions.json` |
 | Assembly/cabinet view wrong | `.metadata\cabinet_sheet_index.json` |
+| Molding profile geometry missing/wrong | `.metadata\moldings\<category>\<profileId>.xml`, `moldings_sync.py`, Cabinet Vision `Profile`/`Shape` tables |
+| Molding dimension lines/annotations missing or reset | `molding_dimensions.json`, `molding_dimensions_store.py` |
 | Specialty/admin items wrong | Hours Tracker admin files, then KKCSheetTracker specialty repository |
 | PDF markup missing | `.metadata\pdf_markup\.tracker\<tablet>.markup.json`, then tablet app version |
 | Supply item/status wrong | `.supply\items`, `.supply\status`, `.supply\comments`, then Hours Tracker supply backend |
@@ -240,6 +248,8 @@ adb shell dumpsys package com.example.timecard | Select-String "versionName|vers
 | How does Ready Jobs Watcher publish gates/cache? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\deployment_gate.py`, `metadata_cache.py` |
 | How are CNC tracker events consolidated? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\tracker_action_stream.py` |
 | How are cabinet/sheet indexes generated? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\cabinet_sheet_indexer.py` |
+| How does Ready Jobs Watcher publish the Cabinet Vision molding library? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\moldings_sync.py` |
+| How does Hours Tracker store molding dimension overrides? | `C:\Scripts\Hours Tracker\backend\routes\molding_dimensions_store.py` |
 | How does Hours Tracker sync JSON to reporting DB? | `C:\Scripts\Hours Tracker\backend\db.py` |
 | What API serves Hours Tracker admin data? | `C:\Scripts\Hours Tracker\backend\main_v2.py` |
 | What frontend calls Hours Tracker APIs? | `C:\Scripts\Hours Tracker\frontend\lib\api_kkc.ts` |
@@ -263,3 +273,4 @@ adb shell dumpsys package com.example.timecard | Select-String "versionName|vers
 | Searching all hidden Syncthing folders as jobs | Filter to real job folders like `<jobnum> - <name>` |
 | Treating thumbnails/fullimages as source metadata | They are render caches; debug source JSON first |
 | Assuming mDNS should always work for timeclock | Current hub may have mDNS disabled; use manual/default IP checks |
+| Assuming Ready Jobs Watcher's molding library sync can overwrite Hours Tracker's saved dimensions | Different trees entirely: RJW only writes `.metadata\moldings\*.xml` geometry under `Y:\Ready Jobs`; HT's `molding_dimensions.json` lives in HT's own `DATA_DIR` and RJW never touches it |
