@@ -1,6 +1,6 @@
 ---
 name: kkc-metadata-map
-description: Use when tracing KKC Ready Jobs metadata ownership, stale tablet job data, missing jobs, CNC or hardwood cache files, .time_cards, production_order.json, delivery_schedule.json, admin metadata, molding/moulding profile or dimension-override files, or deciding whether KKCSheetTracker, Ready Jobs Watcher, Hours Tracker, timeclock-hub, or updater-agent owns a file.
+description: "Use when tracing KKC Ready Jobs metadata ownership or parity: stale tablet jobs, CNC or hardwood tracker streams, Syncthing conflicts, tablet request sidecars, supply schema/status/comments, .time_cards, timeclock API fields, update-feed metadata, molding/moulding profile or dimension-override files, or deciding whether KKCSheetTracker, Ready Jobs Watcher, Hours Tracker, timeclock-hub, or updater-agent owns a file."
 ---
 
 # KKC Metadata Map
@@ -53,8 +53,11 @@ Cabinet Vision (external CAD database, not one of the five programs above) is th
 | `Y:\Ready Jobs\.metadata\timeclock_messages.json` | Admin/global message workflow; KKCSheetTracker reads | Global shop/tablet timeclock messages |
 | `Y:\Ready Jobs\.metadata\sync_conflicts\<id>\manifest.json` | Ready Jobs Watcher | Root/global Syncthing conflict archive manifest |
 | `Y:\Ready Jobs\production_order.json` | Hours Tracker/admin workflow; Ready Jobs Watcher reads it | Check Hours Tracker admin state, then cache refresh into jobs |
+| `Y:\Ready Jobs\production_order_request.<tabletId>.json` | KKCSheetTracker tablet writes; Hours Tracker consumes | Per-tablet lineup request; malformed input may be quarantined, but transient I/O/lock/write failure must leave it for retry |
 | `Y:\Ready Jobs\job_board.json` | Hours Tracker/admin workflow | Check Hours Tracker admin UI/backend first |
+| `Y:\Ready Jobs\job_board_request.<tabletId>.json` | KKCSheetTracker tablet writes; Hours Tracker consumes | Per-tablet board request; apply oldest-first and preserve on transient failure |
 | `Y:\Ready Jobs\.metadata\delivery_schedule.json` | Hours Tracker/admin workflow | Check Hours Tracker backend/admin paths |
+| `Y:\Ready Jobs\delivery_schedule_request.<tabletId>.json` | KKCSheetTracker tablet writes; Hours Tracker consumes | Request lives at Ready Jobs root, while master lives under `.metadata`; preserve on transient failure |
 | `Y:\Ready Jobs\.supply\categories.json` | Hours Tracker/admin workflow; tablets can read/write status | Supply category list/order |
 | `Y:\Ready Jobs\.supply\schema.json` | Hours Tracker/admin workflow | Custom supply field schema |
 | `Y:\Ready Jobs\.supply\items\<itemId>.json` | Hours Tracker/admin workflow; tablets can create/update | Supply item record |
@@ -103,6 +106,17 @@ Cabinet Vision (external CAD database, not one of the five programs above) is th
 Important caveat: Hours Tracker normally does not own `<job>\.metadata\cache_static.json`. It only reads that file unless emergency legacy writes are enabled with `HOURS_TRACKER_ENABLE_LEGACY_CACHE_WRITES=1`.
 
 Second caveat: if a Cabinet Vision molding profile is renamed or removed, Ready Jobs Watcher deletes its obsolete `.xml` (`moldings_sync.py:186-193`); dimensions saved under that `moldingId` in `molding_dimensions.json` are not deleted, just orphaned until re-linked to a live profile.
+
+## Cross-System Contract Invariants
+
+- Every metadata reader that globs shared files must exclude `.sync-conflict-*`, including NDJSON tracker streams and supply items, statuses, and comments. Do not assume a conflict filter in one loader protects sibling loaders.
+- CNC and hardwood event ordering is `(timestamp, lamport, eventId, stable tie-breakers)` everywhere. Keep Android replay, watcher consolidation, and `consolidated.json` consistent.
+- A compactor must not unlink a live per-tablet event stream after only an mtime/size check. That has a stat-to-unlink race. Use rotation/acknowledgement or an equivalent protocol that cannot delete a late append.
+- Tablet request sidecars are per-tablet and consumed oldest-first. Distinguish malformed payloads from operational failures: quarantine/consume invalid input; retry transient I/O, lock, or master-write failures without deleting the request.
+- Supply schema field `id` and `key` values must be nonblank and unique. Built-in definitions must stay canonical across Hours Tracker and Android. Supply per-writer status/comment JSON must be atomic, and latest-status resolution must ignore conflict copies and compare parsed instants.
+- timeclock-hub SQLite is the punch source of truth. Punch duration rounds up to 15 minutes; sessions under 7 minutes are deleted silently; hub timezone is `America/Los_Angeles`.
+- In the hub database, `employees.display_name` is the numeric RTC display ID and `nickname` is the RTC human label. In API responses, `display_name` is the effective human RTC name. Android must not discard it as though it were the numeric database field.
+- Updater policy/manifest data is privileged input. Require a non-empty signer allowlist for every managed package, reject duplicate/blank package entries, and prove resolved APK paths remain under `.appupdates\apps\<packageName>`.
 
 ## Local State
 
@@ -181,6 +195,7 @@ Second caveat: if a Cabinet Vision molding profile is renamed or removed, Ready 
 | Digital hours wrong | `.time_cards\<Employee>\<week>.json`, locks, `pending_edits.json` |
 | Badge/profile/shop wrong | `.time_cards\<Employee>\profile.json`, `badges_config.json`, locks |
 | Punch-clock timeclock wrong | `C:\Scripts\timeclock-hub\data\timeclock.db`, hub logs, not Hours Tracker |
+| Hub name differs between browser and tablet | Compare hub API `display_name`, Android `TimecardRepository`, then Hours Tracker profile-name precedence |
 | Install/update wrong | `.appupdates\<tabletId>\install-log.ndjson`, installed package versions, updater-agent logs |
 | App crashed | `Y:\Ready Jobs\.metadata\crashes`, then ADB `AndroidRuntime` logs |
 
@@ -247,13 +262,18 @@ adb shell dumpsys package com.example.timecard | Select-String "versionName|vers
 | How are crash files written? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\crash` |
 | How does Ready Jobs Watcher publish gates/cache? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\deployment_gate.py`, `metadata_cache.py` |
 | How are CNC tracker events consolidated? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\tracker_action_stream.py` |
+| How does Android append/order CNC tracker events? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\ProgressStore.kt`, `TrackerEventLog.kt` |
+| How does Android append/order hardwood events? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\HardwoodsProgressStore.kt`, `TrackerEventLog.kt` |
 | How are cabinet/sheet indexes generated? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\cabinet_sheet_indexer.py` |
 | How does Ready Jobs Watcher publish the Cabinet Vision molding library? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\moldings_sync.py` |
 | How does Hours Tracker store molding dimension overrides? | `C:\Scripts\Hours Tracker\backend\routes\molding_dimensions_store.py` |
 | How does Hours Tracker sync JSON to reporting DB? | `C:\Scripts\Hours Tracker\backend\db.py` |
 | What API serves Hours Tracker admin data? | `C:\Scripts\Hours Tracker\backend\main_v2.py` |
+| How are tablet lineup/board/delivery requests consumed? | `C:\Scripts\Hours Tracker\backend\main_v2.py`: `_apply_production_order_requests`, `_apply_job_board_edit_requests`, `_apply_delivery_schedule_request` |
+| How is the supply schema and shared supply state served? | `C:\Scripts\Hours Tracker\backend\routes\supply_store.py`, `C:\Scripts\Hours Tracker\frontend\components\JobManager\supply\SupplySchemaEditor.tsx` |
 | What frontend calls Hours Tracker APIs? | `C:\Scripts\Hours Tracker\frontend\lib\api_kkc.ts` |
 | How does RTC punch clock work? | `C:\Scripts\timeclock-hub\app.py` |
+| How does Android interpret hub names/status? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\TimecardRepository.kt` |
 | How do silent Android updates work? | `C:\Scripts\KKCSheetTracker\updater-agent\src\main\java\com\kkc\updateragent\update` |
 | How does legacy Android update discovery work? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\update` |
 | How are PDF markup files written? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\PdfMarkupStore.kt` |
@@ -270,6 +290,12 @@ adb shell dumpsys package com.example.timecard | Select-String "versionName|vers
 | Trusting SQLite first for digital hours | `.time_cards` JSON is source of truth; SQLite is reporting/cache |
 | Trusting `.time_cards` for punch-clock data | RTC punch-clock source is `timeclock-hub\data\timeclock.db` |
 | Ignoring cache debounce | Ready Jobs Watcher may delay cache refresh for several minutes |
+| Assuming one Syncthing conflict filter covers every format | Audit every JSON and NDJSON glob independently; conflict copies must never enter active state |
+| Deleting a valid tablet request after any exception | Consume invalid payloads only; leave requests intact on transient I/O, lock, or master-write failure |
+| Sorting tracker events only by timestamp | Preserve `lamport` and `eventId` through every decoder and use the same total ordering on Android and watcher |
+| Treating API `display_name` as the numeric RTC display ID | That distinction exists only in hub storage; API `display_name` is the effective human RTC name |
+| Trusting stat/size before unlink during tracker compaction | A writer can append between stat and unlink; use rotation/ack instead |
+| Allowing empty updater signer policy because SHA-256 matches | A writable feed can replace both manifest and hash; signer allowlist and path containment are required |
 | Searching all hidden Syncthing folders as jobs | Filter to real job folders like `<jobnum> - <name>` |
 | Treating thumbnails/fullimages as source metadata | They are render caches; debug source JSON first |
 | Assuming mDNS should always work for timeclock | Current hub may have mDNS disabled; use manual/default IP checks |
