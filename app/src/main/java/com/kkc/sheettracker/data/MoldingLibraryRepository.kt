@@ -4,7 +4,7 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.kkc.sheettracker.data.models.MoldingLibrary
 import com.kkc.sheettracker.data.models.MoldingLibraryItem
-import com.kkc.sheettracker.data.models.MoldingUsage
+import com.kkc.sheettracker.data.models.MoldingUsage // used by Task 8's fetchUsage()
 import java.io.File
 
 private val moldingLibraryGson = GsonBuilder().create()

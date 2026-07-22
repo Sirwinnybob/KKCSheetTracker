@@ -56,4 +56,27 @@ class MoldingLibraryRepositoryTest {
 
         assertTrue(library.isEmpty)
     }
+
+    @Test
+    fun fetchLibrary_handlesNullFieldsGracefully() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-nulls").toFile()
+        val cacheDir = File(baseDir, ".metadata/moldings/_cache").apply { mkdirs() }
+        val json = """
+            {
+              "categories": ["Crown"],
+              "moldings": [
+                {"id": "Crown:105", "category": "Crown", "fileId": null, "name": null}
+              ]
+            }
+        """.trimIndent()
+        File(cacheDir, "library.json").writeText(json)
+
+        val repo = MoldingLibraryRepository(baseDir)
+        val library = repo.fetchLibrary()
+
+        assertEquals(1, library.moldings.size)
+        assertEquals("Crown:105", library.moldings[0].id)
+        assertEquals("", library.moldings[0].fileId)
+        assertEquals("", library.moldings[0].name)
+    }
 }
