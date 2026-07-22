@@ -30,12 +30,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import coil.compose.AsyncImage
-import coil.decode.SvgDecoder
 import com.kkc.sheettracker.data.MoldingLibraryRepository
 import com.kkc.sheettracker.data.models.MoldingLibrary
 import com.kkc.sheettracker.data.models.MoldingLibraryItem
@@ -55,15 +53,7 @@ fun MoldingListScreen(
     onBack: () -> Unit,
     onOpenMolding: (MoldingLibraryItem) -> Unit
 ) {
-    // Profile art ships as .svg. Coil's default ImageLoader has no SVG decoder registered
-    // anywhere app-wide, so — matching the pattern already used for HeaderGradient (SVG) and
-    // TimeclockBackground (GIF) — build one locally here and pass it explicitly to AsyncImage.
-    val context = LocalContext.current
-    val svgImageLoader = remember(context) {
-        ImageLoader.Builder(context)
-            .components { add(SvgDecoder.Factory()) }
-            .build()
-    }
+    val svgImageLoader = rememberSvgImageLoader()
 
     var library by remember { mutableStateOf(MoldingLibrary()) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
