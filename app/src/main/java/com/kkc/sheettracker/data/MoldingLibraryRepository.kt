@@ -27,13 +27,13 @@ internal fun parseMoldingLibrary(json: String): MoldingLibrary {
 
 /**
  * Reads the molding library cache published by Hours Tracker.
- * Storage path: {baseDir}/.metadata/moldings/_cache/
+ * Storage path: {baseDir}/.metadata/moldings_cache/
  * Read-only on the tablet; Hours Tracker is the sole writer.
  * Call on Dispatchers.IO.
  */
 class MoldingLibraryRepository(private val baseDir: File) {
 
-    internal val cacheDir = File(baseDir, ".metadata/moldings/_cache")
+    internal val cacheDir = File(baseDir, ".metadata/moldings_cache")
 
     fun fetchLibrary(): MoldingLibrary {
         val file = File(cacheDir, "library.json")
