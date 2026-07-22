@@ -79,4 +79,66 @@ class MoldingLibraryRepositoryTest {
         assertEquals("", library.moldings[0].fileId)
         assertEquals("", library.moldings[0].name)
     }
+
+    @Test
+    fun profileSvgFile_returnsPlainSvg_whenMeasurementsHidden() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-svg").toFile()
+        val categoryDir = File(baseDir, ".metadata/moldings_cache/Crown").apply { mkdirs() }
+        File(categoryDir, "105.svg").writeText("<svg>plain</svg>")
+        File(categoryDir, "105_dim.svg").writeText("<svg>dimensioned</svg>")
+
+        val repo = MoldingLibraryRepository(baseDir)
+        val file = repo.profileSvgFile("Crown", "105", showMeasurements = false)
+
+        assertNotNull(file)
+        assertEquals("<svg>plain</svg>", file!!.readText())
+    }
+
+    @Test
+    fun profileSvgFile_returnsDimensionedSvg_whenMeasurementsShown() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-svg-dim").toFile()
+        val categoryDir = File(baseDir, ".metadata/moldings_cache/Crown").apply { mkdirs() }
+        File(categoryDir, "105.svg").writeText("<svg>plain</svg>")
+        File(categoryDir, "105_dim.svg").writeText("<svg>dimensioned</svg>")
+
+        val repo = MoldingLibraryRepository(baseDir)
+        val file = repo.profileSvgFile("Crown", "105", showMeasurements = true)
+
+        assertNotNull(file)
+        assertEquals("<svg>dimensioned</svg>", file!!.readText())
+    }
+
+    @Test
+    fun profileSvgFile_returnsNull_whenMissing() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-svg-missing").toFile()
+        val repo = MoldingLibraryRepository(baseDir)
+        assertEquals(null, repo.profileSvgFile("Crown", "999", showMeasurements = false))
+    }
+
+    @Test
+    fun fetchUsage_returnsJobsForKnownMoldingId() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-usage").toFile()
+        val cacheDir = File(baseDir, ".metadata/moldings_cache").apply { mkdirs() }
+        File(cacheDir, "usage_index.json").writeText(
+            """{"Crown:105": [{"job": "616b - Kevin Janni", "type": "crown", "estimatedFeet": 80.0}]}"""
+        )
+
+        val repo = MoldingLibraryRepository(baseDir)
+        val usage = repo.fetchUsage("Crown:105")
+
+        assertEquals(1, usage.size)
+        assertEquals("616b - Kevin Janni", usage[0].job)
+        assertEquals("crown", usage[0].type)
+        assertEquals(80.0, usage[0].estimatedFeet)
+    }
+
+    @Test
+    fun fetchUsage_returnsEmptyList_forUnknownMoldingId() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-usage-empty").toFile()
+        val cacheDir = File(baseDir, ".metadata/moldings_cache").apply { mkdirs() }
+        File(cacheDir, "usage_index.json").writeText("""{"Crown:105": []}""")
+
+        val repo = MoldingLibraryRepository(baseDir)
+        assertTrue(repo.fetchUsage("Base:7").isEmpty())
+    }
 }

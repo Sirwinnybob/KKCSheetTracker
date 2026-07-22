@@ -4,7 +4,7 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.kkc.sheettracker.data.models.MoldingLibrary
 import com.kkc.sheettracker.data.models.MoldingLibraryItem
-import com.kkc.sheettracker.data.models.MoldingUsage // used by Task 8's fetchUsage()
+import com.kkc.sheettracker.data.models.MoldingUsage
 import java.io.File
 
 private val moldingLibraryGson = GsonBuilder().create()
@@ -39,5 +39,29 @@ class MoldingLibraryRepository(private val baseDir: File) {
         val file = File(cacheDir, "library.json")
         if (!file.exists() || !file.isFile) return MoldingLibrary()
         return runCatching { parseMoldingLibrary(file.readText()) }.getOrElse { MoldingLibrary() }
+    }
+
+    fun profileSvgFile(category: String, fileId: String, showMeasurements: Boolean): File? {
+        val suffix = if (showMeasurements) "_dim" else ""
+        val file = File(cacheDir, "$category/$fileId$suffix.svg")
+        return file.takeIf { it.exists() && it.isFile }
+    }
+
+    fun fetchUsage(moldingId: String): List<MoldingUsage> {
+        val file = File(cacheDir, "usage_index.json")
+        if (!file.exists() || !file.isFile) return emptyList()
+        return runCatching {
+            val root = moldingLibraryGson.fromJson(file.readText(), JsonObject::class.java)
+                ?: return@runCatching emptyList()
+            val arr = root.getAsJsonArray(moldingId) ?: return@runCatching emptyList()
+            arr.map { elem ->
+                val obj = elem.asJsonObject
+                MoldingUsage(
+                    job = obj.get("job")?.takeIf { !it.isJsonNull }?.asString ?: "",
+                    type = obj.get("type")?.takeIf { !it.isJsonNull }?.asString,
+                    estimatedFeet = obj.get("estimatedFeet")?.takeIf { !it.isJsonNull }?.asDouble
+                )
+            }
+        }.getOrElse { emptyList() }
     }
 }
