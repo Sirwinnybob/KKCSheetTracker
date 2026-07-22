@@ -141,4 +141,35 @@ class MoldingLibraryRepositoryTest {
         val repo = MoldingLibraryRepository(baseDir)
         assertTrue(repo.fetchUsage("Base:7").isEmpty())
     }
+
+    @Test
+    fun fetchUsageCounts_returnsSizePerMoldingId() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-usage-counts").toFile()
+        val cacheDir = File(baseDir, ".metadata/moldings_cache").apply { mkdirs() }
+        File(cacheDir, "usage_index.json").writeText(
+            """
+            {
+              "Crown:105": [{"job": "616b - Kevin Janni", "type": "crown", "estimatedFeet": 80.0}],
+              "Base:7": [{"job": "601a - Smith", "type": "base"}, {"job": "602b - Jones", "type": "base"}],
+              "Casing:12": []
+            }
+            """.trimIndent()
+        )
+
+        val repo = MoldingLibraryRepository(baseDir)
+        val counts = repo.fetchUsageCounts()
+
+        assertEquals(3, counts.size)
+        assertEquals(1, counts["Crown:105"])
+        assertEquals(2, counts["Base:7"])
+        assertEquals(0, counts["Casing:12"])
+    }
+
+    @Test
+    fun fetchUsageCounts_returnsEmptyMap_whenFileMissing() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-usage-counts-missing").toFile()
+        val repo = MoldingLibraryRepository(baseDir)
+
+        assertTrue(repo.fetchUsageCounts().isEmpty())
+    }
 }

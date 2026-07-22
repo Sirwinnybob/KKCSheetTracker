@@ -42,6 +42,7 @@ import com.kkc.sheettracker.data.models.MoldingLibraryItem
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Read-only molding profile library: category tabs + a grid of profile cards.
@@ -67,11 +68,13 @@ fun MoldingListScreen(
     var library by remember { mutableStateOf(MoldingLibrary()) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var showMeasurements by remember { mutableStateOf(true) }
+    var usageCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
 
     LaunchedEffect(Unit) {
         val loaded = withContext(Dispatchers.IO) { repository.fetchLibrary() }
         library = loaded
         selectedCategory = MoldingLibraryScreenLogic.defaultCategory(loaded)
+        usageCounts = withContext(Dispatchers.IO) { repository.fetchUsageCounts() }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -118,6 +121,7 @@ fun MoldingListScreen(
                     repository = repository,
                     svgImageLoader = svgImageLoader,
                     showMeasurements = showMeasurements,
+                    usageCount = usageCounts[item.id] ?: 0,
                     onClick = { onOpenMolding(item) }
                 )
             }
@@ -131,14 +135,18 @@ private fun MoldingCard(
     repository: MoldingLibraryRepository,
     svgImageLoader: ImageLoader,
     showMeasurements: Boolean,
+    usageCount: Int,
     onClick: () -> Unit
 ) {
-    var usageCount by remember(item.id) { mutableStateOf<Int?>(null) }
-    LaunchedEffect(item.id) {
-        usageCount = withContext(Dispatchers.IO) { repository.fetchUsage(item.id).size }
-    }
-    val svgFile = remember(item.id, showMeasurements) {
-        repository.profileSvgFile(item.category, item.fileId, showMeasurements)
+    // profileSvgFile() does a File.exists()/.isFile check, which the repository's own docs
+    // require running on Dispatchers.IO (this is the same Y:\Ready Jobs network-share wiring
+    // as DeliveryScheduleRepository) — so resolve it off the composition thread, not via
+    // remember{} directly, and re-resolve whenever the measurements toggle flips.
+    var svgFile by remember(item.id) { mutableStateOf<File?>(null) }
+    LaunchedEffect(item.id, showMeasurements) {
+        svgFile = withContext(Dispatchers.IO) {
+            repository.profileSvgFile(item.category, item.fileId, showMeasurements)
+        }
     }
 
     Card(
@@ -164,7 +172,7 @@ private fun MoldingCard(
                 modifier = Modifier.padding(top = 6.dp)
             )
             Text(
-                text = "Used on ${usageCount ?: 0} jobs",
+                text = "Used on $usageCount jobs",
                 style = MaterialTheme.typography.bodySmall
             )
         }

@@ -64,4 +64,20 @@ class MoldingLibraryRepository(private val baseDir: File) {
             }
         }.getOrElse { emptyList() }
     }
+
+    /**
+     * Job counts per molding id in one read of usage_index.json, instead of the N+1 pattern of
+     * calling [fetchUsage] once per molding (used by the molding grid to badge every visible card).
+     */
+    fun fetchUsageCounts(): Map<String, Int> {
+        val file = File(cacheDir, "usage_index.json")
+        if (!file.exists() || !file.isFile) return emptyMap()
+        return runCatching {
+            val root = moldingLibraryGson.fromJson(file.readText(), JsonObject::class.java)
+                ?: return@runCatching emptyMap()
+            root.entrySet().associate { (key, value) ->
+                key to (value.takeIf { it.isJsonArray }?.asJsonArray?.size() ?: 0)
+            }
+        }.getOrElse { emptyMap() }
+    }
 }
