@@ -12,6 +12,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.pointerInput
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import com.kkc.sheettracker.data.MoldingLibraryRepository
@@ -196,6 +199,22 @@ fun MoldingListScreen(
                         )
                     }
                 }
+            }
+
+            // Transparent input-blocker: sits between the list content (Z=0) and the
+            // overlay (Z=2). Any tap that misses an interactive element in the overlay
+            // — e.g. a near-miss on the × button landing on the Settings icon behind it
+            // — is swallowed here before it can reach the underlying screen.
+            if (expandedItem != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false).consume()
+                            }
+                        }
+                )
             }
 
             AnimatedVisibility(
