@@ -32,20 +32,15 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 
 /**
- * Tiles on the [StandardsHubScreen] grid. Molding is the only live destination today; Door
- * profiles, KKC standards, and Safety / SDS are placeholders reserved for future reference
- * libraries — they render dimmed and inert until those screens exist.
- *
- * Safety / SDS in particular routes to a real `standards/safety` NavHost entry already, but that
- * entry is currently just a bare placeholder with no KKCTopAppBar/back button (Task 14 hasn't
- * built SafetyDocumentsScreen yet) — keep this disabled until Task 14 lands so the stub stays
- * unreachable from the UI rather than stranding a shop-tablet user on a screen with no way back.
+ * Tiles on the [StandardsHubScreen] grid. Molding and Safety / SDS are live destinations; Door
+ * profiles and KKC standards are placeholders reserved for future reference libraries — they
+ * render dimmed and inert until those screens exist.
  */
 enum class StandardsTile(val label: String, val icon: ImageVector, val enabled: Boolean) {
     MOLDING("Molding", Icons.Filled.Straighten, enabled = true),
     DOOR_PROFILES("Door profiles", Icons.Filled.DoorFront, enabled = false),
     KKC_STANDARDS("KKC standards", Icons.Filled.ClearAll, enabled = false),
-    SAFETY("Safety / SDS", Icons.Filled.Shield, enabled = false)
+    SAFETY("Safety / SDS", Icons.Filled.Shield, enabled = true)
 }
 
 /**

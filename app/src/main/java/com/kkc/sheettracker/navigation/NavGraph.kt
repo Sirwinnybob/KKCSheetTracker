@@ -1901,12 +1901,9 @@ private fun StandardsTabHost(
             }
         }
         composable("standards/safety") {
-            // SafetyDocumentsScreen doesn't exist yet (Task 14, not yet built) --
-            // stub it with a minimal placeholder for now so this compiles.
-            // Task 14 will replace this composable body with the real screen.
-            Text(
-                "Safety / SDS coming soon",
-                modifier = Modifier.padding(16.dp)
+            com.kkc.sheettracker.ui.standards.SafetyDocumentsScreen(
+                basePath = basePath,
+                onBack = { navController.popBackStack() }
             )
         }
     }
@@ -3049,12 +3046,9 @@ private fun LegacySingleStackNavigation(
                     }
                 }
                 composable("standards/safety") {
-                    // SafetyDocumentsScreen doesn't exist yet (Task 14, not yet built) --
-                    // stub it with a minimal placeholder for now so this compiles.
-                    // Task 14 will replace this composable body with the real screen.
-                    Text(
-                        "Safety / SDS coming soon",
-                        modifier = Modifier.padding(16.dp)
+                    com.kkc.sheettracker.ui.standards.SafetyDocumentsScreen(
+                        basePath = basePath,
+                        onBack = { navController.popBackStack() }
                     )
                 }
                 }
