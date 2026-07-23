@@ -38,4 +38,16 @@ class UiPreferencesStore(context: Context) {
     fun setSupplyTabOrder(order: List<String>) {
         prefs.edit().putString("supply_tab_order", order.joinToString(",")).apply()
     }
+
+    fun isSafetySubscriber(): Boolean =
+        prefs.getBoolean("safety_subscriber", false)
+
+    fun setSafetySubscriber(subscribed: Boolean) =
+        prefs.edit().putBoolean("safety_subscriber", subscribed).apply()
+
+    fun getSafetyAuthorName(): String =
+        prefs.getString("safety_author_name", "") ?: ""
+
+    fun setSafetyAuthorName(name: String) =
+        prefs.edit().putString("safety_author_name", name.trim()).apply()
 }
