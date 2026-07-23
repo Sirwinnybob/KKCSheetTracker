@@ -66,7 +66,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.compositeOver
@@ -139,7 +146,9 @@ import com.kkc.sheettracker.viewer3d.ViewerServer
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.MoldingLibraryRepository
-import com.kkc.sheettracker.ui.standards.MoldingPreviewDialog
+import com.kkc.sheettracker.data.models.MoldingLibraryItem
+import com.kkc.sheettracker.ui.standards.MoldingDetailOverlay
+import com.kkc.sheettracker.ui.standards.rememberSvgImageLoader
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -214,7 +223,7 @@ private data class HardwoodsReferenceAvailability(
 )
 
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun HardwoodsWorkspaceScreen(
     scanCoordinator: HardwoodsScanCoordinator,
@@ -294,6 +303,8 @@ fun HardwoodsWorkspaceScreen(
     val moldingLibraryRepository = remember(scanState.snapshot.basePath) {
         MoldingLibraryRepository(File(scanState.snapshot.basePath))
     }
+    var previewMoldingItem by remember(jobFolderName) { mutableStateOf<AdminBoardStockItem?>(null) }
+    val moldingSvgImageLoader = rememberSvgImageLoader()
 
     val rows = remember(
         rawRows,
@@ -826,6 +837,7 @@ fun HardwoodsWorkspaceScreen(
         )
     }
 
+    val scaffoldContent: @Composable () -> Unit = {
     Scaffold(
         topBar = {
             KKCTopAppBar(
@@ -1018,7 +1030,7 @@ fun HardwoodsWorkspaceScreen(
                         totalsDoneMap = totalsDoneMap,
                         hideSections = isSawRipEntry,
                         sectionTitle = if (isSawRipEntry) "Rip List" else "Board Stock",
-                        repository = moldingLibraryRepository,
+                        onPreviewMolding = { previewMoldingItem = it },
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if (selectedDoc == null) {
@@ -1362,6 +1374,45 @@ fun HardwoodsWorkspaceScreen(
                     .padding(padding)
             ) {
                 cutlistPane(Modifier.fillMaxSize())
+            }
+        }
+    }
+    }
+
+    // Local SharedTransitionLayout scoped to just this screen, purely to satisfy
+    // MoldingDetailOverlay's API (no matching shared-element source exists here).
+    // Hoisted to the outermost Box so the overlay renders truly full-screen —
+    // HardwoodsBoardStockList's row is nested inside a LazyColumn item, which can't
+    // itself expand to cover the whole screen, and the Rip Cut List pane may only be
+    // half the display width when the reference PDF pane is showing.
+    SharedTransitionLayout {
+        Box(modifier = Modifier.fillMaxSize()) {
+            scaffoldContent()
+            AnimatedVisibility(
+                visible = previewMoldingItem != null,
+                enter = fadeIn() + scaleIn(initialScale = 0.95f),
+                exit = fadeOut() + scaleOut(targetScale = 0.95f)
+            ) {
+                previewMoldingItem?.let { item ->
+                    val moldingId = item.moldingId
+                    if (moldingId != null) {
+                        val (category, fileId) = moldingId.split(":", limit = 2)
+                            .let { it.getOrElse(0) { "" } to it.getOrElse(1) { "" } }
+                        MoldingDetailOverlay(
+                            item = MoldingLibraryItem(
+                                id = moldingId,
+                                category = category,
+                                fileId = fileId,
+                                name = item.name
+                            ),
+                            repository = moldingLibraryRepository,
+                            svgImageLoader = moldingSvgImageLoader,
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this@AnimatedVisibility,
+                            onDismiss = { previewMoldingItem = null }
+                        )
+                    }
+                }
             }
         }
     }
@@ -1978,7 +2029,7 @@ private fun HardwoodsBoardStockList(
     adminItems: List<AdminBoardStockItem> = emptyList(),
     hideSections: Boolean = false,
     sectionTitle: String = "Board Stock",
-    repository: MoldingLibraryRepository? = null
+    onPreviewMolding: ((AdminBoardStockItem) -> Unit)? = null
 ) {
     val statusColors = KKCThemeColors.statusColors
     if (sections.isEmpty() && adminItems.isEmpty()) {
@@ -2207,23 +2258,11 @@ private fun HardwoodsBoardStockList(
                                                 )
                                             }
                                         }
-                                        if (item.moldingId != null && repository != null) {
-                                            var showPreview by remember(item.id) { mutableStateOf(false) }
-                                            androidx.compose.material3.IconButton(onClick = { showPreview = true }) {
+                                        if (item.moldingId != null && onPreviewMolding != null) {
+                                            androidx.compose.material3.IconButton(onClick = { onPreviewMolding(item) }) {
                                                 androidx.compose.material3.Icon(
                                                     Icons.Filled.Visibility,
                                                     contentDescription = "Preview ${item.name}"
-                                                )
-                                            }
-                                            if (showPreview) {
-                                                val (category, fileId) = item.moldingId.split(":", limit = 2)
-                                                    .let { it.getOrElse(0) { "" } to it.getOrElse(1) { "" } }
-                                                MoldingPreviewDialog(
-                                                    category = category,
-                                                    fileId = fileId,
-                                                    name = item.name,
-                                                    repository = repository,
-                                                    onDismiss = { showPreview = false }
                                                 )
                                             }
                                         }
