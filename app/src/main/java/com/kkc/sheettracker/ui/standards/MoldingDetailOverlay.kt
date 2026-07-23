@@ -1,14 +1,11 @@
 package com.kkc.sheettracker.ui.standards
 
-import android.graphics.Bitmap
-import android.graphics.Canvas as AndroidCanvas
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -55,7 +52,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -67,13 +63,12 @@ import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import coil.request.SuccessResult
 import com.kkc.sheettracker.data.MoldingLibraryRepository
 import com.kkc.sheettracker.data.models.MoldingLibraryItem
 import com.kkc.sheettracker.data.models.MoldingUsage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -81,7 +76,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 /**
  * Interactive full-screen molding detail overlay component.
@@ -133,50 +127,19 @@ fun MoldingDetailOverlay(
     val offsetYAnim = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-    var detailBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var renderedForScale by remember { mutableFloatStateOf(-1f) }
 
-    // Re-rasterize the SVG at the settled zoom level so pinch-to-zoom stays sharp.
-    // Mirrors the PDF viewer's debounced tile approach: graphicsLayer handles smooth
-    // interaction, then a higher-res Bitmap replaces AsyncImage once the finger lifts.
+    // Track the zoom level after the user's finger lifts (debounced).
+    // We use this to rebuild the ImageRequest at a higher decode resolution so Coil
+    // re-rasterizes the SVG sharply — no Bitmap/Canvas involved; Coil's own pipeline
+    // handles ContentScale and aspect ratio correctly.
+    var settledScale by remember { mutableFloatStateOf(1f) }
     LaunchedEffect(svgData, containerSize) {
-        detailBitmap = null
-        renderedForScale = -1f
+        settledScale = 1f
         if (svgData == null || containerSize == IntSize.Zero) return@LaunchedEffect
         snapshotFlow { scale }
             .debounce(150)
             .distinctUntilChanged { old, new -> abs(old - new) < 0.05f }
-            .collectLatest { settledScale ->
-                // Cap oversampling at 3× to keep bitmap area under ~16 MP.
-                val oversample = settledScale.coerceIn(1f, 3f)
-                var targetW = (containerSize.width * oversample).roundToInt().coerceAtLeast(1)
-                var targetH = (containerSize.height * oversample).roundToInt().coerceAtLeast(1)
-                val area = targetW.toLong() * targetH.toLong()
-                if (area > 16_000_000L) {
-                    val down = sqrt(area.toDouble() / 16_000_000.0).toFloat()
-                    targetW = (targetW / down).roundToInt().coerceAtLeast(1)
-                    targetH = (targetH / down).roundToInt().coerceAtLeast(1)
-                }
-                val w = targetW
-                val h = targetH
-                val bitmap = withContext(Dispatchers.IO) {
-                    val request = ImageRequest.Builder(context)
-                        .data(svgData)
-                        .size(w, h)
-                        .allowHardware(false)
-                        .build()
-                    val result = svgImageLoader.execute(request)
-                    val drawable = (result as? SuccessResult)?.drawable ?: return@withContext null
-                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    bmp.eraseColor(if (isDark) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
-                    val canvas = AndroidCanvas(bmp)
-                    drawable.setBounds(0, 0, w, h)
-                    drawable.draw(canvas)
-                    bmp
-                } ?: return@collectLatest
-                detailBitmap = bitmap
-                renderedForScale = settledScale
-            }
+            .collect { settledScale = it }
     }
 
     fun getMaxOffset(currentScale: Float): Pair<Float, Float> {
@@ -283,42 +246,44 @@ fun MoldingDetailOverlay(
             contentAlignment = Alignment.Center
         ) {
             with(sharedTransitionScope) {
-                val imageModifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-                    .graphicsLayer {
-                        val targetScale = if (scaleAnim.isRunning) scaleAnim.value else scale
-                        val targetOffsetX = if (offsetXAnim.isRunning) offsetXAnim.value else offset.x
-                        val targetOffsetY = if (offsetYAnim.isRunning) offsetYAnim.value else offset.y
-                        scaleX = targetScale
-                        scaleY = targetScale
-                        translationX = targetOffsetX
-                        translationY = targetOffsetY
+                // Build a size-hinted request at settledScale × containerSize so Coil
+                // re-rasterizes the SVG at higher resolution after zoom settles.
+                // Coil's pipeline preserves the SVG's aspect ratio via ContentScale —
+                // no manual Bitmap/Canvas blit needed (and no aspect-ratio distortion).
+                val oversample = settledScale.coerceIn(1f, 3f)
+                val scaledW = (containerSize.width * oversample).roundToInt().coerceAtLeast(1)
+                val scaledH = (containerSize.height * oversample).roundToInt().coerceAtLeast(1)
+                val scaledModel: Any? = remember(svgData, scaledW, scaledH) {
+                    svgData?.let {
+                        ImageRequest.Builder(context)
+                            .data(it)
+                            .size(scaledW, scaledH)
+                            .build()
                     }
-                    .sharedElement(
-                        rememberSharedContentState(key = "molding-image-${item.id}"),
-                        animatedVisibilityScope = animatedVisibilityScope
-                    )
-                // Show the high-res detail bitmap once it's ready for the current zoom;
-                // fall back to AsyncImage (base resolution) while the first render is pending.
-                val snap = detailBitmap
-                if (snap != null && !snap.isRecycled) {
-                    Image(
-                        bitmap = snap.asImageBitmap(),
-                        contentDescription = item.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = imageModifier
-                    )
-                } else {
-                    AsyncImage(
-                        model = svgData,
-                        contentDescription = item.name,
-                        imageLoader = svgImageLoader,
-                        contentScale = ContentScale.Fit,
-                        colorFilter = null,
-                        modifier = imageModifier
-                    )
                 }
+                AsyncImage(
+                    model = scaledModel ?: svgData,
+                    contentDescription = item.name,
+                    imageLoader = svgImageLoader,
+                    contentScale = ContentScale.Fit,
+                    colorFilter = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp)
+                        .graphicsLayer {
+                            val targetScale = if (scaleAnim.isRunning) scaleAnim.value else scale
+                            val targetOffsetX = if (offsetXAnim.isRunning) offsetXAnim.value else offset.x
+                            val targetOffsetY = if (offsetYAnim.isRunning) offsetYAnim.value else offset.y
+                            scaleX = targetScale
+                            scaleY = targetScale
+                            translationX = targetOffsetX
+                            translationY = targetOffsetY
+                        }
+                        .sharedElement(
+                            rememberSharedContentState(key = "molding-image-${item.id}"),
+                            animatedVisibilityScope = animatedVisibilityScope
+                        )
+                )
             }
         }
 
