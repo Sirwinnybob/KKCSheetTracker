@@ -52,7 +52,7 @@ fun MoldingDetailScreen(
 
     var showMeasurements by remember { mutableStateOf(true) }
     var svgFile by remember(molding.id) { mutableStateOf<File?>(null) }
-    var usage by remember { mutableStateOf<List<MoldingUsage>>(emptyList()) }
+    var usage by remember(molding.id) { mutableStateOf<List<MoldingUsage>>(emptyList()) }
 
     // profileSvgFile() does a File.exists()/.isFile check, which the repository's own docs
     // require running on Dispatchers.IO (same Y:\Ready Jobs network-share wiring as
@@ -109,7 +109,7 @@ fun MoldingDetailScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            items(usage, key = { it.job }) { entry ->
+            items(usage) { entry ->
                 MoldingUsageRow(entry)
                 HorizontalDivider()
             }
