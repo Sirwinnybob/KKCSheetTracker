@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -19,19 +20,25 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -93,6 +101,7 @@ fun MoldingListScreen(
     var usageCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
     var searchQuery by remember { mutableStateOf(TextFieldValue("")) }
     var expandedItem by remember { mutableStateOf<MoldingLibraryItem?>(null) }
+    var collapsedFrameGroups by remember { mutableStateOf(setOf<FrameStyleGroup>()) }
 
     LaunchedEffect(Unit) {
         val loaded = withContext(Dispatchers.IO) { repository.fetchLibrary() }
@@ -175,6 +184,8 @@ fun MoldingListScreen(
                     selectedCategory = selectedCategory,
                     query = searchQuery.text
                 )
+                val isCrownBrowse = searchQuery.text.isBlank() &&
+                    selectedCategory?.equals("Crown", ignoreCase = true) == true
 
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
@@ -183,20 +194,51 @@ fun MoldingListScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(visible, key = { it.id }) { item ->
-                        MoldingCard(
-                            item = item,
-                            repository = repository,
-                            svgImageLoader = svgImageLoader,
-                            showMeasurements = showMeasurements,
-                            usageCount = usageCounts[item.id] ?: 0,
-                            sharedTransitionScope = this@SharedTransitionLayout,
-                            isExpanded = expandedItem?.id == item.id,
-                            isDarkPreview = isDarkPreview,
-                            onClick = {
-                                expandedItem = item
+                    if (isCrownBrowse) {
+                        MoldingLibraryScreenLogic.crownFrameGroups(visible).forEach { (group, groupItems) ->
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "header-${group.name}") {
+                                FrameStyleSectionHeader(
+                                    group = group,
+                                    count = groupItems.size,
+                                    collapsed = group in collapsedFrameGroups,
+                                    onToggle = {
+                                        collapsedFrameGroups = if (group in collapsedFrameGroups)
+                                            collapsedFrameGroups - group
+                                        else
+                                            collapsedFrameGroups + group
+                                    }
+                                )
                             }
-                        )
+                            if (group !in collapsedFrameGroups) {
+                                items(groupItems, key = { it.id }) { item ->
+                                    MoldingCard(
+                                        item = item,
+                                        repository = repository,
+                                        svgImageLoader = svgImageLoader,
+                                        showMeasurements = showMeasurements,
+                                        usageCount = usageCounts[item.id] ?: 0,
+                                        sharedTransitionScope = this@SharedTransitionLayout,
+                                        isExpanded = expandedItem?.id == item.id,
+                                        isDarkPreview = isDarkPreview,
+                                        onClick = { expandedItem = item }
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        items(visible, key = { it.id }) { item ->
+                            MoldingCard(
+                                item = item,
+                                repository = repository,
+                                svgImageLoader = svgImageLoader,
+                                showMeasurements = showMeasurements,
+                                usageCount = usageCounts[item.id] ?: 0,
+                                sharedTransitionScope = this@SharedTransitionLayout,
+                                isExpanded = expandedItem?.id == item.id,
+                                isDarkPreview = isDarkPreview,
+                                onClick = { expandedItem = item }
+                            )
+                        }
                     }
                 }
             }
@@ -324,5 +366,34 @@ private fun MoldingCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+@Composable
+private fun FrameStyleSectionHeader(
+    group: FrameStyleGroup,
+    count: Int,
+    collapsed: Boolean,
+    onToggle: () -> Unit
+) {
+    val rotation by animateFloatAsState(targetValue = if (collapsed) -90f else 0f, label = "chevron")
+    Column(modifier = Modifier.fillMaxWidth().clickable { onToggle() }) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (collapsed) "Expand ${group.label}" else "Collapse ${group.label}",
+                modifier = Modifier.rotate(rotation)
+            )
+            Text(
+                text = "${group.label} · $count",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
+        HorizontalDivider()
     }
 }
