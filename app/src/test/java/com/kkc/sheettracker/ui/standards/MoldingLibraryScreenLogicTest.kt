@@ -88,4 +88,22 @@ class MoldingLibraryScreenLogicTest {
     fun crownFrameGroups_returnsEmptyListForNoMoldings() {
         assertEquals(0, MoldingLibraryScreenLogic.crownFrameGroups(emptyList()).size)
     }
+
+    @Test
+    fun isCrownCategory_matchesBothCrownSpellings() {
+        assertEquals(true, MoldingLibraryScreenLogic.isCrownCategory("Crown"))
+        assertEquals(true, MoldingLibraryScreenLogic.isCrownCategory("crown"))
+        assertEquals(true, MoldingLibraryScreenLogic.isCrownCategory("Crown Molding"))
+        assertEquals(false, MoldingLibraryScreenLogic.isCrownCategory("Base"))
+        assertEquals(false, MoldingLibraryScreenLogic.isCrownCategory(null))
+    }
+
+    @Test
+    fun isCrownBrowse_trueOnlyForBlankQueryOnACrownCategory() {
+        assertEquals(true, MoldingLibraryScreenLogic.isCrownBrowse("Crown", ""))
+        assertEquals(true, MoldingLibraryScreenLogic.isCrownBrowse("Crown Molding", "  "))
+        assertEquals(false, MoldingLibraryScreenLogic.isCrownBrowse("Crown", "cove"))
+        assertEquals(false, MoldingLibraryScreenLogic.isCrownBrowse("Base", ""))
+        assertEquals(false, MoldingLibraryScreenLogic.isCrownBrowse(null, ""))
+    }
 }

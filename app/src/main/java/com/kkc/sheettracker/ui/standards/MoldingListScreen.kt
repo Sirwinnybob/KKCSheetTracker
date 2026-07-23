@@ -182,8 +182,7 @@ fun MoldingListScreen(
                     selectedCategory = selectedCategory,
                     query = searchQuery.text
                 )
-                val isCrownBrowse = searchQuery.text.isBlank() &&
-                    selectedCategory?.equals("Crown", ignoreCase = true) == true
+                val isCrownBrowse = MoldingLibraryScreenLogic.isCrownBrowse(selectedCategory, searchQuery.text)
 
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),

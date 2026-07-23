@@ -15,11 +15,22 @@ object MoldingLibraryScreenLogic {
         return library.moldings.filter { it.category == category }
     }
 
+    fun isCrownCategory(category: String?): Boolean {
+        return category?.equals("Crown", ignoreCase = true) == true ||
+            category?.equals("Crown Molding", ignoreCase = true) == true
+    }
+
     fun defaultCategory(library: MoldingLibrary): String? {
-        val crownCategory = library.categories.firstOrNull { cat ->
-            cat.equals("Crown", ignoreCase = true) || cat.equals("Crown Molding", ignoreCase = true)
-        }
+        val crownCategory = library.categories.firstOrNull { isCrownCategory(it) }
         return crownCategory ?: library.categories.firstOrNull()
+    }
+
+    /** Crown grouping (Face Frame/Frameless/Unset sections) only applies while
+     * browsing the Crown category with no active search -- search results
+     * always stay a flat, ungrouped list. Shares [isCrownCategory] with
+     * [defaultCategory] so the two "is this Crown" checks can't drift apart. */
+    fun isCrownBrowse(selectedCategory: String?, query: String): Boolean {
+        return query.isBlank() && isCrownCategory(selectedCategory)
     }
 
     fun searchMoldings(
