@@ -30,6 +30,8 @@ fun loadAdminBoardStock(baseDir: File, jobFolderName: String): List<AdminBoardSt
             if (feet != null && feet <= 0.0) return@mapNotNull null
             val mode      = obj.get("mode")?.asString?.trim()?.takeIf { it.isNotBlank() } ?: "bd_ft"
             val ripLength = obj.get("ripLength")?.takeIf { !it.isJsonNull }?.asInt?.takeIf { it == 8 || it == 10 } ?: 10
+            val type = obj.get("type")?.asString?.trim()?.takeIf { it.isNotBlank() }
+            val moldingId = obj.get("moldingId")?.asString?.trim()?.takeIf { it.isNotBlank() }
             AdminBoardStockItem(
                 id        = id,
                 material  = material,
@@ -38,7 +40,9 @@ fun loadAdminBoardStock(baseDir: File, jobFolderName: String): List<AdminBoardSt
                 mode      = mode,
                 ripLength = ripLength,
                 createdAt = obj.get("createdAt")?.asString.orEmpty(),
-                createdBy = obj.get("createdBy")?.asString.orEmpty()
+                createdBy = obj.get("createdBy")?.asString.orEmpty(),
+                moldingId = moldingId,
+                type      = type
             )
         }
     }.getOrElse { emptyList() }

@@ -859,5 +859,9 @@ data class AdminBoardStockItem(
     val mode: String = "bd_ft",
     val ripLength: Int = 10,
     val createdAt: String = "",
-    val createdBy: String = ""
+    val createdBy: String = "",
+    /** "Crown:151" style id into the molding library — null if this row isn't linked to a profile. */
+    val moldingId: String? = null,
+    /** "crown" | "base" | "scribe" | ... — null if unset. */
+    val type: String? = null
 )
