@@ -12,11 +12,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * Small floating header row hosting the Settings and Standards entry points. Both destinations
- * were removed from [AppBottomNavBar] (see [NavDestination.SETTINGS] / [NavDestination.STANDARDS]
+ * Small header row hosting the Settings and Standards entry points. Both destinations were
+ * removed from [AppBottomNavBar] (see [NavDestination.SETTINGS] / [NavDestination.STANDARDS]
  * filtering at each call site) and relocated here so they no longer compete for space with the
  * frequently-used bottom tabs, while still keeping full tab semantics (own back stack, own
  * NavHostController) via [com.kkc.sheettracker.navigation.NavigationCoordinator.navigateTopLevel].
+ *
+ * Callers place this in its own reserved strip above the per-tab content (not as a floating
+ * overlay) so it never overlaps each screen's own `KKCTopAppBar` actions (clock, refresh, sort,
+ * etc.) — see the `MultiBackStackNavigation`/`LegacySingleStackNavigation` call sites in
+ * `NavGraph.kt`.
  */
 @Composable
 fun StandardsHeaderBar(
