@@ -128,9 +128,9 @@ fun MoldingDetailOverlay(
         val appliedZoomChange = nextScale / scale
         val anchorX = centroid.x - containerSize.width / 2f
         val anchorY = centroid.y - containerSize.height / 2f
-        val nextOffsetX = (offset.x * appliedZoomChange + panChange.x * scale + anchorX * (1f - appliedZoomChange))
+        val nextOffsetX = (offset.x * appliedZoomChange + panChange.x + anchorX * (1f - appliedZoomChange))
             .coerceIn(-maxPanX, maxPanX)
-        val nextOffsetY = (offset.y * appliedZoomChange + panChange.y * scale + anchorY * (1f - appliedZoomChange))
+        val nextOffsetY = (offset.y * appliedZoomChange + panChange.y + anchorY * (1f - appliedZoomChange))
             .coerceIn(-maxPanY, maxPanY)
         scale = nextScale
         offset = Offset(nextOffsetX, nextOffsetY)
@@ -148,16 +148,19 @@ fun MoldingDetailOverlay(
                 .weight(2f)
                 .onSizeChanged { containerSize = it }
                 .background(previewBgColor)
-                .pointerInput(scale, offset) {
+                .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = {
                             coroutineScope.launch {
                                 scaleAnim.snapTo(scale)
                                 offsetXAnim.snapTo(offset.x)
                                 offsetYAnim.snapTo(offset.y)
-                                launch { scaleAnim.animateTo(1f, spring()) }
-                                launch { offsetXAnim.animateTo(0f, spring()) }
-                                launch { offsetYAnim.animateTo(0f, spring()) }
+                                val j1 = launch { scaleAnim.animateTo(1f, spring()) }
+                                val j2 = launch { offsetXAnim.animateTo(0f, spring()) }
+                                val j3 = launch { offsetYAnim.animateTo(0f, spring()) }
+                                j1.join()
+                                j2.join()
+                                j3.join()
                                 scale = 1f
                                 offset = Offset.Zero
                             }
