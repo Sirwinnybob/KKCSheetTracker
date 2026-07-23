@@ -172,4 +172,25 @@ class MoldingLibraryRepositoryTest {
 
         assertTrue(repo.fetchUsageCounts().isEmpty())
     }
+
+    @Test
+    fun processSvgForDarkMode_invertsBlackPathsAndWhiteTextBackgrounds_leavingDimensionColorsIntact() {
+        val originalSvg = """
+            <svg viewBox="0 0 100 100">
+                <path d="M 0 0 L 10 10" fill="none" stroke="#000000" stroke-width="0.3"/>
+                <line x1="0" y1="0" x2="10" y2="0" stroke="#2563eb" stroke-width="0.5"/>
+                <rect x="5" y="5" width="20" height="10" fill="#ffffff"/>
+                <text x="15" y="10" fill="#2563eb">4 1/2"</text>
+                <rect x="50" y="50" width="20" height="10" rx="2" fill="#dc2626"/>
+            </svg>
+        """.trimIndent()
+
+        val processed = processSvgForDarkMode(originalSvg)
+
+        assertTrue(processed.contains("""stroke="#ffffff""""))
+        assertTrue(processed.contains("""stroke="#2563eb""""))
+        assertTrue(processed.contains("""fill="#2563eb""""))
+        assertTrue(processed.contains("""rect x="5" y="5" width="20" height="10" fill="#000000""""))
+        assertTrue(processed.contains("""rect x="50" y="50" width="20" height="10" rx="2" fill="#dc2626""""))
+    }
 }

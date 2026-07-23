@@ -39,4 +39,8 @@ object MoldingLibraryScreenLogic {
     fun svgFileName(fileId: String, showMeasurements: Boolean): String {
         return if (showMeasurements) "${fileId}_dim.svg" else "$fileId.svg"
     }
+
+    fun shouldUseDarkPreview(isDarkTheme: Boolean, useStandardSheets: Boolean): Boolean {
+        return isDarkTheme && !useStandardSheets
+    }
 }

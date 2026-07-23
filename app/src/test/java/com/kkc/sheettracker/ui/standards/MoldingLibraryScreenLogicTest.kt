@@ -43,4 +43,12 @@ class MoldingLibraryScreenLogicTest {
         assertEquals("105_dim.svg", MoldingLibraryScreenLogic.svgFileName("105", showMeasurements = true))
         assertEquals("105.svg", MoldingLibraryScreenLogic.svgFileName("105", showMeasurements = false))
     }
+
+    @Test
+    fun shouldUseDarkPreview_trueOnlyWhenDarkThemeAndStandardSheetsDisabled() {
+        assertEquals(true, MoldingLibraryScreenLogic.shouldUseDarkPreview(isDarkTheme = true, useStandardSheets = false))
+        assertEquals(false, MoldingLibraryScreenLogic.shouldUseDarkPreview(isDarkTheme = true, useStandardSheets = true))
+        assertEquals(false, MoldingLibraryScreenLogic.shouldUseDarkPreview(isDarkTheme = false, useStandardSheets = false))
+        assertEquals(false, MoldingLibraryScreenLogic.shouldUseDarkPreview(isDarkTheme = false, useStandardSheets = true))
+    }
 }

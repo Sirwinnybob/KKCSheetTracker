@@ -25,6 +25,21 @@ internal fun parseMoldingLibrary(json: String): MoldingLibrary {
     return MoldingLibrary(categories = categories, moldings = moldings)
 }
 
+internal fun processSvgForDarkMode(svgXml: String): String {
+    var result = svgXml
+        .replace("stroke=\"#000000\"", "stroke=\"#ffffff\"")
+        .replace("stroke=\"#000\"", "stroke=\"#ffffff\"")
+        .replace("stroke=\"black\"", "stroke=\"#ffffff\"")
+        .replace("fill=\"#000000\"", "fill=\"#ffffff\"")
+        .replace("fill=\"#000\"", "fill=\"#ffffff\"")
+        .replace("fill=\"black\"", "fill=\"#ffffff\"")
+
+    result = result.replace(Regex("""<rect([^>]*)\bfill="(#ffffff|white)"""")) { match ->
+        "<rect${match.groupValues[1]}fill=\"#000000\""
+    }
+    return result
+}
+
 /**
  * Reads the molding library cache published by Hours Tracker.
  * Storage path: {baseDir}/.metadata/moldings_cache/
@@ -45,6 +60,13 @@ class MoldingLibraryRepository(private val baseDir: File) {
         val suffix = if (showMeasurements) "_dim" else ""
         val file = File(cacheDir, "$category/$fileId$suffix.svg")
         return file.takeIf { it.exists() && it.isFile }
+    }
+
+    fun profileSvgBytes(category: String, fileId: String, showMeasurements: Boolean, isDarkPreview: Boolean): ByteArray? {
+        val file = profileSvgFile(category, fileId, showMeasurements) ?: return null
+        if (!isDarkPreview) return file.readBytes()
+        val text = file.readText()
+        return processSvgForDarkMode(text).toByteArray(Charsets.UTF_8)
     }
 
     fun fetchUsage(moldingId: String): List<MoldingUsage> {

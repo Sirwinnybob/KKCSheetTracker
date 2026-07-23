@@ -72,6 +72,7 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.CountStatusChip
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.PageStatusBar
@@ -106,6 +107,12 @@ fun JobDetailScreen(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
+    val navBarDeco = LocalNavBarDecoration.current
+    LaunchedEffect(Unit) {
+        navBarDeco.searchDecoration = null
+        navBarDeco.keepSearchDeco = false
+    }
+
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
     val appMaterialsByKey by appStateStore.materialUiModels.collectAsState()

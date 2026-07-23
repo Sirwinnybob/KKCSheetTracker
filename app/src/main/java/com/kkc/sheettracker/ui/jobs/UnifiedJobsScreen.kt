@@ -176,18 +176,16 @@ fun UnifiedJobsScreen(
                 onScan             = null
             )
         } else if (navBarDeco.owner == ownerId) {
-            if (!navBarDeco.keepSearchDeco) {
-                navBarDeco.searchDecoration = null
-            }
+            navBarDeco.searchDecoration = null
+            navBarDeco.keepSearchDeco = false
             navBarDeco.owner = ""
         }
     }
     DisposableEffect(Unit) {
         onDispose {
             if (navBarDeco.owner == ownerId) {
-                if (!navBarDeco.keepSearchDeco) {
-                    navBarDeco.searchDecoration = null
-                }
+                navBarDeco.searchDecoration = null
+                navBarDeco.keepSearchDeco = false
                 navBarDeco.owner = ""
             }
         }

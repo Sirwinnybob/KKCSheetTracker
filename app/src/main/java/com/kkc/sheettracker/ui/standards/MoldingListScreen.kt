@@ -77,8 +77,11 @@ import java.io.File
 fun MoldingListScreen(
     repository: MoldingLibraryRepository,
     onBack: () -> Unit,
-    onOpenMolding: ((MoldingLibraryItem) -> Unit)? = null
+    onOpenMolding: ((MoldingLibraryItem) -> Unit)? = null,
+    isDarkTheme: Boolean = false,
+    useStandardSheets: Boolean = false
 ) {
+    val isDarkPreview = MoldingLibraryScreenLogic.shouldUseDarkPreview(isDarkTheme, useStandardSheets)
     val svgImageLoader = rememberSvgImageLoader()
 
     var library by remember { mutableStateOf(MoldingLibrary()) }
@@ -101,27 +104,33 @@ fun MoldingListScreen(
     val ownerId = "standards_molding_list"
 
     SideEffect {
-        navBarDeco.owner = ownerId
-        navBarDeco.searchDecoration = NavBarSearchDecoration(
-            searchTextValue = currentSearchQuery,
-            onSearchTextChange = { searchQuery = it },
-            onGo = { focusManager.clearFocus() },
-            isPartsEnabled = false,
-            onParts = {},
-            contextLine = if (currentSearchQuery.text.isNotBlank())
-                "Filtering moldings by \"${currentSearchQuery.text}\"" else "",
-            placeholder = "Search moldings...",
-            showParts = false,
-            onScan = null
-        )
+        if (expandedItem != null) {
+            if (navBarDeco.owner == ownerId) {
+                navBarDeco.searchDecoration = null
+                navBarDeco.keepSearchDeco = false
+            }
+        } else {
+            navBarDeco.owner = ownerId
+            navBarDeco.searchDecoration = NavBarSearchDecoration(
+                searchTextValue = currentSearchQuery,
+                onSearchTextChange = { searchQuery = it },
+                onGo = { focusManager.clearFocus() },
+                isPartsEnabled = false,
+                onParts = {},
+                contextLine = if (currentSearchQuery.text.isNotBlank())
+                    "Filtering moldings by \"${currentSearchQuery.text}\"" else "",
+                placeholder = "Search moldings...",
+                showParts = false,
+                onScan = null
+            )
+        }
     }
 
     DisposableEffect(Unit) {
         onDispose {
             if (navBarDeco.owner == ownerId) {
-                if (!navBarDeco.keepSearchDeco) {
-                    navBarDeco.searchDecoration = null
-                }
+                navBarDeco.searchDecoration = null
+                navBarDeco.keepSearchDeco = false
                 navBarDeco.owner = ""
             }
         }
@@ -180,6 +189,7 @@ fun MoldingListScreen(
                             usageCount = usageCounts[item.id] ?: 0,
                             sharedTransitionScope = this@SharedTransitionLayout,
                             isExpanded = expandedItem?.id == item.id,
+                            isDarkPreview = isDarkPreview,
                             onClick = {
                                 expandedItem = item
                             }
@@ -200,6 +210,7 @@ fun MoldingListScreen(
                         svgImageLoader = svgImageLoader,
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = this@AnimatedVisibility,
+                        isDarkPreview = isDarkPreview,
                         onDismiss = { expandedItem = null }
                     )
                 }
@@ -218,18 +229,22 @@ private fun MoldingCard(
     usageCount: Int,
     sharedTransitionScope: SharedTransitionScope? = null,
     isExpanded: Boolean = false,
+    isDarkPreview: Boolean = false,
     onClick: () -> Unit
 ) {
-    var svgFile by remember(item.id, showMeasurements) { mutableStateOf<File?>(null) }
-    LaunchedEffect(item.id, showMeasurements) {
-        svgFile = withContext(Dispatchers.IO) {
-            repository.profileSvgFile(item.category, item.fileId, showMeasurements)
+    var svgData by remember(item.id, showMeasurements, isDarkPreview) { mutableStateOf<Any?>(null) }
+    LaunchedEffect(item.id, showMeasurements, isDarkPreview) {
+        svgData = withContext(Dispatchers.IO) {
+            if (isDarkPreview) {
+                repository.profileSvgBytes(item.category, item.fileId, showMeasurements, isDarkPreview = true)
+            } else {
+                repository.profileSvgFile(item.category, item.fileId, showMeasurements)
+            }
         }
     }
 
-    val isDark = isSystemInDarkTheme()
+    val isDark = isDarkPreview
     val previewBgColor = if (isDark) Color.Black else Color.White
-    val imageColorFilter = if (isDark) ColorFilter.tint(Color.White) else null
     val cardShape = RoundedCornerShape(14.dp)
     val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
 
@@ -267,11 +282,11 @@ private fun MoldingCard(
                 }
 
                 AsyncImage(
-                    model = svgFile,
+                    model = svgData,
                     contentDescription = item.name,
                     imageLoader = svgImageLoader,
                     contentScale = ContentScale.Fit,
-                    colorFilter = imageColorFilter,
+                    colorFilter = null,
                     modifier = imageModifier
                 )
             }

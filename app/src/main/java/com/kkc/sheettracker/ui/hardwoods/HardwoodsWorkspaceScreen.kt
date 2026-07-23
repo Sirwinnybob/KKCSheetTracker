@@ -124,6 +124,7 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.ChangedBadge
@@ -240,6 +241,12 @@ fun HardwoodsWorkspaceScreen(
     onBack: () -> Unit,
     clockInState: ClockInState? = null
 ) {
+    val navBarDeco = LocalNavBarDecoration.current
+    LaunchedEffect(Unit) {
+        navBarDeco.searchDecoration = null
+        navBarDeco.keepSearchDeco = false
+    }
+
     val context = LocalContext.current
     val containerSize = LocalWindowInfo.current.containerSize
     val isLandscape = containerSize.width > containerSize.height
@@ -1409,6 +1416,7 @@ fun HardwoodsWorkspaceScreen(
                             svgImageLoader = moldingSvgImageLoader,
                             sharedTransitionScope = this@SharedTransitionLayout,
                             animatedVisibilityScope = this@AnimatedVisibility,
+                            isDarkPreview = isDarkTheme,
                             onDismiss = { previewMoldingItem = null }
                         )
                     }

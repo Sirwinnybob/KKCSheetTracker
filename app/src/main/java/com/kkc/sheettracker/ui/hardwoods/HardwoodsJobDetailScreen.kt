@@ -34,6 +34,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
+import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import androidx.compose.ui.text.font.FontWeight
@@ -98,6 +99,12 @@ fun HardwoodsJobDetailScreen(
     onLeaveWhileClockedIn: () -> Unit = {},
     clockInState: ClockInState? = null
 ) {
+    val navBarDeco = LocalNavBarDecoration.current
+    LaunchedEffect(Unit) {
+        navBarDeco.searchDecoration = null
+        navBarDeco.keepSearchDeco = false
+    }
+
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
     val job: HardwoodJob = remember(scanState.snapshot.generation, jobFolderName) {

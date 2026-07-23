@@ -849,7 +849,9 @@ private fun MultiBackStackNavigation(
                         onBack = {
                             coordinator.navigateTopLevel(homeTab)
                         },
-                        safetyNotificationCount = safetyNotificationCount
+                        safetyNotificationCount = safetyNotificationCount,
+                        isDarkTheme = isDarkTheme,
+                        useStandardSheets = useStandardSheets
                     )
                 }
 
@@ -1850,7 +1852,9 @@ private fun StandardsTabHost(
     navController: NavHostController,
     basePath: String,
     onBack: () -> Unit,
-    safetyNotificationCount: Int = 0
+    safetyNotificationCount: Int = 0,
+    isDarkTheme: Boolean = false,
+    useStandardSheets: Boolean = false
 ) {
     NavHost(
         navController = navController,
@@ -1871,7 +1875,9 @@ private fun StandardsTabHost(
             }
             com.kkc.sheettracker.ui.standards.MoldingListScreen(
                 repository = repository,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                isDarkTheme = isDarkTheme,
+                useStandardSheets = useStandardSheets
             )
         }
         composable("standards/safety") {
@@ -2986,7 +2992,9 @@ private fun LegacySingleStackNavigation(
                     }
                     com.kkc.sheettracker.ui.standards.MoldingListScreen(
                         repository = repository,
-                        onBack = { navController.popBackStack() }
+                        onBack = { navController.popBackStack() },
+                        isDarkTheme = isDarkTheme,
+                        useStandardSheets = useStandardSheets
                     )
                 }
                 composable("standards/safety") {

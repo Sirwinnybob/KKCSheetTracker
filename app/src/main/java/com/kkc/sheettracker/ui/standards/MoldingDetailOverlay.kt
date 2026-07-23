@@ -81,18 +81,23 @@ fun MoldingDetailOverlay(
     svgImageLoader: ImageLoader,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    isDarkPreview: Boolean = false,
     onDismiss: () -> Unit
 ) {
     BackHandler(onBack = onDismiss)
 
     var showMeasurements by remember { mutableStateOf(true) }
-    var svgFile by remember(item.id, showMeasurements) { mutableStateOf<File?>(null) }
+    var svgData by remember(item.id, showMeasurements, isDarkPreview) { mutableStateOf<Any?>(null) }
     var usage by remember(item.id) { mutableStateOf<List<MoldingUsage>>(emptyList()) }
     var isLoadingUsage by remember(item.id) { mutableStateOf(true) }
 
-    LaunchedEffect(item.id, showMeasurements) {
-        svgFile = withContext(Dispatchers.IO) {
-            repository.profileSvgFile(item.category, item.fileId, showMeasurements)
+    LaunchedEffect(item.id, showMeasurements, isDarkPreview) {
+        svgData = withContext(Dispatchers.IO) {
+            if (isDarkPreview) {
+                repository.profileSvgBytes(item.category, item.fileId, showMeasurements, isDarkPreview = true)
+            } else {
+                repository.profileSvgFile(item.category, item.fileId, showMeasurements)
+            }
         }
     }
 
@@ -102,9 +107,8 @@ fun MoldingDetailOverlay(
         isLoadingUsage = false
     }
 
-    val isDark = isSystemInDarkTheme()
+    val isDark = isDarkPreview
     val previewBgColor = if (isDark) Color.Black else Color.White
-    val imageColorFilter = if (isDark) ColorFilter.tint(Color.White) else null
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -141,6 +145,53 @@ fun MoldingDetailOverlay(
             .fillMaxSize()
             .background(previewBgColor)
     ) {
+        // Top Header Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(previewBgColor)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .shadow(4.dp, RoundedCornerShape(20.dp), clip = false)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "Measurements",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(end = 6.dp)
+                )
+                Switch(
+                    checked = showMeasurements,
+                    onCheckedChange = { showMeasurements = it }
+                )
+            }
+
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .shadow(4.dp, CircleShape, clip = false)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
         // Top 2/3 Preview Area
         Box(
             modifier = Modifier
@@ -172,11 +223,11 @@ fun MoldingDetailOverlay(
         ) {
             with(sharedTransitionScope) {
                 AsyncImage(
-                    model = svgFile,
+                    model = svgData,
                     contentDescription = item.name,
                     imageLoader = svgImageLoader,
                     contentScale = ContentScale.Fit,
-                    colorFilter = imageColorFilter,
+                    colorFilter = null,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(24.dp)
@@ -195,52 +246,6 @@ fun MoldingDetailOverlay(
                             animatedVisibilityScope = animatedVisibilityScope
                         )
                 )
-            }
-
-            // Floating Top-Right Controls
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .shadow(4.dp, RoundedCornerShape(20.dp), clip = false)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "Measurements",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(end = 6.dp)
-                    )
-                    Switch(
-                        checked = showMeasurements,
-                        onCheckedChange = { showMeasurements = it }
-                    )
-                }
-
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .shadow(4.dp, CircleShape, clip = false)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface)
-                        .size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
             }
         }
 
@@ -325,7 +330,7 @@ fun MoldingDetailOverlay(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
-                        contentPadding = PaddingValues(bottom = 16.dp)
+                        contentPadding = PaddingValues(bottom = 166.dp)
                     ) {
                         items(usage) { entry ->
                             MoldingUsageRow(entry)

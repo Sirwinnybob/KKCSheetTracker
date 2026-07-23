@@ -175,6 +175,10 @@ fun SpecialtyJobDetailScreen(
     val totalItems = resolvedItems.size
 
     val navBarDeco = LocalNavBarDecoration.current
+    LaunchedEffect(Unit) {
+        navBarDeco.searchDecoration = null
+        navBarDeco.keepSearchDeco = false
+    }
     DisposableEffect(navBarDeco) {
         onDispose { navBarDeco.specialtyDecoration = null }
     }
