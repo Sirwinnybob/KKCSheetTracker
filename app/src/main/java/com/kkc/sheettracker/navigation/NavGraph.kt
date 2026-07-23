@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -115,11 +114,11 @@ import com.kkc.sheettracker.ui.settings.AssemblyViewerDefaultsScreen
 import com.kkc.sheettracker.ui.settings.SpecialtyViewerDefaultsScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
+import com.kkc.sheettracker.ui.components.LocalOnOpenSettings
 import com.kkc.sheettracker.ui.components.NavBarDecorationState
 import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
 import com.kkc.sheettracker.ui.components.ClockInOverlay
 import com.kkc.sheettracker.ui.components.NavDestination
-import com.kkc.sheettracker.ui.components.StandardsHeaderBar
 import com.kkc.sheettracker.ui.components.rememberCalculatorOverlayState
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardScreen
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardSpec
@@ -482,13 +481,13 @@ private fun MultiBackStackNavigation(
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
     val visibleDestinations = remember(workMode) {
-        // SETTINGS and STANDARDS are reached via the header row (StandardsHeaderBar), not the
+        // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
         // bottom nav bar — filtered out of both branches here.
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
         } else {
             NavDestination.entries.filter {
-                it != NavDestination.SEARCH && it != NavDestination.SETTINGS && it != NavDestination.STANDARDS
+                it != NavDestination.SEARCH && it != NavDestination.SETTINGS
             }
         }
     }
@@ -656,6 +655,7 @@ private fun MultiBackStackNavigation(
         }
     }
 
+    CompositionLocalProvider(LocalOnOpenSettings provides { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) }) {
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
@@ -668,26 +668,10 @@ private fun MultiBackStackNavigation(
                     .background(MaterialTheme.colorScheme.background)
                     .hazeSource(hazeState)
             ) {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
-                ) {
-                // Settings/Standards header row — reserves its own strip above the per-tab
-                // content so it never overlaps each screen's own KKCTopAppBar actions (clock,
-                // refresh, sort, etc.). Hidden in viewer routes to preserve full sheet real estate,
-                // matching the bottom nav bar's existing isInViewer-driven hide behavior.
-                if (!isInViewer) {
-                    StandardsHeaderBar(
-                        onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) },
-                        onStandardsClick = { coordinator.navigateTopLevel(TopLevelTab.STANDARDS) },
-                        modifier = Modifier.align(Alignment.End)
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
                 ) {
                 TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
                     DashboardTabHost(
@@ -913,8 +897,7 @@ private fun MultiBackStackNavigation(
                         onDismiss = { pendingClockOut = null }
                     )
                 }
-                } // weighted TabLayer content Box
-                } // outer content Column
+                } // inner content Box
             } // hazeSource Box
         }
         } // CompositionLocalProvider
@@ -976,6 +959,7 @@ private fun MultiBackStackNavigation(
             modifier = Modifier.fillMaxSize()
         )
     }
+    } // LocalOnOpenSettings CompositionLocalProvider
 }
 
 @Composable
@@ -2022,13 +2006,13 @@ private fun LegacySingleStackNavigation(
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
     val visibleDestinations = remember(workMode) {
-        // SETTINGS and STANDARDS are reached via the header row (StandardsHeaderBar), not the
+        // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
         // bottom nav bar — filtered out of both branches here.
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
         } else {
             NavDestination.entries.filter {
-                it != NavDestination.SEARCH && it != NavDestination.SETTINGS && it != NavDestination.STANDARDS
+                it != NavDestination.SEARCH && it != NavDestination.SETTINGS
             }
         }
     }
@@ -2186,6 +2170,7 @@ private fun LegacySingleStackNavigation(
         if (!isInViewer) navBarDeco.extendedControls = null
     }
 
+    CompositionLocalProvider(LocalOnOpenSettings provides { navController.navigate("settings") { launchSingleTop = true } }) {
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
@@ -2197,26 +2182,10 @@ private fun LegacySingleStackNavigation(
                     .background(MaterialTheme.colorScheme.background)
                     .hazeSource(hazeState)
             ) {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
-                ) {
-                // Settings/Standards header row — reserves its own strip above the per-tab
-                // content so it never overlaps each screen's own KKCTopAppBar actions (clock,
-                // refresh, sort, etc.). Hidden in viewer routes to preserve full sheet real estate,
-                // matching the bottom nav bar's existing isInViewer-driven hide behavior.
-                if (!isInViewer) {
-                    StandardsHeaderBar(
-                        onSettingsClick = { navController.navigate("settings") { launchSingleTop = true } },
-                        onStandardsClick = { navController.navigate("standards") { launchSingleTop = true } },
-                        modifier = Modifier.align(Alignment.End)
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
                 ) {
                 SharedTransitionLayout {
                     NavHost(
@@ -3093,8 +3062,7 @@ private fun LegacySingleStackNavigation(
                         onDismiss = { pendingClockOut = null }
                     )
                 }
-                } // weighted NavHost content Box
-                } // outer content Column
+                } // inner content Box
             } // hazeSource Box
         }
         } // CompositionLocalProvider
@@ -3166,6 +3134,7 @@ private fun LegacySingleStackNavigation(
             modifier = Modifier.fillMaxSize()
         )
     }
+    } // LocalOnOpenSettings CompositionLocalProvider
 }
 
 private fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int): String {

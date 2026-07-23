@@ -1,9 +1,14 @@
 package com.kkc.sheettracker.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
@@ -26,6 +31,14 @@ import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import java.io.File
+
+/**
+ * Invoked by [KKCTopAppBar] to open the Settings tab from the trailing gear icon it appends
+ * after every screen's own `actions`. Provided once near the root of the composition (see
+ * `NavGraph.kt`) so all ~20 existing `KKCTopAppBar` call sites get the icon without each one
+ * needing to pass a Settings callback individually. Defaults to a no-op outside that provider.
+ */
+val LocalOnOpenSettings = staticCompositionLocalOf<() -> Unit> { {} }
 
 /**
  * Very slight blue wash used as the background of every screen's [androidx.compose.material3.TopAppBar]
@@ -103,13 +116,19 @@ fun KKCTopAppBar(
         titleContentColor = MaterialTheme.colorScheme.onSurface
     )
 ) {
+    val onOpenSettings = LocalOnOpenSettings.current
     TopAppBar(
         title = title,
         modifier = modifier
             .headerBackground()
             .shadow(elevation = 2.dp, clip = false),
         navigationIcon = navigationIcon,
-        actions = actions,
+        actions = {
+            actions()
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+            }
+        },
         windowInsets = windowInsets,
         colors = colors
     )
