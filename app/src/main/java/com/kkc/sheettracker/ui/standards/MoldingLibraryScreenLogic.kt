@@ -10,7 +10,30 @@ object MoldingLibraryScreenLogic {
     }
 
     fun defaultCategory(library: MoldingLibrary): String? {
-        return library.categories.firstOrNull()
+        val crownCategory = library.categories.firstOrNull { cat ->
+            cat.equals("Crown", ignoreCase = true) || cat.equals("Crown Molding", ignoreCase = true)
+        }
+        return crownCategory ?: library.categories.firstOrNull()
+    }
+
+    fun searchMoldings(
+        library: MoldingLibrary,
+        selectedCategory: String?,
+        query: String
+    ): List<MoldingLibraryItem> {
+        val trimmedQuery = query.trim()
+        if (trimmedQuery.isEmpty()) {
+            return if (selectedCategory != null) {
+                moldingsForCategory(library, selectedCategory)
+            } else {
+                library.moldings
+            }
+        }
+        return library.moldings.filter { item ->
+            item.name.contains(trimmedQuery, ignoreCase = true) ||
+            item.fileId.contains(trimmedQuery, ignoreCase = true) ||
+            item.category.contains(trimmedQuery, ignoreCase = true)
+        }
     }
 
     fun svgFileName(fileId: String, showMeasurements: Boolean): String {
