@@ -655,7 +655,7 @@ private fun MultiBackStackNavigation(
         }
     }
 
-    CompositionLocalProvider(LocalOnOpenSettings provides { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) }) {
+    CompositionLocalProvider(LocalOnOpenSettings provides remember(coordinator) { { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) } }) {
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
@@ -2170,7 +2170,7 @@ private fun LegacySingleStackNavigation(
         if (!isInViewer) navBarDeco.extendedControls = null
     }
 
-    CompositionLocalProvider(LocalOnOpenSettings provides { navController.navigate("settings") { launchSingleTop = true } }) {
+    CompositionLocalProvider(LocalOnOpenSettings provides remember(navController) { { navController.navigate("settings") { launchSingleTop = true } } }) {
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
