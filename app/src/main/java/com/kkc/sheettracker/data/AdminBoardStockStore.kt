@@ -28,7 +28,7 @@ fun loadAdminBoardStock(baseDir: File, jobFolderName: String): List<AdminBoardSt
             // Hide items with blank feet (0 or missing) — admin hasn't filled them in yet.
             // Items explicitly set to NONE (null) still show with a NONE label.
             if (feet != null && feet <= 0.0) return@mapNotNull null
-            val mode      = obj.get("mode")?.asString?.trim()?.takeIf { it.isNotBlank() } ?: "bd_ft"
+            val mode      = obj.get("mode")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.isNotBlank() } ?: "bd_ft"
             val ripLength = obj.get("ripLength")?.takeIf { !it.isJsonNull }?.asInt?.takeIf { it == 8 || it == 10 } ?: 10
             val type = obj.get("type")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.isNotBlank() }
             val moldingId = obj.get("moldingId")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.isNotBlank() }
@@ -39,8 +39,8 @@ fun loadAdminBoardStock(baseDir: File, jobFolderName: String): List<AdminBoardSt
                 feet      = feet,
                 mode      = mode,
                 ripLength = ripLength,
-                createdAt = obj.get("createdAt")?.asString.orEmpty(),
-                createdBy = obj.get("createdBy")?.asString.orEmpty(),
+                createdAt = obj.get("createdAt")?.takeIf { !it.isJsonNull }?.asString.orEmpty(),
+                createdBy = obj.get("createdBy")?.takeIf { !it.isJsonNull }?.asString.orEmpty(),
                 moldingId = moldingId,
                 type      = type
             )
