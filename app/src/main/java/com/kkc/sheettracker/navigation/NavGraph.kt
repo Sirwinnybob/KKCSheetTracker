@@ -1862,27 +1862,8 @@ private fun StandardsTabHost(
             }
             com.kkc.sheettracker.ui.standards.MoldingListScreen(
                 repository = repository,
-                onBack = { navController.popBackStack() },
-                onOpenMolding = { item ->
-                    navController.currentBackStackEntry?.savedStateHandle?.set("molding", item)
-                    navController.navigate("standards/molding/detail") { launchSingleTop = true }
-                }
+                onBack = { navController.popBackStack() }
             )
-        }
-        composable("standards/molding/detail") {
-            val repository = remember(basePath) {
-                com.kkc.sheettracker.data.MoldingLibraryRepository(File(basePath))
-            }
-            val molding = navController.previousBackStackEntry
-                ?.savedStateHandle
-                ?.get<com.kkc.sheettracker.data.models.MoldingLibraryItem>("molding")
-            if (molding != null) {
-                com.kkc.sheettracker.ui.standards.MoldingDetailScreen(
-                    molding = molding,
-                    repository = repository,
-                    onBack = { navController.popBackStack() }
-                )
-            }
         }
         composable("standards/safety") {
             com.kkc.sheettracker.ui.standards.SafetyDocumentsScreen(
@@ -2992,27 +2973,8 @@ private fun LegacySingleStackNavigation(
                     }
                     com.kkc.sheettracker.ui.standards.MoldingListScreen(
                         repository = repository,
-                        onBack = { navController.popBackStack() },
-                        onOpenMolding = { item ->
-                            navController.currentBackStackEntry?.savedStateHandle?.set("molding", item)
-                            navController.navigate("standards/molding/detail") { launchSingleTop = true }
-                        }
+                        onBack = { navController.popBackStack() }
                     )
-                }
-                composable("standards/molding/detail") {
-                    val repository = remember(basePath) {
-                        com.kkc.sheettracker.data.MoldingLibraryRepository(File(basePath))
-                    }
-                    val molding = navController.previousBackStackEntry
-                        ?.savedStateHandle
-                        ?.get<com.kkc.sheettracker.data.models.MoldingLibraryItem>("molding")
-                    if (molding != null) {
-                        com.kkc.sheettracker.ui.standards.MoldingDetailScreen(
-                            molding = molding,
-                            repository = repository,
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
                 }
                 composable("standards/safety") {
                     com.kkc.sheettracker.ui.standards.SafetyDocumentsScreen(
