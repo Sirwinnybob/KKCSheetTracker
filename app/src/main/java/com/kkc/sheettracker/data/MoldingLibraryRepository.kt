@@ -20,7 +20,8 @@ internal fun parseMoldingLibrary(json: String): MoldingLibrary {
             category = obj.get("category")?.takeIf { !it.isJsonNull }?.asString ?: "",
             fileId = obj.get("fileId")?.takeIf { !it.isJsonNull }?.asString ?: "",
             name = obj.get("name")?.takeIf { !it.isJsonNull }?.asString ?: "",
-            frameStyle = obj.get("frameStyle")?.takeIf { !it.isJsonNull }?.asString
+            frameStyle = obj.get("frameStyle")?.takeIf { !it.isJsonNull }?.asString,
+            hidden = obj.get("hidden")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
         )
     }
     return MoldingLibrary(categories = categories, moldings = moldings)

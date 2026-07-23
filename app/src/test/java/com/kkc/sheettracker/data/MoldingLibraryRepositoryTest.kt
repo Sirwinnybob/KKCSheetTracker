@@ -126,6 +126,30 @@ class MoldingLibraryRepositoryTest {
     }
 
     @Test
+    fun fetchLibrary_parsesHiddenWhenPresent() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-hidden").toFile()
+        val cacheDir = File(baseDir, ".metadata/moldings_cache").apply { mkdirs() }
+        val json = """
+            {
+              "categories": ["Crown"],
+              "moldings": [
+                {"id": "Crown:105", "category": "Crown", "fileId": "105", "name": "3 1/4\" Flat", "hidden": true},
+                {"id": "Crown:106", "category": "Crown", "fileId": "106", "name": "Cove", "hidden": false},
+                {"id": "Crown:107", "category": "Crown", "fileId": "107", "name": "Base"}
+              ]
+            }
+        """.trimIndent()
+        File(cacheDir, "library.json").writeText(json)
+
+        val repo = MoldingLibraryRepository(baseDir)
+        val library = repo.fetchLibrary()
+
+        assertEquals(true, library.moldings[0].hidden)
+        assertEquals(false, library.moldings[1].hidden)
+        assertEquals(false, library.moldings[2].hidden)
+    }
+
+    @Test
     fun profileSvgFile_returnsPlainSvg_whenMeasurementsHidden() {
         val baseDir = Files.createTempDirectory("molding-repo-test-svg").toFile()
         val categoryDir = File(baseDir, ".metadata/moldings_cache/Crown").apply { mkdirs() }
