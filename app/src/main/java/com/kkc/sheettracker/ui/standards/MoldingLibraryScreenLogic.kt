@@ -3,6 +3,12 @@ package com.kkc.sheettracker.ui.standards
 import com.kkc.sheettracker.data.models.MoldingLibrary
 import com.kkc.sheettracker.data.models.MoldingLibraryItem
 
+enum class FrameStyleGroup(val label: String) {
+    FACE_FRAME("Face Frame"),
+    FRAMELESS("Frameless"),
+    UNSET("Unset")
+}
+
 object MoldingLibraryScreenLogic {
 
     fun moldingsForCategory(library: MoldingLibrary, category: String): List<MoldingLibraryItem> {
@@ -42,5 +48,17 @@ object MoldingLibraryScreenLogic {
 
     fun shouldUseDarkPreview(isDarkTheme: Boolean, useStandardSheets: Boolean): Boolean {
         return isDarkTheme && !useStandardSheets
+    }
+
+    fun crownFrameGroups(items: List<MoldingLibraryItem>): List<Pair<FrameStyleGroup, List<MoldingLibraryItem>>> {
+        val byStyle = items.groupBy {
+            when (it.frameStyle) {
+                "face_frame" -> FrameStyleGroup.FACE_FRAME
+                "frameless" -> FrameStyleGroup.FRAMELESS
+                else -> FrameStyleGroup.UNSET
+            }
+        }
+        return listOf(FrameStyleGroup.FACE_FRAME, FrameStyleGroup.FRAMELESS, FrameStyleGroup.UNSET)
+            .mapNotNull { group -> byStyle[group]?.let { group to it } }
     }
 }

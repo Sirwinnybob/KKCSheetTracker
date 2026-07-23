@@ -51,4 +51,41 @@ class MoldingLibraryScreenLogicTest {
         assertEquals(false, MoldingLibraryScreenLogic.shouldUseDarkPreview(isDarkTheme = false, useStandardSheets = false))
         assertEquals(false, MoldingLibraryScreenLogic.shouldUseDarkPreview(isDarkTheme = false, useStandardSheets = true))
     }
+
+    private val crownLibrary = MoldingLibrary(
+        categories = listOf("Crown"),
+        moldings = listOf(
+            MoldingLibraryItem("Crown:1", "Crown", "1", "A Face Frame Crown", frameStyle = "face_frame"),
+            MoldingLibraryItem("Crown:2", "Crown", "2", "A Frameless Crown", frameStyle = "frameless"),
+            MoldingLibraryItem("Crown:3", "Crown", "3", "An Untagged Crown", frameStyle = null),
+            MoldingLibraryItem("Crown:4", "Crown", "4", "Another Face Frame Crown", frameStyle = "face_frame")
+        )
+    )
+
+    @Test
+    fun crownFrameGroups_bucketsByFrameStyleInFixedOrder() {
+        val groups = MoldingLibraryScreenLogic.crownFrameGroups(crownLibrary.moldings)
+
+        assertEquals(3, groups.size)
+        assertEquals(FrameStyleGroup.FACE_FRAME, groups[0].first)
+        assertEquals(listOf("Crown:1", "Crown:4"), groups[0].second.map { it.id })
+        assertEquals(FrameStyleGroup.FRAMELESS, groups[1].first)
+        assertEquals(listOf("Crown:2"), groups[1].second.map { it.id })
+        assertEquals(FrameStyleGroup.UNSET, groups[2].first)
+        assertEquals(listOf("Crown:3"), groups[2].second.map { it.id })
+    }
+
+    @Test
+    fun crownFrameGroups_omitsEmptyGroups() {
+        val onlyFaceFrame = listOf(MoldingLibraryItem("Crown:1", "Crown", "1", "Face Frame Crown", frameStyle = "face_frame"))
+        val groups = MoldingLibraryScreenLogic.crownFrameGroups(onlyFaceFrame)
+
+        assertEquals(1, groups.size)
+        assertEquals(FrameStyleGroup.FACE_FRAME, groups[0].first)
+    }
+
+    @Test
+    fun crownFrameGroups_returnsEmptyListForNoMoldings() {
+        assertEquals(0, MoldingLibraryScreenLogic.crownFrameGroups(emptyList()).size)
+    }
 }
