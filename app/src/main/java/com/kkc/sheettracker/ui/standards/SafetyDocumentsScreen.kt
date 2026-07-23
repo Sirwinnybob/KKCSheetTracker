@@ -118,7 +118,7 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("+ Report Safety Concern")
+                    Text("Report Safety Concern")
                 }
             }
         )
