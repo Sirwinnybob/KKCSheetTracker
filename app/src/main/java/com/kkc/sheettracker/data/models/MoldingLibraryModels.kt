@@ -8,7 +8,8 @@ data class MoldingLibraryItem(
     val id: String,
     val category: String,
     val fileId: String,
-    val name: String
+    val name: String,
+    val frameStyle: String? = null
 ) : Parcelable
 
 data class MoldingLibrary(

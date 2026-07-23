@@ -19,7 +19,8 @@ internal fun parseMoldingLibrary(json: String): MoldingLibrary {
             id = obj.get("id")?.takeIf { !it.isJsonNull }?.asString ?: "",
             category = obj.get("category")?.takeIf { !it.isJsonNull }?.asString ?: "",
             fileId = obj.get("fileId")?.takeIf { !it.isJsonNull }?.asString ?: "",
-            name = obj.get("name")?.takeIf { !it.isJsonNull }?.asString ?: ""
+            name = obj.get("name")?.takeIf { !it.isJsonNull }?.asString ?: "",
+            frameStyle = obj.get("frameStyle")?.takeIf { !it.isJsonNull }?.asString
         )
     }
     return MoldingLibrary(categories = categories, moldings = moldings)
