@@ -12,7 +12,7 @@ enum class FrameStyleGroup(val label: String) {
 object MoldingLibraryScreenLogic {
 
     fun moldingsForCategory(library: MoldingLibrary, category: String): List<MoldingLibraryItem> {
-        return library.moldings.filter { it.category == category }
+        return library.moldings.filter { it.category == category && !it.hidden }
     }
 
     fun isCrownCategory(category: String?): Boolean {
@@ -38,15 +38,16 @@ object MoldingLibraryScreenLogic {
         selectedCategory: String?,
         query: String
     ): List<MoldingLibraryItem> {
+        val visibleMoldings = library.moldings.filter { !it.hidden }
         val trimmedQuery = query.trim()
         if (trimmedQuery.isEmpty()) {
             return if (selectedCategory != null) {
                 moldingsForCategory(library, selectedCategory)
             } else {
-                library.moldings
+                visibleMoldings
             }
         }
-        return library.moldings.filter { item ->
+        return visibleMoldings.filter { item ->
             item.name.contains(trimmedQuery, ignoreCase = true) ||
             item.fileId.contains(trimmedQuery, ignoreCase = true) ||
             item.category.contains(trimmedQuery, ignoreCase = true)

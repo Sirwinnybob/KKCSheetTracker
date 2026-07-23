@@ -106,4 +106,36 @@ class MoldingLibraryScreenLogicTest {
         assertEquals(false, MoldingLibraryScreenLogic.isCrownBrowse("Base", ""))
         assertEquals(false, MoldingLibraryScreenLogic.isCrownBrowse(null, ""))
     }
+
+    @Test
+    fun moldingsForCategory_excludesHiddenItems() {
+        val testLibrary = MoldingLibrary(
+            categories = listOf("Crown"),
+            moldings = listOf(
+                MoldingLibraryItem("Crown:1", "Crown", "1", "Visible Crown", hidden = false),
+                MoldingLibraryItem("Crown:2", "Crown", "2", "Hidden Crown", hidden = true)
+            )
+        )
+        val result = MoldingLibraryScreenLogic.moldingsForCategory(testLibrary, "Crown")
+        assertEquals(1, result.size)
+        assertEquals("Crown:1", result[0].id)
+    }
+
+    @Test
+    fun searchMoldings_excludesHiddenItems() {
+        val testLibrary = MoldingLibrary(
+            categories = listOf("Crown"),
+            moldings = listOf(
+                MoldingLibraryItem("Crown:1", "Crown", "1", "Crown Molding A", hidden = false),
+                MoldingLibraryItem("Crown:2", "Crown", "2", "Crown Molding B", hidden = true)
+            )
+        )
+        val searchWithQuery = MoldingLibraryScreenLogic.searchMoldings(testLibrary, selectedCategory = null, query = "Crown")
+        assertEquals(1, searchWithQuery.size)
+        assertEquals("Crown:1", searchWithQuery[0].id)
+
+        val searchWithCategory = MoldingLibraryScreenLogic.searchMoldings(testLibrary, selectedCategory = "Crown", query = "")
+        assertEquals(1, searchWithCategory.size)
+        assertEquals("Crown:1", searchWithCategory[0].id)
+    }
 }
