@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -118,6 +119,7 @@ import com.kkc.sheettracker.ui.components.NavBarDecorationState
 import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
 import com.kkc.sheettracker.ui.components.ClockInOverlay
 import com.kkc.sheettracker.ui.components.NavDestination
+import com.kkc.sheettracker.ui.components.StandardsHeaderBar
 import com.kkc.sheettracker.ui.components.rememberCalculatorOverlayState
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardScreen
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardSpec
@@ -473,16 +475,21 @@ private fun MultiBackStackNavigation(
     val hoursNavController = rememberNavController()
     val timecardNavController = rememberNavController()
     val supplyNavController = rememberNavController()
+    val standardsNavController = rememberNavController()
     val homeTab = homeTopLevelTabForWorkMode(workMode)
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
     val visibleDestinations = remember(workMode) {
+        // SETTINGS and STANDARDS are reached via the header row (StandardsHeaderBar), not the
+        // bottom nav bar — filtered out of both branches here.
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY)
         } else {
-            NavDestination.entries.filter { it != NavDestination.SEARCH }
+            NavDestination.entries.filter {
+                it != NavDestination.SEARCH && it != NavDestination.SETTINGS && it != NavDestination.STANDARDS
+            }
         }
     }
 
@@ -547,7 +554,8 @@ private fun MultiBackStackNavigation(
         settingsNavController,
         hoursNavController,
         timecardNavController,
-        supplyNavController
+        supplyNavController,
+        standardsNavController
     ) {
         NavigationCoordinator(
             dashboardNavController = dashboardNavController,
@@ -557,6 +565,7 @@ private fun MultiBackStackNavigation(
             timecardNavController = timecardNavController,
             settingsNavController = settingsNavController,
             supplyNavController = supplyNavController,
+            standardsNavController = standardsNavController,
             getHomeTab = { homeTab },
             getSelectedTab = { selectedTab },
             setSelectedTab = { selectedTab = it }
@@ -659,10 +668,26 @@ private fun MultiBackStackNavigation(
                     .background(MaterialTheme.colorScheme.background)
                     .hazeSource(hazeState)
             ) {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
+                ) {
+                // Settings/Standards header row — reserves its own strip above the per-tab
+                // content so it never overlaps each screen's own KKCTopAppBar actions (clock,
+                // refresh, sort, etc.). Hidden in viewer routes to preserve full sheet real estate,
+                // matching the bottom nav bar's existing isInViewer-driven hide behavior.
+                if (!isInViewer) {
+                    StandardsHeaderBar(
+                        onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) },
+                        onStandardsClick = { coordinator.navigateTopLevel(TopLevelTab.STANDARDS) },
+                        modifier = Modifier.align(Alignment.End)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
                 ) {
                 TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
                     DashboardTabHost(
@@ -828,6 +853,16 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
+                TabLayer(visible = selectedTab == TopLevelTab.STANDARDS) {
+                    StandardsTabHost(
+                        navController = standardsNavController,
+                        basePath = basePath,
+                        onBack = {
+                            coordinator.navigateTopLevel(homeTab)
+                        }
+                    )
+                }
+
                 TabLayer(visible = selectedTab == TopLevelTab.SUPPLY) {
                     SupplyTabHost(
                         navController = supplyNavController,
@@ -878,7 +913,8 @@ private fun MultiBackStackNavigation(
                         onDismiss = { pendingClockOut = null }
                     )
                 }
-                } // inner content Box
+                } // weighted TabLayer content Box
+                } // outer content Column
             } // hazeSource Box
         }
         } // CompositionLocalProvider
@@ -1819,6 +1855,64 @@ private fun SettingsTabHost(
 }
 
 @Composable
+private fun StandardsTabHost(
+    navController: NavHostController,
+    basePath: String,
+    onBack: () -> Unit
+) {
+    NavHost(
+        navController = navController,
+        startDestination = "standards",
+        modifier = Modifier.fillMaxSize()
+    ) {
+        composable("standards") {
+            com.kkc.sheettracker.ui.standards.StandardsHubScreen(
+                onBack = onBack,
+                onOpenMolding = { navController.navigate("standards/molding") { launchSingleTop = true } },
+                onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } }
+            )
+        }
+        composable("standards/molding") {
+            val repository = remember(basePath) {
+                com.kkc.sheettracker.data.MoldingLibraryRepository(File(basePath))
+            }
+            com.kkc.sheettracker.ui.standards.MoldingListScreen(
+                repository = repository,
+                onBack = { navController.popBackStack() },
+                onOpenMolding = { item ->
+                    navController.currentBackStackEntry?.savedStateHandle?.set("molding", item)
+                    navController.navigate("standards/molding/detail") { launchSingleTop = true }
+                }
+            )
+        }
+        composable("standards/molding/detail") {
+            val repository = remember(basePath) {
+                com.kkc.sheettracker.data.MoldingLibraryRepository(File(basePath))
+            }
+            val molding = navController.previousBackStackEntry
+                ?.savedStateHandle
+                ?.get<com.kkc.sheettracker.data.models.MoldingLibraryItem>("molding")
+            if (molding != null) {
+                com.kkc.sheettracker.ui.standards.MoldingDetailScreen(
+                    molding = molding,
+                    repository = repository,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+        composable("standards/safety") {
+            // SafetyDocumentsScreen doesn't exist yet (Task 14, not yet built) --
+            // stub it with a minimal placeholder for now so this compiles.
+            // Task 14 will replace this composable body with the real screen.
+            Text(
+                "Safety / SDS coming soon",
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun SupplyTabHost(
     navController: NavHostController,
     basePath: String,
@@ -1931,10 +2025,14 @@ private fun LegacySingleStackNavigation(
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
     val visibleDestinations = remember(workMode) {
+        // SETTINGS and STANDARDS are reached via the header row (StandardsHeaderBar), not the
+        // bottom nav bar — filtered out of both branches here.
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.SETTINGS)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY)
         } else {
-            NavDestination.entries.filter { it != NavDestination.SEARCH }
+            NavDestination.entries.filter {
+                it != NavDestination.SEARCH && it != NavDestination.SETTINGS && it != NavDestination.STANDARDS
+            }
         }
     }
     fun openSheetLegacy(jobFolderName: String, pdfFilename: String, page: Int) {
@@ -2058,7 +2156,8 @@ private fun LegacySingleStackNavigation(
             currentRoute == "hours" -> NavDestination.HOURS
             currentRoute == "timecard" -> NavDestination.TIMECARD
             currentRoute?.startsWith("supply") == true -> NavDestination.SUPPLY
-            currentRoute == "settings" -> NavDestination.SETTINGS
+            currentRoute == "settings" || currentRoute?.startsWith("settings/") == true -> NavDestination.SETTINGS
+            currentRoute == "standards" || currentRoute?.startsWith("standards/") == true -> NavDestination.STANDARDS
             else -> if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) NavDestination.JOBS else NavDestination.DASHBOARD
         }
     }
@@ -2101,10 +2200,26 @@ private fun LegacySingleStackNavigation(
                     .background(MaterialTheme.colorScheme.background)
                     .hazeSource(hazeState)
             ) {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
+                ) {
+                // Settings/Standards header row — reserves its own strip above the per-tab
+                // content so it never overlaps each screen's own KKCTopAppBar actions (clock,
+                // refresh, sort, etc.). Hidden in viewer routes to preserve full sheet real estate,
+                // matching the bottom nav bar's existing isInViewer-driven hide behavior.
+                if (!isInViewer) {
+                    StandardsHeaderBar(
+                        onSettingsClick = { navController.navigate("settings") { launchSingleTop = true } },
+                        onStandardsClick = { navController.navigate("standards") { launchSingleTop = true } },
+                        modifier = Modifier.align(Alignment.End)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
                 ) {
                 SharedTransitionLayout {
                     NavHost(
@@ -2897,6 +3012,51 @@ private fun LegacySingleStackNavigation(
                         onBack = { navController.popBackStack() },
                     )
                 }
+
+                composable("standards") {
+                    com.kkc.sheettracker.ui.standards.StandardsHubScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenMolding = { navController.navigate("standards/molding") { launchSingleTop = true } },
+                        onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } }
+                    )
+                }
+                composable("standards/molding") {
+                    val repository = remember(basePath) {
+                        com.kkc.sheettracker.data.MoldingLibraryRepository(File(basePath))
+                    }
+                    com.kkc.sheettracker.ui.standards.MoldingListScreen(
+                        repository = repository,
+                        onBack = { navController.popBackStack() },
+                        onOpenMolding = { item ->
+                            navController.currentBackStackEntry?.savedStateHandle?.set("molding", item)
+                            navController.navigate("standards/molding/detail") { launchSingleTop = true }
+                        }
+                    )
+                }
+                composable("standards/molding/detail") {
+                    val repository = remember(basePath) {
+                        com.kkc.sheettracker.data.MoldingLibraryRepository(File(basePath))
+                    }
+                    val molding = navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.get<com.kkc.sheettracker.data.models.MoldingLibraryItem>("molding")
+                    if (molding != null) {
+                        com.kkc.sheettracker.ui.standards.MoldingDetailScreen(
+                            molding = molding,
+                            repository = repository,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                }
+                composable("standards/safety") {
+                    // SafetyDocumentsScreen doesn't exist yet (Task 14, not yet built) --
+                    // stub it with a minimal placeholder for now so this compiles.
+                    // Task 14 will replace this composable body with the real screen.
+                    Text(
+                        "Safety / SDS coming soon",
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
                 }
                 }
 
@@ -2939,7 +3099,8 @@ private fun LegacySingleStackNavigation(
                         onDismiss = { pendingClockOut = null }
                     )
                 }
-                } // inner content Box
+                } // weighted NavHost content Box
+                } // outer content Column
             } // hazeSource Box
         }
         } // CompositionLocalProvider

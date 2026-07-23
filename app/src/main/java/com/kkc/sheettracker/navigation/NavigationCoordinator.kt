@@ -16,7 +16,8 @@ enum class TopLevelTab(val route: String) {
     HOURS("hours"),
     TIMECARD("timecard"),
     SETTINGS("settings"),
-    SUPPLY("supply");
+    SUPPLY("supply"),
+    STANDARDS("standards");
 
     companion object {
         fun fromDestination(destination: NavDestination): TopLevelTab {
@@ -28,6 +29,7 @@ enum class TopLevelTab(val route: String) {
                 NavDestination.TIMECARD -> TIMECARD
                 NavDestination.SETTINGS -> SETTINGS
                 NavDestination.SUPPLY -> SUPPLY
+                NavDestination.STANDARDS -> STANDARDS
             }
         }
 
@@ -40,6 +42,7 @@ enum class TopLevelTab(val route: String) {
                 TIMECARD -> NavDestination.TIMECARD
                 SETTINGS -> NavDestination.SETTINGS
                 SUPPLY -> NavDestination.SUPPLY
+                STANDARDS -> NavDestination.STANDARDS
             }
         }
     }
@@ -53,6 +56,7 @@ class NavigationCoordinator(
     private val timecardNavController: NavHostController,
     private val settingsNavController: NavHostController,
     private val supplyNavController: NavHostController,
+    private val standardsNavController: NavHostController,
     private val getHomeTab: () -> TopLevelTab,
     private val getSelectedTab: () -> TopLevelTab,
     private val setSelectedTab: (TopLevelTab) -> Unit
@@ -69,6 +73,7 @@ class NavigationCoordinator(
             TopLevelTab.TIMECARD -> timecardNavController
             TopLevelTab.SETTINGS -> settingsNavController
             TopLevelTab.SUPPLY -> supplyNavController
+            TopLevelTab.STANDARDS -> standardsNavController
         }
     }
 

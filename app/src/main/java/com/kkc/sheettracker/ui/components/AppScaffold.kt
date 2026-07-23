@@ -30,7 +30,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.List
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cached
@@ -118,7 +120,8 @@ enum class NavDestination(
     HOURS("hours", "Hours", Icons.Filled.AccessTime, Icons.Outlined.AccessTime),
     TIMECARD("timecard", "Timeclock", TimecardIcon, TimecardIcon),
     SUPPLY("supply", "Supply", SupplyIcon, SupplyIcon),
-    SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
+    SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
+    STANDARDS("standards", "Standards", Icons.AutoMirrored.Filled.MenuBook, Icons.AutoMirrored.Outlined.MenuBook)
 }
 
 @Composable

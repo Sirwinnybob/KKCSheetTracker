@@ -1,11 +1,15 @@
 package com.kkc.sheettracker.data.models
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
 data class MoldingLibraryItem(
     val id: String,
     val category: String,
     val fileId: String,
     val name: String
-)
+) : Parcelable
 
 data class MoldingLibrary(
     val categories: List<String> = emptyList(),
