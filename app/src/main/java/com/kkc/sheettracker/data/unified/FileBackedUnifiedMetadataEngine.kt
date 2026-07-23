@@ -834,14 +834,22 @@ class FileBackedUnifiedMetadataEngine(
         issues: MutableList<ScanIssue>
     ): List<Material> {
         if (!cncDir.exists()) return emptyList()
+        // Split/lettered jobs (e.g. "530a") sometimes get CNC remake sheets exported
+        // under the base numeric job number ("530 - 001 REMAKE - ...") instead of the
+        // lettered folder number. Accept either prefix so those aren't silently dropped.
+        val jobBaseNumber = jobNumber.replace(Regex("[A-Za-z]+$"), "")
         return cncDir.listFiles()
-            ?.filter {
-                it.extension.equals("pdf", ignoreCase = true) &&
-                    "ALL SHEETS" !in it.name &&
-                    it.name.startsWith("$jobNumber - ")
+            ?.mapNotNull { file ->
+                if (!file.extension.equals("pdf", ignoreCase = true) || "ALL SHEETS" in file.name) return@mapNotNull null
+                val matchedPrefix = when {
+                    file.name.startsWith("$jobNumber - ") -> jobNumber
+                    jobBaseNumber.isNotEmpty() && jobBaseNumber != jobNumber && file.name.startsWith("$jobBaseNumber - ") -> jobBaseNumber
+                    else -> null
+                }
+                if (matchedPrefix == null) null else file to matchedPrefix
             }
-            ?.map { pdfFile ->
-                val materialName = pdfFile.nameWithoutExtension.removePrefix("$jobNumber - ")
+            ?.map { (pdfFile, matchedPrefix) ->
+                val materialName = pdfFile.nameWithoutExtension.removePrefix("$matchedPrefix - ")
                 val metadata = loadCncMaterialMetadata(
                     jobFolderName = jobFolderName,
                     materialName = materialName,

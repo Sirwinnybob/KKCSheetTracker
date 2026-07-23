@@ -256,6 +256,31 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun scanCncMaterialsAcceptsBaseJobNumberForLetteredJobFolder() {
+        // Split/lettered jobs (e.g. "530a") sometimes get CNC remake sheets exported
+        // under the base numeric job number ("530 - 001 REMAKE - ...") instead of the
+        // lettered folder number. Those must still show up on the tablet.
+        val baseDir = createTempBaseDir()
+        val letteredJobFolder = "530a - Test Job"
+        val jobDir = File(baseDir, letteredJobFolder).apply { mkdirs() }
+        File(jobDir, ".metadata").apply { mkdirs() }
+        File(jobDir, ".metadata/deployment_gate.json").writeText("""{"deployed": true}""")
+        val cncDir = File(jobDir, "CNC").apply { mkdirs() }
+        File(cncDir, "530a - Maple.pdf").writeText("pdf")
+        File(cncDir, "530 - 001 REMAKE - Maple.pdf").writeText("pdf")
+
+        val engine = FileBackedUnifiedMetadataEngine(
+            basePath = baseDir.absolutePath,
+            isDebugBuild = true,
+            pdfPageCounter = { UnifiedPdfPageCountResult(1) }
+        )
+
+        val cnc = engine.getCncSnapshot(letteredJobFolder)
+        val materialNames = cnc?.job?.materials?.map { it.materialName }?.toSet()
+        assertEquals(setOf("Maple", "001 REMAKE - Maple"), materialNames)
+    }
+
+    @Test
     fun deepScanAllJobsReportsNewAndUpdatedJobs() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)

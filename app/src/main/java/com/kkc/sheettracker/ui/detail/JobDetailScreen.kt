@@ -29,6 +29,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Refresh
 import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -218,6 +219,9 @@ fun JobDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { scanCoordinator.refreshJobOnOpen(jobFolderName) }) {
+                        Icon(Icons.Filled.Refresh, "Refresh job")
+                    }
                     val currentJob = job
                     if (currentJob != null) {
                         if (clockInState != null) {
