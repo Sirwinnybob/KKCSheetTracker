@@ -48,4 +48,23 @@ class AdminBoardStockStoreTest {
         assertNull(items[0].moldingId)
         assertNull(items[0].type)
     }
+
+    @Test
+    fun loadAdminBoardStock_handlesExplicitJsonNullMoldingIdWithoutDroppingTheWholeFile() {
+        val baseDir = writeBoardStock(
+            """
+            {"schemaVersion": 1, "items": [
+              {"id": "x1", "material": "PG", "name": "3 1/4\" Flat", "type": "crown", "moldingId": "Crown:151", "feet": 80.0},
+              {"id": "x2", "material": "Maple", "name": "Toe Skins", "type": null, "moldingId": null, "feet": 110.0}
+            ]}
+            """.trimIndent()
+        )
+
+        val items = loadAdminBoardStock(baseDir, "123 - Test Job")
+
+        assertEquals(2, items.size)
+        assertEquals("Crown:151", items[0].moldingId)
+        assertNull(items[1].moldingId)
+        assertNull(items[1].type)
+    }
 }
