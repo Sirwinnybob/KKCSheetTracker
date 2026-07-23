@@ -134,6 +134,7 @@ fun AppBottomNavBar(
     modifier: Modifier = Modifier,
     destinations: List<NavDestination> = NavDestination.entries,
     supplyNotificationCount: Int = 0,
+    safetyNotificationCount: Int = 0,
     hazeState: HazeState? = null,
     searchDecoration: NavBarSearchDecoration? = null,
     cncDecoration: NavBarCncDecoration? = null,
@@ -158,6 +159,7 @@ fun AppBottomNavBar(
             minimized = minimized,
             destinations = destinations,
             supplyNotificationCount = supplyNotificationCount,
+            safetyNotificationCount = safetyNotificationCount,
             hazeState = hazeState,
             searchDecoration = searchDecoration,
             cncDecoration = cncDecoration,
@@ -205,6 +207,7 @@ private fun MorphingNavIconRow(
     currentDestination: NavDestination,
     isCalculatorOpen: Boolean,
     supplyNotificationCount: Int,
+    safetyNotificationCount: Int = 0,
     onNavigate: (NavDestination) -> Unit,
     onCalculatorClick: () -> Unit,
     onTimeclockBgEdit: () -> Unit = {},
@@ -304,8 +307,13 @@ private fun MorphingNavIconRow(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        if (dest == NavDestination.SUPPLY && supplyNotificationCount > 0) {
-                            BadgedBox(badge = { Badge { Text(supplyNotificationCount.toString()) } }) {
+                        val badgeCount = when (dest) {
+                            NavDestination.SUPPLY -> supplyNotificationCount
+                            NavDestination.STANDARDS -> safetyNotificationCount
+                            else -> 0
+                        }
+                        if (badgeCount > 0) {
+                            BadgedBox(badge = { Badge { Text(badgeCount.toString()) } }) {
                                 iconContent()
                             }
                         } else {
@@ -346,6 +354,7 @@ private fun MorphingNavBar(
     minimized: Boolean,
     destinations: List<NavDestination>,
     supplyNotificationCount: Int,
+    safetyNotificationCount: Int = 0,
     hazeState: HazeState? = null,
     searchDecoration: NavBarSearchDecoration? = null,
     cncDecoration: NavBarCncDecoration? = null,
@@ -748,6 +757,7 @@ private fun MorphingNavBar(
                         currentDestination      = currentDestination,
                         isCalculatorOpen        = isCalculatorOpen,
                         supplyNotificationCount = supplyNotificationCount,
+                        safetyNotificationCount = safetyNotificationCount,
                         onNavigate              = onNavigate,
                         onCalculatorClick       = onCalculatorClick,
                         onTimeclockBgEdit       = onTimeclockBgEdit,

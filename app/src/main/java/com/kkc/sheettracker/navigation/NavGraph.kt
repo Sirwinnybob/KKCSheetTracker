@@ -87,6 +87,8 @@ import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyProgressStore
 import com.kkc.sheettracker.data.SheetRipProgressStore
 import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
+import com.kkc.sheettracker.data.SafetyRepository
+import com.kkc.sheettracker.data.SafetySubscriptionManager
 import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.SpecialtyRepository
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
@@ -417,6 +419,9 @@ private fun MultiBackStackNavigation(
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
+    val safetyRepository = remember(basePath) { SafetyRepository(basePath) }
+    val safetySubscriptionManager = remember(safetyRepository) { SafetySubscriptionManager(safetyRepository) }
+    val safetyNotificationCount by safetySubscriptionManager.notificationCount.collectAsState()
     val activity = LocalActivity.current
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
@@ -843,7 +848,8 @@ private fun MultiBackStackNavigation(
                         basePath = basePath,
                         onBack = {
                             coordinator.navigateTopLevel(homeTab)
-                        }
+                        },
+                        safetyNotificationCount = safetyNotificationCount
                     )
                 }
 
@@ -914,6 +920,7 @@ private fun MultiBackStackNavigation(
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 supplyNotificationCount = supplyNotificationCount,
+                safetyNotificationCount = safetyNotificationCount,
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,
@@ -1842,7 +1849,8 @@ private fun SettingsTabHost(
 private fun StandardsTabHost(
     navController: NavHostController,
     basePath: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    safetyNotificationCount: Int = 0
 ) {
     NavHost(
         navController = navController,
@@ -1853,7 +1861,8 @@ private fun StandardsTabHost(
             com.kkc.sheettracker.ui.standards.StandardsHubScreen(
                 onBack = onBack,
                 onOpenMolding = { navController.navigate("standards/molding") { launchSingleTop = true } },
-                onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } }
+                onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } },
+                safetyNotificationCount = safetyNotificationCount
             )
         }
         composable("standards/molding") {
@@ -1942,6 +1951,9 @@ private fun LegacySingleStackNavigation(
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
+    val legacySafetyRepository = remember(basePath) { SafetyRepository(basePath) }
+    val legacySafetySubscriptionManager = remember(legacySafetyRepository) { SafetySubscriptionManager(legacySafetyRepository) }
+    val safetyNotificationCount by legacySafetySubscriptionManager.notificationCount.collectAsState()
     val calculatorState = rememberCalculatorOverlayState()
     val compactWidth = rememberCompactWidthClass()
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
@@ -2964,7 +2976,8 @@ private fun LegacySingleStackNavigation(
                     com.kkc.sheettracker.ui.standards.StandardsHubScreen(
                         onBack = { navController.popBackStack() },
                         onOpenMolding = { navController.navigate("standards/molding") { launchSingleTop = true } },
-                        onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } }
+                        onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } },
+                        safetyNotificationCount = safetyNotificationCount
                     )
                 }
                 composable("standards/molding") {
@@ -3041,6 +3054,7 @@ private fun LegacySingleStackNavigation(
                 isCalculatorOpen = calculatorState.snapshot.isOpen,
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 supplyNotificationCount = supplyNotificationCount,
+                safetyNotificationCount = safetyNotificationCount,
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,

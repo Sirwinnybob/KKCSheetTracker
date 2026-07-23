@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.DoorFront
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,7 +71,8 @@ enum class StandardsTile(val label: String, val icon: ImageVector, val enabled: 
 fun StandardsHubScreen(
     onBack: () -> Unit,
     onOpenMolding: () -> Unit,
-    onOpenSafety: () -> Unit
+    onOpenSafety: () -> Unit,
+    safetyNotificationCount: Int = 0
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         KKCTopAppBar(
@@ -94,7 +97,11 @@ fun StandardsHubScreen(
                     StandardsTile.SAFETY -> onOpenSafety
                     else -> null
                 }
-                StandardsTileCard(tile = tile, onClick = onClick)
+                StandardsTileCard(
+                    tile = tile,
+                    onClick = onClick,
+                    safetyNotificationCount = if (tile == StandardsTile.SAFETY) safetyNotificationCount else 0
+                )
             }
         }
     }
@@ -103,7 +110,8 @@ fun StandardsHubScreen(
 @Composable
 private fun StandardsTileCard(
     tile: StandardsTile,
-    onClick: (() -> Unit)?
+    onClick: (() -> Unit)?,
+    safetyNotificationCount: Int = 0
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -156,12 +164,29 @@ private fun StandardsTileCard(
                     .background(badgeBg),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = tile.icon,
-                    contentDescription = tile.label,
-                    modifier = Modifier.size(28.dp),
-                    tint = iconTint
-                )
+                if (tile == StandardsTile.SAFETY && safetyNotificationCount > 0) {
+                    BadgedBox(
+                        badge = {
+                            Badge {
+                                Text(safetyNotificationCount.toString())
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = tile.icon,
+                            contentDescription = tile.label,
+                            modifier = Modifier.size(28.dp),
+                            tint = iconTint
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = tile.icon,
+                        contentDescription = tile.label,
+                        modifier = Modifier.size(28.dp),
+                        tint = iconTint
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
