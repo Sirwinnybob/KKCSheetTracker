@@ -36,6 +36,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -137,6 +138,8 @@ import com.kkc.sheettracker.viewer3d.Model3DPane
 import com.kkc.sheettracker.viewer3d.ViewerServer
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
+import com.kkc.sheettracker.data.MoldingLibraryRepository
+import com.kkc.sheettracker.ui.standards.MoldingPreviewDialog
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -287,6 +290,9 @@ fun HardwoodsWorkspaceScreen(
             )
         }
         rawCutlistIndexJson = json
+    }
+    val moldingLibraryRepository = remember(scanState.snapshot.basePath) {
+        MoldingLibraryRepository(File(scanState.snapshot.basePath))
     }
 
     val rows = remember(
@@ -1012,6 +1018,7 @@ fun HardwoodsWorkspaceScreen(
                         totalsDoneMap = totalsDoneMap,
                         hideSections = isSawRipEntry,
                         sectionTitle = if (isSawRipEntry) "Rip List" else "Board Stock",
+                        repository = moldingLibraryRepository,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if (selectedDoc == null) {
@@ -1970,7 +1977,8 @@ private fun HardwoodsBoardStockList(
     modifier: Modifier = Modifier,
     adminItems: List<AdminBoardStockItem> = emptyList(),
     hideSections: Boolean = false,
-    sectionTitle: String = "Board Stock"
+    sectionTitle: String = "Board Stock",
+    repository: MoldingLibraryRepository? = null
 ) {
     val statusColors = KKCThemeColors.statusColors
     if (sections.isEmpty() && adminItems.isEmpty()) {
@@ -2196,6 +2204,26 @@ private fun HardwoodsBoardStockList(
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                        if (item.moldingId != null && repository != null) {
+                                            var showPreview by remember(item.id) { mutableStateOf(false) }
+                                            androidx.compose.material3.IconButton(onClick = { showPreview = true }) {
+                                                androidx.compose.material3.Icon(
+                                                    Icons.Filled.Visibility,
+                                                    contentDescription = "Preview ${item.name}"
+                                                )
+                                            }
+                                            if (showPreview) {
+                                                val (category, fileId) = item.moldingId.split(":", limit = 2)
+                                                    .let { it.getOrElse(0) { "" } to it.getOrElse(1) { "" } }
+                                                MoldingPreviewDialog(
+                                                    category = category,
+                                                    fileId = fileId,
+                                                    name = item.name,
+                                                    repository = repository,
+                                                    onDismiss = { showPreview = false }
                                                 )
                                             }
                                         }
