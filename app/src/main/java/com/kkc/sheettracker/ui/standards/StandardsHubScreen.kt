@@ -76,7 +76,7 @@ fun StandardsHubScreen(
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         KKCTopAppBar(
-            title = { Text("Standards") },
+            title = { Text("Library") },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

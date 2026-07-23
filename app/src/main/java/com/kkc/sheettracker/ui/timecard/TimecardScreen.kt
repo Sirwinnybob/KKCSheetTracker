@@ -41,6 +41,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import com.kkc.sheettracker.data.TimecardBgConfig
 import com.kkc.sheettracker.data.TimecardBgStore
+import com.kkc.sheettracker.ui.components.BatteryIndicator
 import com.kkc.sheettracker.ui.theme.FixedDensityWrapper
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 
@@ -235,14 +236,22 @@ private fun TimecardTimeRow() {
             delay(1000)
         }
     }
-    Text(
-        text = currentTime.format(DateTimeFormatter.ofPattern("h:mm a")),
-        fontSize = 14.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Row(
         modifier = Modifier
-            .height(32.dp)
-            .wrapContentHeight(Alignment.CenterVertically)
-    )
+            .fillMaxWidth()
+            .height(32.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = currentTime.format(DateTimeFormatter.ofPattern("h:mm a")),
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        BatteryIndicator(
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 @Composable

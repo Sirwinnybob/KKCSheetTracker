@@ -202,6 +202,21 @@ class MoldingLibraryRepositoryTest {
     }
 
     @Test
+    fun fetchUsage_parsesDeliveredFeet_whenPresent() {
+        val baseDir = Files.createTempDirectory("molding-repo-test-usage-delivered").toFile()
+        val cacheDir = File(baseDir, ".metadata/moldings_cache").apply { mkdirs() }
+        File(cacheDir, "usage_index.json").writeText(
+            """{"Crown:105": [{"job": "616b - Kevin Janni", "type": "crown", "estimatedFeet": 80.0, "deliveredFeet": 96.0}]}"""
+        )
+
+        val repo = MoldingLibraryRepository(baseDir)
+        val usage = repo.fetchUsage("Crown:105")
+
+        assertEquals(1, usage.size)
+        assertEquals(96.0, usage[0].deliveredFeet)
+    }
+
+    @Test
     fun fetchUsage_returnsEmptyList_forUnknownMoldingId() {
         val baseDir = Files.createTempDirectory("molding-repo-test-usage-empty").toFile()
         val cacheDir = File(baseDir, ".metadata/moldings_cache").apply { mkdirs() }

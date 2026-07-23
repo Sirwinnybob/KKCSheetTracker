@@ -339,28 +339,58 @@ fun SectionProgressHeader(
     val verticalPadding = if (isSubHeader) KKCSpacing.xs else KKCSpacing.inCardSpacing
     val horizontalPadding = if (isSubHeader) KKCSpacing.m else KKCSpacing.l
 
+    val headerShape = if (expanded && onToggleExpanded != null) {
+        RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
+    } else {
+        RoundedCornerShape(8.dp)
+    }
+    val headerBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    val gradientColors = if (isSubHeader) {
+        listOf(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        )
+    } else if (dimmed) {
+        listOf(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        )
+    } else {
+        listOf(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+        )
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .padding(top = 6.dp, bottom = if (expanded && onToggleExpanded != null) 0.dp else 4.dp)
             .let { base ->
                 if (onToggleExpanded != null) base.clickable { onToggleExpanded() } else base
             },
-        color = containerColor,
-        shape = MaterialTheme.shapes.medium
+        color = MaterialTheme.colorScheme.surface,
+        shape = headerShape,
+        shadowElevation = 2.dp,
+        border = BorderStroke(1.dp, headerBorderColor)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    if (!isSubHeader) MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
-                    else Color.Transparent
-                )
+                .background(Brush.verticalGradient(gradientColors))
         ) {
             Box(
                 modifier = Modifier
                     .width(if (isSubHeader) KKCShapeTokens.statusBorderWidth else 4.dp)
                     .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.primary)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                            )
+                        )
+                    )
             )
             Column(
                 modifier = Modifier

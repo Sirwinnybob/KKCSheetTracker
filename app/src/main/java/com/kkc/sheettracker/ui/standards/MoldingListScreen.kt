@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,25 +22,33 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -146,7 +156,34 @@ fun MoldingListScreen(
         }
     }
 
-    val listBottomPadding = if (navBarDeco.searchDecoration != null) 172.dp else 16.dp
+    val gridState = rememberLazyGridState()
+    var isScrollingUp by remember { mutableStateOf(false) }
+
+    LaunchedEffect(gridState) {
+        var prevIndex = gridState.firstVisibleItemIndex
+        var prevOffset = gridState.firstVisibleItemScrollOffset
+        snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
+            .collect { (currentIndex, currentOffset) ->
+                if (currentIndex < prevIndex) {
+                    isScrollingUp = true
+                } else if (currentIndex > prevIndex) {
+                    isScrollingUp = false
+                } else if (currentOffset < prevOffset) {
+                    isScrollingUp = true
+                } else if (currentOffset > prevOffset) {
+                    isScrollingUp = false
+                }
+                prevIndex = currentIndex
+                prevOffset = currentOffset
+            }
+    }
+
+    val extraPadding by animateDpAsState(
+        targetValue = if (isScrollingUp) 100.dp else 0.dp,
+        label = "scrollingUpPadding"
+    )
+
+    val listBottomPadding = (if (navBarDeco.searchDecoration != null) 172.dp else 16.dp) + extraPadding
 
     SharedTransitionLayout {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -164,16 +201,56 @@ fun MoldingListScreen(
                     }
                 )
 
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(library.categories, key = { it }) { category ->
-                        FilterChip(
-                            selected = category == selectedCategory,
-                            onClick = { selectedCategory = category },
-                            label = { Text(category) }
-                        )
+                if (library.categories.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                            shadowElevation = 2.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                library.categories.forEachIndexed { index, category ->
+                                    if (index > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(1.dp)
+                                                .fillMaxHeight()
+                                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                                        )
+                                    }
+                                    val isSelected = category == selectedCategory
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                            .clickable { selectedCategory = category }
+                                            .padding(horizontal = 12.dp)
+                                    ) {
+                                        Text(
+                                            text = category,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -185,6 +262,7 @@ fun MoldingListScreen(
                 val isCrownBrowse = MoldingLibraryScreenLogic.isCrownBrowse(selectedCategory, searchQuery.text)
 
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Fixed(2),
                     contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = listBottomPadding),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -302,25 +380,26 @@ private fun MoldingCard(
     }
 
     val isDark = isDarkPreview
-    val previewBgColor = if (isDark) Color.Black else Color.White
+    val previewBgColor = if (isDark) Color(0xFF121212) else Color(0xFFFAFAFA)
     val cardShape = RoundedCornerShape(14.dp)
-    val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
 
-    Box(
+    Surface(
+        shape = cardShape,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, borderColor),
+        shadowElevation = 2.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(2.dp, cardShape, clip = false)
-            .clip(cardShape)
-            .border(1.dp, borderColor, cardShape)
-            .background(MaterialTheme.colorScheme.surface)
             .clickable { onClick() }
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1.3f)
                     .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
                     .background(previewBgColor),
                 contentAlignment = Alignment.Center
             ) {
@@ -349,19 +428,31 @@ private fun MoldingCard(
                 )
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
             Text(
                 text = item.name,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 8.dp)
+                overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = "Used on $usageCount jobs",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f)
+            ) {
+                Text(
+                    text = "Used on $usageCount jobs",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
         }
     }
 }
@@ -374,23 +465,53 @@ private fun FrameStyleSectionHeader(
     onToggle: () -> Unit
 ) {
     val rotation by animateFloatAsState(targetValue = if (collapsed) -90f else 0f, label = "chevron")
-    Column(modifier = Modifier.fillMaxWidth().clickable { onToggle() }) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        shadowElevation = 2.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable { onToggle() }
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(
-                Icons.Filled.KeyboardArrowDown,
-                contentDescription = if (collapsed) "Expand ${group.label}" else "Collapse ${group.label}",
-                modifier = Modifier.rotate(rotation)
-            )
-            Text(
-                text = "${group.label} · $count",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 4.dp)
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (collapsed) "Expand ${group.label}" else "Collapse ${group.label}",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.rotate(rotation)
+                )
+                Text(
+                    text = group.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
+                Text(
+                    text = "$count",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                )
+            }
         }
-        HorizontalDivider()
     }
 }

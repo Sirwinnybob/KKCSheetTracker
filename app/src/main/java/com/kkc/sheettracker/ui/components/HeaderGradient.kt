@@ -125,6 +125,7 @@ fun KKCTopAppBar(
         navigationIcon = navigationIcon,
         actions = {
             actions()
+            BatteryIndicator()
             IconButton(onClick = onOpenSettings) {
                 Icon(Icons.Filled.Settings, contentDescription = "Settings")
             }

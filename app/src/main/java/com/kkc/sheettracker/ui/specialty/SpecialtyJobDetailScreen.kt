@@ -1,6 +1,15 @@
 package com.kkc.sheettracker.ui.specialty
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -89,16 +98,22 @@ import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Visibility
+import com.kkc.sheettracker.data.MoldingLibraryRepository
+import com.kkc.sheettracker.data.models.AdminBoardStockItem
+import com.kkc.sheettracker.data.models.MoldingLibraryItem
 import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.StatusChip
+import com.kkc.sheettracker.ui.standards.MoldingDetailOverlay
+import com.kkc.sheettracker.ui.standards.rememberSvgImageLoader
 import kotlinx.coroutines.launch
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun SpecialtyJobDetailScreen(
     jobFolderName: String,
@@ -146,6 +161,13 @@ fun SpecialtyJobDetailScreen(
     val sheetRipDone = remember(scanState.snapshot.basePath, jobFolderName, sheetRipDoneVersion) {
         specialtyStateStore.loadSheetRipDone(jobFolderName)
     }
+    // Molding preview — same pattern as HardwoodsWorkspaceScreen
+    val moldingLibraryRepository = remember(scanState.snapshot.basePath) {
+        MoldingLibraryRepository(File(scanState.snapshot.basePath))
+    }
+    var previewMoldingItem by remember(jobFolderName) { mutableStateOf<AdminBoardStockItem?>(null) }
+    val moldingSvgImageLoader = rememberSvgImageLoader()
+    val isDarkTheme = isSystemInDarkTheme()
 
     // Show current content immediately, then verify this job in the background.
     LaunchedEffect(jobFolderName) {
@@ -188,6 +210,8 @@ fun SpecialtyJobDetailScreen(
         )
     }
 
+    SharedTransitionLayout {
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
@@ -375,6 +399,15 @@ fun SpecialtyJobDetailScreen(
                                     )
                                 }
 
+                                if (item.moldingId != null) {
+                                    IconButton(onClick = { previewMoldingItem = item }) {
+                                        Icon(
+                                            Icons.Filled.Visibility,
+                                            contentDescription = "Preview ${item.name} molding profile"
+                                        )
+                                    }
+                                }
+
                                 Column(horizontalAlignment = Alignment.End) {
                                     val feet = item.feet ?: 0.0
                                     val rips = Math.ceil(feet / item.ripLength).toInt()
@@ -543,7 +576,40 @@ fun SpecialtyJobDetailScreen(
             )
         }
     }
+
+        // Molding detail overlay — renders above the full screen, same pattern as HardwoodsWorkspaceScreen
+        AnimatedVisibility(
+            visible = previewMoldingItem != null,
+            enter = fadeIn() + scaleIn(initialScale = 0.95f),
+            exit  = fadeOut() + scaleOut(targetScale = 0.95f)
+        ) {
+            previewMoldingItem?.let { item ->
+                val moldingId = item.moldingId
+                if (moldingId != null) {
+                    val parts    = moldingId.split(":", limit = 2)
+                    val category = parts.getOrElse(0) { "" }
+                    val fileId   = parts.getOrElse(1) { "" }
+                    MoldingDetailOverlay(
+                        item = MoldingLibraryItem(
+                            id       = moldingId,
+                            category = category,
+                            fileId   = fileId,
+                            name     = item.name
+                        ),
+                        repository              = moldingLibraryRepository,
+                        svgImageLoader          = moldingSvgImageLoader,
+                        sharedTransitionScope   = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@AnimatedVisibility,
+                        isDarkPreview           = isDarkTheme,
+                        onDismiss               = { previewMoldingItem = null }
+                    )
+                }
+            }
+        }
+    } // Box
+    } // SharedTransitionLayout
 }
+
 
 internal fun hasClosetRodCutList(index: HardwoodCutlistIndex?): Boolean {
     return index

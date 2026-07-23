@@ -23,5 +23,6 @@ data class MoldingLibrary(
 data class MoldingUsage(
     val job: String,
     val type: String?,
-    val estimatedFeet: Double?
+    val estimatedFeet: Double?,
+    val deliveredFeet: Double? = null
 )

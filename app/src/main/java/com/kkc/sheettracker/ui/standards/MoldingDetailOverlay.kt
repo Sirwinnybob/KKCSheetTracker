@@ -405,11 +405,12 @@ private fun MoldingUsageRow(usage: MoldingUsage) {
                 )
             }
         }
-        if (usage.estimatedFeet != null) {
-            val feetText = if (usage.estimatedFeet % 1.0 == 0.0) {
-                "${usage.estimatedFeet.toInt()} ft"
+        val amount = usage.deliveredFeet ?: usage.estimatedFeet
+        if (amount != null) {
+            val feetText = if (amount % 1.0 == 0.0) {
+                "${amount.toInt()} ft"
             } else {
-                "${String.format(java.util.Locale.US, "%.2f", usage.estimatedFeet)} ft"
+                "${String.format(java.util.Locale.US, "%.2f", amount)} ft"
             }
             Text(
                 text = feetText,

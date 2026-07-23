@@ -71,7 +71,7 @@ fun hardwoodsRowVisualStyle(
         HardwoodsRowState.PARTIAL_SKIP -> status.skipBorder
     }
     val backgroundTint = when (state) {
-        HardwoodsRowState.COMPLETE -> status.completeBgRow.copy(alpha = 0.35f)
+        HardwoodsRowState.COMPLETE -> status.completeBorder.copy(alpha = 0.08f)
         HardwoodsRowState.SKIPPED -> status.skipBgRow.copy(alpha = 0.32f)
         HardwoodsRowState.PARTIAL_SKIP -> status.skipBgRow.copy(alpha = 0.30f)
         HardwoodsRowState.IN_PROGRESS -> status.inProgressBorder.copy(alpha = 0.22f)

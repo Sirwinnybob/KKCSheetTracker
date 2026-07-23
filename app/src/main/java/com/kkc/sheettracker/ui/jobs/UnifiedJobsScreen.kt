@@ -200,9 +200,26 @@ fun UnifiedJobsScreen(
     }
 
     val badgeCache = remember(scanGeneration) { mutableStateMapOf<String, Set<JobBadge>>() }
+    var localJobEdits by remember { mutableStateOf<Map<String, LocalJobEdit>>(emptyMap()) }
 
-    val cards = remember(scanGeneration, progressVersion, sortByName) {
-        val all = spec.deriveJobCards()
+    val cards = remember(scanGeneration, progressVersion, sortByName, localJobEdits) {
+        val all = spec.deriveJobCards().map { card ->
+            val edit = localJobEdits[card.folderName]
+            if (edit != null) {
+                val newBoardSection = edit.boardSection ?: card.boardSection
+                val newIsPending = newBoardSection == 1
+                val newBadges = card.badges.toMutableSet()
+                if (newIsPending) newBadges.add(JobBadge.PENDING_DELIVERY) else newBadges.remove(JobBadge.PENDING_DELIVERY)
+                card.copy(
+                    labels = edit.labels ?: card.labels,
+                    boardSection = newBoardSection,
+                    isPending = newIsPending,
+                    badges = newBadges
+                )
+            } else {
+                card
+            }
+        }
         if (sortByName) {
             all.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
         } else {
@@ -732,6 +749,11 @@ fun UnifiedJobsScreen(
                         } else {
                             labelEditJob.labels.map { it.id } + label.id
                         }
+                        val newLabels = allLabels.filter { it.id in newIds }
+                        localJobEdits = localJobEdits + (labelEditJob.folderName to (localJobEdits[labelEditJob.folderName]?.copy(labels = newLabels) ?: LocalJobEdit(labels = newLabels)))
+                        val updatedJob = labelEditJob.copy(labels = newLabels)
+                        editingLabelsFor = updatedJob
+
                         saveScope.launch {
                             val applied = adminSyncClient?.applyJobBoardEdits(
                                 listOf(JobBoardEdit(folderName = labelEditJob.folderName, labelIds = newIds)),
@@ -742,11 +764,15 @@ fun UnifiedJobsScreen(
                                     JobBoardRequestStore(File(basePath)).queueLabelEdit(labelEditJob.folderName, newIds, tabletId)
                                 }
                             }
+                            spec.refresh(RefreshReason.USER_REFRESH, force = false)
                         }
-                        editingLabelsFor = labelEditJob.copy(labels = allLabels.filter { it.id in newIds })
                     },
                     onSetPendingDelivery = { pending ->
                         val newSection = if (pending) 1 else 0
+                        localJobEdits = localJobEdits + (labelEditJob.folderName to (localJobEdits[labelEditJob.folderName]?.copy(boardSection = newSection) ?: LocalJobEdit(boardSection = newSection)))
+                        val updatedJob = labelEditJob.copy(boardSection = newSection)
+                        editingLabelsFor = updatedJob
+
                         saveScope.launch {
                             val applied = adminSyncClient?.applyJobBoardEdits(
                                 listOf(JobBoardEdit(folderName = labelEditJob.folderName, boardSection = newSection)),
@@ -761,8 +787,8 @@ fun UnifiedJobsScreen(
                                     )
                                 }
                             }
+                            spec.refresh(RefreshReason.USER_REFRESH, force = false)
                         }
-                        editingLabelsFor = labelEditJob.copy(boardSection = newSection)
                     },
                     onDismiss = { editingLabelsFor = null }
                 )
@@ -770,6 +796,11 @@ fun UnifiedJobsScreen(
         } else null
     }
 }
+
+private data class LocalJobEdit(
+    val labels: List<JobLabel>? = null,
+    val boardSection: Int? = null
+)
 
 @Composable
 fun SectionHeader(title: String) {

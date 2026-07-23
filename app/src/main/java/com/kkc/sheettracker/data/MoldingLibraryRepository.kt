@@ -80,10 +80,13 @@ class MoldingLibraryRepository(private val baseDir: File) {
             val arr = root.getAsJsonArray(moldingId) ?: return@runCatching emptyList()
             arr.map { elem ->
                 val obj = elem.asJsonObject
+                val deliveredVal = (obj.get("deliveredFeet") ?: obj.get("deliveredAmount") ?: obj.get("delivered"))
+                    ?.takeIf { !it.isJsonNull }?.asDouble
                 MoldingUsage(
                     job = obj.get("job")?.takeIf { !it.isJsonNull }?.asString ?: "",
                     type = obj.get("type")?.takeIf { !it.isJsonNull }?.asString,
-                    estimatedFeet = obj.get("estimatedFeet")?.takeIf { !it.isJsonNull }?.asDouble
+                    estimatedFeet = obj.get("estimatedFeet")?.takeIf { !it.isJsonNull }?.asDouble,
+                    deliveredFeet = deliveredVal
                 )
             }
         }.getOrElse { emptyList() }

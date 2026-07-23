@@ -121,7 +121,7 @@ enum class NavDestination(
     TIMECARD("timecard", "Timeclock", TimecardIcon, TimecardIcon),
     SUPPLY("supply", "Supply", SupplyIcon, SupplyIcon),
     SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
-    STANDARDS("standards", "Standards", Icons.AutoMirrored.Filled.MenuBook, Icons.AutoMirrored.Outlined.MenuBook)
+    STANDARDS("standards", "Library", Icons.AutoMirrored.Filled.MenuBook, Icons.AutoMirrored.Outlined.MenuBook)
 }
 
 @Composable

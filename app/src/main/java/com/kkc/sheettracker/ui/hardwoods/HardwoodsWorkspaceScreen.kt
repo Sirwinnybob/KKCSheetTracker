@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.hardwoods
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -1130,7 +1131,7 @@ fun HardwoodsWorkspaceScreen(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = hardwoodsListBottomScrollPadding()),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
                         partSections.forEach { section ->
                             val sectionRows = if (showChangedOnly) {
@@ -1204,88 +1205,107 @@ fun HardwoodsWorkspaceScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                if (!isCollapsed) {
-                                items(sectionRows, key = { it.rowId }) { row ->
-                                    val animateItemMod = Modifier.animateItem()
-                                    val rowUi = rowDisplayMap[row.rowId] ?: return@items
-                                    val progress = rowProgressMap[selectedDoc.docType.name to row.rowId] ?: HardwoodRowProgress()
-                                    val qty = row.qty.coerceAtLeast(0)
-                                    val skippedCabs = skippedCabinetMap[selectedDoc.docType.name to row.rowId].orEmpty()
-                                    val isHighlighted = highlightedRowId == row.rowId
-                                    val widthBand = widthColorBands[rowUi.widthKey] ?: statusColors.notStarted
-                                    val onIncrement = remember(row.rowId, qty, progress.doneCount, selectedDoc.docType.name, jobFolderName) {
-                                        {
-                                            hardwoodsProgressStore.incrementDoneCount(
-                                                jobFolderName = jobFolderName,
-                                                docType = selectedDoc.docType.name,
-                                                rowId = row.rowId,
-                                                qty = qty
-                                            )
-                                        }
-                                    }
-                                    val onDecrement = remember(row.rowId, qty, progress.doneCount, selectedDoc.docType.name, jobFolderName) {
-                                        {
-                                            hardwoodsProgressStore.decrementDoneCount(
-                                                jobFolderName = jobFolderName,
-                                                docType = selectedDoc.docType.name,
-                                                rowId = row.rowId,
-                                                qty = qty
-                                            )
-                                        }
-                                    }
-                                    val onComplete = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
-                                        {
-                                            hardwoodsProgressStore.setDoneCount(
-                                                jobFolderName = jobFolderName,
-                                                docType = selectedDoc.docType.name,
-                                                rowId = row.rowId,
-                                                qty = qty,
-                                                doneCount = qty
-                                            )
-                                        }
-                                    }
-                                    val onZero = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
-                                        {
-                                            hardwoodsProgressStore.setDoneCount(
-                                                jobFolderName = jobFolderName,
-                                                docType = selectedDoc.docType.name,
-                                                rowId = row.rowId,
-                                                qty = qty,
-                                                doneCount = 0
-                                            )
-                                        }
-                                    }
-                                    val onSkipToggle = remember(row.rowId, progress.skipped, rowUi.isMultiCab, selectedDoc.docType.name, jobFolderName) {
-                                        {
-                                            if (rowUi.isMultiCab) {
-                                                cabSkipRow = row
-                                            } else {
-                                                hardwoodsProgressStore.setSkipped(
-                                                    jobFolderName = jobFolderName,
-                                                    docType = selectedDoc.docType.name,
-                                                    rowId = row.rowId,
-                                                    skipped = !progress.skipped
+                            if (!isCollapsed) {
+                                item(key = "part-section-box:${selectedDoc.docType.name}:$sectionKey") {
+                                    val isDark = isSystemInDarkTheme()
+                                    val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
+                                    Surface(
+                                        shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
+                                        color = backdropColor,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                                        shadowElevation = 2.dp,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 0.dp, bottom = 6.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(0.dp)
+                                        ) {
+                                            sectionRows.forEach { row ->
+                                                val rowUi = rowDisplayMap[row.rowId] ?: return@forEach
+                                                val progress = rowProgressMap[selectedDoc.docType.name to row.rowId] ?: HardwoodRowProgress()
+                                                val qty = row.qty.coerceAtLeast(0)
+                                                val skippedCabs = skippedCabinetMap[selectedDoc.docType.name to row.rowId].orEmpty()
+                                                val isHighlighted = highlightedRowId == row.rowId
+                                                val widthBand = widthColorBands[rowUi.widthKey] ?: statusColors.notStarted
+                                                val onIncrement = remember(row.rowId, qty, progress.doneCount, selectedDoc.docType.name, jobFolderName) {
+                                                    {
+                                                        hardwoodsProgressStore.incrementDoneCount(
+                                                            jobFolderName = jobFolderName,
+                                                            docType = selectedDoc.docType.name,
+                                                            rowId = row.rowId,
+                                                            qty = qty
+                                                        )
+                                                    }
+                                                }
+                                                val onDecrement = remember(row.rowId, qty, progress.doneCount, selectedDoc.docType.name, jobFolderName) {
+                                                    {
+                                                        hardwoodsProgressStore.decrementDoneCount(
+                                                            jobFolderName = jobFolderName,
+                                                            docType = selectedDoc.docType.name,
+                                                            rowId = row.rowId,
+                                                            qty = qty
+                                                        )
+                                                    }
+                                                }
+                                                val onComplete = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
+                                                    {
+                                                        hardwoodsProgressStore.setDoneCount(
+                                                            jobFolderName = jobFolderName,
+                                                            docType = selectedDoc.docType.name,
+                                                            rowId = row.rowId,
+                                                            qty = qty,
+                                                            doneCount = qty
+                                                        )
+                                                    }
+                                                }
+                                                val onZero = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
+                                                    {
+                                                        hardwoodsProgressStore.setDoneCount(
+                                                            jobFolderName = jobFolderName,
+                                                            docType = selectedDoc.docType.name,
+                                                            rowId = row.rowId,
+                                                            qty = qty,
+                                                            doneCount = 0
+                                                        )
+                                                    }
+                                                }
+                                                val onSkipToggle = remember(row.rowId, progress.skipped, rowUi.isMultiCab, selectedDoc.docType.name, jobFolderName) {
+                                                    {
+                                                        if (rowUi.isMultiCab) {
+                                                            cabSkipRow = row
+                                                        } else {
+                                                            hardwoodsProgressStore.setSkipped(
+                                                                jobFolderName = jobFolderName,
+                                                                docType = selectedDoc.docType.name,
+                                                                rowId = row.rowId,
+                                                                skipped = !progress.skipped
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                HardwoodsPartRow(
+                                                    rowUi = rowUi,
+                                                    qty = qty,
+                                                    progress = progress,
+                                                    revisionState = rowRevisionStateMap[selectedDoc.docType.name to row.rowId],
+                                                    skippedCabs = skippedCabs,
+                                                    isHighlighted = isHighlighted,
+                                                    widthBand = widthBand,
+                                                    isDoorListDoc = isDoorListDoc,
+                                                    onIncrement = onIncrement,
+                                                    onDecrement = onDecrement,
+                                                    onComplete = onComplete,
+                                                    onZero = onZero,
+                                                    onSkipToggle = onSkipToggle,
+                                                    onJump = { startRowJump(row) }
                                                 )
                                             }
                                         }
                                     }
-                                    HardwoodsPartRow(
-                                        modifier = animateItemMod,
-                                        rowUi = rowUi,
-                                        qty = qty,
-                                        progress = progress,
-                                        revisionState = rowRevisionStateMap[selectedDoc.docType.name to row.rowId],
-                                        skippedCabs = skippedCabs,
-                                        isHighlighted = isHighlighted,
-                                        widthBand = widthBand,
-                                        isDoorListDoc = isDoorListDoc,
-                                        onIncrement = onIncrement,
-                                        onDecrement = onDecrement,
-                                        onComplete = onComplete,
-                                        onZero = onZero,
-                                        onSkipToggle = onSkipToggle,
-                                        onJump = { startRowJump(row) }
-                                    )
                                 }
                             }
                         }
@@ -1486,6 +1506,9 @@ private fun HardwoodsPartRow(
         Color.Transparent
     }
     val rowColor = completionTint.compositeOver(changedTint.compositeOver(baseRowColor))
+    val isDark = isSystemInDarkTheme()
+    val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
+    val opaqueRowColor = rowColor.compositeOver(backdropColor)
     val gradientTopColor = visuals.leftBorderColor.copy(alpha = 1f)
     val gradientBottomColor = visuals.leftBorderColor.copy(alpha = 0.45f)
     val borderStrokeColor = when (rowState) {
@@ -1494,7 +1517,7 @@ private fun HardwoodsPartRow(
         HardwoodsRowState.IN_PROGRESS -> statusColors.inProgressBorder.copy(alpha = 0.4f)
         HardwoodsRowState.NOT_STARTED -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
     }
-    Card(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
@@ -1507,11 +1530,8 @@ private fun HardwoodsPartRow(
                 }
             ),
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = rowColor),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 2.dp,
-            pressedElevation = 4.dp
-        ),
+        color = opaqueRowColor,
+        shadowElevation = 2.dp,
         border = BorderStroke(1.dp, borderStrokeColor)
     ) {
         Row(
@@ -2075,7 +2095,7 @@ private fun HardwoodsBoardStockList(
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(bottom = hardwoodsListBottomScrollPadding()),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         // ── Admin board stock section (server-entered items) ──────────────────
         if (adminItems.isNotEmpty()) {
