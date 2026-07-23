@@ -182,7 +182,6 @@ fun MoldingListScreen(
                             isExpanded = expandedItem?.id == item.id,
                             onClick = {
                                 expandedItem = item
-                                onOpenMolding?.invoke(item)
                             }
                         )
                     }
