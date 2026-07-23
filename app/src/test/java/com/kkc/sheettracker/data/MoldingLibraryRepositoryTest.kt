@@ -103,6 +103,29 @@ class MoldingLibraryRepositoryTest {
     }
 
     @Test
+    fun fetchLibrary_parsesFrameStyleAsNullWhenKeyMissing() {
+        // Regression guard for a cache file written by a rolled-back backend
+        // version that predates the frameStyle field entirely (not just an
+        // explicit null) -- the key is absent from the JSON object.
+        val baseDir = Files.createTempDirectory("molding-repo-test-frame-style-missing").toFile()
+        val cacheDir = File(baseDir, ".metadata/moldings_cache").apply { mkdirs() }
+        val json = """
+            {
+              "categories": ["Crown"],
+              "moldings": [
+                {"id": "Crown:105", "category": "Crown", "fileId": "105", "name": "3 1/4\" Flat"}
+              ]
+            }
+        """.trimIndent()
+        File(cacheDir, "library.json").writeText(json)
+
+        val repo = MoldingLibraryRepository(baseDir)
+        val library = repo.fetchLibrary()
+
+        assertEquals(null, library.moldings[0].frameStyle)
+    }
+
+    @Test
     fun profileSvgFile_returnsPlainSvg_whenMeasurementsHidden() {
         val baseDir = Files.createTempDirectory("molding-repo-test-svg").toFile()
         val categoryDir = File(baseDir, ".metadata/moldings_cache/Crown").apply { mkdirs() }
