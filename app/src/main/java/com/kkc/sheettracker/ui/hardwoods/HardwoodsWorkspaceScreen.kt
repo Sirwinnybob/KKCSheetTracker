@@ -146,6 +146,7 @@ import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.BoardStockRow
+import com.kkc.sheettracker.data.models.BoardStockSource
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.headerBackground
@@ -314,6 +315,7 @@ fun HardwoodsWorkspaceScreen(
     val rawRows = selectedDoc?.rows.orEmpty()
     val totals = selectedDoc?.totals.orEmpty()
     var showRipCutList by rememberSaveable(jobFolderName) { mutableStateOf(isRipCutEntry) }
+    var selectedRipSource: BoardStockSource? by rememberSaveable(jobFolderName) { mutableStateOf(null) }
     val useDoorPanelsSheetFilter = rememberSaveable(jobFolderName) {
         mutableStateOf(isDoorPanelsEntry)
     }
@@ -1192,9 +1194,112 @@ fun HardwoodsWorkspaceScreen(
                         }
                     }
                 }
+                AnimatedVisibility(
+                    visible = showRipCutList,
+                    enter = expandVertically(animationSpec = tween(300)) + fadeIn(tween(300)),
+                    exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(tween(200))
+                ) {
+                    val categoryList = remember { listOf<BoardStockSource?>(null) + BoardStockSource.entries }
+                    val selectedSourceIndex = categoryList.indexOf(selectedRipSource).coerceAtLeast(0)
+                    Surface(
+                        shape = RoundedCornerShape(9.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)),
+                        shadowElevation = 3.5.dp,
+                        tonalElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    ) {
+                        ScrollableTabRow(
+                            selectedTabIndex = selectedSourceIndex,
+                            edgePadding = 4.dp,
+                            containerColor = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                            divider = {},
+                            indicator = { tabPositions ->
+                                if (selectedSourceIndex in tabPositions.indices) {
+                                    val currentTab = tabPositions[selectedSourceIndex]
+                                    val slideSpec = tween<Dp>(durationMillis = 420, easing = FastOutSlowInEasing)
+                                    val animatedLeft by animateDpAsState(
+                                        targetValue = currentTab.left,
+                                        animationSpec = slideSpec,
+                                        label = "sourcePillLeft"
+                                    )
+                                    val animatedWidth by animateDpAsState(
+                                        targetValue = currentTab.width,
+                                        animationSpec = slideSpec,
+                                        label = "sourcePillWidth"
+                                    )
+                                    Box(
+                                        Modifier
+                                            .wrapContentSize(Alignment.CenterStart)
+                                            .offset(x = animatedLeft)
+                                            .width(animatedWidth)
+                                            .height(32.dp)
+                                            .background(
+                                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .border(
+                                                1.dp,
+                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                                RoundedCornerShape(6.dp)
+                                            )
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(40.dp)
+                        ) {
+                            // "All" tab (null source)
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .height(36.dp)
+                                    .zIndex(1f)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { selectedRipSource = null }
+                                    .padding(horizontal = 8.dp)
+                            ) {
+                                Text(
+                                    text = "All",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (selectedRipSource == null) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (selectedRipSource == null) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            BoardStockSource.entries.forEach { source ->
+                                val isSelected = selectedRipSource == source
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .height(36.dp)
+                                        .zIndex(1f)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) { selectedRipSource = source }
+                                        .padding(horizontal = 8.dp)
+                                ) {
+                                    Text(
+                                        text = source.toRipListTitle(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 if (showRipCutList) {
                     HardwoodsBoardStockList(
                         sections = buildBoardStockSourceSections(boardStockRows),
+                        selectedSource = selectedRipSource,
                         adminItems = adminBoardStock,
                         jobFolderName = jobFolderName,
                         progressStore = hardwoodsProgressStore,
@@ -2309,10 +2414,14 @@ private fun HardwoodsBoardStockList(
     adminItems: List<AdminBoardStockItem> = emptyList(),
     hideSections: Boolean = false,
     sectionTitle: String = "Board Stock",
-    onPreviewMolding: ((AdminBoardStockItem) -> Unit)? = null
+    onPreviewMolding: ((AdminBoardStockItem) -> Unit)? = null,
+    selectedSource: BoardStockSource? = null
 ) {
+    val filteredSections = remember(sections, selectedSource) {
+        if (selectedSource != null) sections.filter { it.source == selectedSource } else sections
+    }
     val statusColors = KKCThemeColors.statusColors
-    if (sections.isEmpty() && adminItems.isEmpty()) {
+    if (filteredSections.isEmpty() && adminItems.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             Text("No rip cut lines found", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -2332,10 +2441,10 @@ private fun HardwoodsBoardStockList(
     }
     val childSectionIndent = 14.dp
     val widthBandPalette = statusColors.widthBandPalette
-    val widthColorBands = remember(sections, widthBandPalette) {
+    val widthColorBands = remember(filteredSections, widthBandPalette) {
         val seen = LinkedHashMap<String, Color>()
         var next = 0
-        sections.forEach { section ->
+        filteredSections.forEach { section ->
             section.materials.forEach { materialSection ->
                 materialSection.rows.forEach { line ->
                     val key = normalizeWidthForGrouping(line.width)
@@ -2662,7 +2771,7 @@ private fun HardwoodsBoardStockList(
             }
         }
         // ── Auto-calculated rip cut sections ──────────────────────────────────
-        if (!hideSections) sections.forEach { sourceSection ->
+        if (!hideSections) filteredSections.forEach { sourceSection ->
             val sourceKey = sourceSection.source.name
             val sourceRows = sourceSection.materials.flatMap { it.rows }
             val sourceExpanded = sourceKey in expandedSourceSections
