@@ -2464,51 +2464,56 @@ private fun HardwoodsBoardStockList(
                             enter = expandVertically() + fadeIn(),
                             exit = shrinkVertically() + fadeOut()
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(0.dp)
+                            val isDark = isSystemInDarkTheme()
+                            val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
+                            Surface(
+                                shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
+                                color = backdropColor,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                                shadowElevation = 2.dp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = childSectionIndent)
+                                    .padding(top = 0.dp, bottom = 6.dp)
                             ) {
-                                groupItems.forEach { item ->
-                                    val isNoneItem = item.feet == null
-                                    val boards = if (isNoneItem) 0
-                                                 else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
-                                    val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
-                                    val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
-                                    val itemSkipped = !isNoneItem && (matSkipped || ((totalsDoneMap[skipKey] ?: 0) > 0))
-                                    val done = if (itemSkipped || isNoneItem) 0
-                                               else (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
-                                    val rowState = when {
-                                        isNoneItem   -> ProgressState.SKIPPED  // reuse SKIPPED colour for NONE pill
-                                        itemSkipped  -> ProgressState.SKIPPED
-                                        boards <= 0  -> ProgressState.NOT_STARTED
-                                        done >= boards -> ProgressState.COMPLETE
-                                        done > 0     -> ProgressState.IN_PROGRESS
-                                        else         -> ProgressState.NOT_STARTED
-                                    }
-                                    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
-                                    Surface(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = childSectionIndent)
-                                            .padding(vertical = 6.dp)
-                                            .heightIn(min = 36.dp)
-                                            .drawBehind {
-                                                drawLine(
-                                                    color = dividerColor,
-                                                    start = Offset(0f, size.height - 1f),
-                                                    end = Offset(size.width, size.height - 1f),
-                                                    strokeWidth = 1f
-                                                )
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                                ) {
+                                    groupItems.forEach { item ->
+                                        val isNoneItem = item.feet == null
+                                        val boards = if (isNoneItem) 0
+                                                     else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
+                                        val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
+                                        val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
+                                        val itemSkipped = !isNoneItem && (matSkipped || ((totalsDoneMap[skipKey] ?: 0) > 0))
+                                        val done = if (itemSkipped || isNoneItem) 0
+                                                   else (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
+                                        val rowState = when {
+                                            isNoneItem   -> ProgressState.SKIPPED  // reuse SKIPPED colour for NONE pill
+                                            itemSkipped  -> ProgressState.SKIPPED
+                                            boards <= 0  -> ProgressState.NOT_STARTED
+                                            done >= boards -> ProgressState.COMPLETE
+                                            done > 0     -> ProgressState.IN_PROGRESS
+                                            else         -> ProgressState.NOT_STARTED
+                                        }
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 3.dp)
+                                                .heightIn(min = 36.dp),
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = when {
+                                                matSkipped  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                                isNoneItem  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                                                itemSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
+                                                else        -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
                                             },
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = when {
-                                            matSkipped  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-                                            isNoneItem  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                                            itemSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
-                                            else        -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
-                                        },
-                                        tonalElevation = 0.5.dp
-                                    ) {
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                            tonalElevation = 0.5.dp
+                                        ) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalAlignment = Alignment.CenterVertically
@@ -2653,6 +2658,7 @@ private fun HardwoodsBoardStockList(
                         }
                     }
                 }
+                }
             }
         }
         // ── Auto-calculated rip cut sections ──────────────────────────────────
@@ -2781,47 +2787,52 @@ private fun HardwoodsBoardStockList(
                             enter = expandVertically() + fadeIn(),
                             exit = shrinkVertically() + fadeOut()
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(0.dp)
+                            val isDark = isSystemInDarkTheme()
+                            val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
+                            Surface(
+                                shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
+                                color = backdropColor,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                                shadowElevation = 2.dp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = childSectionIndent)
+                                    .padding(top = 0.dp, bottom = 6.dp)
                             ) {
-                                materialSection.rows.forEach { line ->
-                                    val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
-                                    val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
-                                    val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
-                                    val rawDone = (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
-                                    val done = rawDone
-                                    val widthBand = widthColorBands[normalizeWidthForGrouping(line.width)] ?: statusColors.notStarted
-                                    val rowState = when {
-                                        lineSkipped -> ProgressState.SKIPPED
-                                        line.neededRips <= 0 -> ProgressState.NOT_STARTED
-                                        done >= line.neededRips -> ProgressState.COMPLETE
-                                        done > 0 -> ProgressState.IN_PROGRESS
-                                        else -> ProgressState.NOT_STARTED
-                                    }
-                                    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
-                                    Surface(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = childSectionIndent)
-                                            .padding(vertical = 6.dp)
-                                            .heightIn(min = 36.dp)
-                                            .drawBehind {
-                                                drawLine(
-                                                    color = dividerColor,
-                                                    start = Offset(0f, size.height - 1f),
-                                                    end = Offset(size.width, size.height - 1f),
-                                                    strokeWidth = 1f
-                                                )
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                                ) {
+                                    materialSection.rows.forEach { line ->
+                                        val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
+                                        val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
+                                        val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
+                                        val rawDone = (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
+                                        val done = rawDone
+                                        val widthBand = widthColorBands[normalizeWidthForGrouping(line.width)] ?: statusColors.notStarted
+                                        val rowState = when {
+                                            lineSkipped -> ProgressState.SKIPPED
+                                            line.neededRips <= 0 -> ProgressState.NOT_STARTED
+                                            done >= line.neededRips -> ProgressState.COMPLETE
+                                            done > 0 -> ProgressState.IN_PROGRESS
+                                            else -> ProgressState.NOT_STARTED
+                                        }
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 3.dp)
+                                                .heightIn(min = 36.dp),
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = when {
+                                                materialSkipped -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                                lineSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
+                                                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
                                             },
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = when {
-                                            materialSkipped -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-                                            lineSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
-                                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
-                                        },
-                                        tonalElevation = 0.5.dp
-                                    ) {
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                            tonalElevation = 0.5.dp
+                                        ) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalAlignment = Alignment.CenterVertically
@@ -2975,6 +2986,7 @@ private fun HardwoodsBoardStockList(
                             }
                         }
                     }
+                }
                 }
                 item(key = "source-buffer:$sourceKey") {
                     Spacer(
