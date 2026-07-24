@@ -12,6 +12,7 @@ import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.SpecialtyTrackerProgress
+import com.kkc.sheettracker.data.models.TabletSpecialtyItem
 import java.io.File
 import java.time.Instant
 import java.util.Locale
@@ -802,9 +803,10 @@ class SpecialtyProgressStore(
             .takeIf { it.exists() && it.isFile }
             ?.let { parseChecklistAsSpecialtyItems(it.readText()) }
             .orEmpty()
-        val tabletItems = loadTabletItems(jobFolderName)
+        val adminItems = specialtyItems + checklistItems
+        val tabletItems = TabletSpecialtyItemsStore(baseDir, tabletId).loadAllItems(jobFolderName)
 
-        val allItems = specialtyItems + checklistItems + tabletItems
+        val allItems = mergeSpecialtyItems(adminItems, tabletItems)
         if (allItems.isEmpty()) return emptyList()
 
         val materialMappings = loadMaterialMappings(baseDir)
@@ -820,6 +822,81 @@ class SpecialtyProgressStore(
         return filteredItems
             .distinctBy { it.id }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+    }
+
+    private fun mergeSpecialtyItems(
+        adminItems: List<SpecialtyItem>,
+        tabletItems: List<TabletSpecialtyItem>
+    ): List<SpecialtyItem> {
+        val tabletItemMap = tabletItems.associateBy { it.id.removePrefix("tablet:") }
+        val matchedTabletIds = mutableSetOf<String>()
+
+        val mergedAdminItems = adminItems.mapNotNull { adminItem ->
+            val rawAdminId = adminItem.id
+                .removePrefix("checklist:")
+                .removePrefix("admin:")
+                .removePrefix("tablet:")
+
+            val matchingTabletItem = tabletItemMap[rawAdminId]
+                ?: tabletItemMap[adminItem.id.removePrefix("tablet:")]
+                ?: tabletItemMap[adminItem.id]
+
+            if (matchingTabletItem != null) {
+                matchedTabletIds.add(matchingTabletItem.id.removePrefix("tablet:"))
+                matchedTabletIds.add(matchingTabletItem.id)
+
+                if (matchingTabletItem.deleted) {
+                    null
+                } else {
+                    adminItem.copy(
+                        name = matchingTabletItem.name.ifBlank { adminItem.name },
+                        category = matchingTabletItem.category,
+                        stations = if (matchingTabletItem.stations.isNotEmpty()) matchingTabletItem.stations else adminItem.stations,
+                        dimensions = matchingTabletItem.dimensions ?: adminItem.dimensions,
+                        quantity = matchingTabletItem.quantity ?: adminItem.quantity,
+                        material = matchingTabletItem.material ?: adminItem.material,
+                        supplier = matchingTabletItem.supplier ?: adminItem.supplier,
+                        model = matchingTabletItem.modelNumber ?: adminItem.model,
+                        orderDate = matchingTabletItem.orderDate ?: adminItem.orderDate,
+                        tracking = matchingTabletItem.trackingNumber ?: adminItem.tracking,
+                        orderUrl = matchingTabletItem.orderUrl ?: adminItem.orderUrl,
+                        notes = matchingTabletItem.notes ?: adminItem.notes,
+                        cabinetNumbers = if (matchingTabletItem.cabinetNumbers.isNotEmpty()) matchingTabletItem.cabinetNumbers else adminItem.cabinetNumbers
+                    )
+                }
+            } else {
+                adminItem
+            }
+        }
+
+        val tabletCreatedItems = tabletItems.filterNot { tabletItem ->
+            val rawId = tabletItem.id.removePrefix("tablet:")
+            rawId in matchedTabletIds || tabletItem.id in matchedTabletIds
+        }.filterNot { it.deleted }.map { tabletItem ->
+            SpecialtyItem(
+                id = if (tabletItem.id.startsWith("tablet:")) tabletItem.id else "tablet:${tabletItem.id}",
+                name = tabletItem.name,
+                cabinetNumbers = tabletItem.cabinetNumbers,
+                cabinetLabel = null,
+                category = tabletItem.category,
+                stations = tabletItem.stations,
+                supplier = tabletItem.supplier,
+                model = tabletItem.modelNumber,
+                orderDate = tabletItem.orderDate,
+                tracking = tabletItem.trackingNumber,
+                orderUrl = tabletItem.orderUrl,
+                notes = tabletItem.notes,
+                attachments = emptyList(),
+                autoDetected = false,
+                createdAt = tabletItem.createdAt,
+                createdBy = tabletItem.createdByDevice,
+                dimensions = tabletItem.dimensions,
+                quantity = tabletItem.quantity,
+                material = tabletItem.material
+            )
+        }
+
+        return mergedAdminItems + tabletCreatedItems
     }
 
     private fun shouldSuppressDoorPanelSawItem(

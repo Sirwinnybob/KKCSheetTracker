@@ -58,12 +58,27 @@ class SpecialtyStateStore(
         specialtyScanCoordinator.refreshJobOnOpen(jobFolderName)
     }
 
-    /** Creates or updates a tablet-created specialty item, then invalidates the cache. */
-    suspend fun saveTabletItem(jobFolderName: String, item: TabletSpecialtyItem) =
+    fun loadSpecialtyItems(jobFolderName: String): List<SpecialtyItem> {
+        return specialtyProgressStore.loadSpecialtyItems(jobFolderName)
+    }
+
+    /** Creates or updates a specialty item (admin edit overlay or tablet item), then invalidates the cache. */
+    suspend fun saveSpecialtyItem(jobFolderName: String, item: TabletSpecialtyItem) =
         withContext(ioDispatcher) {
             tabletItemsStore.saveItem(jobFolderName, item)
             specialtyProgressStore.invalidateJobCache(jobFolderName)
         }
+
+    /** Deletes a specialty item (writes tombstone in tablet sidecar), then invalidates the cache. */
+    suspend fun deleteSpecialtyItem(jobFolderName: String, itemId: String) =
+        withContext(ioDispatcher) {
+            tabletItemsStore.deleteItemTombstone(jobFolderName, itemId)
+            specialtyProgressStore.invalidateJobCache(jobFolderName)
+        }
+
+    /** Creates or updates a tablet-created specialty item, then invalidates the cache. */
+    suspend fun saveTabletItem(jobFolderName: String, item: TabletSpecialtyItem) =
+        saveSpecialtyItem(jobFolderName, item)
 
     /** Deletes a tablet-created specialty item (by id, "tablet:" prefix optional), then invalidates the cache. */
     suspend fun deleteTabletItem(jobFolderName: String, itemId: String) =
