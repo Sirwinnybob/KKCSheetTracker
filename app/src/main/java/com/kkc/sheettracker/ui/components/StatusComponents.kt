@@ -10,7 +10,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
@@ -319,13 +321,9 @@ fun SectionProgressHeader(
     val safeTotal = total.coerceAtLeast(0)
     val safeDone = done.coerceAtLeast(0).coerceAtMost(safeTotal)
     val fraction = if (safeTotal <= 0) 0f else safeDone.toFloat() / safeTotal.toFloat()
-    val containerColor = if (isSubHeader) {
-        Color.Transparent
-    } else if (dimmed) {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
+    val isComplete = safeDone >= safeTotal && safeTotal > 0 && !skipped
+    val isInProgress = safeDone > 0 && !isComplete && !skipped
+
     val titleColor = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
     val progressColor = if (dimmed) {
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
@@ -344,23 +342,48 @@ fun SectionProgressHeader(
     } else {
         RoundedCornerShape(8.dp)
     }
-    val headerBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-    val gradientColors = if (isSubHeader) {
-        listOf(
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+    val headerBorderColor = when {
+        isComplete -> colors.completeBorder.copy(alpha = 0.25f)
+        isInProgress -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    }
+    val gradientColors = when {
+        skipped || dimmed -> listOf(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+        )
+        isComplete -> listOf(
+            colors.completeBorder.copy(alpha = 0.04f),
+            colors.completeBorder.copy(alpha = 0.01f)
+        )
+        isInProgress -> listOf(
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.02f)
+        )
+        isSubHeader -> listOf(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.20f)
+        )
+        else -> listOf(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f),
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
         )
-    } else if (dimmed) {
-        listOf(
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f),
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        )
-    } else {
-        listOf(
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-        )
     }
+
+    val accentBarColors = when {
+        skipped -> listOf(colors.skipBorder, colors.skipBorder.copy(alpha = 0.6f))
+        isComplete -> listOf(colors.completeBorder.copy(alpha = 0.65f), colors.completeBorder.copy(alpha = 0.35f))
+        isInProgress -> listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+        else -> listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+    }
+
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(durationMillis = 300),
+        label = "chevronRotation"
+    )
+
+    val elevation = if (expanded && onToggleExpanded != null) 0.dp else 2.dp
 
     Surface(
         modifier = modifier
@@ -371,7 +394,7 @@ fun SectionProgressHeader(
             },
         color = MaterialTheme.colorScheme.surface,
         shape = headerShape,
-        shadowElevation = 2.dp,
+        shadowElevation = elevation,
         border = BorderStroke(1.dp, headerBorderColor)
     ) {
         Row(
@@ -381,16 +404,9 @@ fun SectionProgressHeader(
         ) {
             Box(
                 modifier = Modifier
-                    .width(if (isSubHeader) KKCShapeTokens.statusBorderWidth else 4.dp)
+                    .width(if (isSubHeader) KKCShapeTokens.statusBorderWidth else 5.dp)
                     .fillMaxHeight()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                            )
-                        )
-                    )
+                    .background(Brush.verticalGradient(accentBarColors))
             )
             Column(
                 modifier = Modifier
@@ -402,15 +418,30 @@ fun SectionProgressHeader(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "$title • $itemCount",
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = if (isSubHeader) FontWeight.Medium else FontWeight.Bold
-                            ),
-                            color = titleColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = titleColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                            ) {
+                                Text(
+                                    text = "$itemCount",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
                         
                         Row(
                             modifier = Modifier
@@ -452,11 +483,21 @@ fun SectionProgressHeader(
                                 skippedFillColor = skippedBarColor
                             )
                             if (onToggleExpanded != null) {
-                                Icon(
-                                    imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                    contentDescription = if (expanded) "Collapse section" else "Expand section",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = if (expanded) "Collapse section" else "Expand section",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.rotate(chevronRotation)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -466,17 +507,32 @@ fun SectionProgressHeader(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "$title • $itemCount",
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = if (isSubHeader) FontWeight.Medium else FontWeight.Bold
-                            ),
-                            color = titleColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xxs),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = titleColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.60f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                            ) {
+                                Text(
+                                    text = "$itemCount ${if (itemCount == 1) "part" else "parts"}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xs),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (headerActions != null) {
@@ -493,11 +549,21 @@ fun SectionProgressHeader(
                                 skippedFillColor = skippedBarColor
                             )
                             if (onToggleExpanded != null) {
-                                Icon(
-                                    imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                    contentDescription = if (expanded) "Collapse section" else "Expand section",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.60f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f)),
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = if (expanded) "Collapse section" else "Expand section",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.rotate(chevronRotation)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

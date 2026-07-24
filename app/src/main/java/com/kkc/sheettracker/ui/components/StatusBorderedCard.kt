@@ -8,9 +8,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.SheetStatus
@@ -18,7 +18,7 @@ import com.kkc.sheettracker.ui.theme.KKCThemeColors
 
 private data class StatusCardColors(
     val borderColor: Color,
-    val backgroundTint: Color
+    val topGradientColor: Color?
 )
 
 @Composable
@@ -37,34 +37,30 @@ fun StatusBorderedCard(
     val statusCardColors = when (status) {
         SheetStatus.NOT_STARTED -> StatusCardColors(
             borderColor = Color.Transparent,
-            backgroundTint = Color.Transparent
+            topGradientColor = null
         )
         SheetStatus.IN_PROGRESS -> StatusCardColors(
             borderColor = colors.inProgressBorder,
-            backgroundTint = colors.inProgressBorder.copy(alpha = 0.08f)
+            topGradientColor = colors.inProgressBorder.copy(alpha = 0.08f)
         )
         SheetStatus.COMPLETE -> StatusCardColors(
-            borderColor = colors.completeBorder,
-            backgroundTint = colors.completeBgRow
+            borderColor = colors.completeBorder.copy(alpha = 0.45f),
+            topGradientColor = colors.completeBorder.copy(alpha = 0.12f)
         )
         SheetStatus.SKIPPED -> StatusCardColors(
             borderColor = colors.skipBorder,
-            backgroundTint = colors.skipBgRow
+            topGradientColor = colors.skipBorder.copy(alpha = 0.10f)
         )
         SheetStatus.HAS_BAD_PARTS -> StatusCardColors(
             borderColor = colors.bad,
-            backgroundTint = colors.badBg.copy(alpha = 0.12f)
+            topGradientColor = colors.bad.copy(alpha = 0.12f)
         )
         SheetStatus.RE_NESTED -> StatusCardColors(
-            borderColor = colors.completeBorder.copy(alpha = 0.5f),
-            backgroundTint = colors.completeBgRow.copy(alpha = 0.5f)
+            borderColor = colors.completeBorder.copy(alpha = 0.35f),
+            topGradientColor = colors.completeBorder.copy(alpha = 0.08f)
         )
     }
-    val appliedContainerColor = if (statusCardColors.backgroundTint.alpha > 0f) {
-        statusCardColors.backgroundTint.compositeOver(containerColor)
-    } else {
-        containerColor
-    }
+
     val clickableModifier = if (onClick != null) {
         if (useBounceClick) {
             Modifier.bounceClick(onClick = onClick)
@@ -80,25 +76,49 @@ fun StatusBorderedCard(
             .fillMaxWidth()
             .then(clickableModifier),
         shape = shape,
-        colors = CardDefaults.cardColors(containerColor = appliedContainerColor),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(
             defaultElevation = tonalElevation + 2.dp,
             pressedElevation = tonalElevation + 4.dp
         )
     ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Box(
+        Box(modifier = Modifier.fillMaxWidth()) {
+            if (statusCardColors.topGradientColor != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(30.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    statusCardColors.topGradientColor,
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+            }
+
+            Row(
                 modifier = Modifier
-                    .width(leftBorderWidth)
-                    .fillMaxHeight()
-                    .background(statusCardColors.borderColor)
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                content = content
-            )
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min)
+            ) {
+                if (leftBorderWidth > 0.dp && statusCardColors.borderColor != Color.Transparent) {
+                    Box(
+                        modifier = Modifier
+                            .width(leftBorderWidth)
+                            .fillMaxHeight()
+                            .background(statusCardColors.borderColor)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    content = content
+                )
+            }
         }
     }
 }

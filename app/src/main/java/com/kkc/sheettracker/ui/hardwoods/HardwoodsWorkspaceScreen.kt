@@ -5,6 +5,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -32,12 +37,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -93,6 +108,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -102,6 +118,10 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -902,105 +922,247 @@ fun HardwoodsWorkspaceScreen(
             ) {
                 Surface(
                     shape = RoundedCornerShape(9.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                    tonalElevation = 1.dp,
+                    color = Color.White,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)),
+                    shadowElevation = 3.5.dp,
+                    tonalElevation = 2.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
-                ) {
-                    items(HardwoodDocType.entries.filter { it in availableDocTypes }, key = { it.name }) { docType ->
-                        FilterChip(
-                            selected = !showRipCutList && !showChangedOnly && selectedDocType == docType,
-                            onClick = {
-                                selectedDocType = docType
-                                showRipCutList = false
-                                showChangedOnly = false
-                            },
-                            label = {
-                                Text(
-                                    docType.uiLabel(),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        )
+                    val availableTypes = remember(HardwoodDocType.entries, availableDocTypes) {
+                        HardwoodDocType.entries.filter { it in availableDocTypes }
                     }
-                    item(key = "rip-cut-list") {
-                        FilterChip(
-                            selected = showRipCutList,
-                            onClick = {
-                                showRipCutList = true
-                                showChangedOnly = false
-                            },
-                            label = { Text("Rip Cut List") }
-                        )
-                    }
-                    if (hasAnyPendingChanged) {
-                        item(key = "changed-parts") {
-                            FilterChip(
-                                selected = !showRipCutList && showChangedOnly,
-                                onClick = {
-                                    showRipCutList = false
-                                    showChangedOnly = true
-                                    if (selectedDocPendingChanged.isEmpty()) {
-                                        val firstDocWithPending = pendingChangedByDoc
-                                            .entries
-                                            .firstOrNull { it.value.isNotEmpty() }
-                                            ?.key
-                                        if (firstDocWithPending != null) {
-                                            selectedDocType = firstDocWithPending
-                                        }
-                                    }
-                                },
-                                label = { Text("CHANGED") },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.22f),
-                                    selectedLabelColor = MaterialTheme.colorScheme.tertiary,
-                                    containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.10f),
-                                    labelColor = MaterialTheme.colorScheme.tertiary
-                                )
-                            )
+                    val docCount = availableTypes.size
+                    val selectedIndex = remember(showRipCutList, showChangedOnly, selectedDocType, availableTypes) {
+                        when {
+                            showRipCutList -> docCount
+                            showChangedOnly -> docCount + 1
+                            else -> availableTypes.indexOf(selectedDocType).coerceAtLeast(0)
                         }
                     }
-                }
-                }
-                if (!showRipCutList && selectedDoc != null) {
-                    Spacer(Modifier.height(4.dp))
-                    SingleChoiceSegmentedButtonRow(
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
-                        SegmentedButton(
-                            selected = !isClassicView,
-                            onClick = { isClassicView = false },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                            label = { Text("List View") }
+                        ScrollableTabRow(
+                            selectedTabIndex = selectedIndex,
+                            edgePadding = 4.dp,
+                            containerColor = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                            divider = {},
+                            indicator = { tabPositions ->
+                                if (selectedIndex in tabPositions.indices) {
+                                    val currentTab = tabPositions[selectedIndex]
+                                    val slideSpec = tween<androidx.compose.ui.unit.Dp>(durationMillis = 420, easing = FastOutSlowInEasing)
+                                    val animatedLeft by animateDpAsState(
+                                        targetValue = currentTab.left,
+                                        animationSpec = slideSpec,
+                                        label = "tabIndicatorLeft"
+                                    )
+                                    val animatedWidth by animateDpAsState(
+                                        targetValue = currentTab.width,
+                                        animationSpec = slideSpec,
+                                        label = "tabIndicatorWidth"
+                                    )
+                                    val isChangedSelected = !showRipCutList && showChangedOnly
+                                    val pillColor = if (isChangedSelected) {
+                                        MaterialTheme.colorScheme.tertiaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    }
+                                    val pillBorderColor = if (isChangedSelected) {
+                                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                    }
+                                    Box(
+                                        Modifier
+                                            .wrapContentSize(Alignment.CenterStart)
+                                            .offset(x = animatedLeft)
+                                            .width(animatedWidth)
+                                            .height(32.dp)
+                                            .background(
+                                                color = pillColor,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .border(
+                                                1.dp,
+                                                pillBorderColor,
+                                                RoundedCornerShape(6.dp)
+                                            )
+                                    )
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                        ) {
+                            availableTypes.forEachIndexed { idx, docType ->
+                                val isSelected = selectedIndex == idx
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .height(36.dp)
+                                        .zIndex(1f)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            selectedDocType = docType
+                                            showRipCutList = false
+                                            showChangedOnly = false
+                                        }
+                                        .padding(horizontal = 8.dp)
+                                ) {
+                                    Text(
+                                        text = docType.uiLabel(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .height(36.dp)
+                                    .zIndex(1f)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        showRipCutList = true
+                                        showChangedOnly = false
+                                    }
+                                    .padding(horizontal = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Rip Cut List",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (showRipCutList) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (showRipCutList) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1
+                                )
+                            }
+                            if (hasAnyPendingChanged) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .height(36.dp)
+                                        .zIndex(1f)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            showRipCutList = false
+                                            showChangedOnly = true
+                                            if (selectedDocPendingChanged.isEmpty()) {
+                                                val firstDocWithPending = pendingChangedByDoc
+                                                    .entries
+                                                    .firstOrNull { it.value.isNotEmpty() }
+                                                    ?.key
+                                                if (firstDocWithPending != null) {
+                                                    selectedDocType = firstDocWithPending
+                                                }
+                                            }
+                                        }
+                                        .padding(horizontal = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "CHANGED",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (showChangedOnly) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.tertiary,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+
+                        // Divider line before Mode dropdown button
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 4.dp)
+                                .width(1.dp)
+                                .height(22.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                         )
-                        SegmentedButton(
-                            selected = isClassicView,
-                            onClick = { isClassicView = true },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                            label = { Text("Classic View") }
-                        )
+
+                        // Mode Dropdown button on the right end
+                        var showModeMenu by remember { mutableStateOf(false) }
+                        Box(modifier = Modifier.padding(end = 2.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isClassicView) MaterialTheme.colorScheme.secondaryContainer else Color.White,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .height(32.dp)
+                                    .clickable { showModeMenu = true }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                ) {
+                                    Text(
+                                        text = if (isClassicView) "Mode: Classic" else "Mode: List",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isClassicView) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Select Mode",
+                                        tint = if (isClassicView) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            DropdownMenu(
+                                expanded = showModeMenu,
+                                onDismissRequest = { showModeMenu = false },
+                                containerColor = Color.White
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("List View") },
+                                    onClick = {
+                                        isClassicView = false
+                                        showModeMenu = false
+                                    },
+                                    leadingIcon = if (!isClassicView) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                    } else null
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Classic View") },
+                                    onClick = {
+                                        isClassicView = true
+                                        showModeMenu = false
+                                    },
+                                    leadingIcon = if (isClassicView) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                    } else null
+                                )
+                            }
+                        }
                     }
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(2.dp))
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f),
                     thickness = 1.dp,
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (isDoorPanelsActive) {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(2.dp))
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1028,7 +1190,6 @@ fun HardwoodsWorkspaceScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(6.dp))
                 if (showRipCutList) {
                     HardwoodsBoardStockList(
                         sections = buildBoardStockSourceSections(boardStockRows),
@@ -1520,8 +1681,8 @@ private fun HardwoodsPartRow(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .padding(horizontal = 2.dp, vertical = 2.dp)
+            .heightIn(min = 36.dp)
+            .padding(horizontal = 2.dp, vertical = 6.dp)
             .combinedClickable(
                 onClick = {},
                 onLongClick = {
@@ -1573,7 +1734,7 @@ private fun HardwoodsPartRow(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -1905,33 +2066,118 @@ private fun ReferencePane(
     }
 
     val docControls: @Composable RowScope.() -> Unit = {
-            if (hasAssemblyReference) {
-            FilterChip(
-                selected = referenceDocType == ReferenceDocType.ASSEMBLY,
-                onClick = {
-                    onReferenceDocTypeChange(ReferenceDocType.ASSEMBLY)
-                    onJumpTargetChange(HardwoodsJumpTarget.ASSEMBLY)
-                },
-                label = { Text("Assembly") }
-            )
+        data class DocControlOption(val label: String, val isSelected: Boolean, val onClick: () -> Unit)
+        val options = remember(hasAssemblyReference, hasPlansReference, hasThreeDAssets, jumpTarget, referenceDocType) {
+            buildList {
+                if (hasAssemblyReference) {
+                    add(DocControlOption("Assembly", jumpTarget == HardwoodsJumpTarget.ASSEMBLY && referenceDocType == ReferenceDocType.ASSEMBLY) {
+                        onReferenceDocTypeChange(ReferenceDocType.ASSEMBLY)
+                        onJumpTargetChange(HardwoodsJumpTarget.ASSEMBLY)
+                    })
+                }
+                if (hasPlansReference) {
+                    add(DocControlOption("Plans & Elevs.", jumpTarget == HardwoodsJumpTarget.PLANS && referenceDocType == ReferenceDocType.PLANS_ELEVATIONS) {
+                        onReferenceDocTypeChange(ReferenceDocType.PLANS_ELEVATIONS)
+                        onJumpTargetChange(HardwoodsJumpTarget.PLANS)
+                    })
+                }
+                if (hasThreeDAssets) {
+                    add(DocControlOption("View 3D", jumpTarget == HardwoodsJumpTarget.THREE_D) {
+                        onJumpTargetChange(HardwoodsJumpTarget.THREE_D)
+                    })
+                }
             }
-            if (hasPlansReference) {
-            FilterChip(
-                selected = referenceDocType == ReferenceDocType.PLANS_ELEVATIONS,
-                onClick = {
-                    onReferenceDocTypeChange(ReferenceDocType.PLANS_ELEVATIONS)
-                    onJumpTargetChange(HardwoodsJumpTarget.PLANS)
-                },
-                label = { Text("Plans & Elevations") }
-            )
+        }
+        val selectedIndex = remember(options) {
+            options.indexOfFirst { it.isSelected }.coerceAtLeast(0)
+        }
+
+        val density = LocalDensity.current
+        var itemBounds by remember { mutableStateOf(mapOf<Int, Pair<Dp, Dp>>()) }
+
+        Surface(
+            shape = RoundedCornerShape(9.dp),
+            color = Color.White,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)),
+            shadowElevation = 3.5.dp,
+            tonalElevation = 2.dp,
+            modifier = Modifier.height(36.dp).wrapContentWidth()
+        ) {
+            if (options.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .wrapContentWidth()
+                        .padding(horizontal = 2.dp, vertical = 2.dp)
+                ) {
+                    val currentBounds = itemBounds[selectedIndex]
+                    if (currentBounds != null) {
+                        val slideSpec = tween<Dp>(durationMillis = 420, easing = FastOutSlowInEasing)
+                        val animatedLeft by animateDpAsState(
+                            targetValue = currentBounds.first,
+                            animationSpec = slideSpec,
+                            label = "docIndicatorLeft"
+                        )
+                        val animatedWidth by animateDpAsState(
+                            targetValue = currentBounds.second,
+                            animationSpec = slideSpec,
+                            label = "docIndicatorWidth"
+                        )
+
+                        Box(
+                            Modifier
+                                .offset(x = animatedLeft)
+                                .width(animatedWidth)
+                                .height(32.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    RoundedCornerShape(6.dp)
+                                )
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .height(32.dp)
+                            .wrapContentWidth()
+                    ) {
+                        options.forEachIndexed { idx, opt ->
+                            val isSelected = selectedIndex == idx
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .height(32.dp)
+                                    .zIndex(1f)
+                                    .onGloballyPositioned { coordinates ->
+                                        val leftDp = with(density) { coordinates.positionInParent().x.toDp() }
+                                        val widthDp = with(density) { coordinates.size.width.toDp() }
+                                        itemBounds = itemBounds + (idx to (leftDp to widthDp))
+                                    }
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { opt.onClick() }
+                                    .padding(horizontal = 12.dp)
+                            ) {
+                                Text(
+                                    text = opt.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
             }
-            if (hasThreeDAssets) {
-            FilterChip(
-                selected = jumpTarget == HardwoodsJumpTarget.THREE_D,
-                onClick = { onJumpTargetChange(HardwoodsJumpTarget.THREE_D) },
-                label = { Text("View 3D") }
-            )
-            }
+        }
     }
 
     if (jumpTarget == HardwoodsJumpTarget.THREE_D && hasThreeDAssets) {
@@ -2224,7 +2470,8 @@ private fun HardwoodsBoardStockList(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(start = childSectionIndent)
-                                    .heightIn(min = 48.dp)
+                                    .padding(vertical = 6.dp)
+                                    .heightIn(min = 36.dp)
                                     .drawBehind {
                                         drawLine(
                                             color = dividerColor,
@@ -2258,7 +2505,7 @@ private fun HardwoodsBoardStockList(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            .padding(horizontal = 12.dp, vertical = 2.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
@@ -2526,7 +2773,8 @@ private fun HardwoodsBoardStockList(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(start = childSectionIndent)
-                                    .heightIn(min = 48.dp)
+                                    .padding(vertical = 6.dp)
+                                    .heightIn(min = 36.dp)
                                     .drawBehind {
                                         drawLine(
                                             color = dividerColor,
@@ -2556,7 +2804,7 @@ private fun HardwoodsBoardStockList(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            .padding(horizontal = 12.dp, vertical = 2.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
