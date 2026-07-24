@@ -829,7 +829,8 @@ data class TabletSpecialtyItem(
     val orderUrl: String? = null,
     val notes: String? = null,
     val createdAt: String = "",
-    val createdByDevice: String = ""
+    val createdByDevice: String = "",
+    val deleted: Boolean = false
 )
 
 data class SpecialtyCompletionState(
