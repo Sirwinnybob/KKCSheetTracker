@@ -2669,7 +2669,7 @@ private fun HardwoodsBoardStockList(
         if (!hideSections) filteredSections.forEach { sourceSection ->
             val sourceKey = sourceSection.source.name
             if (selectedSource == null) {
-                item(key = "source-label:$sourceKey") {
+                stickyHeader(key = "source-label:$sourceKey") {
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         shape = RoundedCornerShape(8.dp),
