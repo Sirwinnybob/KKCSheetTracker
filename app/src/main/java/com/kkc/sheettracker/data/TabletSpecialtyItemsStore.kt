@@ -10,6 +10,7 @@ import com.kkc.sheettracker.data.models.TabletSpecialtyItem
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.time.Instant
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -49,6 +50,31 @@ class TabletSpecialtyItemsStore(
         mutex.withLock {
             val updated = loadOwnItems(jobFolderName).filter { it.id != rawId }
             writeItems(jobFolderName, updated)
+        }
+    }
+
+    /** Writes a tombstone (deleted = true) for the item into this tablet's own file. */
+    suspend fun deleteItemTombstone(jobFolderName: String, itemId: String) {
+        val rawId = itemId.removePrefix("tablet:")
+        val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
+        mutex.withLock {
+            val existing = loadOwnItems(jobFolderName).toMutableList()
+            val idx = existing.indexOfFirst { it.id == rawId }
+            if (idx >= 0) {
+                existing[idx] = existing[idx].copy(deleted = true)
+            } else {
+                existing += TabletSpecialtyItem(
+                    id = rawId,
+                    name = "Deleted Item",
+                    category = SpecialtyItemCategory.CUSTOM,
+                    cabinetNumbers = emptyList(),
+                    stations = emptyList(),
+                    deleted = true,
+                    createdAt = Instant.now().toString(),
+                    createdByDevice = tabletId
+                )
+            }
+            writeItems(jobFolderName, existing)
         }
     }
 
@@ -92,6 +118,7 @@ class TabletSpecialtyItemsStore(
                 runCatching { el.asString.trim().takeIf { it.isNotBlank() } }.getOrNull()
             }
             .orEmpty()
+        val deleted = runCatching { obj.get("deleted")?.asBoolean }.getOrNull() ?: false
         return TabletSpecialtyItem(
             id = id,
             name = name,
@@ -108,7 +135,8 @@ class TabletSpecialtyItemsStore(
             orderUrl = obj.getNullStr("orderUrl"),
             notes = obj.getNullStr("notes"),
             createdAt = obj.getStr("createdAt"),
-            createdByDevice = obj.getStr("createdByDevice")
+            createdByDevice = obj.getStr("createdByDevice"),
+            deleted = deleted
         )
     }
 
@@ -132,6 +160,7 @@ class TabletSpecialtyItemsStore(
                 item.notes?.let { addProperty("notes", it) }
                 addProperty("createdAt", item.createdAt)
                 addProperty("createdByDevice", item.createdByDevice)
+                if (item.deleted) addProperty("deleted", true)
             })
         }
         atomicWriteFile(ownFile(jobFolderName), gson.toJson(array))
@@ -145,3 +174,4 @@ class TabletSpecialtyItemsStore(
     private fun JsonObject.getNullStr(key: String): String? =
         runCatching { get(key)?.asString?.trim() }.getOrNull()?.takeIf { it.isNotBlank() }
 }
+
