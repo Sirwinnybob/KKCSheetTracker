@@ -71,7 +71,7 @@ private fun BoardStockSource.toRipListTitle(): String {
         BoardStockSource.FRAME -> "Face-Frame Rip List"
         BoardStockSource.NAILER -> "Nailer Rip List"
         BoardStockSource.DOOR -> "Door Rip List"
-        BoardStockSource.MANUAL -> "Manual Rips"
+        BoardStockSource.MANUAL -> "Stock/Custom"
     }
 }
 
