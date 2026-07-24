@@ -88,6 +88,8 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.ui.graphics.Color
@@ -918,7 +920,7 @@ fun HardwoodsWorkspaceScreen(
             Column(
                 modifier = firstMod
                     .fillMaxSize()
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 0.dp)
             ) {
                 Surface(
                     shape = RoundedCornerShape(9.dp),
@@ -1366,8 +1368,12 @@ fun HardwoodsWorkspaceScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                            if (!isCollapsed) {
-                                item(key = "part-section-box:${selectedDoc.docType.name}:$sectionKey") {
+                            item(key = "part-section-box:${selectedDoc.docType.name}:$sectionKey") {
+                                AnimatedVisibility(
+                                    visible = !isCollapsed,
+                                    enter = expandVertically() + fadeIn(),
+                                    exit = shrinkVertically() + fadeOut()
+                                ) {
                                     val isDark = isSystemInDarkTheme()
                                     val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                                     Surface(

@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
@@ -315,7 +316,8 @@ fun SectionProgressHeader(
     expanded: Boolean = true,
     onToggleExpanded: (() -> Unit)? = null,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
-    isSubHeader: Boolean = false
+    isSubHeader: Boolean = false,
+    topPadding: Dp = 0.dp
 ) {
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)
@@ -388,7 +390,7 @@ fun SectionProgressHeader(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 6.dp, bottom = if (expanded && onToggleExpanded != null) 0.dp else 4.dp)
+            .padding(top = topPadding, bottom = if (expanded && onToggleExpanded != null) 0.dp else 4.dp)
             .let { base ->
                 if (onToggleExpanded != null) base.clickable { onToggleExpanded() } else base
             },
