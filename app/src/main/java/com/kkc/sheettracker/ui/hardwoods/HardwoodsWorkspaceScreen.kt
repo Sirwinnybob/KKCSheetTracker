@@ -1196,20 +1196,12 @@ fun HardwoodsWorkspaceScreen(
                 }
                 AnimatedVisibility(
                     visible = showRipCutList,
-                    enter = expandVertically(animationSpec = tween(300)) + fadeIn(tween(300)),
-                    exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(tween(200))
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
                 ) {
                     val categoryList = remember { listOf<BoardStockSource?>(null) + BoardStockSource.entries }
                     val selectedSourceIndex = categoryList.indexOf(selectedRipSource).coerceAtLeast(0)
-                    Surface(
-                        shape = RoundedCornerShape(9.dp),
-                        color = Color.White,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)),
-                        shadowElevation = 3.5.dp,
-                        tonalElevation = 2.dp,
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                    ) {
-                        ScrollableTabRow(
+                    ScrollableTabRow(
                             selectedTabIndex = selectedSourceIndex,
                             edgePadding = 4.dp,
                             containerColor = Color.Transparent,
@@ -1294,7 +1286,6 @@ fun HardwoodsWorkspaceScreen(
                                 }
                             }
                         }
-                    }
                 }
                 if (showRipCutList) {
                     HardwoodsBoardStockList(
