@@ -2319,11 +2319,16 @@ private fun HardwoodsBoardStockList(
         return
     }
 
-    var expandedSourceSections by rememberSaveable(jobFolderName) {
-        mutableStateOf(emptySet<String>())
+    var expandedSourceSections by rememberSaveable(jobFolderName, sections, adminItems) {
+        mutableStateOf(
+            sections.mapTo(linkedSetOf()) { it.source.name } + "ADMIN"
+        )
     }
-    var expandedMaterialSections by rememberSaveable(jobFolderName) {
-        mutableStateOf(emptySet<String>())
+    var expandedMaterialSections by rememberSaveable(jobFolderName, sections, adminItems) {
+        mutableStateOf(
+            sections.flatMapTo(linkedSetOf()) { sec -> sec.materials.map { "${sec.source.name}|${it.material}" } } +
+            adminItems.map { "ADMIN|${it.material.ifBlank { "—" }}" }
+        )
     }
     val childSectionIndent = 14.dp
     val widthBandPalette = statusColors.widthBandPalette
@@ -2453,181 +2458,192 @@ private fun HardwoodsBoardStockList(
                             )
                         }
                     }
-                    if (matExpanded) {
-                        items(groupItems, key = { "admin-item:${it.id}" }) { item ->
-                            val isNoneItem = item.feet == null
-                            val boards = if (isNoneItem) 0
-                                         else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
-                            val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
-                            val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
-                            val itemSkipped = !isNoneItem && (matSkipped || ((totalsDoneMap[skipKey] ?: 0) > 0))
-                            val done = if (itemSkipped || isNoneItem) 0
-                                       else (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
-                            val rowState = when {
-                                isNoneItem   -> ProgressState.SKIPPED  // reuse SKIPPED colour for NONE pill
-                                itemSkipped  -> ProgressState.SKIPPED
-                                boards <= 0  -> ProgressState.NOT_STARTED
-                                done >= boards -> ProgressState.COMPLETE
-                                done > 0     -> ProgressState.IN_PROGRESS
-                                else         -> ProgressState.NOT_STARTED
-                            }
-                            val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = childSectionIndent)
-                                    .padding(vertical = 6.dp)
-                                    .heightIn(min = 36.dp)
-                                    .drawBehind {
-                                        drawLine(
-                                            color = dividerColor,
-                                            start = Offset(0f, size.height - 1f),
-                                            end = Offset(size.width, size.height - 1f),
-                                            strokeWidth = 1f
-                                        )
-                                    },
-                                shape = RoundedCornerShape(6.dp),
-                                color = when {
-                                    matSkipped  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-                                    isNoneItem  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                                    itemSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
-                                    else        -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
-                                },
-                                tonalElevation = 0.5.dp
+                    item(key = "admin-mat-content:$adminMatKey") {
+                        AnimatedVisibility(
+                            visible = matExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(3.dp)
-                                            .fillMaxHeight()
-                                            .background(
-                                                if (isNoneItem) MaterialTheme.colorScheme.outlineVariant
-                                                else statusColors.inProgress
-                                            )
-                                    )
-                                    Row(
+                                groupItems.forEach { item ->
+                                    val isNoneItem = item.feet == null
+                                    val boards = if (isNoneItem) 0
+                                                 else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
+                                    val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
+                                    val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
+                                    val itemSkipped = !isNoneItem && (matSkipped || ((totalsDoneMap[skipKey] ?: 0) > 0))
+                                    val done = if (itemSkipped || isNoneItem) 0
+                                               else (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
+                                    val rowState = when {
+                                        isNoneItem   -> ProgressState.SKIPPED  // reuse SKIPPED colour for NONE pill
+                                        itemSkipped  -> ProgressState.SKIPPED
+                                        boards <= 0  -> ProgressState.NOT_STARTED
+                                        done >= boards -> ProgressState.COMPLETE
+                                        done > 0     -> ProgressState.IN_PROGRESS
+                                        else         -> ProgressState.NOT_STARTED
+                                    }
+                                    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
+                                    Surface(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            .padding(start = childSectionIndent)
+                                            .padding(vertical = 6.dp)
+                                            .heightIn(min = 36.dp)
+                                            .drawBehind {
+                                                drawLine(
+                                                    color = dividerColor,
+                                                    start = Offset(0f, size.height - 1f),
+                                                    end = Offset(size.width, size.height - 1f),
+                                                    strokeWidth = 1f
+                                                )
+                                            },
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = when {
+                                            matSkipped  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                            isNoneItem  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                                            itemSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
+                                            else        -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
+                                        },
+                                        tonalElevation = 0.5.dp
                                     ) {
-                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                            Text(
-                                                item.name.ifBlank { "—" },
-                                                style = DimensionTextStyle,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(3.dp)
+                                                    .fillMaxHeight()
+                                                    .background(
+                                                        if (isNoneItem) MaterialTheme.colorScheme.outlineVariant
+                                                        else statusColors.inProgress
+                                                    )
                                             )
-                                            if (isNoneItem) {
-                                                Text(
-                                                    "None needed for this job",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                                    maxLines = 1
-                                                )
-                                            } else {
-                                                Text(
-                                                    "Need $boards boards  ·  ${item.feet.toInt()} ft",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                        if (item.moldingId != null && onPreviewMolding != null) {
-                                            androidx.compose.material3.IconButton(onClick = { onPreviewMolding(item) }) {
-                                                androidx.compose.material3.Icon(
-                                                    Icons.Filled.Visibility,
-                                                    contentDescription = "Preview ${item.name}"
-                                                )
-                                            }
-                                        }
-                                        if (isNoneItem) {
-                                            // NONE badge — no tally or skip controls
-                                            Surface(
-                                                shape = RoundedCornerShape(3.dp),
-                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Text(
-                                                    "NONE",
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        } else {
-                                            TallyStepButton(
-                                                icon = Icons.Default.Remove,
-                                                contentDescription = "Done -",
-                                                containerColor = statusColors.bad,
-                                                enabled = !itemSkipped && done > 0,
-                                                onClick = {
-                                                    progressStore.decrementAdminBoardStockDone(
-                                                        jobFolderName, material, item.id, maxCount = boards
+                                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                                    Text(
+                                                        item.name.ifBlank { "—" },
+                                                        style = DimensionTextStyle,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
-                                                },
-                                                onLongClick = {
-                                                    progressStore.setAdminBoardStockDone(
-                                                        jobFolderName, material, item.id, doneCount = 0
-                                                    )
-                                                    true
+                                                    if (isNoneItem) {
+                                                        Text(
+                                                            "None needed for this job",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                            maxLines = 1
+                                                        )
+                                                    } else {
+                                                        Text(
+                                                            "Need $boards boards  ·  ${item.feet.toInt()} ft",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
                                                 }
-                                            )
-                                            ProgressPill(
-                                                done = done,
-                                                total = boards,
-                                                state = rowState,
-                                                skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f)
-                                            )
-                                            TallyStepButton(
-                                                icon = Icons.Default.Add,
-                                                contentDescription = "Done +",
-                                                containerColor = statusColors.completeBorder,
-                                                enabled = !itemSkipped && done < boards,
-                                                onClick = {
-                                                    progressStore.incrementAdminBoardStockDone(
-                                                        jobFolderName, material, item.id, maxCount = boards
-                                                    )
-                                                },
-                                                onLongClick = {
-                                                    progressStore.setAdminBoardStockDone(
-                                                        jobFolderName, material, item.id, doneCount = boards
-                                                    )
-                                                    true
+                                                if (item.moldingId != null && onPreviewMolding != null) {
+                                                    androidx.compose.material3.IconButton(onClick = { onPreviewMolding(item) }) {
+                                                        androidx.compose.material3.Icon(
+                                                            Icons.Filled.Visibility,
+                                                            contentDescription = "Preview ${item.name}"
+                                                        )
+                                                    }
                                                 }
-                                            )
-                                            if (!matSkipped) {
-                                                if (itemSkipped) {
-                                                    Button(
-                                                        onClick = {
-                                                            progressStore.setAdminBoardStockSkipped(
-                                                                jobFolderName, material, item.id, false
-                                                            )
-                                                        },
-                                                        colors = ButtonDefaults.buttonColors(
-                                                            containerColor = statusColors.skipBorder,
-                                                            contentColor = Color.White
-                                                        ),
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                                        modifier = Modifier.heightIn(min = 32.dp)
+                                                if (isNoneItem) {
+                                                    // NONE badge — no tally or skip controls
+                                                    Surface(
+                                                        shape = RoundedCornerShape(3.dp),
+                                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                                                     ) {
-                                                        Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                                        Text(
+                                                            "NONE",
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
                                                     }
                                                 } else {
-                                                    MaterialSkipPill(
-                                                        skipped = false,
+                                                    TallyStepButton(
+                                                        icon = Icons.Default.Remove,
+                                                        contentDescription = "Done -",
+                                                        containerColor = statusColors.bad,
+                                                        enabled = !itemSkipped && done > 0,
                                                         onClick = {
-                                                            progressStore.setAdminBoardStockSkipped(
-                                                                jobFolderName, material, item.id, true
+                                                            progressStore.decrementAdminBoardStockDone(
+                                                                jobFolderName, material, item.id, maxCount = boards
                                                             )
+                                                        },
+                                                        onLongClick = {
+                                                            progressStore.setAdminBoardStockDone(
+                                                                jobFolderName, material, item.id, doneCount = 0
+                                                            )
+                                                            true
                                                         }
                                                     )
+                                                    ProgressPill(
+                                                        done = done,
+                                                        total = boards,
+                                                        state = rowState,
+                                                        skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f)
+                                                    )
+                                                    TallyStepButton(
+                                                        icon = Icons.Default.Add,
+                                                        contentDescription = "Done +",
+                                                        containerColor = statusColors.completeBorder,
+                                                        enabled = !itemSkipped && done < boards,
+                                                        onClick = {
+                                                            progressStore.incrementAdminBoardStockDone(
+                                                                jobFolderName, material, item.id, maxCount = boards
+                                                            )
+                                                        },
+                                                        onLongClick = {
+                                                            progressStore.setAdminBoardStockDone(
+                                                                jobFolderName, material, item.id, doneCount = boards
+                                                            )
+                                                            true
+                                                        }
+                                                    )
+                                                    if (!matSkipped) {
+                                                        if (itemSkipped) {
+                                                            Button(
+                                                                onClick = {
+                                                                    progressStore.setAdminBoardStockSkipped(
+                                                                        jobFolderName, material, item.id, false
+                                                                    )
+                                                                },
+                                                                colors = ButtonDefaults.buttonColors(
+                                                                    containerColor = statusColors.skipBorder,
+                                                                    contentColor = Color.White
+                                                                ),
+                                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                                modifier = Modifier.heightIn(min = 32.dp)
+                                                            ) {
+                                                                Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                                            }
+                                                        } else {
+                                                            MaterialSkipPill(
+                                                                skipped = false,
+                                                                onClick = {
+                                                                    progressStore.setAdminBoardStockSkipped(
+                                                                        jobFolderName, material, item.id, true
+                                                                    )
+                                                                }
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -2759,188 +2775,199 @@ private fun HardwoodsBoardStockList(
                             )
                         }
                     }
-                    if (materialExpanded) {
-                        items(materialSection.rows, key = { it.stableKey }) { line ->
-                            val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
-                            val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
-                            val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
-                            val rawDone = (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
-                            val done = rawDone
-                            val widthBand = widthColorBands[normalizeWidthForGrouping(line.width)] ?: statusColors.notStarted
-                            val rowState = when {
-                                lineSkipped -> ProgressState.SKIPPED
-                                line.neededRips <= 0 -> ProgressState.NOT_STARTED
-                                done >= line.neededRips -> ProgressState.COMPLETE
-                                done > 0 -> ProgressState.IN_PROGRESS
-                                else -> ProgressState.NOT_STARTED
-                            }
-                            val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = childSectionIndent)
-                                    .padding(vertical = 6.dp)
-                                    .heightIn(min = 36.dp)
-                                    .drawBehind {
-                                        drawLine(
-                                            color = dividerColor,
-                                            start = Offset(0f, size.height - 1f),
-                                            end = Offset(size.width, size.height - 1f),
-                                            strokeWidth = 1f
-                                        )
-                                    },
-                                shape = RoundedCornerShape(6.dp),
-                                color = when {
-                                    materialSkipped -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-                                    lineSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
-                                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
-                                },
-                                tonalElevation = 0.5.dp
+                    item(key = "totals-mat-content:$materialKey") {
+                        AnimatedVisibility(
+                            visible = materialExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(3.dp)
-                                            .fillMaxHeight()
-                                            .background(widthBand)
-                                    )
-                                    Row(
+                                materialSection.rows.forEach { line ->
+                                    val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
+                                    val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
+                                    val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
+                                    val rawDone = (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
+                                    val done = rawDone
+                                    val widthBand = widthColorBands[normalizeWidthForGrouping(line.width)] ?: statusColors.notStarted
+                                    val rowState = when {
+                                        lineSkipped -> ProgressState.SKIPPED
+                                        line.neededRips <= 0 -> ProgressState.NOT_STARTED
+                                        done >= line.neededRips -> ProgressState.COMPLETE
+                                        done > 0 -> ProgressState.IN_PROGRESS
+                                        else -> ProgressState.NOT_STARTED
+                                    }
+                                    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
+                                    Surface(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            .padding(start = childSectionIndent)
+                                            .padding(vertical = 6.dp)
+                                            .heightIn(min = 36.dp)
+                                            .drawBehind {
+                                                drawLine(
+                                                    color = dividerColor,
+                                                    start = Offset(0f, size.height - 1f),
+                                                    end = Offset(size.width, size.height - 1f),
+                                                    strokeWidth = 1f
+                                                )
+                                            },
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = when {
+                                            materialSkipped -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                            lineSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
+                                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
+                                        },
+                                        tonalElevation = 0.5.dp
                                     ) {
-                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(3.dp)
+                                                    .fillMaxHeight()
+                                                    .background(widthBand)
+                                            )
                                             Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 2.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Text(
-                                                    line.width,
-                                                    style = DimensionTextStyle
-                                                )
-                                                Text(
-                                                    "Need ${line.neededRips} rips",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    fontStyle = FontStyle.Italic
-                                                )
-                                            }
-                                            Text(
-                                                "Total ${formatLinearFeet(line.totalFeet)} ft",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        val canDecrementRip = !lineSkipped && done > 0
-                                        val canIncrementRip = !lineSkipped && done < line.neededRips
-                                        TallyStepButton(
-                                            icon = Icons.Default.Remove,
-                                            contentDescription = "Rip done -",
-                                            containerColor = statusColors.bad,
-                                            enabled = true,
-                                            onClick = {
-                                                progressStore.decrementBoardStockRipDone(
-                                                    jobFolderName = jobFolderName,
-                                                    material = line.material,
-                                                    normalizedWidth = line.normalizedWidth,
-                                                    source = line.source.name,
-                                                    maxCount = line.neededRips
-                                                )
-                                            },
-                                            onLongClick = {
-                                                if (canDecrementRip) {
-                                                    progressStore.setBoardStockRipDone(
-                                                        jobFolderName = jobFolderName,
-                                                        material = line.material,
-                                                        normalizedWidth = line.normalizedWidth,
-                                                        source = line.source.name,
-                                                        doneCount = 0
+                                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            line.width,
+                                                            style = DimensionTextStyle
+                                                        )
+                                                        Text(
+                                                            "Need ${line.neededRips} rips",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurface,
+                                                            fontStyle = FontStyle.Italic
+                                                        )
+                                                    }
+                                                    Text(
+                                                        "Total ${formatLinearFeet(line.totalFeet)} ft",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
-                                                    true
-                                                } else {
-                                                    false
                                                 }
-                                            }
-                                        )
-                                        ProgressPill(
-                                            done = done,
-                                            total = line.neededRips,
-                                            state = rowState,
-                                            skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f)
-                                        )
-                                        TallyStepButton(
-                                            icon = Icons.Default.Add,
-                                            contentDescription = "Rip done +",
-                                            containerColor = statusColors.completeBorder,
-                                            enabled = true,
-                                            onClick = {
-                                                progressStore.incrementBoardStockRipDone(
-                                                    jobFolderName = jobFolderName,
-                                                    material = line.material,
-                                                    normalizedWidth = line.normalizedWidth,
-                                                    source = line.source.name,
-                                                    maxCount = line.neededRips
+                                                val canDecrementRip = !lineSkipped && done > 0
+                                                val canIncrementRip = !lineSkipped && done < line.neededRips
+                                                TallyStepButton(
+                                                    icon = Icons.Default.Remove,
+                                                    contentDescription = "Rip done -",
+                                                    containerColor = statusColors.bad,
+                                                    enabled = true,
+                                                    onClick = {
+                                                        progressStore.decrementBoardStockRipDone(
+                                                            jobFolderName = jobFolderName,
+                                                            material = line.material,
+                                                            normalizedWidth = line.normalizedWidth,
+                                                            source = line.source.name,
+                                                            maxCount = line.neededRips
+                                                        )
+                                                    },
+                                                    onLongClick = {
+                                                        if (canDecrementRip) {
+                                                            progressStore.setBoardStockRipDone(
+                                                                jobFolderName = jobFolderName,
+                                                                material = line.material,
+                                                                normalizedWidth = line.normalizedWidth,
+                                                                source = line.source.name,
+                                                                doneCount = 0
+                                                            )
+                                                            true
+                                                        } else {
+                                                            false
+                                                        }
+                                                    }
                                                 )
-                                            },
-                                            onLongClick = {
-                                                if (canIncrementRip) {
-                                                    progressStore.setBoardStockRipDone(
-                                                        jobFolderName = jobFolderName,
-                                                        material = line.material,
-                                                        normalizedWidth = line.normalizedWidth,
-                                                        source = line.source.name,
-                                                        doneCount = line.neededRips
-                                                    )
-                                                    true
+                                                ProgressPill(
+                                                    done = done,
+                                                    total = line.neededRips,
+                                                    state = rowState,
+                                                    skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f)
+                                                )
+                                                TallyStepButton(
+                                                    icon = Icons.Default.Add,
+                                                    contentDescription = "Rip done +",
+                                                    containerColor = statusColors.completeBorder,
+                                                    enabled = true,
+                                                    onClick = {
+                                                        progressStore.incrementBoardStockRipDone(
+                                                            jobFolderName = jobFolderName,
+                                                            material = line.material,
+                                                            normalizedWidth = line.normalizedWidth,
+                                                            source = line.source.name,
+                                                            maxCount = line.neededRips
+                                                        )
+                                                    },
+                                                    onLongClick = {
+                                                        if (canIncrementRip) {
+                                                            progressStore.setBoardStockRipDone(
+                                                                jobFolderName = jobFolderName,
+                                                                material = line.material,
+                                                                normalizedWidth = line.normalizedWidth,
+                                                                source = line.source.name,
+                                                                doneCount = line.neededRips
+                                                            )
+                                                            true
+                                                        } else {
+                                                            false
+                                                        }
+                                                    }
+                                                )
+                                                if (lineSkipped) {
+                                                    Button(
+                                                        onClick = {
+                                                            progressStore.setBoardStockRipSkipped(
+                                                                jobFolderName = jobFolderName,
+                                                                material = line.material,
+                                                                normalizedWidth = line.normalizedWidth,
+                                                                source = line.source.name,
+                                                                skipped = false
+                                                            )
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = statusColors.skipBorder,
+                                                            contentColor = Color.White
+                                                        ),
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                        modifier = Modifier.heightIn(min = 32.dp)
+                                                    ) {
+                                                        Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                                    }
                                                 } else {
-                                                    false
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            progressStore.setBoardStockRipSkipped(
+                                                                jobFolderName = jobFolderName,
+                                                                material = line.material,
+                                                                normalizedWidth = line.normalizedWidth,
+                                                                source = line.source.name,
+                                                                skipped = true
+                                                            )
+                                                        },
+                                                        border = BorderStroke(1.dp, statusColors.skipBorder.copy(alpha = 0.85f)),
+                                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = statusColors.skipBorder),
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                        modifier = Modifier.heightIn(min = 32.dp)
+                                                    ) {
+                                                        Text("Skip", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                                    }
                                                 }
-                                            }
-                                        )
-                                        if (lineSkipped) {
-                                            Button(
-                                                onClick = {
-                                                    progressStore.setBoardStockRipSkipped(
-                                                        jobFolderName = jobFolderName,
-                                                        material = line.material,
-                                                        normalizedWidth = line.normalizedWidth,
-                                                        source = line.source.name,
-                                                        skipped = false
-                                                    )
-                                                },
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = statusColors.skipBorder,
-                                                    contentColor = Color.White
-                                                ),
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                                modifier = Modifier.heightIn(min = 32.dp)
-                                            ) {
-                                                Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                                            }
-                                        } else {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    progressStore.setBoardStockRipSkipped(
-                                                        jobFolderName = jobFolderName,
-                                                        material = line.material,
-                                                        normalizedWidth = line.normalizedWidth,
-                                                        source = line.source.name,
-                                                        skipped = true
-                                                    )
-                                                },
-                                                border = BorderStroke(1.dp, statusColors.skipBorder.copy(alpha = 0.85f)),
-                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = statusColors.skipBorder),
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                                modifier = Modifier.heightIn(min = 32.dp)
-                                            ) {
-                                                Text("Skip", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                                             }
                                         }
                                     }
