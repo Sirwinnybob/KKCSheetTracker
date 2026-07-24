@@ -912,32 +912,27 @@ internal fun SpecialtyChecklistRow(
             }
         },
         headerActions = {
-            // Edit/Delete controls for own tablet items
-            val isMyTabletItem = item.id.startsWith("tablet:") &&
-                item.createdBy == myTabletId && myTabletId.isNotBlank()
-            if (isMyTabletItem) {
-                IconButton(
-                    onClick = { onEditItem?.invoke(item) },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Edit,
-                        contentDescription = "Edit item",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                IconButton(
-                    onClick = { onDeleteItem?.invoke(item.id) },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Delete item",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
+            IconButton(
+                onClick = { onEditItem?.invoke(item) },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = "Edit item",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            IconButton(
+                onClick = { onDeleteItem?.invoke(item.id) },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "Delete item",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
             }
             if (item.cabinetNumbers.isNotEmpty() && onJumpToCabinet != null) {
                 Button(
