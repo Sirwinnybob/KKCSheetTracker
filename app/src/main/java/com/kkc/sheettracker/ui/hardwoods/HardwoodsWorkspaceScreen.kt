@@ -1017,6 +1017,7 @@ fun HardwoodsWorkspaceScreen(
                                             selectedDocType = docType
                                             showRipCutList = false
                                             showChangedOnly = false
+                                            selectedRipSource = null
                                         }
                                         .padding(horizontal = 8.dp)
                                 ) {
@@ -1041,6 +1042,7 @@ fun HardwoodsWorkspaceScreen(
                                     ) {
                                         showRipCutList = true
                                         showChangedOnly = false
+                                        selectedRipSource = null
                                     }
                                     .padding(horizontal = 8.dp)
                             ) {
@@ -1064,6 +1066,7 @@ fun HardwoodsWorkspaceScreen(
                                         ) {
                                             showRipCutList = false
                                             showChangedOnly = true
+                                            selectedRipSource = null
                                             if (selectedDocPendingChanged.isEmpty()) {
                                                 val firstDocWithPending = pendingChangedByDoc
                                                     .entries
@@ -1288,8 +1291,9 @@ fun HardwoodsWorkspaceScreen(
                         }
                 }
                 if (showRipCutList) {
+                    val allSections = buildBoardStockSourceSections(boardStockRows)
                     HardwoodsBoardStockList(
-                        sections = buildBoardStockSourceSections(boardStockRows),
+                        sections = allSections,
                         selectedSource = selectedRipSource,
                         adminItems = adminBoardStock,
                         jobFolderName = jobFolderName,
@@ -2408,28 +2412,38 @@ private fun HardwoodsBoardStockList(
     onPreviewMolding: ((AdminBoardStockItem) -> Unit)? = null,
     selectedSource: BoardStockSource? = null
 ) {
-    val filteredSections = remember(sections, selectedSource) {
-        if (selectedSource != null) sections.filter { it.source == selectedSource } else sections
-    }
     val statusColors = KKCThemeColors.statusColors
-    if (filteredSections.isEmpty() && adminItems.isEmpty()) {
+
+    // Filter sections by selected source
+    val sectionsToShow = if (selectedSource != null) {
+        sections.filter { it.source == selectedSource }
+    } else {
+        sections
+    }
+
+    // DEBUG
+    LaunchedEffect(selectedSource, sections.size) {
+        println("DEBUG: selectedSource=$selectedSource, allSections=${sections.size}, filtered=${sectionsToShow.size}, sources=${sections.map { it.source }}")
+    }
+
+    if (sectionsToShow.isEmpty() && adminItems.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             Text("No rip cut lines found", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
 
-    var expandedMaterialSections by rememberSaveable(jobFolderName, sections, adminItems) {
+    var expandedMaterialSections by rememberSaveable(jobFolderName, sectionsToShow, adminItems) {
         mutableStateOf(
             sections.flatMapTo(linkedSetOf()) { sec -> sec.materials.map { "${sec.source.name}|${it.material}" } } +
             adminItems.map { "ADMIN|${it.material.ifBlank { "—" }}" }
         )
     }
     val widthBandPalette = statusColors.widthBandPalette
-    val widthColorBands = remember(filteredSections, widthBandPalette) {
+    val widthColorBands = remember(sectionsToShow, widthBandPalette) {
         val seen = LinkedHashMap<String, Color>()
         var next = 0
-        filteredSections.forEach { section ->
+        sectionsToShow.forEach { section ->
             section.materials.forEach { materialSection ->
                 materialSection.rows.forEach { line ->
                     val key = normalizeWidthForGrouping(line.width)
@@ -2448,7 +2462,9 @@ private fun HardwoodsBoardStockList(
         contentPadding = PaddingValues(bottom = hardwoodsListBottomScrollPadding()),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        if (adminItems.isNotEmpty()) {
+        // Admin section shown for "All" (null) and "Stock/Custom" (MANUAL source)
+        val showAdmin = selectedSource == null || selectedSource == BoardStockSource.MANUAL
+        if (adminItems.isNotEmpty() && showAdmin) {
             val adminGroups = adminItems
                 .groupBy { it.material.ifBlank { "—" } }
                 .entries.sortedBy { it.key.lowercase() }
@@ -2657,7 +2673,7 @@ private fun HardwoodsBoardStockList(
                 }
             }
         }
-        if (!hideSections) filteredSections.forEach { sourceSection ->
+        if (!hideSections) sectionsToShow.forEach { sourceSection ->
             val sourceKey = sourceSection.source.name
             if (selectedSource == null) {
                 stickyHeader(key = "source-label:$sourceKey") {
