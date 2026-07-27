@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.specialty
 
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER
 import com.kkc.sheettracker.data.SpecialtyProgressStore
+import com.kkc.sheettracker.data.resolveSheetRipTallyState
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
@@ -19,6 +20,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpecialtyJobDetailScreenLogicTest {
+    @Test
+    fun specialtySheetRipLengthLabel_showsConfiguredRipLength() {
+        assertEquals("2 rips x 9 ft", specialtySheetRipLengthLabel(2, 9))
+        assertEquals("3 rips x 12 ft", specialtySheetRipLengthLabel(3, 12))
+    }
+
+    @Test
+    fun sheetRipTallyCompletion_requiresEveryConfiguredRipDespiteLegacyCompletion() {
+        assertTrue(resolveSheetRipTallyState(2, false, 2).isComplete)
+        assertFalse(resolveSheetRipTallyState(1, true, 2).isComplete)
+    }
+
     @Test
     fun checklistTogglesForItem_customMultiStation_createsOneStationLabeledTogglePerStation() {
         val resolved = SpecialtyResolvedItem(

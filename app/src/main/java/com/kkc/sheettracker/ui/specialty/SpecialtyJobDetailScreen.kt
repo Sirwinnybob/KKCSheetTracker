@@ -103,6 +103,7 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.SpecialtyViewerDefaults
 import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.completionKeysForItem
+import com.kkc.sheettracker.data.resolveSheetRipTallyState
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
@@ -165,10 +166,16 @@ fun SpecialtyJobDetailScreen(
     }
 
     val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()
+    val hardwoodsProgressVersion by specialtyStateStore.hardwoodsProgressVersion.collectAsState()
     val sheetRipItems = remember(scanState.snapshot.basePath, jobFolderName) {
         specialtySheetRipItems(loadAdminBoardStock(File(scanState.snapshot.basePath), jobFolderName))
     }
-    val sheetRipDone = remember(scanState.snapshot.basePath, jobFolderName, sheetRipDoneVersion) {
+    val sheetRipDone = remember(
+        scanState.snapshot.basePath,
+        jobFolderName,
+        sheetRipDoneVersion,
+        hardwoodsProgressVersion
+    ) {
         specialtyStateStore.loadSheetRipDone(jobFolderName)
     }
     // Molding preview — same pattern as HardwoodsWorkspaceScreen
@@ -336,7 +343,14 @@ fun SpecialtyJobDetailScreen(
             }
 
             if (sheetRipItems.isNotEmpty()) {
-                val sheetDoneCount = sheetRipItems.count { sheetRipDone[it.id] == true }
+                val sheetDoneCount = sheetRipItems.count { item ->
+                    val target = Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
+                    resolveSheetRipTallyState(
+                        specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
+                        sheetRipDone[item.id] == true,
+                        target
+                    ).isComplete
+                }
                 val sheetExpanded = SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS in activeExpandedSectionIds
                 stickyHeader(key = "sheet-rips-header") {
                     SectionProgressHeader(
@@ -358,7 +372,13 @@ fun SpecialtyJobDetailScreen(
                 val sheetRipEntries = specialtySheetRipLazyRowEntries(sheetRipItems)
                 itemsIndexed(items = sheetRipEntries, key = { _, entry -> entry.key }) { index, entry ->
                     val item = entry.item
-                    val isDone = sheetRipDone[item.id] == true
+                    val target = Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
+                    val tally = resolveSheetRipTallyState(
+                        specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
+                        sheetRipDone[item.id] == true,
+                        target
+                    )
+                    val isDone = tally.isComplete
                     val alpha = if (isDone) 0.5f else 1f
                     AnimatedVisibility(
                         visible = sheetExpanded,
@@ -390,10 +410,11 @@ fun SpecialtyJobDetailScreen(
                                     .alpha(alpha)
                                     .clickable {
                                         coroutineScope.launch {
-                                            specialtyStateStore.setSheetRipDone(
+                                            specialtyStateStore.setSheetRipCompletion(
                                                 jobFolderName = jobFolderName,
-                                                itemId = item.id,
-                                                done = !isDone
+                                                item = item,
+                                                target = target,
+                                                completed = !isDone
                                             )
                                         }
                                     }
@@ -409,10 +430,11 @@ fun SpecialtyJobDetailScreen(
                                         checked = isDone,
                                         onCheckedChange = { next ->
                                             coroutineScope.launch {
-                                                specialtyStateStore.setSheetRipDone(
+                                                specialtyStateStore.setSheetRipCompletion(
                                                     jobFolderName = jobFolderName,
-                                                    itemId = item.id,
-                                                    done = next
+                                                    item = item,
+                                                    target = target,
+                                                    completed = next
                                                 )
                                             }
                                         }
@@ -442,14 +464,14 @@ fun SpecialtyJobDetailScreen(
 
                                     Column(horizontalAlignment = Alignment.End) {
                                         val feet = item.feet ?: 0.0
-                                        val rips = Math.ceil(feet / item.ripLength).toInt()
+                                        val rips = target
                                         Text(
                                             text = "${feet.toInt()} ft",
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = "$rips rips",
+                                            text = specialtySheetRipLengthLabel(rips, item.ripLength),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -1103,6 +1125,8 @@ internal fun specialtySheetRipItems(
 ): List<AdminBoardStockItem> = items.filter {
     it.mode.equals("sheet", ignoreCase = true) && it.feet != null && it.feet > 0
 }
+
+internal fun specialtySheetRipLengthLabel(rips: Int, ripLength: Int): String = "$rips rips x $ripLength ft"
 
 internal fun specialtyChecklistLazyRowEntries(
     sectionId: String,
