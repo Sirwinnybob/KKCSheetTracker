@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.data
 
 import com.kkc.sheettracker.data.models.RefreshReason
+import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SpecialtyCompletionState
 import com.kkc.sheettracker.data.models.SpecialtyItem
@@ -19,6 +20,32 @@ import java.util.concurrent.TimeUnit
 
 class SpecialtyStateStoreTest {
     private val jobFolderName = "1234 - Test Job"
+
+    @Test
+    fun setSheetRipCompletion_syncsCanonicalTallyAndBooleanProjection() = runBlocking {
+        val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
+        val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val sheetRipStore = SheetRipProgressStore(baseDir = baseDir)
+        val stateStore = SpecialtyStateStore(
+            specialtyScanCoordinator = SpecialtyScanCoordinator(
+                SpecialtyRepository(baseDir = baseDir, progressStore = progressStore)
+            ),
+            specialtyProgressStore = progressStore,
+            hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local"),
+            sheetRipProgressStore = sheetRipStore,
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
+        )
+        val item = AdminBoardStockItem("sheet-crown", "Maple", "Crown", 18.0, mode = "sheet")
+
+        stateStore.setSheetRipCompletion(jobFolderName, item, target = 2, completed = true)
+        assertEquals(2, stateStore.getSheetRipStoredDoneCount(jobFolderName, item))
+        assertTrue(sheetRipStore.loadDone(jobFolderName)[item.id] == true)
+
+        stateStore.setSheetRipCompletion(jobFolderName, item, target = 2, completed = false)
+        assertEquals(0, stateStore.getSheetRipStoredDoneCount(jobFolderName, item))
+        assertFalse(sheetRipStore.loadDone(jobFolderName)[item.id] == true)
+    }
 
     @Test
     fun setItemCompletionKey_customMultiStation_persistsStationKeysIndependently() = runBlocking {

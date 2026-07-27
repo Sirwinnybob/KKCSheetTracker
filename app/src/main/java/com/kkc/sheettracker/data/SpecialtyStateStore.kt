@@ -3,6 +3,7 @@ package com.kkc.sheettracker.data
 import com.google.gson.Gson
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.SpecialtyJob
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
@@ -36,6 +37,9 @@ class SpecialtyStateStore(
 
     val progressVersion: StateFlow<Long>
         get() = specialtyProgressStore.progressVersion
+
+    val hardwoodsProgressVersion: StateFlow<Long>
+        get() = hardwoodsProgressStore.progressVersion
 
     private val _sheetRipDoneVersion = MutableStateFlow(0L)
     val sheetRipDoneVersion: StateFlow<Long> = _sheetRipDoneVersion.asStateFlow()
@@ -89,6 +93,23 @@ class SpecialtyStateStore(
 
     fun loadSheetRipDone(jobFolderName: String): Map<String, Boolean> {
         return sheetRipProgressStore.loadDone(jobFolderName)
+    }
+
+    fun getSheetRipStoredDoneCount(jobFolderName: String, item: AdminBoardStockItem): Int? {
+        val key = hardwoodsProgressStore.makeAdminBoardStockTallyKey(item.material, item.id)
+        return hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)[key]
+    }
+
+    suspend fun setSheetRipCompletion(
+        jobFolderName: String,
+        item: AdminBoardStockItem,
+        target: Int,
+        completed: Boolean
+    ) = withContext(ioDispatcher) {
+        val done = if (completed) target.coerceAtLeast(0) else 0
+        hardwoodsProgressStore.setAdminBoardStockDone(jobFolderName, item.material, item.id, done)
+        sheetRipProgressStore.setDone(jobFolderName, item.id, completed && target > 0)
+        _sheetRipDoneVersion.value++
     }
 
     suspend fun setSheetRipDone(
