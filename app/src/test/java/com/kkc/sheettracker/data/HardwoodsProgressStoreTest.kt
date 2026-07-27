@@ -918,6 +918,18 @@ class HardwoodsProgressStoreTest {
         assertEquals(3, store.getTotalsRip10DoneMap(jobFolderName)[key])
     }
 
+    @Test
+    fun adjustAdminBoardStockDone_appliesRapidConsecutiveActionsFromCurrentStoreState() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val key = store.makeAdminBoardStockTallyKey("Walnut", "item-1")
+
+        assertEquals(1, store.adjustAdminBoardStockDone(jobFolderName, "Walnut", "item-1", maxCount = 3, delta = 1))
+        assertEquals(2, store.adjustAdminBoardStockDone(jobFolderName, "Walnut", "item-1", maxCount = 3, delta = 1))
+        assertEquals(3, store.adjustAdminBoardStockDone(jobFolderName, "Walnut", "item-1", maxCount = 3, delta = 1))
+        assertEquals(3, store.getTotalsRip10DoneMap(jobFolderName)[key])
+    }
+
     private fun createTempBaseDir(): File {
         return Files.createTempDirectory("hardwoods-progress-store-test").toFile()
     }

@@ -2768,21 +2768,34 @@ private fun HardwoodsBoardStockList(
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                     }
                                                 } else if (showsTallyControls) {
-                                                    fun setSheetSawTally(nextDone: Int) {
-                                                        val clampedDone = nextDone.coerceIn(0, boards)
-                                                        progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, clampedDone)
-                                                        scope.launch {
+                                                    fun projectSheetSawCompletion(actualDone: Int) {
+                                                        scope.launch(Dispatchers.IO) {
                                                             sheetRipProgressStore.setDone(
                                                                 jobFolderName,
                                                                 item.id,
-                                                                clampedDone >= boards && boards > 0
+                                                                actualDone >= boards && boards > 0
                                                             )
                                                         }
+                                                    }
+                                                    fun setSheetSawTally(nextDone: Int) {
+                                                        val clampedDone = nextDone.coerceIn(0, boards)
+                                                        progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, clampedDone)
+                                                        projectSheetSawCompletion(clampedDone)
+                                                    }
+                                                    fun adjustSheetSawTally(delta: Int) {
+                                                        val actualDone = progressStore.adjustAdminBoardStockDone(
+                                                            jobFolderName,
+                                                            material,
+                                                            item.id,
+                                                            maxCount = boards,
+                                                            delta = delta
+                                                        )
+                                                        projectSheetSawCompletion(actualDone)
                                                     }
                                                     TallyStepButton(icon = Icons.Default.Remove, contentDescription = "Done -",
                                                         containerColor = statusColors.bad, enabled = !itemSkipped && done > 0,
                                                         onClick = {
-                                                            if (sheetSawTally) setSheetSawTally(done - 1)
+                                                            if (sheetSawTally) adjustSheetSawTally(delta = -1)
                                                             else progressStore.decrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards)
                                                         },
                                                         onLongClick = {
@@ -2795,7 +2808,7 @@ private fun HardwoodsBoardStockList(
                                                     TallyStepButton(icon = Icons.Default.Add, contentDescription = "Done +",
                                                         containerColor = statusColors.completeBorder, enabled = !itemSkipped && done < boards,
                                                         onClick = {
-                                                            if (sheetSawTally) setSheetSawTally(done + 1)
+                                                            if (sheetSawTally) adjustSheetSawTally(delta = 1)
                                                             else progressStore.incrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards)
                                                         },
                                                         onLongClick = {

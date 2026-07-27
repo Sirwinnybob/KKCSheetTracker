@@ -1091,20 +1091,20 @@ class HardwoodsProgressStore(
     }
 
     fun incrementAdminBoardStockDone(jobFolderName: String, material: String, itemId: String, maxCount: Int) {
-        changeAdminBoardStockDone(jobFolderName, material, itemId, maxCount, delta = 1)
+        adjustAdminBoardStockDone(jobFolderName, material, itemId, maxCount, delta = 1)
     }
 
     fun decrementAdminBoardStockDone(jobFolderName: String, material: String, itemId: String, maxCount: Int) {
-        changeAdminBoardStockDone(jobFolderName, material, itemId, maxCount, delta = -1)
+        adjustAdminBoardStockDone(jobFolderName, material, itemId, maxCount, delta = -1)
     }
 
-    private fun changeAdminBoardStockDone(
+    fun adjustAdminBoardStockDone(
         jobFolderName: String,
         material: String,
         itemId: String,
         maxCount: Int,
         delta: Int
-    ) {
+    ): Int {
         val key = makeAdminBoardStockTallyKey(material, itemId)
         changeTotalsDone(
             jobFolderName = jobFolderName,
@@ -1113,6 +1113,7 @@ class HardwoodsProgressStore(
             maxCount = maxCount,
             delta = delta
         )
+        return (getTotalsRip10DoneMap(jobFolderName)[key] ?: 0).coerceIn(0, maxCount.coerceAtLeast(0))
     }
 
     fun setAdminBoardStockSkipped(jobFolderName: String, material: String, itemId: String, skipped: Boolean) {
