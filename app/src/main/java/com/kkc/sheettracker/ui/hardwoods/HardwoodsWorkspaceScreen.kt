@@ -300,6 +300,11 @@ internal fun hardwoodsBoardStockUnitLabel(item: AdminBoardStockItem): String? =
 internal fun showsHardwoodsBoardStockTallyControls(item: AdminBoardStockItem): Boolean =
     !item.mode.equals("sheet", ignoreCase = true)
 
+internal fun isHardwoodsBoardStockMaterialSkipApplied(
+    item: AdminBoardStockItem,
+    materialSkipped: Boolean
+): Boolean = showsHardwoodsBoardStockTallyControls(item) && materialSkipped
+
 internal fun isVisibleInHardwoodsRipList(
     item: AdminBoardStockItem,
     isSawRipEntry: Boolean
@@ -2636,7 +2641,9 @@ private fun HardwoodsBoardStockList(
                                                  else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                                     val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
                                     val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
-                                    val itemSkipped = !isNoneItem && (matSkipped || ((totalsDoneMap[skipKey] ?: 0) > 0))
+                                    val materialSkipApplied = isHardwoodsBoardStockMaterialSkipApplied(item, matSkipped)
+                                    val itemSkipApplied = showsTallyControls && (totalsDoneMap[skipKey] ?: 0) > 0
+                                    val itemSkipped = !isNoneItem && (materialSkipApplied || itemSkipApplied)
                                     val done = if (itemSkipped || isNoneItem) 0
                                                else (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
                                     val rowState = when {
@@ -2651,7 +2658,7 @@ private fun HardwoodsBoardStockList(
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).heightIn(min = 36.dp),
                                         shape = RoundedCornerShape(6.dp),
                                         color = when {
-                                            matSkipped  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                            materialSkipApplied -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
                                             isNoneItem  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
                                             itemSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
                                             else        -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)

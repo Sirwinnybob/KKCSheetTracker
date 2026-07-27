@@ -170,4 +170,13 @@ class HardwoodsRowHelpersTest {
         assertFalse(showsHardwoodsBoardStockTallyControls(sheetCrown))
         assertTrue(showsHardwoodsBoardStockTallyControls(boardCrown))
     }
+
+    @Test
+    fun materialSkipState_appliesOnlyToBdFtRowsInMixedUnitMaterialGroup() {
+        val sheetCrown = AdminBoardStockItem("sheet", "Maple", "Crown", 18.0, mode = "sheet", type = "crown")
+        val boardCrown = AdminBoardStockItem("board", "Maple", "Crown", 18.0, mode = "bd_ft", type = "crown")
+
+        assertFalse(isHardwoodsBoardStockMaterialSkipApplied(sheetCrown, materialSkipped = true))
+        assertTrue(isHardwoodsBoardStockMaterialSkipApplied(boardCrown, materialSkipped = true))
+    }
 }
