@@ -454,6 +454,19 @@ class HardwoodsProgressStoreTest {
     }
 
     @Test
+    fun setAdminBoardStockDone_persistsExplicitZeroWhenCanonicalTallyIsAbsent() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val key = store.makeAdminBoardStockTallyKey("Maple Select", "item-legacy")
+        val versionBefore = store.progressVersion.value
+
+        store.setAdminBoardStockDone(jobFolderName, "Maple Select", "item-legacy", doneCount = 0)
+
+        assertEquals(0, store.getTotalsRip10DoneMap(jobFolderName)[key])
+        assertTrue(store.progressVersion.value > versionBefore)
+    }
+
+    @Test
     fun mergedFinalBoardStockSetActionsDoNotDoubleCount() {
         val baseDir = createTempBaseDir()
         writeCutlistIndex(baseDir, jobFolderName, HardwoodCutlistIndex())
@@ -928,6 +941,47 @@ class HardwoodsProgressStoreTest {
         assertEquals(2, store.adjustAdminBoardStockDone(jobFolderName, "Walnut", "item-1", maxCount = 3, delta = 1))
         assertEquals(3, store.adjustAdminBoardStockDone(jobFolderName, "Walnut", "item-1", maxCount = 3, delta = 1))
         assertEquals(3, store.getTotalsRip10DoneMap(jobFolderName)[key])
+    }
+
+    @Test
+    fun adjustAdminBoardStockDone_normalizesAboveTargetBeforeDecrement() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val key = store.makeAdminBoardStockTallyKey("Walnut", "item-above-target")
+
+        store.setAdminBoardStockDone(jobFolderName, "Walnut", "item-above-target", doneCount = 9)
+
+        val actual = store.adjustAdminBoardStockDone(
+            jobFolderName,
+            "Walnut",
+            "item-above-target",
+            maxCount = 2,
+            delta = -1
+        )
+
+        assertEquals(1, actual)
+        assertEquals(1, store.getTotalsRip10DoneMap(jobFolderName)[key])
+    }
+
+    @Test
+    fun adjustAdminBoardStockDone_decrementsFromResolvedLegacyCompletionWhenCanonicalTallyIsAbsent() {
+        val baseDir = createTempBaseDir()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        val key = store.makeAdminBoardStockTallyKey("Walnut", "item-legacy")
+        val versionBefore = store.progressVersion.value
+
+        val actual = store.adjustAdminBoardStockDone(
+            jobFolderName,
+            "Walnut",
+            "item-legacy",
+            maxCount = 3,
+            delta = -1,
+            fallbackDoneCount = 3
+        )
+
+        assertEquals(2, actual)
+        assertEquals(2, store.getTotalsRip10DoneMap(jobFolderName)[key])
+        assertTrue(store.progressVersion.value > versionBefore)
     }
 
     private fun createTempBaseDir(): File {

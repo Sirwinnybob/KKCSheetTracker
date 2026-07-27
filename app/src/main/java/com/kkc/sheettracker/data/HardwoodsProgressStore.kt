@@ -1078,8 +1078,8 @@ class HardwoodsProgressStore(
     fun setAdminBoardStockDone(jobFolderName: String, material: String, itemId: String, doneCount: Int) {
         val key = makeAdminBoardStockTallyKey(material, itemId)
         val normalizedTarget = doneCount.coerceAtLeast(0)
-        val current = getTotalsRip10DoneMap(jobFolderName)[key] ?: 0
-        if (current == normalizedTarget) return
+        val current = getTotalsRip10DoneMap(jobFolderName)[key]
+        if (current != null && current == normalizedTarget) return
         appendAction(
             jobFolderName = jobFolderName,
             docType = "BOARD_STOCK",
@@ -1103,7 +1103,8 @@ class HardwoodsProgressStore(
         material: String,
         itemId: String,
         maxCount: Int,
-        delta: Int
+        delta: Int,
+        fallbackDoneCount: Int = 0
     ): Int {
         val key = makeAdminBoardStockTallyKey(material, itemId)
         changeTotalsDone(
@@ -1111,9 +1112,11 @@ class HardwoodsProgressStore(
             docType = "BOARD_STOCK",
             totalsKey = key,
             maxCount = maxCount,
-            delta = delta
+            delta = delta,
+            fallbackDoneCount = fallbackDoneCount
         )
-        return (getTotalsRip10DoneMap(jobFolderName)[key] ?: 0).coerceIn(0, maxCount.coerceAtLeast(0))
+        return (getTotalsRip10DoneMap(jobFolderName)[key] ?: fallbackDoneCount)
+            .coerceIn(0, maxCount.coerceAtLeast(0))
     }
 
     fun setAdminBoardStockSkipped(jobFolderName: String, material: String, itemId: String, skipped: Boolean) {
@@ -1132,7 +1135,8 @@ class HardwoodsProgressStore(
         docType: String,
         totalsKey: String,
         maxCount: Int,
-        delta: Int
+        delta: Int,
+        fallbackDoneCount: Int = 0
     ) {
         val clampedMax = maxCount.coerceAtLeast(0)
         appendComputedAction(
@@ -1142,7 +1146,8 @@ class HardwoodsProgressStore(
             totalsKey = totalsKey,
             action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT
         ) { cache ->
-            val current = cache.totalsRip10Map[totalsKey] ?: 0
+            val current = (cache.totalsRip10Map[totalsKey] ?: fallbackDoneCount)
+                .coerceIn(0, clampedMax)
             val next = (current + delta).coerceIn(0, clampedMax)
             next.takeIf { it != current }
         }

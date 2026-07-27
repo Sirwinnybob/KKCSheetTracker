@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 class SpecialtyStateStore(
@@ -105,20 +106,36 @@ class SpecialtyStateStore(
         item: AdminBoardStockItem,
         target: Int,
         completed: Boolean
-    ) = withContext(ioDispatcher) {
-        val done = if (completed) target.coerceAtLeast(0) else 0
-        hardwoodsProgressStore.setAdminBoardStockDone(jobFolderName, item.material, item.id, done)
-        sheetRipProgressStore.setDone(jobFolderName, item.id, completed && target > 0)
-        _sheetRipDoneVersion.value++
+    ) {
+        val projectionRevision = sheetRipProgressStore.nextProjectionRevision(jobFolderName, item.id)
+        withContext(ioDispatcher) {
+            val done = if (completed) target.coerceAtLeast(0) else 0
+            hardwoodsProgressStore.setAdminBoardStockDone(jobFolderName, item.material, item.id, done)
+            sheetRipProgressStore.setDone(
+                jobFolderName,
+                item.id,
+                completed && target > 0,
+                projectionRevision = projectionRevision
+            )
+            _sheetRipDoneVersion.update { it + 1L }
+        }
     }
 
     suspend fun setSheetRipDone(
         jobFolderName: String,
         itemId: String,
         done: Boolean
-    ) = withContext(ioDispatcher) {
-        sheetRipProgressStore.setDone(jobFolderName, itemId, done)
-        _sheetRipDoneVersion.value = _sheetRipDoneVersion.value + 1L
+    ) {
+        val projectionRevision = sheetRipProgressStore.nextProjectionRevision(jobFolderName, itemId)
+        withContext(ioDispatcher) {
+            sheetRipProgressStore.setDone(
+                jobFolderName,
+                itemId,
+                done,
+                projectionRevision = projectionRevision
+            )
+            _sheetRipDoneVersion.update { it + 1L }
+        }
     }
 
     fun getJobs(): List<SpecialtyJob> {

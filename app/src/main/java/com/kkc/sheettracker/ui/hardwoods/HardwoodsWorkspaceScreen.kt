@@ -2790,7 +2790,8 @@ private fun HardwoodsBoardStockList(
                                                             material,
                                                             item.id,
                                                             maxCount = boards,
-                                                            delta = delta
+                                                            delta = delta,
+                                                            fallbackDoneCount = sheetTallyState?.done ?: 0
                                                         )
                                                         projectSheetSawCompletion(actualDone)
                                                     }

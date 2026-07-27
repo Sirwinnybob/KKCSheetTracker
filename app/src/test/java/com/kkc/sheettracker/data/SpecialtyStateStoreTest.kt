@@ -37,14 +37,75 @@ class SpecialtyStateStoreTest {
             baseDir = baseDir
         )
         val item = AdminBoardStockItem("sheet-crown", "Maple", "Crown", 18.0, mode = "sheet")
+        val versionBefore = stateStore.sheetRipDoneVersion.value
 
         stateStore.setSheetRipCompletion(jobFolderName, item, target = 2, completed = true)
         assertEquals(2, stateStore.getSheetRipStoredDoneCount(jobFolderName, item))
         assertTrue(sheetRipStore.loadDone(jobFolderName)[item.id] == true)
+        assertEquals(versionBefore + 1L, stateStore.sheetRipDoneVersion.value)
 
         stateStore.setSheetRipCompletion(jobFolderName, item, target = 2, completed = false)
         assertEquals(0, stateStore.getSheetRipStoredDoneCount(jobFolderName, item))
-        assertFalse(sheetRipStore.loadDone(jobFolderName)[item.id] == true)
+        val clearedDoneMap = sheetRipStore.loadDone(jobFolderName)
+        assertTrue(clearedDoneMap.containsKey(item.id))
+        assertEquals(false, clearedDoneMap[item.id])
+        assertEquals(versionBefore + 2L, stateStore.sheetRipDoneVersion.value)
+    }
+
+    @Test
+    fun setSheetRipCompletion_clearsLegacyOnlyCompletionWithExplicitCanonicalZero() = runBlocking {
+        val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
+        val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val sheetRipStore = SheetRipProgressStore(baseDir = baseDir)
+        val hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val stateStore = SpecialtyStateStore(
+            specialtyScanCoordinator = SpecialtyScanCoordinator(
+                SpecialtyRepository(baseDir = baseDir, progressStore = progressStore)
+            ),
+            specialtyProgressStore = progressStore,
+            hardwoodsProgressStore = hardwoodsProgressStore,
+            sheetRipProgressStore = sheetRipStore,
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
+        )
+        val item = AdminBoardStockItem("sheet-crown", "Maple", "Crown", 18.0, mode = "sheet")
+        sheetRipStore.setDone(jobFolderName, item.id, true)
+
+        stateStore.setSheetRipCompletion(jobFolderName, item, target = 2, completed = false)
+
+        assertEquals(0, stateStore.getSheetRipStoredDoneCount(jobFolderName, item))
+        val doneMap = sheetRipStore.loadDone(jobFolderName)
+        assertTrue(doneMap.containsKey(item.id))
+        assertEquals(false, doneMap[item.id])
+    }
+
+    @Test
+    fun setSheetRipCompletion_rejectsOlderQueuedHardwoodProjection() = runBlocking {
+        val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
+        val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val sheetRipStore = SheetRipProgressStore(baseDir = baseDir)
+        val stateStore = SpecialtyStateStore(
+            specialtyScanCoordinator = SpecialtyScanCoordinator(
+                SpecialtyRepository(baseDir = baseDir, progressStore = progressStore)
+            ),
+            specialtyProgressStore = progressStore,
+            hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local"),
+            sheetRipProgressStore = sheetRipStore,
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
+        )
+        val item = AdminBoardStockItem("sheet-crown", "Maple", "Crown", 18.0, mode = "sheet")
+        val olderHardwoodRevision = sheetRipStore.nextProjectionRevision(jobFolderName, item.id)
+
+        stateStore.setSheetRipCompletion(jobFolderName, item, target = 2, completed = false)
+        sheetRipStore.setDone(
+            jobFolderName,
+            item.id,
+            done = true,
+            projectionRevision = olderHardwoodRevision
+        )
+
+        assertEquals(false, sheetRipStore.loadDone(jobFolderName)[item.id])
     }
 
     @Test

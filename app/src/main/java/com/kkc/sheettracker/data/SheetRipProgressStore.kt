@@ -27,6 +27,16 @@ class SheetRipProgressStore(
     fun nextProjectionRevision(jobFolderName: String, itemId: String): Long =
         nextProjectionRevisionByItem.getOrPut(projectionKey(jobFolderName, itemId)) { AtomicLong() }.incrementAndGet()
 
+    private fun registerProjectionRevision(key: String, requestedRevision: Long?): Long {
+        val counter = nextProjectionRevisionByItem.getOrPut(key) { AtomicLong() }
+        if (requestedRevision == null) return counter.incrementAndGet()
+        while (true) {
+            val current = counter.get()
+            if (requestedRevision <= current) return requestedRevision
+            if (counter.compareAndSet(current, requestedRevision)) return requestedRevision
+        }
+    }
+
     private fun sheetRipFile(jobFolderName: String): File {
         return File(baseDir, "$jobFolderName/.metadata/admin/sheet_rip_done.json")
     }
@@ -47,14 +57,13 @@ class SheetRipProgressStore(
         projectionRevision: Long? = null
     ) {
         if (itemId.isBlank()) return
+        val projectionKey = projectionKey(jobFolderName, itemId)
+        val effectiveRevision = registerProjectionRevision(projectionKey, projectionRevision)
         val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         mutex.withLock {
-            val projectionKey = projectionKey(jobFolderName, itemId)
-            if (projectionRevision != null) {
-                val latestRevision = latestProjectionRevisionByItem[projectionKey]
-                if (latestRevision != null && projectionRevision < latestRevision) return
-                latestProjectionRevisionByItem[projectionKey] = projectionRevision
-            }
+            val latestRevision = latestProjectionRevisionByItem[projectionKey]
+            if (latestRevision != null && effectiveRevision < latestRevision) return
+            latestProjectionRevisionByItem[projectionKey] = effectiveRevision
             val current = loadDone(jobFolderName).toMutableMap()
             current[itemId] = done
             val body = gson.toJson(current)

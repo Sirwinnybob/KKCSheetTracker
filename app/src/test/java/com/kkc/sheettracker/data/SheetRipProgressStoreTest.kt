@@ -32,13 +32,15 @@ class SheetRipProgressStoreTest {
         val doneMap = store.loadDone(jobFolderName)
         assertEquals(3, doneMap.size)
         assertTrue(doneMap["item-1"] == true)
-        assertFalse(doneMap["item-2"] == true)
+        assertTrue(doneMap.containsKey("item-2"))
+        assertEquals(false, doneMap["item-2"])
         assertTrue(doneMap["item-3"] == true)
 
         // Overwrite item-1
         store.setDone(jobFolderName, "item-1", false)
         val updatedMap = store.loadDone(jobFolderName)
-        assertFalse(updatedMap["item-1"] == true)
+        assertTrue(updatedMap.containsKey("item-1"))
+        assertEquals(false, updatedMap["item-1"])
     }
 
     @Test
@@ -50,6 +52,6 @@ class SheetRipProgressStoreTest {
         store.setDone(jobFolderName, "item-1", false, projectionRevision = 2)
         store.setDone(jobFolderName, "item-1", true, projectionRevision = 1)
 
-        assertFalse(store.loadDone(jobFolderName)["item-1"] == true)
+        assertEquals(false, store.loadDone(jobFolderName)["item-1"])
     }
 }
