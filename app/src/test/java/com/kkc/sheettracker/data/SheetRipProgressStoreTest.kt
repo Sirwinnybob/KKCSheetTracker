@@ -40,4 +40,16 @@ class SheetRipProgressStoreTest {
         val updatedMap = store.loadDone(jobFolderName)
         assertFalse(updatedMap["item-1"] == true)
     }
+
+    @Test
+    fun setDone_rejectsLateCompletionAfterNewerDecrementProjection() = runBlocking {
+        val baseDir = Files.createTempDirectory("sheet-rip-test").toFile()
+        val store = SheetRipProgressStore(baseDir)
+
+        store.setDone(jobFolderName, "item-1", true, projectionRevision = 1)
+        store.setDone(jobFolderName, "item-1", false, projectionRevision = 2)
+        store.setDone(jobFolderName, "item-1", true, projectionRevision = 1)
+
+        assertFalse(store.loadDone(jobFolderName)["item-1"] == true)
+    }
 }

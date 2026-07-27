@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -18,6 +19,13 @@ class SheetRipProgressStore(
 ) {
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val writeMutexByJob = ConcurrentHashMap<String, Mutex>()
+    private val latestProjectionRevisionByItem = ConcurrentHashMap<String, Long>()
+    private val nextProjectionRevisionByItem = ConcurrentHashMap<String, AtomicLong>()
+
+    private fun projectionKey(jobFolderName: String, itemId: String): String = "$jobFolderName|$itemId"
+
+    fun nextProjectionRevision(jobFolderName: String, itemId: String): Long =
+        nextProjectionRevisionByItem.getOrPut(projectionKey(jobFolderName, itemId)) { AtomicLong() }.incrementAndGet()
 
     private fun sheetRipFile(jobFolderName: String): File {
         return File(baseDir, "$jobFolderName/.metadata/admin/sheet_rip_done.json")
@@ -32,10 +40,21 @@ class SheetRipProgressStore(
         }.getOrElse { emptyMap() }
     }
 
-    suspend fun setDone(jobFolderName: String, itemId: String, done: Boolean) {
+    suspend fun setDone(
+        jobFolderName: String,
+        itemId: String,
+        done: Boolean,
+        projectionRevision: Long? = null
+    ) {
         if (itemId.isBlank()) return
         val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         mutex.withLock {
+            val projectionKey = projectionKey(jobFolderName, itemId)
+            if (projectionRevision != null) {
+                val latestRevision = latestProjectionRevisionByItem[projectionKey]
+                if (latestRevision != null && projectionRevision < latestRevision) return
+                latestProjectionRevisionByItem[projectionKey] = projectionRevision
+            }
             val current = loadDone(jobFolderName).toMutableMap()
             current[itemId] = done
             val body = gson.toJson(current)

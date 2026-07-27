@@ -2769,11 +2769,13 @@ private fun HardwoodsBoardStockList(
                                                     }
                                                 } else if (showsTallyControls) {
                                                     fun projectSheetSawCompletion(actualDone: Int) {
+                                                        val projectionRevision = sheetRipProgressStore.nextProjectionRevision(jobFolderName, item.id)
                                                         scope.launch(Dispatchers.IO) {
                                                             sheetRipProgressStore.setDone(
                                                                 jobFolderName,
                                                                 item.id,
-                                                                actualDone >= boards && boards > 0
+                                                                actualDone >= boards && boards > 0,
+                                                                projectionRevision = projectionRevision
                                                             )
                                                         }
                                                     }
