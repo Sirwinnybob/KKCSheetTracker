@@ -167,8 +167,8 @@ class HardwoodsRowHelpersTest {
         assertTrue(isVisibleInHardwoodsRipList(boardCrown, isSawRipEntry = false))
         assertEquals("Sheet", hardwoodsBoardStockUnitLabel(sheetCrown))
         assertEquals("BD FT", hardwoodsBoardStockUnitLabel(boardCrown))
-        assertFalse(showsHardwoodsBoardStockTallyControls(sheetCrown))
-        assertTrue(showsHardwoodsBoardStockTallyControls(boardCrown))
+        assertFalse(showsHardwoodsBoardStockTallyControls(sheetCrown, isSawRipEntry = false))
+        assertTrue(showsHardwoodsBoardStockTallyControls(boardCrown, isSawRipEntry = false))
     }
 
     @Test
@@ -188,6 +188,21 @@ class HardwoodsRowHelpersTest {
         assertFalse(hardwoodsEffectiveMaterialSkipped(listOf(sheetCrown), materialSkipped = true))
         assertTrue(hardwoodsEffectiveMaterialSkipped(listOf(boardCrown), materialSkipped = true))
         assertTrue(hardwoodsEffectiveMaterialSkipped(listOf(sheetCrown, boardCrown), materialSkipped = true))
+    }
+
+    @Test
+    fun sheetTallyAndSkipPolicies_areModeAndRouteAware() {
+        val sheetCrown = AdminBoardStockItem("sheet", "Maple", "Crown", 12.0, mode = "sHeEt", type = "crown")
+        val boardCrown = AdminBoardStockItem("board", "Maple", "Crown", 18.0, mode = "bd_ft", type = "crown")
+
+        assertTrue(showsHardwoodsBoardStockTallyControls(sheetCrown, isSawRipEntry = true))
+        assertFalse(showsHardwoodsBoardStockTallyControls(sheetCrown, isSawRipEntry = false))
+        assertTrue(showsHardwoodsBoardStockTallyControls(boardCrown, isSawRipEntry = false))
+        assertFalse(allowsHardwoodsBoardStockSkip(sheetCrown))
+        assertTrue(allowsHardwoodsBoardStockSkip(boardCrown))
+        assertEquals("Need 2 x 9 ft boards · 12 ft", hardwoodsBoardStockRequirementLabel(2, 9, 12.0))
+        assertEquals("Need 2 x 12 ft boards · 18 ft", hardwoodsBoardStockRequirementLabel(2, 12, 18.0))
+        assertFalse(hardwoodsEffectiveMaterialSkipped(listOf(sheetCrown), materialSkipped = true))
     }
 
     @Test

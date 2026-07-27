@@ -135,9 +135,11 @@ import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.PdfMarkupStore
+import com.kkc.sheettracker.data.SheetRipProgressStore
 import com.kkc.sheettracker.data.filterDoorCutRowsToSheets
 import com.kkc.sheettracker.data.loadHardwoodsCutlistIndexRawJson
 import com.kkc.sheettracker.data.parseDoorCutUnitTypeMetadata
+import com.kkc.sheettracker.data.resolveSheetRipTallyState
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
@@ -294,18 +296,26 @@ internal fun hardwoodsBoardStockUnitLabel(item: AdminBoardStockItem): String? =
     else if (item.mode.equals("sheet", ignoreCase = true)) "Sheet"
     else "BD FT"
 
-internal fun showsHardwoodsBoardStockTallyControls(item: AdminBoardStockItem): Boolean =
+internal fun showsHardwoodsBoardStockTallyControls(
+    item: AdminBoardStockItem,
+    isSawRipEntry: Boolean
+): Boolean = !item.mode.equals("sheet", ignoreCase = true) || isSawRipEntry
+
+internal fun allowsHardwoodsBoardStockSkip(item: AdminBoardStockItem): Boolean =
     !item.mode.equals("sheet", ignoreCase = true)
+
+internal fun hardwoodsBoardStockRequirementLabel(boards: Int, ripLength: Int, feet: Double): String =
+    "Need $boards x $ripLength ft boards · ${feet.toInt()} ft"
 
 internal fun hardwoodsEffectiveMaterialSkipped(
     items: List<AdminBoardStockItem>,
     materialSkipped: Boolean
-): Boolean = materialSkipped && items.any(::showsHardwoodsBoardStockTallyControls)
+): Boolean = materialSkipped && items.any(::allowsHardwoodsBoardStockSkip)
 
 internal fun isHardwoodsBoardStockMaterialSkipApplied(
     item: AdminBoardStockItem,
     materialSkipped: Boolean
-): Boolean = showsHardwoodsBoardStockTallyControls(item) && materialSkipped
+): Boolean = allowsHardwoodsBoardStockSkip(item) && materialSkipped
 
 internal fun isVisibleInHardwoodsRipList(
     item: AdminBoardStockItem,
@@ -334,6 +344,7 @@ fun HardwoodsWorkspaceScreen(
     scanCoordinator: HardwoodsScanCoordinator,
     hardwoodsRepository: HardwoodsRepository,
     hardwoodsProgressStore: HardwoodsProgressStore,
+    sheetRipProgressStore: SheetRipProgressStore,
     jobRepository: JobRepository,
     jobFolderName: String,
     initialDocType: HardwoodDocType,
@@ -358,6 +369,13 @@ fun HardwoodsWorkspaceScreen(
     val prefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by hardwoodsProgressStore.progressVersion.collectAsState()
+    val sheetRipDone by produceState(
+        initialValue = emptyMap<String, Boolean>(),
+        jobFolderName,
+        progressVersion
+    ) {
+        value = withContext(Dispatchers.IO) { sheetRipProgressStore.loadDone(jobFolderName) }
+    }
     val snackbar = remember { SnackbarHostState() }
     val statusColors = KKCThemeColors.statusColors
 
@@ -1373,6 +1391,9 @@ fun HardwoodsWorkspaceScreen(
                         adminItems = adminBoardStock,
                         jobFolderName = jobFolderName,
                         progressStore = hardwoodsProgressStore,
+                        sheetRipProgressStore = sheetRipProgressStore,
+                        sheetRipDone = sheetRipDone,
+                        isSawRipEntry = isSawRipEntry,
                         totalsDoneMap = totalsDoneMap,
                         hideSections = isSawRipEntry,
                         sectionTitle = if (isSawRipEntry) "Rip List" else "Board Stock",
@@ -2465,6 +2486,9 @@ private fun HardwoodsBoardStockList(
     sections: List<BoardStockSourceSection>,
     jobFolderName: String,
     progressStore: HardwoodsProgressStore,
+    sheetRipProgressStore: SheetRipProgressStore,
+    sheetRipDone: Map<String, Boolean>,
+    isSawRipEntry: Boolean,
     totalsDoneMap: Map<String, Int>,
     modifier: Modifier = Modifier,
     adminItems: List<AdminBoardStockItem> = emptyList(),
@@ -2474,6 +2498,7 @@ private fun HardwoodsBoardStockList(
     selectedSource: BoardStockSource? = null
 ) {
     val statusColors = KKCThemeColors.statusColors
+    val scope = rememberCoroutineScope()
 
     // Filter sections by selected source
     val sectionsToShow = if (selectedSource != null) {
@@ -2560,18 +2585,28 @@ private fun HardwoodsBoardStockList(
                 val storedMaterialSkipped = progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, material)
                 val materialSkipped = hardwoodsEffectiveMaterialSkipped(groupItems, storedMaterialSkipped)
                 val matTarget = if (materialSkipped) 0 else groupItems.sumOf { item ->
-                    if (!showsHardwoodsBoardStockTallyControls(item)) return@sumOf 0
+                    if (!showsHardwoodsBoardStockTallyControls(item, isSawRipEntry)) return@sumOf 0
                     if (item.feet == null) return@sumOf 0
-                    val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
+                    val itemSkipped = allowsHardwoodsBoardStockSkip(item) &&
+                        (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
                     if (itemSkipped) 0 else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                 }
                 val matDone = if (materialSkipped) 0 else groupItems.sumOf { item ->
-                    if (!showsHardwoodsBoardStockTallyControls(item)) return@sumOf 0
+                    if (!showsHardwoodsBoardStockTallyControls(item, isSawRipEntry)) return@sumOf 0
                     if (item.feet == null) return@sumOf 0
                     val boards = kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
-                    val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
+                    val itemSkipped = allowsHardwoodsBoardStockSkip(item) &&
+                        (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
                     if (itemSkipped) 0
-                    else (totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(material, item.id)] ?: 0).coerceIn(0, boards)
+                    else if (item.mode.equals("sheet", ignoreCase = true) && isSawRipEntry) {
+                        resolveSheetRipTallyState(
+                            totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(material, item.id)],
+                            sheetRipDone[item.id] == true,
+                            boards
+                        ).done
+                    } else {
+                        (totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(material, item.id)] ?: 0).coerceIn(0, boards)
+                    }
                 }
                 val matExpanded = adminMatKey in expandedMaterialSections
                 stickyHeader(key = "admin-mat-header:$material") {
@@ -2597,7 +2632,7 @@ private fun HardwoodsBoardStockList(
                                 }
                             },
                             headerActions = {
-                                if (groupItems.any(::showsHardwoodsBoardStockTallyControls)) {
+                                if (groupItems.any(::allowsHardwoodsBoardStockSkip)) {
                                     MaterialSkipPill(
                                         skipped = materialSkipped,
                                         onClick = {
@@ -2639,16 +2674,26 @@ private fun HardwoodsBoardStockList(
                             ) {
                                     @Suppress("NAME_SHADOWING")
                                     val isNoneItem = item.feet == null
-                                    val showsTallyControls = showsHardwoodsBoardStockTallyControls(item)
+                                    val showsTallyControls = showsHardwoodsBoardStockTallyControls(item, isSawRipEntry)
+                                    val allowsSkip = allowsHardwoodsBoardStockSkip(item)
                                     val boards = if (isNoneItem) 0
                                                  else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                                     val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
                                     val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
                                     val materialSkipApplied = isHardwoodsBoardStockMaterialSkipApplied(item, materialSkipped)
-                                    val itemSkipApplied = showsTallyControls && (totalsDoneMap[skipKey] ?: 0) > 0
+                                    val itemSkipApplied = allowsSkip && (totalsDoneMap[skipKey] ?: 0) > 0
                                     val itemSkipped = !isNoneItem && (materialSkipApplied || itemSkipApplied)
+                                    val sheetSawTally = item.mode.equals("sheet", ignoreCase = true) && isSawRipEntry
+                                    val sheetTallyState = if (sheetSawTally) {
+                                        resolveSheetRipTallyState(
+                                            totalsDoneMap[tallyKey],
+                                            sheetRipDone[item.id] == true,
+                                            boards
+                                        )
+                                    } else null
                                     val done = if (itemSkipped || isNoneItem) 0
-                                               else (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
+                                               else sheetTallyState?.done
+                                                   ?: (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
                                     val rowState = when {
                                         isNoneItem   -> ProgressState.SKIPPED
                                         itemSkipped  -> ProgressState.SKIPPED
@@ -2705,7 +2750,7 @@ private fun HardwoodsBoardStockList(
                                                             style = MaterialTheme.typography.labelSmall,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
                                                     } else {
-                                                        Text("Need $boards boards  ·  ${item.feet.toInt()} ft",
+                                                        Text(hardwoodsBoardStockRequirementLabel(boards, item.ripLength, item.feet),
                                                             style = MaterialTheme.typography.labelSmall,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                     }
@@ -2723,17 +2768,42 @@ private fun HardwoodsBoardStockList(
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                     }
                                                 } else if (showsTallyControls) {
+                                                    fun setSheetSawTally(nextDone: Int) {
+                                                        val clampedDone = nextDone.coerceIn(0, boards)
+                                                        progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, clampedDone)
+                                                        scope.launch {
+                                                            sheetRipProgressStore.setDone(
+                                                                jobFolderName,
+                                                                item.id,
+                                                                clampedDone >= boards && boards > 0
+                                                            )
+                                                        }
+                                                    }
                                                     TallyStepButton(icon = Icons.Default.Remove, contentDescription = "Done -",
                                                         containerColor = statusColors.bad, enabled = !itemSkipped && done > 0,
-                                                        onClick = { progressStore.decrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards) },
-                                                        onLongClick = { progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = 0); true })
+                                                        onClick = {
+                                                            if (sheetSawTally) setSheetSawTally(done - 1)
+                                                            else progressStore.decrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards)
+                                                        },
+                                                        onLongClick = {
+                                                            if (sheetSawTally) setSheetSawTally(0)
+                                                            else progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = 0)
+                                                            true
+                                                        })
                                                     ProgressPill(done = done, total = boards, state = rowState,
                                                         skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f))
                                                     TallyStepButton(icon = Icons.Default.Add, contentDescription = "Done +",
                                                         containerColor = statusColors.completeBorder, enabled = !itemSkipped && done < boards,
-                                                        onClick = { progressStore.incrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards) },
-                                                        onLongClick = { progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = boards); true })
-                                                    if (!materialSkipped) {
+                                                        onClick = {
+                                                            if (sheetSawTally) setSheetSawTally(done + 1)
+                                                            else progressStore.incrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards)
+                                                        },
+                                                        onLongClick = {
+                                                            if (sheetSawTally) setSheetSawTally(boards)
+                                                            else progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = boards)
+                                                            true
+                                                        })
+                                                    if (allowsSkip && !materialSkipped) {
                                                         if (itemSkipped) {
                                                             Button(onClick = { progressStore.setAdminBoardStockSkipped(jobFolderName, material, item.id, false) },
                                                                 colors = ButtonDefaults.buttonColors(containerColor = statusColors.skipBorder, contentColor = Color.White),
