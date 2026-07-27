@@ -17,7 +17,9 @@ private val Context.adminSyncDataStore: DataStore<Preferences> by preferencesDat
     name = "admin_sync_config"
 )
 
-private const val ADMIN_SYNC_PORT = 5002
+// Hours Tracker's Docker container listens on 5002 internally but publishes the service on
+// 47821 for LAN clients (docker-compose.yml: `47821:5002`).
+private const val ADMIN_SYNC_PORT = 47821
 private const val DEFAULT_ADMIN_SYNC_IP = "192.168.1.15"
 
 private object AdminSyncConfigKeys {
@@ -57,7 +59,7 @@ class AdminSyncConfig(private val dataStore: DataStore<Preferences>) {
         }
     }
 
-    /** Returns "http://<ip>:5002", or null if no IP has been configured yet. */
+    /** Returns "http://<ip>:47821", or null if no IP has been configured yet. */
     suspend fun getServerUrl(): String? = buildAdminSyncUrl(getManualIp())
 
     companion object {

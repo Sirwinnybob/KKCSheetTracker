@@ -8,12 +8,12 @@ class AdminSyncConfigTest {
 
     @Test
     fun `builds url from a plain ip`() {
-        assertEquals("http://192.168.1.20:5002", buildAdminSyncUrl("192.168.1.20"))
+        assertEquals("http://192.168.1.20:47821", buildAdminSyncUrl("192.168.1.20"))
     }
 
     @Test
     fun `trims whitespace around the ip`() {
-        assertEquals("http://192.168.1.20:5002", buildAdminSyncUrl("  192.168.1.20  "))
+        assertEquals("http://192.168.1.20:47821", buildAdminSyncUrl("  192.168.1.20  "))
     }
 
     @Test

@@ -1,6 +1,9 @@
 package com.kkc.sheettracker.ui.hardwoods
 
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
+import com.kkc.sheettracker.data.models.AdminBoardStockItem
+import com.kkc.sheettracker.data.models.BoardStockRow
+import com.kkc.sheettracker.data.models.BoardStockSource
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import androidx.compose.ui.unit.dp
@@ -94,5 +97,62 @@ class HardwoodsRowHelpersTest {
     @Test
     fun hardwoodsTallyButtonSize_staysCompactInsideListRows() {
         assertEquals(32.dp, hardwoodsTallyButtonSize())
+    }
+
+    @Test
+    fun hardwoodsLazyRowEntries_keepEveryLargeSectionRowAsItsOwnListEntry() {
+        val rows = (1..95).map { index -> HardwoodCutlistRow(rowId = "ROW-$index") }
+
+        val entries = hardwoodsLazyRowEntries(
+            docTypeName = "FACE_FRAME_CUT_LIST",
+            sectionKey = "3/4 Solid White Oak",
+            rows = rows
+        )
+
+        assertEquals(95, entries.size)
+        assertEquals(95, entries.map { it.key }.toSet().size)
+        assertEquals(rows, entries.map { it.row })
+    }
+
+    @Test
+    fun boardStockLazyRowEntries_keepEvery95RowMaterialGroupAsItsOwnListEntry() {
+        val rows = (1..95).map { index ->
+            BoardStockRow(
+                stableKey = "RIP-$index",
+                material = "White Oak",
+                source = BoardStockSource.FRAME
+            )
+        }
+
+        val entries = boardStockLazyRowEntries(
+            sourceKey = "FRAME",
+            material = "White Oak",
+            rows = rows
+        )
+
+        assertEquals(95, entries.size)
+        assertEquals(95, entries.map { it.key }.toSet().size)
+        assertEquals(rows, entries.map { it.row })
+    }
+
+    @Test
+    fun adminBoardStockLazyRowEntries_keepEvery95RowMaterialGroupAsItsOwnListEntry() {
+        val items = (1..95).map { index ->
+            AdminBoardStockItem(
+                id = "ADMIN-$index",
+                material = "White Oak",
+                name = "Part $index",
+                feet = 10.0
+            )
+        }
+
+        val entries = adminBoardStockLazyRowEntries(
+            material = "White Oak",
+            items = items
+        )
+
+        assertEquals(95, entries.size)
+        assertEquals(95, entries.map { it.key }.toSet().size)
+        assertEquals(items, entries.map { it.item })
     }
 }

@@ -187,6 +187,23 @@ private data class HardwoodsPartSection(
     val rows: List<HardwoodCutlistRow>
 )
 
+internal data class HardwoodsLazyRowEntry(
+    val key: String,
+    val row: HardwoodCutlistRow
+)
+
+internal data class BoardStockLazyRowEntry(
+    val key: String,
+    val row: BoardStockRow,
+    val isLast: Boolean
+)
+
+internal data class AdminBoardStockLazyRowEntry(
+    val key: String,
+    val item: AdminBoardStockItem,
+    val isLast: Boolean
+)
+
 private data class HardwoodsRowUiModel(
     val row: HardwoodCutlistRow,
     val normalizedCabs: List<String>,
@@ -233,6 +250,40 @@ internal fun hardwoodsTallyHoldTarget(
 internal fun hardwoodsListBottomScrollPadding() = 200.dp
 
 internal fun hardwoodsTallyButtonSize() = 32.dp
+
+internal fun hardwoodsLazyRowEntries(
+    docTypeName: String,
+    sectionKey: String,
+    rows: List<HardwoodCutlistRow>
+): List<HardwoodsLazyRowEntry> = rows.map { row ->
+    HardwoodsLazyRowEntry(
+        key = "$docTypeName|$sectionKey|${row.rowId}",
+        row = row
+    )
+}
+
+internal fun boardStockLazyRowEntries(
+    sourceKey: String,
+    material: String,
+    rows: List<BoardStockRow>
+): List<BoardStockLazyRowEntry> = rows.mapIndexed { index, row ->
+    BoardStockLazyRowEntry(
+        key = "rip-row:$sourceKey:$material:${row.stableKey.ifBlank { index.toString() }}",
+        row = row,
+        isLast = index == rows.lastIndex
+    )
+}
+
+internal fun adminBoardStockLazyRowEntries(
+    material: String,
+    items: List<AdminBoardStockItem>
+): List<AdminBoardStockLazyRowEntry> = items.mapIndexed { index, item ->
+    AdminBoardStockLazyRowEntry(
+        key = "admin-rip-row:$material:${item.id}",
+        item = item,
+        isLast = index == items.lastIndex
+    )
+}
 
 private data class HardwoodsProgressBundle(
     val rowProgressMap: Map<Pair<String, String>, HardwoodRowProgress> = emptyMap(),
@@ -1468,111 +1519,97 @@ fun HardwoodsWorkspaceScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                            item(key = "part-section-box:${selectedDoc.docType.name}:$sectionKey") {
+                            val sectionEntries = hardwoodsLazyRowEntries(
+                                docTypeName = selectedDoc.docType.name,
+                                sectionKey = sectionKey,
+                                rows = sectionRows
+                            )
+                            items(items = sectionEntries, key = { it.key }) { entry ->
                                 AnimatedVisibility(
                                     visible = !isCollapsed,
                                     enter = expandVertically() + fadeIn(),
                                     exit = shrinkVertically() + fadeOut()
                                 ) {
-                                    val isDark = isSystemInDarkTheme()
-                                    val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
-                                    Surface(
-                                        shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
-                                        color = backdropColor,
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-                                        shadowElevation = 2.dp,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 0.dp, bottom = 6.dp)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(6.dp),
-                                            verticalArrangement = Arrangement.spacedBy(0.dp)
-                                        ) {
-                                            sectionRows.forEach { row ->
-                                                val rowUi = rowDisplayMap[row.rowId] ?: return@forEach
-                                                val progress = rowProgressMap[selectedDoc.docType.name to row.rowId] ?: HardwoodRowProgress()
-                                                val qty = row.qty.coerceAtLeast(0)
-                                                val skippedCabs = skippedCabinetMap[selectedDoc.docType.name to row.rowId].orEmpty()
-                                                val isHighlighted = highlightedRowId == row.rowId
-                                                val widthBand = widthColorBands[rowUi.widthKey] ?: statusColors.notStarted
-                                                val onIncrement = remember(row.rowId, qty, progress.doneCount, selectedDoc.docType.name, jobFolderName) {
-                                                    {
-                                                        hardwoodsProgressStore.incrementDoneCount(
-                                                            jobFolderName = jobFolderName,
-                                                            docType = selectedDoc.docType.name,
-                                                            rowId = row.rowId,
-                                                            qty = qty
-                                                        )
-                                                    }
-                                                }
-                                                val onDecrement = remember(row.rowId, qty, progress.doneCount, selectedDoc.docType.name, jobFolderName) {
-                                                    {
-                                                        hardwoodsProgressStore.decrementDoneCount(
-                                                            jobFolderName = jobFolderName,
-                                                            docType = selectedDoc.docType.name,
-                                                            rowId = row.rowId,
-                                                            qty = qty
-                                                        )
-                                                    }
-                                                }
-                                                val onComplete = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
-                                                    {
-                                                        hardwoodsProgressStore.setDoneCount(
-                                                            jobFolderName = jobFolderName,
-                                                            docType = selectedDoc.docType.name,
-                                                            rowId = row.rowId,
-                                                            qty = qty,
-                                                            doneCount = qty
-                                                        )
-                                                    }
-                                                }
-                                                val onZero = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
-                                                    {
-                                                        hardwoodsProgressStore.setDoneCount(
-                                                            jobFolderName = jobFolderName,
-                                                            docType = selectedDoc.docType.name,
-                                                            rowId = row.rowId,
-                                                            qty = qty,
-                                                            doneCount = 0
-                                                        )
-                                                    }
-                                                }
-                                                val onSkipToggle = remember(row.rowId, progress.skipped, rowUi.isMultiCab, selectedDoc.docType.name, jobFolderName) {
-                                                    {
-                                                        if (rowUi.isMultiCab) {
-                                                            cabSkipRow = row
-                                                        } else {
-                                                            hardwoodsProgressStore.setSkipped(
-                                                                jobFolderName = jobFolderName,
-                                                                docType = selectedDoc.docType.name,
-                                                                rowId = row.rowId,
-                                                                skipped = !progress.skipped
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                                HardwoodsPartRow(
-                                                    rowUi = rowUi,
-                                                    qty = qty,
-                                                    progress = progress,
-                                                    revisionState = rowRevisionStateMap[selectedDoc.docType.name to row.rowId],
-                                                    skippedCabs = skippedCabs,
-                                                    isHighlighted = isHighlighted,
-                                                    widthBand = widthBand,
-                                                    isDoorListDoc = isDoorListDoc,
-                                                    onIncrement = onIncrement,
-                                                    onDecrement = onDecrement,
-                                                    onComplete = onComplete,
-                                                    onZero = onZero,
-                                                    onSkipToggle = onSkipToggle,
-                                                    onJump = { startRowJump(row) }
+                                    val row = entry.row
+                                    val rowUi = rowDisplayMap[row.rowId] ?: return@AnimatedVisibility
+                                    val progress = rowProgressMap[selectedDoc.docType.name to row.rowId] ?: HardwoodRowProgress()
+                                    val qty = row.qty.coerceAtLeast(0)
+                                    val skippedCabs = skippedCabinetMap[selectedDoc.docType.name to row.rowId].orEmpty()
+                                    val isHighlighted = highlightedRowId == row.rowId
+                                    val widthBand = widthColorBands[rowUi.widthKey] ?: statusColors.notStarted
+                                    val onIncrement = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
+                                        {
+                                            hardwoodsProgressStore.incrementDoneCount(
+                                                jobFolderName = jobFolderName,
+                                                docType = selectedDoc.docType.name,
+                                                rowId = row.rowId,
+                                                qty = qty
+                                            )
+                                        }
+                                    }
+                                    val onDecrement = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
+                                        {
+                                            hardwoodsProgressStore.decrementDoneCount(
+                                                jobFolderName = jobFolderName,
+                                                docType = selectedDoc.docType.name,
+                                                rowId = row.rowId,
+                                                qty = qty
+                                            )
+                                        }
+                                    }
+                                    val onComplete = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
+                                        {
+                                            hardwoodsProgressStore.setDoneCount(
+                                                jobFolderName = jobFolderName,
+                                                docType = selectedDoc.docType.name,
+                                                rowId = row.rowId,
+                                                qty = qty,
+                                                doneCount = qty
+                                            )
+                                        }
+                                    }
+                                    val onZero = remember(row.rowId, qty, selectedDoc.docType.name, jobFolderName) {
+                                        {
+                                            hardwoodsProgressStore.setDoneCount(
+                                                jobFolderName = jobFolderName,
+                                                docType = selectedDoc.docType.name,
+                                                rowId = row.rowId,
+                                                qty = qty,
+                                                doneCount = 0
+                                            )
+                                        }
+                                    }
+                                    val onSkipToggle = remember(row.rowId, progress.skipped, rowUi.isMultiCab, selectedDoc.docType.name, jobFolderName) {
+                                        {
+                                            if (rowUi.isMultiCab) {
+                                                cabSkipRow = row
+                                            } else {
+                                                hardwoodsProgressStore.setSkipped(
+                                                    jobFolderName = jobFolderName,
+                                                    docType = selectedDoc.docType.name,
+                                                    rowId = row.rowId,
+                                                    skipped = !progress.skipped
                                                 )
                                             }
                                         }
                                     }
+                                    HardwoodsPartRow(
+                                        modifier = Modifier.padding(horizontal = 6.dp),
+                                        rowUi = rowUi,
+                                        qty = qty,
+                                        progress = progress,
+                                        revisionState = rowRevisionStateMap[selectedDoc.docType.name to row.rowId],
+                                        skippedCabs = skippedCabs,
+                                        isHighlighted = isHighlighted,
+                                        widthBand = widthBand,
+                                        isDoorListDoc = isDoorListDoc,
+                                        onIncrement = onIncrement,
+                                        onDecrement = onDecrement,
+                                        onComplete = onComplete,
+                                        onZero = onZero,
+                                        onSkipToggle = onSkipToggle,
+                                        onJump = { startRowJump(row) }
+                                    )
                                 }
                             }
                         }
@@ -2546,26 +2583,31 @@ private fun HardwoodsBoardStockList(
                         )
                     }
                 }
-                item(key = "admin-mat-content:$adminMatKey") {
+                val adminEntries = adminBoardStockLazyRowEntries(material, groupItems)
+                items(items = adminEntries, key = { it.key }) { entry ->
                     AnimatedVisibility(
                         visible = matExpanded,
                         enter = expandVertically() + fadeIn(),
                         exit = shrinkVertically() + fadeOut()
                     ) {
+                        val item = entry.item
                         val isDark = isSystemInDarkTheme()
                         val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                         Surface(
-                            shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
+                            shape = if (entry.isLast) {
+                                RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
+                            } else {
+                                RoundedCornerShape(0.dp)
+                            },
                             color = backdropColor,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-                            shadowElevation = 2.dp,
-                            modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 6.dp)
+                            border = if (entry.isLast) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)) else null,
+                            shadowElevation = if (entry.isLast) 2.dp else 0.dp,
+                            modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = if (entry.isLast) 6.dp else 0.dp)
                         ) {
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
-                                groupItems.forEach { item ->
                                     @Suppress("NAME_SHADOWING")
                                     val isNoneItem = item.feet == null
                                     val boards = if (isNoneItem) 0
@@ -2665,7 +2707,6 @@ private fun HardwoodsBoardStockList(
                                                 }
                                             }
                                         }
-                                    }
                                 }
                             }
                         }
@@ -2740,26 +2781,35 @@ private fun HardwoodsBoardStockList(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                item(key = "rip-material-content:$materialKey") {
+                val lineEntries = boardStockLazyRowEntries(
+                    sourceKey = sourceKey,
+                    material = materialSection.material,
+                    rows = materialSection.rows
+                )
+                items(items = lineEntries, key = { it.key }) { entry ->
                     AnimatedVisibility(
                         visible = materialExpanded,
                         enter = expandVertically() + fadeIn(),
                         exit = shrinkVertically() + fadeOut()
                     ) {
+                        val line = entry.row
                         val isDark = isSystemInDarkTheme()
                         val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                         Surface(
-                            shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
+                            shape = if (entry.isLast) {
+                                RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
+                            } else {
+                                RoundedCornerShape(0.dp)
+                            },
                             color = backdropColor,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-                            shadowElevation = 2.dp,
-                            modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 6.dp)
+                            border = if (entry.isLast) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)) else null,
+                            shadowElevation = if (entry.isLast) 2.dp else 0.dp,
+                            modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = if (entry.isLast) 6.dp else 0.dp)
                         ) {
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
-                                materialSection.rows.forEach { line ->
                                     val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
                                     val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
                                     val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
@@ -2826,7 +2876,6 @@ private fun HardwoodsBoardStockList(
                                                 }
                                             }
                                         }
-                                    }
                                 }
                             }
                         }

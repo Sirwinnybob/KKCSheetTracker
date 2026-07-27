@@ -6,6 +6,7 @@ import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
+import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.models.SpecialtyCompletionState
 import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
@@ -123,6 +124,41 @@ class SpecialtyJobDetailScreenLogicTest {
         assertEquals(listOf("saw", "multi"), sections[0].items.map { it.item.id })
         assertEquals(listOf("cnc", "multi"), sections[1].items.map { it.item.id })
         assertEquals(listOf("other"), sections[2].items.map { it.item.id })
+    }
+
+    @Test
+    fun specialtySheetRipLazyRowEntries_keepEveryLargeGroupRowAsItsOwnListEntry() {
+        val sheetRips = (1..95).map { index ->
+            AdminBoardStockItem(
+                id = "sheet-rip-$index",
+                material = "Material $index",
+                name = "Rip $index",
+                feet = 10.0,
+                mode = "sheet"
+            )
+        }
+
+        val entries = specialtySheetRipLazyRowEntries(sheetRips)
+
+        assertEquals(95, entries.size)
+        assertEquals(95, entries.map { it.key }.toSet().size)
+        assertEquals(sheetRips, entries.map { it.item })
+    }
+
+    @Test
+    fun specialtyChecklistLazyRowEntries_keepEveryLargeStationRowAsItsOwnListEntry() {
+        val checklistItems = (1..95).map { index ->
+            resolvedItem("cnc-$index", listOf(SpecialtyStation.CNC))
+        }
+
+        val entries = specialtyChecklistLazyRowEntries(
+            sectionId = SpecialtyStation.CNC.name,
+            items = checklistItems
+        )
+
+        assertEquals(95, entries.size)
+        assertEquals(95, entries.map { it.key }.toSet().size)
+        assertEquals(checklistItems, entries.map { it.item })
     }
 
     @Test
