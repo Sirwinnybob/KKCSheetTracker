@@ -179,4 +179,23 @@ class HardwoodsRowHelpersTest {
         assertFalse(isHardwoodsBoardStockMaterialSkipApplied(sheetCrown, materialSkipped = true))
         assertTrue(isHardwoodsBoardStockMaterialSkipApplied(boardCrown, materialSkipped = true))
     }
+
+    @Test
+    fun materialSkipHeader_ignoresSheetOnlyGroupsButKeepsBdFtAndMixedGroupsSkipped() {
+        val sheetCrown = AdminBoardStockItem("sheet", "Maple", "Crown", 18.0, mode = "sheet", type = "crown")
+        val boardCrown = AdminBoardStockItem("board", "Maple", "Crown", 18.0, mode = "bd_ft", type = "crown")
+
+        assertFalse(hardwoodsEffectiveMaterialSkipped(listOf(sheetCrown), materialSkipped = true))
+        assertTrue(hardwoodsEffectiveMaterialSkipped(listOf(boardCrown), materialSkipped = true))
+        assertTrue(hardwoodsEffectiveMaterialSkipped(listOf(sheetCrown, boardCrown), materialSkipped = true))
+    }
+
+    @Test
+    fun hardwoodsBoardStockUnitLabel_defaultsNonSheetCrownModesToBdFt() {
+        val blankModeCrown = AdminBoardStockItem("blank", "Maple", "Crown", 18.0, mode = "", type = "crown")
+        val unknownModeCrown = AdminBoardStockItem("unknown", "Maple", "Crown", 18.0, mode = "linear_feet", type = "crown")
+
+        assertEquals("BD FT", hardwoodsBoardStockUnitLabel(blankModeCrown))
+        assertEquals("BD FT", hardwoodsBoardStockUnitLabel(unknownModeCrown))
+    }
 }

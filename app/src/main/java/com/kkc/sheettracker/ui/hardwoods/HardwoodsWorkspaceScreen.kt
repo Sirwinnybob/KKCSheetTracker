@@ -291,14 +291,16 @@ internal fun isCrownAdminBoardStockItem(item: AdminBoardStockItem): Boolean =
 
 internal fun hardwoodsBoardStockUnitLabel(item: AdminBoardStockItem): String? =
     if (!isCrownAdminBoardStockItem(item)) null
-    else when {
-        item.mode.equals("sheet", ignoreCase = true) -> "Sheet"
-        item.mode.equals("bd_ft", ignoreCase = true) -> "BD FT"
-        else -> null
-    }
+    else if (item.mode.equals("sheet", ignoreCase = true)) "Sheet"
+    else "BD FT"
 
 internal fun showsHardwoodsBoardStockTallyControls(item: AdminBoardStockItem): Boolean =
     !item.mode.equals("sheet", ignoreCase = true)
+
+internal fun hardwoodsEffectiveMaterialSkipped(
+    items: List<AdminBoardStockItem>,
+    materialSkipped: Boolean
+): Boolean = materialSkipped && items.any(::showsHardwoodsBoardStockTallyControls)
 
 internal fun isHardwoodsBoardStockMaterialSkipApplied(
     item: AdminBoardStockItem,
@@ -2555,14 +2557,15 @@ private fun HardwoodsBoardStockList(
             }
             adminGroups.forEach { (material, groupItems) ->
                 val adminMatKey = "ADMIN|$material"
-                val matSkipped = progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, material)
-                val matTarget = if (matSkipped) 0 else groupItems.sumOf { item ->
+                val storedMaterialSkipped = progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, material)
+                val materialSkipped = hardwoodsEffectiveMaterialSkipped(groupItems, storedMaterialSkipped)
+                val matTarget = if (materialSkipped) 0 else groupItems.sumOf { item ->
                     if (!showsHardwoodsBoardStockTallyControls(item)) return@sumOf 0
                     if (item.feet == null) return@sumOf 0
                     val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
                     if (itemSkipped) 0 else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                 }
-                val matDone = if (matSkipped) 0 else groupItems.sumOf { item ->
+                val matDone = if (materialSkipped) 0 else groupItems.sumOf { item ->
                     if (!showsHardwoodsBoardStockTallyControls(item)) return@sumOf 0
                     if (item.feet == null) return@sumOf 0
                     val boards = kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
@@ -2583,8 +2586,8 @@ private fun HardwoodsBoardStockList(
                             itemCount = groupItems.size,
                             done = matDone,
                             total = matTarget,
-                            dimmed = matSkipped,
-                            skipped = matSkipped,
+                            dimmed = materialSkipped,
+                            skipped = materialSkipped,
                             expanded = matExpanded,
                             onToggleExpanded = {
                                 expandedMaterialSections = if (matExpanded) {
@@ -2596,10 +2599,10 @@ private fun HardwoodsBoardStockList(
                             headerActions = {
                                 if (groupItems.any(::showsHardwoodsBoardStockTallyControls)) {
                                     MaterialSkipPill(
-                                        skipped = matSkipped,
+                                        skipped = materialSkipped,
                                         onClick = {
                                             progressStore.setAdminBoardStockMaterialSkipped(
-                                                jobFolderName, material, !matSkipped
+                                                jobFolderName, material, !materialSkipped
                                             )
                                         }
                                     )
@@ -2641,7 +2644,7 @@ private fun HardwoodsBoardStockList(
                                                  else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                                     val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
                                     val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
-                                    val materialSkipApplied = isHardwoodsBoardStockMaterialSkipApplied(item, matSkipped)
+                                    val materialSkipApplied = isHardwoodsBoardStockMaterialSkipApplied(item, materialSkipped)
                                     val itemSkipApplied = showsTallyControls && (totalsDoneMap[skipKey] ?: 0) > 0
                                     val itemSkipped = !isNoneItem && (materialSkipApplied || itemSkipApplied)
                                     val done = if (itemSkipped || isNoneItem) 0
@@ -2730,7 +2733,7 @@ private fun HardwoodsBoardStockList(
                                                         containerColor = statusColors.completeBorder, enabled = !itemSkipped && done < boards,
                                                         onClick = { progressStore.incrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards) },
                                                         onLongClick = { progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = boards); true })
-                                                    if (!matSkipped) {
+                                                    if (!materialSkipped) {
                                                         if (itemSkipped) {
                                                             Button(onClick = { progressStore.setAdminBoardStockSkipped(jobFolderName, material, item.id, false) },
                                                                 colors = ButtonDefaults.buttonColors(containerColor = statusColors.skipBorder, contentColor = Color.White),
