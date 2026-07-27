@@ -121,4 +121,22 @@ class AdminBoardStockStoreTest {
         assertEquals("Winston", items[0].createdBy)
         assertEquals("", items[1].createdBy)
     }
+
+    @Test
+    fun loadAdminBoardStock_preservesPositiveRipLengths() {
+        val baseDir = writeBoardStock(
+            """{"schemaVersion":1,"items":[
+              {"id":"nine","material":"Maple","name":"Crown","feet":18.0,"ripLength":9},
+              {"id":"twelve","material":"Maple","name":"Long","feet":24.0,"ripLength":12},
+              {"id":"bad","material":"Maple","name":"Bad","feet":18.0,"ripLength":0}
+            ]}"""
+        )
+
+        val items = loadAdminBoardStock(baseDir, "123 - Test Job")
+
+        assertEquals(9, items.single { it.id == "nine" }.ripLength)
+        assertEquals(12, items.single { it.id == "twelve" }.ripLength)
+        assertEquals(10, items.single { it.id == "bad" }.ripLength)
+        assertEquals(2, Math.ceil(items.single { it.id == "nine" }.feet!! / items.single { it.id == "nine" }.ripLength).toInt())
+    }
 }
