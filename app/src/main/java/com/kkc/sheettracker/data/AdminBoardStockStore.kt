@@ -29,7 +29,11 @@ fun loadAdminBoardStock(baseDir: File, jobFolderName: String): List<AdminBoardSt
             // Items explicitly set to NONE (null) still show with a NONE label.
             if (feet != null && feet <= 0.0) return@mapNotNull null
             val mode      = obj.get("mode")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.isNotBlank() } ?: "bd_ft"
-            val ripLength = obj.get("ripLength")?.takeIf { !it.isJsonNull }?.asInt?.takeIf { it > 0 } ?: 10
+            val ripLength = obj.get("ripLength")
+                ?.takeIf { !it.isJsonNull && it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
+                ?.let { runCatching { it.asBigDecimal.intValueExact() }.getOrNull() }
+                ?.takeIf { it > 0 }
+                ?: 10
             val type = obj.get("type")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.isNotBlank() }
             val moldingId = obj.get("moldingId")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.isNotBlank() }
             AdminBoardStockItem(

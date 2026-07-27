@@ -139,4 +139,23 @@ class AdminBoardStockStoreTest {
         assertEquals(10, items.single { it.id == "bad" }.ripLength)
         assertEquals(2, Math.ceil(items.single { it.id == "nine" }.feet!! / items.single { it.id == "nine" }.ripLength).toInt())
     }
+
+    @Test
+    fun loadAdminBoardStock_defaultsInvalidRipLengths() {
+        val baseDir = writeBoardStock(
+            """{"schemaVersion":1,"items":[
+              {"id":"negative","material":"Maple","name":"Negative","feet":18.0,"ripLength":-9},
+              {"id":"absent","material":"Maple","name":"Absent","feet":18.0},
+              {"id":"decimal","material":"Maple","name":"Decimal","feet":18.0,"ripLength":9.5},
+              {"id":"text","material":"Maple","name":"Text","feet":18.0,"ripLength":"nine"}
+            ]}"""
+        )
+
+        val items = loadAdminBoardStock(baseDir, "123 - Test Job")
+
+        assertEquals(10, items.single { it.id == "negative" }.ripLength)
+        assertEquals(10, items.single { it.id == "absent" }.ripLength)
+        assertEquals(10, items.single { it.id == "decimal" }.ripLength)
+        assertEquals(10, items.single { it.id == "text" }.ripLength)
+    }
 }
