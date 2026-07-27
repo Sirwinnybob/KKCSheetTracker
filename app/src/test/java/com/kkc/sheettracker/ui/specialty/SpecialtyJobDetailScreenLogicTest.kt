@@ -146,6 +146,14 @@ class SpecialtyJobDetailScreenLogicTest {
     }
 
     @Test
+    fun specialtySheetRipItems_includesOnlySheetModeCrown() {
+        val sheetCrown = AdminBoardStockItem("sheet", "Maple", "Crown", 18.0, mode = "sheet", type = "crown")
+        val boardCrown = AdminBoardStockItem("board", "Maple", "Crown", 18.0, mode = "bd_ft", type = "crown")
+
+        assertEquals(listOf(sheetCrown), specialtySheetRipItems(listOf(sheetCrown, boardCrown)))
+    }
+
+    @Test
     fun specialtyChecklistLazyRowEntries_keepEveryLargeStationRowAsItsOwnListEntry() {
         val checklistItems = (1..95).map { index ->
             resolvedItem("cnc-$index", listOf(SpecialtyStation.CNC))

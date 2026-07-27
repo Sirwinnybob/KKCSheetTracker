@@ -166,8 +166,7 @@ fun SpecialtyJobDetailScreen(
 
     val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()
     val sheetRipItems = remember(scanState.snapshot.basePath, jobFolderName) {
-        loadAdminBoardStock(File(scanState.snapshot.basePath), jobFolderName)
-            .filter { it.mode == "sheet" && it.feet != null && it.feet > 0 }
+        specialtySheetRipItems(loadAdminBoardStock(File(scanState.snapshot.basePath), jobFolderName))
     }
     val sheetRipDone = remember(scanState.snapshot.basePath, jobFolderName, sheetRipDoneVersion) {
         specialtyStateStore.loadSheetRipDone(jobFolderName)
@@ -1097,6 +1096,12 @@ internal fun specialtySheetRipLazyRowEntries(
         key = "sheet-rip|${item.id}",
         item = item
     )
+}
+
+internal fun specialtySheetRipItems(
+    items: List<AdminBoardStockItem>
+): List<AdminBoardStockItem> = items.filter {
+    it.mode.equals("sheet", ignoreCase = true) && it.feet != null && it.feet > 0
 }
 
 internal fun specialtyChecklistLazyRowEntries(

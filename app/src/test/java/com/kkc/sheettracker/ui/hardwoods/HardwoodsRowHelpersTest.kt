@@ -5,6 +5,8 @@ import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.data.models.BoardStockSource
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import androidx.compose.ui.unit.dp
 
@@ -154,5 +156,18 @@ class HardwoodsRowHelpersTest {
         assertEquals(95, entries.size)
         assertEquals(95, entries.map { it.key }.toSet().size)
         assertEquals(items, entries.map { it.item })
+    }
+
+    @Test
+    fun hardwoodsRipRouting_keepsCrownInBothUnitsButMakesSheetReadOnly() {
+        val sheetCrown = AdminBoardStockItem("c1", "Maple", "Crown", 18.0, mode = "sHeEt", type = "CrOwN")
+        val boardCrown = AdminBoardStockItem("c2", "Maple", "Crown", 18.0, mode = "Bd_Ft", moldingId = "Crown:151")
+
+        assertTrue(isVisibleInHardwoodsRipList(sheetCrown, isSawRipEntry = false))
+        assertTrue(isVisibleInHardwoodsRipList(boardCrown, isSawRipEntry = false))
+        assertEquals("Sheet", hardwoodsBoardStockUnitLabel(sheetCrown))
+        assertEquals("BD FT", hardwoodsBoardStockUnitLabel(boardCrown))
+        assertFalse(showsHardwoodsBoardStockTallyControls(sheetCrown))
+        assertTrue(showsHardwoodsBoardStockTallyControls(boardCrown))
     }
 }

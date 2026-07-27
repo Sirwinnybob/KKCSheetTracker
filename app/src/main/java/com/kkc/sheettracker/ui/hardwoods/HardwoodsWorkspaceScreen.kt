@@ -285,6 +285,28 @@ internal fun adminBoardStockLazyRowEntries(
     )
 }
 
+internal fun isCrownAdminBoardStockItem(item: AdminBoardStockItem): Boolean =
+    item.type.equals("crown", ignoreCase = true) ||
+        item.moldingId?.startsWith("crown:", ignoreCase = true) == true
+
+internal fun hardwoodsBoardStockUnitLabel(item: AdminBoardStockItem): String? =
+    if (!isCrownAdminBoardStockItem(item)) null
+    else when {
+        item.mode.equals("sheet", ignoreCase = true) -> "Sheet"
+        item.mode.equals("bd_ft", ignoreCase = true) -> "BD FT"
+        else -> null
+    }
+
+internal fun showsHardwoodsBoardStockTallyControls(item: AdminBoardStockItem): Boolean =
+    !item.mode.equals("sheet", ignoreCase = true)
+
+internal fun isVisibleInHardwoodsRipList(
+    item: AdminBoardStockItem,
+    isSawRipEntry: Boolean
+): Boolean =
+    if (isSawRipEntry) item.mode.equals("sheet", ignoreCase = true)
+    else item.mode.equals("bd_ft", ignoreCase = true) || isCrownAdminBoardStockItem(item)
+
 private data class HardwoodsProgressBundle(
     val rowProgressMap: Map<Pair<String, String>, HardwoodRowProgress> = emptyMap(),
     val rowRevisionStateMap: Map<Pair<String, String>, HardwoodRowRevisionState> = emptyMap(),
@@ -478,12 +500,7 @@ fun HardwoodsWorkspaceScreen(
     ) {
         value = withContext(Dispatchers.IO) {
             loadAdminBoardStock(baseDir = File(scanState.snapshot.basePath), jobFolderName = jobFolderName)
-                .filter { item ->
-                    when {
-                        isSawRipEntry -> item.mode == "sheet"
-                        else          -> item.mode == "bd_ft"
-                    }
-                }
+                .filter { item -> isVisibleInHardwoodsRipList(item, isSawRipEntry) }
         }
     }
     val pendingChangedByDoc = remember(availableDocuments, rowRevisionStateMap, rowProgressMap) {
@@ -2535,11 +2552,13 @@ private fun HardwoodsBoardStockList(
                 val adminMatKey = "ADMIN|$material"
                 val matSkipped = progressStore.isAdminBoardStockMaterialSkipped(jobFolderName, material)
                 val matTarget = if (matSkipped) 0 else groupItems.sumOf { item ->
+                    if (!showsHardwoodsBoardStockTallyControls(item)) return@sumOf 0
                     if (item.feet == null) return@sumOf 0
                     val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
                     if (itemSkipped) 0 else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                 }
                 val matDone = if (matSkipped) 0 else groupItems.sumOf { item ->
+                    if (!showsHardwoodsBoardStockTallyControls(item)) return@sumOf 0
                     if (item.feet == null) return@sumOf 0
                     val boards = kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                     val itemSkipped = (totalsDoneMap[progressStore.makeAdminBoardStockSkipKey(material, item.id)] ?: 0) > 0
@@ -2570,14 +2589,16 @@ private fun HardwoodsBoardStockList(
                                 }
                             },
                             headerActions = {
-                                MaterialSkipPill(
-                                    skipped = matSkipped,
-                                    onClick = {
-                                        progressStore.setAdminBoardStockMaterialSkipped(
-                                            jobFolderName, material, !matSkipped
-                                        )
-                                    }
-                                )
+                                if (groupItems.any(::showsHardwoodsBoardStockTallyControls)) {
+                                    MaterialSkipPill(
+                                        skipped = matSkipped,
+                                        onClick = {
+                                            progressStore.setAdminBoardStockMaterialSkipped(
+                                                jobFolderName, material, !matSkipped
+                                            )
+                                        }
+                                    )
+                                }
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -2610,6 +2631,7 @@ private fun HardwoodsBoardStockList(
                             ) {
                                     @Suppress("NAME_SHADOWING")
                                     val isNoneItem = item.feet == null
+                                    val showsTallyControls = showsHardwoodsBoardStockTallyControls(item)
                                     val boards = if (isNoneItem) 0
                                                  else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
                                     val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
@@ -2660,6 +2682,14 @@ private fun HardwoodsBoardStockList(
                                                         style = DimensionTextStyle,
                                                         maxLines = 1, overflow = TextOverflow.Ellipsis
                                                     )
+                                                    hardwoodsBoardStockUnitLabel(item)?.let { unitLabel ->
+                                                        Text(
+                                                            unitLabel,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                        )
+                                                    }
                                                     if (isNoneItem) {
                                                         Text("None needed for this job",
                                                             style = MaterialTheme.typography.labelSmall,
@@ -2682,7 +2712,7 @@ private fun HardwoodsBoardStockList(
                                                             style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                     }
-                                                } else {
+                                                } else if (showsTallyControls) {
                                                     TallyStepButton(icon = Icons.Default.Remove, contentDescription = "Done -",
                                                         containerColor = statusColors.bad, enabled = !itemSkipped && done > 0,
                                                         onClick = { progressStore.decrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards) },
