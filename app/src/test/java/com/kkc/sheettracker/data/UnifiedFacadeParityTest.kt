@@ -8,7 +8,6 @@ import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
-import com.kkc.sheettracker.data.unified.FileBackedUnifiedMetadataEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -69,42 +68,61 @@ class UnifiedFacadeParityTest {
     }
 
     @Test
-    fun cacheOnlyListingDoesNotDiscardDeepRemakeWhilePublishedCacheIsStale() {
+    fun scanCoordinator_cacheOnlyWatcherRefreshDoesNotDiscardDeepRemakeWhilePublishedCacheIsStale() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)
         seedInitialStaticCache(baseDir)
-        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+        val repository = JobRepository(baseDir, isDebugBuild = true)
+        val coordinator = ScanCoordinator(baseDir, repository)
 
-        engine.listJobsFromCacheOnly()
+        coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+        waitUntilReady {
+            coordinator.state.value.status == ScanStatus.READY &&
+                coordinator.state.value.snapshot.jobs.singleOrNull()?.materials?.size == 1
+        }
         seedRemake(baseDir)
-        assertTrue(engine.refreshJobDeep(jobFolder))
-        assertTrue(
-            engine.getCncSnapshot(jobFolder)?.job?.materials
-                ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
-        )
 
-        engine.listJobsFromCacheOnly()
-
-        assertTrue(
-            "Cache-only listing must not replace a deep remake with stale cache_static.json",
-            engine.getCncSnapshot(jobFolder)?.job?.materials
+        coordinator.refreshJobsDeep(listOf(jobFolder))
+        val remakeLoaded = waitUntil(timeoutMs = 5_000L) {
+            coordinator.state.value.snapshot.jobs.singleOrNull()?.materials
                 ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
-        )
+        }
+        assertTrue("Expected targeted deep refresh to load remake material", remakeLoaded)
+
+        val generationBeforeWatcherRefresh = coordinator.state.value.snapshot.generation
+        coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+        val remakeSurvived = waitUntil(timeoutMs = 5_000L) {
+            coordinator.state.value.status == ScanStatus.READY &&
+                coordinator.state.value.snapshot.generation > generationBeforeWatcherRefresh &&
+                coordinator.state.value.snapshot.jobs.singleOrNull()?.materials
+                ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
+        }
+        assertTrue("Watcher refresh must not replace deep remake with stale cache", remakeSurvived)
     }
 
     @Test
-    fun cacheOnlyListingRetainsDeepJobWhilePublishedCacheIsMissing() {
+    fun scanCoordinator_cacheOnlyWatcherRefreshDoesNotDiscardDeepJobWhilePublishedCacheIsMissing() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)
         File(baseDir, "$jobFolder/.metadata/deployment_gate.json")
             .writeText("""{"deployed": true, "parseReady": true}""")
-        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+        val repository = JobRepository(baseDir, isDebugBuild = true)
+        val coordinator = ScanCoordinator(baseDir, repository)
 
-        assertTrue(engine.refreshJobDeep(jobFolder))
-        val (jobs, needsDeepLoad) = engine.listJobsFromCacheOnly()
+        coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+        val deepJobLoaded = waitUntil(timeoutMs = 5_000L) {
+            coordinator.state.value.snapshot.jobs.singleOrNull()?.folderName == jobFolder
+        }
+        assertTrue("Expected watcher background deep load to publish the job", deepJobLoaded)
 
-        assertEquals(listOf(jobFolder), jobs.map { it.folderName })
-        assertTrue(needsDeepLoad.isEmpty())
+        val generationBeforeWatcherRefresh = coordinator.state.value.snapshot.generation
+        coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+        val deepJobSurvived = waitUntil(timeoutMs = 5_000L) {
+            coordinator.state.value.status == ScanStatus.READY &&
+                coordinator.state.value.snapshot.generation > generationBeforeWatcherRefresh &&
+                coordinator.state.value.snapshot.jobs.map { it.folderName } == listOf(jobFolder)
+        }
+        assertTrue("Watcher refresh must not discard a deep-loaded job without cache_static.json", deepJobSurvived)
     }
 
     @Test
