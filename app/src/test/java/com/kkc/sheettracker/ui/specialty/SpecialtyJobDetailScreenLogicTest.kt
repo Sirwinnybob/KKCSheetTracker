@@ -20,10 +20,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpecialtyJobDetailScreenLogicTest {
-    @Test
+@Test
     fun specialtySheetRipLengthLabel_showsConfiguredRipLength() {
-        assertEquals("2 rips x 9 ft", specialtySheetRipLengthLabel(2, 9))
-        assertEquals("3 rips x 12 ft", specialtySheetRipLengthLabel(3, 12))
+        assertEquals("2x 9ft Sheet Rips", specialtySheetRipLengthLabel(2, 9))
+        assertEquals("3x 12ft Sheet Rips", specialtySheetRipLengthLabel(3, 12))
     }
 
     @Test
