@@ -27,6 +27,34 @@ class SpecialtyJobDetailScreenLogicTest {
     }
 
     @Test
+    fun specialtySheetRipItemLabel_identifiesPlywoodCrown() {
+        val crown = AdminBoardStockItem(
+            id = "crown",
+            material = "Maple Plywood",
+            name = "Crown 151",
+            feet = 18.0,
+            mode = "sheet",
+            type = "crown"
+        )
+
+        assertEquals("Plywood Crown — Crown 151", specialtySheetRipItemLabel(crown))
+    }
+
+    @Test
+    fun specialtySheetRipItemLabel_keepsNonCrownName() {
+        val sheetItem = AdminBoardStockItem(
+            id = "panel",
+            material = "Maple Plywood",
+            name = "Toe Kick",
+            feet = 18.0,
+            mode = "sheet",
+            type = "panel"
+        )
+
+        assertEquals("Toe Kick", specialtySheetRipItemLabel(sheetItem))
+    }
+
+    @Test
     fun sheetRipTallyCompletion_requiresEveryConfiguredRipDespiteLegacyCompletion() {
         assertTrue(resolveSheetRipTallyState(2, false, 2).isComplete)
         assertFalse(resolveSheetRipTallyState(1, true, 2).isComplete)

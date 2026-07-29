@@ -447,7 +447,7 @@ fun SpecialtyJobDetailScreen(
                                             fontWeight = FontWeight.SemiBold
                                         )
                                         Text(
-                                            text = item.name,
+                                            text = specialtySheetRipItemLabel(item),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -1127,6 +1127,13 @@ internal fun specialtySheetRipItems(
 }
 
 internal fun specialtySheetRipLengthLabel(rips: Int, ripLength: Int): String = "${rips}x ${ripLength}ft Sheet Rips"
+
+internal fun specialtySheetRipItemLabel(item: AdminBoardStockItem): String =
+    if (item.mode.equals("sheet", ignoreCase = true) && item.type.equals("crown", ignoreCase = true)) {
+        "Plywood Crown — ${item.name}"
+    } else {
+        item.name
+    }
 
 internal fun specialtyChecklistLazyRowEntries(
     sectionId: String,
