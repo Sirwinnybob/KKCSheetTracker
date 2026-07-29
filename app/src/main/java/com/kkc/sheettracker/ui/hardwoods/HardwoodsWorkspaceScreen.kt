@@ -305,7 +305,7 @@ internal fun allowsHardwoodsBoardStockSkip(item: AdminBoardStockItem): Boolean =
     !item.mode.equals("sheet", ignoreCase = true)
 
 internal fun hardwoodsBoardStockRequirementLabel(boards: Int, ripLength: Int, feet: Double): String =
-    "Need $boards x $ripLength ft boards · ${feet.toInt()} ft"
+    "${boards}x ${ripLength}ft Board Rips"
 
 internal fun hardwoodsEffectiveMaterialSkipped(
     items: List<AdminBoardStockItem>,

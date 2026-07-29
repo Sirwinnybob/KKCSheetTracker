@@ -1126,7 +1126,7 @@ internal fun specialtySheetRipItems(
     it.mode.equals("sheet", ignoreCase = true) && it.feet != null && it.feet > 0
 }
 
-internal fun specialtySheetRipLengthLabel(rips: Int, ripLength: Int): String = "$rips rips x $ripLength ft"
+internal fun specialtySheetRipLengthLabel(rips: Int, ripLength: Int): String = "${rips}x ${ripLength}ft Sheet Rips"
 
 internal fun specialtyChecklistLazyRowEntries(
     sectionId: String,

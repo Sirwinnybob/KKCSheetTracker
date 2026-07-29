@@ -200,8 +200,8 @@ class HardwoodsRowHelpersTest {
         assertTrue(showsHardwoodsBoardStockTallyControls(boardCrown, isSawRipEntry = false))
         assertFalse(allowsHardwoodsBoardStockSkip(sheetCrown))
         assertTrue(allowsHardwoodsBoardStockSkip(boardCrown))
-        assertEquals("Need 2 x 9 ft boards · 12 ft", hardwoodsBoardStockRequirementLabel(2, 9, 12.0))
-        assertEquals("Need 2 x 12 ft boards · 18 ft", hardwoodsBoardStockRequirementLabel(2, 12, 18.0))
+assertEquals("2x 9ft Board Rips", hardwoodsBoardStockRequirementLabel(2, 9, 12.0))
+        assertEquals("2x 12ft Board Rips", hardwoodsBoardStockRequirementLabel(2, 12, 18.0))
         assertFalse(hardwoodsEffectiveMaterialSkipped(listOf(sheetCrown), materialSkipped = true))
     }
 

@@ -284,7 +284,7 @@ Define:
 
 ~~~kotlin
 internal fun specialtySheetRipLengthLabel(rips: Int, ripLength: Int): String =
-    "$rips rips x $ripLength ft"
+    "${rips}x ${ripLength}ft Sheet Rips"
 ~~~
 
 Replace the existing rip count text with this helper and retain the bold total-feet line.

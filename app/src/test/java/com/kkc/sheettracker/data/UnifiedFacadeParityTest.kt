@@ -51,34 +51,7 @@ class UnifiedFacadeParityTest {
         }
         assertEquals(1, coordinator.state.value.snapshot.jobs.first().materials.size)
 
-        val cncDir = File(baseDir, "$jobFolder/CNC")
-        File(cncDir, "1234 - Remake Maple.pdf").writeText("pdf-remake")
-        File(cncDir, ".metadata/1234 - Remake Maple.json").writeText(
-            """
-            {
-              "jobNumber": "1234",
-              "jobName": "Test Job",
-              "material": "Remake Maple",
-              "pdfFilename": "1234 - Remake Maple.pdf",
-              "remakeLabel": "Remake",
-              "pages": [
-                {
-                  "pageNumber": 1,
-                  "parts": [
-                    {
-                      "number": 7,
-                      "width": 5.0,
-                      "length": 10.0,
-                      "name": "Replacement Shelf",
-                      "cabNumber": 42,
-                      "room": "Kitchen"
-                    }
-                  ]
-                }
-              ]
-            }
-            """.trimIndent()
-        )
+        seedRemake(baseDir)
 
         coordinator.refreshJobsDeep(listOf(jobFolder))
 
@@ -92,6 +65,64 @@ class UnifiedFacadeParityTest {
             ?.map { it.pdfFilename }
             .orEmpty()
         assertTrue("Expected targeted deep refresh to load remake material; saw $filenames", sawRemake)
+    }
+
+    @Test
+    fun scanCoordinator_cacheOnlyWatcherRefreshDoesNotDiscardDeepRemakeWhilePublishedCacheIsStale() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        seedInitialStaticCache(baseDir)
+        val repository = JobRepository(baseDir, isDebugBuild = true)
+        val coordinator = ScanCoordinator(baseDir, repository)
+
+        coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+        waitUntilReady {
+            coordinator.state.value.status == ScanStatus.READY &&
+                coordinator.state.value.snapshot.jobs.singleOrNull()?.materials?.size == 1
+        }
+        seedRemake(baseDir)
+
+        coordinator.refreshJobsDeep(listOf(jobFolder))
+        val remakeLoaded = waitUntil(timeoutMs = 5_000L) {
+            coordinator.state.value.snapshot.jobs.singleOrNull()?.materials
+                ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
+        }
+        assertTrue("Expected targeted deep refresh to load remake material", remakeLoaded)
+
+        val generationBeforeWatcherRefresh = coordinator.state.value.snapshot.generation
+        coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+        val remakeSurvived = waitUntil(timeoutMs = 5_000L) {
+            coordinator.state.value.status == ScanStatus.READY &&
+                coordinator.state.value.snapshot.generation > generationBeforeWatcherRefresh &&
+                coordinator.state.value.snapshot.jobs.singleOrNull()?.materials
+                ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
+        }
+        assertTrue("Watcher refresh must not replace deep remake with stale cache", remakeSurvived)
+    }
+
+    @Test
+    fun scanCoordinator_cacheOnlyWatcherRefreshDoesNotDiscardDeepJobWhilePublishedCacheIsMissing() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        File(baseDir, "$jobFolder/.metadata/deployment_gate.json")
+            .writeText("""{"deployed": true, "parseReady": true}""")
+        val repository = JobRepository(baseDir, isDebugBuild = true)
+        val coordinator = ScanCoordinator(baseDir, repository)
+
+        coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+        val deepJobLoaded = waitUntil(timeoutMs = 5_000L) {
+            coordinator.state.value.snapshot.jobs.singleOrNull()?.folderName == jobFolder
+        }
+        assertTrue("Expected watcher background deep load to publish the job", deepJobLoaded)
+
+        val generationBeforeWatcherRefresh = coordinator.state.value.snapshot.generation
+        coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
+        val deepJobSurvived = waitUntil(timeoutMs = 5_000L) {
+            coordinator.state.value.status == ScanStatus.READY &&
+                coordinator.state.value.snapshot.generation > generationBeforeWatcherRefresh &&
+                coordinator.state.value.snapshot.jobs.map { it.folderName } == listOf(jobFolder)
+        }
+        assertTrue("Watcher refresh must not discard a deep-loaded job without cache_static.json", deepJobSurvived)
     }
 
     @Test
@@ -275,6 +306,37 @@ class UnifiedFacadeParityTest {
                   "material": "Poplar",
                   "width": "2",
                   "totalFeet": 10
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+    }
+
+    private fun seedRemake(baseDir: File) {
+        val cncDir = File(baseDir, "$jobFolder/CNC")
+        File(cncDir, "1234 - Remake Maple.pdf").writeText("pdf-remake")
+        File(cncDir, ".metadata/1234 - Remake Maple.json").writeText(
+            """
+            {
+              "jobNumber": "1234",
+              "jobName": "Test Job",
+              "material": "Remake Maple",
+              "pdfFilename": "1234 - Remake Maple.pdf",
+              "remakeLabel": "Remake",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    {
+                      "number": 7,
+                      "width": 5.0,
+                      "length": 10.0,
+                      "name": "Replacement Shelf",
+                      "cabNumber": 42,
+                      "room": "Kitchen"
+                    }
+                  ]
                 }
               ]
             }
