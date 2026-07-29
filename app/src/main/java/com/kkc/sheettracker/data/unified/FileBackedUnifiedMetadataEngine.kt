@@ -81,9 +81,12 @@ class FileBackedUnifiedMetadataEngine(
         val hasThreeDAssets: Boolean
     )
 
+    private enum class StaticEntryOrigin { PUBLISHED_CACHE, DEEP_PARSE }
+
     private data class CachedStaticEntry(
         val signature: Long,
-        val data: StaticJobData
+        val data: StaticJobData,
+        val origin: StaticEntryOrigin
     )
 
     private data class CachedTrackerEntry(
@@ -272,7 +275,11 @@ class FileBackedUnifiedMetadataEngine(
             } else {
                 val rawData = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: return null
                 val data = sanitizeStaticJobData(rawData)
-                staticByJob[folderName] = CachedStaticEntry(signature = cacheMTime, data = data)
+                staticByJob[folderName] = CachedStaticEntry(
+                    signature = cacheMTime,
+                    data = data,
+                    origin = StaticEntryOrigin.PUBLISHED_CACHE
+                )
                 data.jobInfo
             }
         } catch (e: Exception) {
@@ -281,8 +288,20 @@ class FileBackedUnifiedMetadataEngine(
         // Merge board config for just this folder — same fields listJobsFromCacheOnly() merges,
         // but reads job_board.json once for one job instead of scanning every job dir.
         val config = readJobBoardConfig()[folderName]
+        return mergedJobInfo(
+            rawInfo = rawInfo,
+            fallbackFolderName = folderName,
+            config = config
+        )
+    }
+
+    private fun mergedJobInfo(
+        rawInfo: UnifiedJobInfo,
+        fallbackFolderName: String,
+        config: JobBoardConfig?
+    ): UnifiedJobInfo {
         return UnifiedJobInfo(
-            folderName = gsonNullable(rawInfo.folderName) ?: folderName,
+            folderName = gsonNullable(rawInfo.folderName) ?: fallbackFolderName,
             jobNumber = gsonNullable(rawInfo.jobNumber) ?: "",
             jobName = gsonNullable(rawInfo.jobName) ?: "",
             hiddenFromProduction = rawInfo.hiddenFromProduction,
@@ -309,37 +328,39 @@ class FileBackedUnifiedMetadataEngine(
             // deployment_gate.json is owned exclusively by Ready Jobs Watcher.
             if (!DeploymentGateRules.evaluate(dir, isDebugBuild = isDebugBuild).includeJob) continue
             val cacheFile = File(dir, ".metadata/cache_static.json")
+            val existing = staticByJob[dir.name]
             if (!cacheFile.isFile) {
-                // Only queue deep load for folders that look like job folders
-                if (parseJobFolderName(dir.name) != null) needsDeepLoad.add(dir.name)
+                if (existing?.origin == StaticEntryOrigin.DEEP_PARSE) {
+                    loaded.add(mergedJobInfo(existing.data.jobInfo, dir.name, boardConfigs[dir.name]))
+                } else if (parseJobFolderName(dir.name) != null) {
+                    needsDeepLoad.add(dir.name)
+                }
                 continue
             }
             try {
                 val cacheMTime = cacheFile.lastModified()
-                val existing = staticByJob[dir.name]
+                if (existing?.origin == StaticEntryOrigin.DEEP_PARSE &&
+                    checkIsCacheStale(dir, cacheMTime)
+                ) {
+                    loaded.add(mergedJobInfo(existing.data.jobInfo, dir.name, boardConfigs[dir.name]))
+                    continue
+                }
                 val rawInfo = if (existing != null && existing.signature == cacheMTime) {
                     existing.data.jobInfo
                 } else {
                     val rawData = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: continue
                     val data = sanitizeStaticJobData(rawData)
-                    staticByJob[dir.name] = CachedStaticEntry(signature = cacheMTime, data = data)
+                    staticByJob[dir.name] = CachedStaticEntry(
+                        signature = cacheMTime,
+                        data = data,
+                        origin = StaticEntryOrigin.PUBLISHED_CACHE
+                    )
                     data.jobInfo
                 }
                 // Merge board config fields that are missing from cache_static.json, and
                 // guard against Gson leaving non-null Kotlin fields as null.
                 val config = boardConfigs[dir.name]
-                loaded.add(
-                    UnifiedJobInfo(
-                        folderName = gsonNullable(rawInfo.folderName) ?: dir.name,
-                        jobNumber = gsonNullable(rawInfo.jobNumber) ?: "",
-                        jobName = gsonNullable(rawInfo.jobName) ?: "",
-                        hiddenFromProduction = rawInfo.hiddenFromProduction,
-                        lineupPosition = rawInfo.lineupPosition,
-                        labels = config?.labels ?: emptyList(),
-                        isPending = config?.isPending ?: false,
-                        boardSection = config?.boardSection ?: 0
-                    )
-                )
+                loaded.add(mergedJobInfo(rawInfo, dir.name, config))
             } catch (e: Exception) {
                 if (parseJobFolderName(dir.name) != null) needsDeepLoad.add(dir.name)
             }
@@ -385,7 +406,11 @@ class FileBackedUnifiedMetadataEngine(
             val cacheMTime = cacheFile.lastModified()
             val rawData = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: return null
             val data = sanitizeStaticJobData(rawData)
-            staticByJob[folderName] = CachedStaticEntry(signature = cacheMTime, data = data)
+            staticByJob[folderName] = CachedStaticEntry(
+                signature = cacheMTime,
+                data = data,
+                origin = StaticEntryOrigin.PUBLISHED_CACHE
+            )
             data.jobInfo
         } catch (e: Exception) {
             null
@@ -715,7 +740,11 @@ class FileBackedUnifiedMetadataEngine(
                     val rawData = gson.fromJson(cacheFile.readText(), StaticJobData::class.java)
                     if (rawData != null) {
                         val data = sanitizeStaticJobData(rawData)
-                        staticByJob[jobFolderName] = CachedStaticEntry(signature = cacheMTime, data = data)
+                        staticByJob[jobFolderName] = CachedStaticEntry(
+                            signature = cacheMTime,
+                            data = data,
+                            origin = StaticEntryOrigin.PUBLISHED_CACHE
+                        )
                         return data
                     }
                 } catch (e: Exception) {
@@ -798,7 +827,11 @@ class FileBackedUnifiedMetadataEngine(
             boardStockRows = boardStockRows,
             hasThreeDAssets = hasThreeD
         )
-        staticByJob[jobFolderName] = CachedStaticEntry(signature = currentSig, data = next)
+        staticByJob[jobFolderName] = CachedStaticEntry(
+            signature = currentSig,
+            data = next,
+            origin = StaticEntryOrigin.DEEP_PARSE
+        )
         return next
     }
 

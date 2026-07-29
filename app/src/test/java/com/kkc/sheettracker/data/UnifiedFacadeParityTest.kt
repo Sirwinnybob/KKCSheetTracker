@@ -8,6 +8,7 @@ import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.data.unified.FileBackedUnifiedMetadataEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -51,34 +52,7 @@ class UnifiedFacadeParityTest {
         }
         assertEquals(1, coordinator.state.value.snapshot.jobs.first().materials.size)
 
-        val cncDir = File(baseDir, "$jobFolder/CNC")
-        File(cncDir, "1234 - Remake Maple.pdf").writeText("pdf-remake")
-        File(cncDir, ".metadata/1234 - Remake Maple.json").writeText(
-            """
-            {
-              "jobNumber": "1234",
-              "jobName": "Test Job",
-              "material": "Remake Maple",
-              "pdfFilename": "1234 - Remake Maple.pdf",
-              "remakeLabel": "Remake",
-              "pages": [
-                {
-                  "pageNumber": 1,
-                  "parts": [
-                    {
-                      "number": 7,
-                      "width": 5.0,
-                      "length": 10.0,
-                      "name": "Replacement Shelf",
-                      "cabNumber": 42,
-                      "room": "Kitchen"
-                    }
-                  ]
-                }
-              ]
-            }
-            """.trimIndent()
-        )
+        seedRemake(baseDir)
 
         coordinator.refreshJobsDeep(listOf(jobFolder))
 
@@ -92,6 +66,45 @@ class UnifiedFacadeParityTest {
             ?.map { it.pdfFilename }
             .orEmpty()
         assertTrue("Expected targeted deep refresh to load remake material; saw $filenames", sawRemake)
+    }
+
+    @Test
+    fun cacheOnlyListingDoesNotDiscardDeepRemakeWhilePublishedCacheIsStale() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        seedInitialStaticCache(baseDir)
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+
+        engine.listJobsFromCacheOnly()
+        seedRemake(baseDir)
+        assertTrue(engine.refreshJobDeep(jobFolder))
+        assertTrue(
+            engine.getCncSnapshot(jobFolder)?.job?.materials
+                ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
+        )
+
+        engine.listJobsFromCacheOnly()
+
+        assertTrue(
+            "Cache-only listing must not replace a deep remake with stale cache_static.json",
+            engine.getCncSnapshot(jobFolder)?.job?.materials
+                ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
+        )
+    }
+
+    @Test
+    fun cacheOnlyListingRetainsDeepJobWhilePublishedCacheIsMissing() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        File(baseDir, "$jobFolder/.metadata/deployment_gate.json")
+            .writeText("""{"deployed": true, "parseReady": true}""")
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+
+        assertTrue(engine.refreshJobDeep(jobFolder))
+        val (jobs, needsDeepLoad) = engine.listJobsFromCacheOnly()
+
+        assertEquals(listOf(jobFolder), jobs.map { it.folderName })
+        assertTrue(needsDeepLoad.isEmpty())
     }
 
     @Test
@@ -275,6 +288,37 @@ class UnifiedFacadeParityTest {
                   "material": "Poplar",
                   "width": "2",
                   "totalFeet": 10
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+    }
+
+    private fun seedRemake(baseDir: File) {
+        val cncDir = File(baseDir, "$jobFolder/CNC")
+        File(cncDir, "1234 - Remake Maple.pdf").writeText("pdf-remake")
+        File(cncDir, ".metadata/1234 - Remake Maple.json").writeText(
+            """
+            {
+              "jobNumber": "1234",
+              "jobName": "Test Job",
+              "material": "Remake Maple",
+              "pdfFilename": "1234 - Remake Maple.pdf",
+              "remakeLabel": "Remake",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    {
+                      "number": 7,
+                      "width": 5.0,
+                      "length": 10.0,
+                      "name": "Replacement Shelf",
+                      "cabNumber": 42,
+                      "room": "Kitchen"
+                    }
+                  ]
                 }
               ]
             }
