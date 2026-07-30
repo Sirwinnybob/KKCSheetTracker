@@ -66,4 +66,39 @@ class UiPreferencesStoreTest {
         assertTrue(store.isSafetySubscriber())
         assertEquals("Bob Smith", store.getSafetyAuthorName())
     }
+
+    @Test
+    fun lowEndMode_defaultsToFalse() {
+        val store = UiPreferencesStore(context)
+        assertFalse(store.getLowEndMode())
+    }
+
+    @Test
+    fun lowEndMode_persists() {
+        val store = UiPreferencesStore(context)
+        store.setLowEndMode(true)
+        assertTrue(store.getLowEndMode())
+    }
+
+    @Test
+    fun granularFlags_defaultToTrue() {
+        val store = UiPreferencesStore(context)
+        assertTrue(store.getAnimationsEnabled())
+        assertTrue(store.getShadowsEnabled())
+        assertTrue(store.getBlurEnabled())
+        assertTrue(store.getLazyLoadingEnabled())
+    }
+
+    @Test
+    fun granularFlags_persistIndependently() {
+        val store = UiPreferencesStore(context)
+        store.setAnimationsEnabled(false)
+        store.setShadowsEnabled(true)
+        store.setBlurEnabled(false)
+        store.setLazyLoadingEnabled(true)
+        assertFalse(store.getAnimationsEnabled())
+        assertTrue(store.getShadowsEnabled())
+        assertFalse(store.getBlurEnabled())
+        assertTrue(store.getLazyLoadingEnabled())
+    }
 }

@@ -50,4 +50,43 @@ class UiPreferencesStore(context: Context) {
 
     fun setSafetyAuthorName(name: String) =
         prefs.edit().putString("safety_author_name", name.trim()).apply()
+
+    /**
+     * Low-end device mode master toggle. When enabled, granular toggles below
+     * are consulted to selectively disable expensive UI effects. Stored per-device
+     * (no Syncthing sync).
+     */
+    fun getLowEndMode(): Boolean =
+        prefs.getBoolean("low_end_mode", false)
+
+    fun setLowEndMode(enabled: Boolean) =
+        prefs.edit().putBoolean("low_end_mode", enabled).apply()
+
+    /**
+     * Granular UI effect toggles. Default true so effects are on unless
+     * low_end_mode is enabled and user explicitly disables them.
+     */
+    fun getAnimationsEnabled(): Boolean =
+        prefs.getBoolean("low_end_animations_enabled", true)
+
+    fun setAnimationsEnabled(enabled: Boolean) =
+        prefs.edit().putBoolean("low_end_animations_enabled", enabled).apply()
+
+    fun getShadowsEnabled(): Boolean =
+        prefs.getBoolean("low_end_shadows_enabled", true)
+
+    fun setShadowsEnabled(enabled: Boolean) =
+        prefs.edit().putBoolean("low_end_shadows_enabled", enabled).apply()
+
+    fun getBlurEnabled(): Boolean =
+        prefs.getBoolean("low_end_blur_enabled", true)
+
+    fun setBlurEnabled(enabled: Boolean) =
+        prefs.edit().putBoolean("low_end_blur_enabled", enabled).apply()
+
+    fun getLazyLoadingEnabled(): Boolean =
+        prefs.getBoolean("low_end_lazy_loading_enabled", true)
+
+    fun setLazyLoadingEnabled(enabled: Boolean) =
+        prefs.edit().putBoolean("low_end_lazy_loading_enabled", enabled).apply()
 }
