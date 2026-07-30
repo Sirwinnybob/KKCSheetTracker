@@ -6,6 +6,8 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.kkc.sheettracker.data.DeploymentGateRules
 import com.kkc.sheettracker.data.compareJobNumbersDesc
+import com.kkc.sheettracker.data.models.CacheIndexProgressSummary
+import com.kkc.sheettracker.data.models.CacheIndexRoot
 import com.kkc.sheettracker.data.models.AssemblyBomEntry
 import com.kkc.sheettracker.data.models.AssemblyCabinetParts
 import com.kkc.sheettracker.data.models.AssemblyCncPart
@@ -103,6 +105,13 @@ class FileBackedUnifiedMetadataEngine(
     // CNC part search index, memoized per job keyed by the static signature so it is rebuilt
     // only when the underlying static data changes (not on every getCncSnapshot call).
     private val cncSearchByJob = ConcurrentHashMap<String, CachedSearchEntry>()
+    // Lightweight cache_index.json entries: job info + progress summary, no full static data.
+    private val cacheIndexByJob = ConcurrentHashMap<String, CachedCacheIndexEntry>()
+    private data class CachedCacheIndexEntry(
+        val signature: Long,
+        val jobInfo: UnifiedJobInfo,
+        val progressSummary: CacheIndexProgressSummary?
+    )
 
     override fun updateBasePath(path: String) {
         baseDir = File(path)
@@ -113,13 +122,17 @@ class FileBackedUnifiedMetadataEngine(
         staticByJob.clear()
         trackerByJob.clear()
         cncSearchByJob.clear()
+        cacheIndexByJob.clear()
     }
 
     override fun invalidateJob(jobFolderName: String) {
         staticByJob.remove(jobFolderName)
         trackerByJob.remove(jobFolderName)
         cncSearchByJob.remove(jobFolderName)
+        cacheIndexByJob.remove(jobFolderName)
     }
+
+    override fun basePath(): String = baseDir.absolutePath
 
     private fun getProductionOrder(): List<String> {
         val file = File(baseDir, "production_order.json")
@@ -327,6 +340,39 @@ class FileBackedUnifiedMetadataEngine(
             // Gate check first — skip hidden/undeployed jobs before touching the cache file.
             // deployment_gate.json is owned exclusively by Ready Jobs Watcher.
             if (!DeploymentGateRules.evaluate(dir, isDebugBuild = isDebugBuild).includeJob) continue
+            // Fast path: try cache_index.json first (lightweight, no full static data).
+            val indexFile = File(dir, ".metadata/cache_index.json")
+            if (indexFile.isFile) {
+                try {
+                    val cacheMTime = indexFile.lastModified()
+                    val existing = cacheIndexByJob[dir.name]
+                    val info = if (existing != null && existing.signature == cacheMTime) {
+                        existing.jobInfo
+                    } else {
+                        val root = gson.fromJson(indexFile.readText(), CacheIndexRoot::class.java)
+                        val rawInfo = root?.jobInfo ?: throw Exception()
+                        val ji = UnifiedJobInfo(
+                            folderName = rawInfo.folderName,
+                            jobNumber = rawInfo.jobNumber,
+                            jobName = rawInfo.jobName,
+                            hiddenFromProduction = rawInfo.hiddenFromProduction,
+                            lineupPosition = rawInfo.lineupPosition
+                        )
+                        cacheIndexByJob[dir.name] = CachedCacheIndexEntry(
+                            signature = cacheMTime,
+                            jobInfo = ji,
+                            progressSummary = root.progressSummary
+                        )
+                        ji
+                    }
+                    val config = boardConfigs[dir.name]
+                    loaded.add(mergedJobInfo(info, dir.name, config))
+                    continue
+                } catch (_: Exception) {
+                    // cache_index.json failed — fall through to cache_static.json
+                }
+            }
+            // Fallback: read from cache_static.json (existing logic, unchanged).
             val cacheFile = File(dir, ".metadata/cache_static.json")
             val existing = staticByJob[dir.name]
             if (!cacheFile.isFile) {
@@ -374,6 +420,85 @@ class FileBackedUnifiedMetadataEngine(
         return Pair(sorted, needsDeepLoad)
     }
 
+    override fun listJobsFromCacheIndex(): Pair<List<UnifiedJobInfo>, List<String>> {
+        if (!baseDir.exists() || !baseDir.isDirectory) return Pair(emptyList(), emptyList())
+        val loaded = mutableListOf<UnifiedJobInfo>()
+        val needsDeep = mutableListOf<String>()
+        val boardConfigs = readJobBoardConfig()
+        val dirs = baseDir.listFiles() ?: return Pair(emptyList(), emptyList())
+        for (dir in dirs) {
+            if (!dir.isDirectory) continue
+            if (!DeploymentGateRules.evaluate(dir, isDebugBuild = isDebugBuild).includeJob) continue
+            val indexFile = File(dir, ".metadata/cache_index.json")
+            if (!indexFile.isFile) {
+                if (parseJobFolderName(dir.name) != null) needsDeep.add(dir.name)
+                continue
+            }
+            try {
+                val cacheMTime = indexFile.lastModified()
+                val existing = cacheIndexByJob[dir.name]
+                val info = if (existing != null && existing.signature == cacheMTime) {
+                    existing.jobInfo
+                } else {
+                    val root = gson.fromJson(indexFile.readText(), CacheIndexRoot::class.java) ?: continue
+                    val rawInfo = root.jobInfo ?: continue
+                    val ji = UnifiedJobInfo(
+                        folderName = rawInfo.folderName,
+                        jobNumber = rawInfo.jobNumber,
+                        jobName = rawInfo.jobName,
+                        hiddenFromProduction = rawInfo.hiddenFromProduction,
+                        lineupPosition = rawInfo.lineupPosition
+                    )
+                    cacheIndexByJob[dir.name] = CachedCacheIndexEntry(
+                        signature = cacheMTime,
+                        jobInfo = ji,
+                        progressSummary = root.progressSummary
+                    )
+                    ji
+                }
+                val config = boardConfigs[dir.name]
+                loaded.add(mergedJobInfo(info, dir.name, config))
+            } catch (e: Exception) {
+                if (parseJobFolderName(dir.name) != null) needsDeep.add(dir.name)
+            }
+        }
+        val sorted = loaded.sortedWith(
+            compareBy<UnifiedJobInfo> { it.lineupPosition ?: Int.MAX_VALUE }
+                .thenByDescending { it.jobNumber.toIntOrNull() ?: 0 }
+                .thenBy { it.folderName }
+        )
+        return Pair(sorted, needsDeep)
+    }
+
+    override fun getProgressFromIndex(folderName: String): CacheIndexProgressSummary? {
+        val jobDir = File(baseDir, folderName)
+        val indexFile = File(jobDir, ".metadata/cache_index.json")
+        if (!indexFile.isFile) return null
+        val cacheMTime = indexFile.lastModified()
+        val existing = cacheIndexByJob[folderName]
+        if (existing != null && existing.signature == cacheMTime) return existing.progressSummary
+        return try {
+            val root = gson.fromJson(indexFile.readText(), CacheIndexRoot::class.java) ?: return null
+            val rawInfo = root.jobInfo
+            if (rawInfo != null) {
+                cacheIndexByJob[folderName] = CachedCacheIndexEntry(
+                    signature = cacheMTime,
+                    jobInfo = UnifiedJobInfo(
+                        folderName = rawInfo.folderName,
+                        jobNumber = rawInfo.jobNumber,
+                        jobName = rawInfo.jobName,
+                        hiddenFromProduction = rawInfo.hiddenFromProduction,
+                        lineupPosition = rawInfo.lineupPosition
+                    ),
+                    progressSummary = root.progressSummary
+                )
+            }
+            root.progressSummary
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     override fun refreshJobDeep(folderName: String): Boolean {
         val oldSignature = staticByJob[folderName]?.signature
         // Remove so loadStaticJobData sees a cache miss and runs the staleness check
@@ -418,6 +543,17 @@ class FileBackedUnifiedMetadataEngine(
     }
 
     override fun getCncSnapshot(jobFolderName: String): UnifiedCncSnapshot? {
+        // Stale index detection: if cache_index.json is older than cache_static.json,
+        // the index may be stale. Log a warning but continue — static cache is authoritative.
+        val jobDir = File(baseDir, jobFolderName)
+        val indexFile = File(jobDir, ".metadata/cache_index.json")
+        val staticFile = File(jobDir, ".metadata/cache_static.json")
+        if (indexFile.isFile && staticFile.isFile) {
+            if (indexFile.lastModified() < staticFile.lastModified()) {
+                Log.w("CacheIndex", "cache_index.json is older than cache_static.json for $jobFolderName; progress may be stale")
+            }
+        }
+        
         val loaded = loadStaticJobData(jobFolderName) ?: return null
         // Read the cached entry once so the static data and its signature come from a single
         // generation. Re-reading staticByJob separately (as the previous code did) let another

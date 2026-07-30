@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data.unified
 
+import com.kkc.sheettracker.data.models.CacheIndexProgressSummary
 import com.kkc.sheettracker.data.models.JobLabel
 
 interface UnifiedMetadataEngine {
@@ -12,6 +13,8 @@ interface UnifiedMetadataEngine {
 
     /** The full label catalog defined in job_board.json (id/name/color), sorted by name. */
     fun listAllLabels(): List<JobLabel>
+
+    fun basePath(): String
 
     /** Returns cached job info for a single folder, or null if not loaded yet. No I/O. */
     fun getJobInfo(folderName: String): UnifiedJobInfo?
@@ -78,4 +81,16 @@ interface UnifiedMetadataEngine {
     ): UnifiedBoardStockRows
 
     fun getSignatures(jobFolderName: String): UnifiedMetadataSignature
+
+    /**
+     * Fast cache-index scan: reads each job's cache_index.json instead of the full cache_static.json.
+     * Returns the list of jobs found in index paired with folder names that have no cache_index.
+     */
+    fun listJobsFromCacheIndex(): Pair<List<UnifiedJobInfo>, List<String>>
+
+    /**
+     * Reads progress summary from cache_index.json for [folderName] without loading
+     * cache_static.json. Returns null if no cache_index.json exists or parse fails.
+     */
+    fun getProgressFromIndex(folderName: String): CacheIndexProgressSummary?
 }

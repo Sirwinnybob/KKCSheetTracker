@@ -15,6 +15,7 @@ import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyStateStore
+import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.RefreshReason
@@ -47,9 +48,11 @@ fun rememberCncJobsSpec(
 ): UnifiedJobsSpec {
     val scanState by scanCoordinator.state.collectAsState()
     val appJobModelsByFolder = appStateStore.jobUiModels.collectAsState().value.associateBy { it.folderName }
+    // Use authoritative job list from scanState (matches detail screen/viewer).
+    // Card progress still comes from lightweight cache_index.json via getProgressFromIndex().
     val filteredJobs = remember(scanState.snapshot.jobs) { scanState.snapshot.jobs }
     
-    return remember(scanState, appJobModelsByFolder) {
+    return remember(scanState, filteredJobs, appJobModelsByFolder) {
         object : UnifiedJobsSpec {
             override val modeName = "jobs_cnc"
             override val scanStatus = scanCoordinator.state.map { it.status }.stateIn(coroutineScope, SharingStarted.Eagerly, ScanStatus.IDLE)
@@ -75,15 +78,11 @@ fun rememberCncJobsSpec(
                                 isRemake = material.isRemake
                             )
                         }
-                        JobBrowserItemUiState(
+                        makeCncJobCard(
                             job = job,
                             counts = counts,
-                            completionFraction = fraction,
+                            fraction = fraction,
                             materialSegments = materialSegments,
-                            hasDeliverySheet = if (indexProgress.hasDeliverySheet) true else null,
-                            hasThreeDAssets = if (indexProgress.has3DAssets) true else null,
-                            revisionCount = null
-                        ).toUnifiedModel(
                             isPinned = false,
                             onCardClick = { onJobClick(job.folderName) },
                             onView3DClick = { onView3D(job.folderName) },
@@ -95,28 +94,17 @@ fun rememberCncJobsSpec(
                         val counts = appModel?.counts ?: StatusCounts()
                         val fraction = appModel?.completionFraction ?: if (counts.total <= 0) 0f else counts.complete.toFloat() / counts.total.toFloat()
                         val materialSegments = appModel?.materials?.map { material ->
-                            val jobMaterial = job.materials.find { it.pdfFilename == material.pdfFilename }
                             MaterialSegmentData(
                                 materialName = material.materialName,
                                 counts = material.counts,
-                                isRemake = jobMaterial?.metadata?.remakeLabel != null
+                                isRemake = false
                             )
-                        } ?: job.materials.map { material ->
-                            MaterialSegmentData(
-                                materialName = material.materialName,
-                                counts = StatusCounts(),
-                                isRemake = material.metadata?.remakeLabel != null
-                            )
-                        }
-                        JobBrowserItemUiState(
+                        } ?: emptyList()
+                        makeCncJobCard(
                             job = job,
                             counts = counts,
-                            completionFraction = fraction,
+                            fraction = fraction,
                             materialSegments = materialSegments,
-                            hasDeliverySheet = null,
-                            hasThreeDAssets = null,
-                            revisionCount = null
-                        ).toUnifiedModel(
                             isPinned = false,
                             onCardClick = { onJobClick(job.folderName) },
                             onView3DClick = { onView3D(job.folderName) },
@@ -141,6 +129,44 @@ fun rememberCncJobsSpec(
             }
         }
     }
+}
+
+private fun makeCncJobCard(
+    job: Job,
+    counts: StatusCounts,
+    fraction: Float,
+    materialSegments: List<MaterialSegmentData>,
+    isPinned: Boolean,
+    onCardClick: () -> Unit,
+    onView3DClick: (() -> Unit)?,
+    onViewCoverSheetClick: (() -> Unit)?,
+    onHistoryClick: ((String) -> Unit)?
+): UnifiedJobUiModel {
+    val badges = mutableSetOf<JobBadge>()
+    if (job.isPending) badges.add(JobBadge.PENDING_DELIVERY)
+    if (job.hiddenFromProduction) badges.add(JobBadge.HIDDEN_IN_PRODUCTION)
+
+    return UnifiedJobUiModel(
+        folderName = job.folderName,
+        jobNumber = job.jobNumber,
+        jobName = job.jobName,
+        isPinned = isPinned,
+        isPending = job.isPending,
+        boardSection = job.boardSection,
+        lineupPosition = job.lineupPosition,
+        badges = badges,
+        labels = job.labels,
+        historyCount = null,
+        progressStyle = ProgressStyle.Cnc(
+            counts = counts,
+            fraction = fraction,
+            materialSegments = materialSegments
+        ),
+        onCardClick = onCardClick,
+        onView3DClick = onView3DClick,
+        onViewCoverSheetClick = onViewCoverSheetClick,
+        onHistoryClick = onHistoryClick
+    )
 }
 
 @Composable

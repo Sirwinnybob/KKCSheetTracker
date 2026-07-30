@@ -21,6 +21,8 @@ internal fun computeLightStalenessSignature(baseDir: File): Long {
         mix(dir.name.hashCode().toLong())
         val cacheFile = File(dir, ".metadata/cache_static.json")
         mix(if (cacheFile.isFile) cacheFile.lastModified() else 0L)
+        val indexFile = File(dir, ".metadata/cache_index.json")
+        mix(if (indexFile.isFile) indexFile.lastModified() else 0L)
         val gateFile = File(dir, ".metadata/deployment_gate.json")
         mix(if (gateFile.isFile) gateFile.lastModified() else 0L)
     }

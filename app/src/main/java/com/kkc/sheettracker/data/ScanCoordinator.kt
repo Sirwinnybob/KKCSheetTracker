@@ -110,7 +110,14 @@ class ScanCoordinator(
 
     fun currentSnapshotJobs(): List<Job> = state.value.snapshot.jobs
 
-    fun currentSearchIndex(): List<PartSearchEntry> = state.value.snapshot.searchIndex
+    fun currentSearchIndex(): List<PartSearchEntry> {
+        // Always rebuild from current job list — avoids returning partial index after
+        // incremental updateJobsInState(). Engine internal cache (cncSearchByJob) makes
+        // getCncSnapshot() fast for already-loaded jobs.
+        return state.value.snapshot.jobs.mapNotNull { job ->
+            unifiedEngine.getCncSnapshot(job.folderName)?.searchIndex
+        }.flatten()
+    }
 
     private suspend fun runRefresh(reason: RefreshReason, force: Boolean) {
         refreshMutex.withLock {
@@ -187,14 +194,13 @@ class ScanCoordinator(
         }
     }
 
-    /**
-     * Phase-1 scan: reads only cache_static.json for each job — no per-file staleness checks.
-     * Populates the engine's in-memory cache so snapshot calls are instant.
-     */
     private fun scanJobsFromCacheOnly(): ScanResult {
         if (!baseDir.exists() || !baseDir.isDirectory)
             return ScanResult(emptyList(), emptyList(), emptyList(), emptyList())
         val (jobInfos, needsDeepLoad) = unifiedEngine.listJobsFromCacheOnly()
+        // Full CNC data still loaded here for downstream consumers (detail screen,
+        // sheet viewer, AppStateStore). List cards now use cache_index progress
+        // directly via rememberCncJobsSpec.
         val jobs = mutableListOf<Job>()
         val search = mutableListOf<PartSearchEntry>()
         val issues = mutableListOf<ScanIssue>()

@@ -1209,8 +1209,10 @@ private fun JobsTabHost(
                         navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
                     },
                     onView3D = { jobFolder ->
-                        val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
-                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
+                        val room = resolveSpecialtyThreeDRoom(basePath, jobFolder)
+                        if (room != null) {
+                            navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, source = "3d", room = room)) { launchSingleTop = true }
+                        }
                     },
                     onViewCoverSheet = { jobFolder ->
                         navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
@@ -1365,17 +1367,19 @@ private fun JobsTabHost(
                     }
                 },
                 onOpenThreeD = {
-                    val target = resolveDefaultThreeDTarget(jobRepository, folderName)
-                    navController.navigate(
-                        assemblyViewerRoute(
-                            jobFolderName = folderName,
-                            assemblyPage = target.assemblyPage,
-                            plansPage = target.plansPage,
-                            source = "3d",
-                            room = target.room
-                        )
-                    ) {
-                        launchSingleTop = true
+                    val room = resolveSpecialtyThreeDRoom(basePath, folderName)
+                    if (room != null) {
+                        navController.navigate(
+                            assemblyViewerRoute(
+                                jobFolderName = folderName,
+                                assemblyPage = 1,
+                                plansPage = 1,
+                                source = "3d",
+                                room = room
+                            )
+                        ) {
+                            launchSingleTop = true
+                        }
                     }
                 },
                 onOpenDoorPanels = {
@@ -2363,6 +2367,15 @@ private fun LegacySingleStackNavigation(
                                 coroutineScope = legacyCoroutineScope,
                                 onJobClick = { jobFolder ->
                                     navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
+                                },
+                                onView3D = { jobFolder ->
+                                    val room = resolveSpecialtyThreeDRoom(basePath, jobFolder)
+                                    if (room != null) {
+                                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, source = "3d", room = room)) { launchSingleTop = true }
+                                    }
+                                },
+                                onViewCoverSheet = { jobFolder ->
+                                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
                                 }
                             )
                         }
@@ -2480,17 +2493,19 @@ private fun LegacySingleStackNavigation(
                             }
                         },
                         onOpenThreeD = {
-                            val target = resolveDefaultThreeDTarget(jobRepository, folderName)
-                            navController.navigate(
-                                assemblyViewerRoute(
-                                    jobFolderName = folderName,
-                                    assemblyPage = target.assemblyPage,
-                                    plansPage = target.plansPage,
-                                    source = "3d",
-                                    room = target.room
-                                )
-                            ) {
-                                launchSingleTop = true
+                            val room = resolveSpecialtyThreeDRoom(basePath, folderName)
+                            if (room != null) {
+                                navController.navigate(
+                                    assemblyViewerRoute(
+                                        jobFolderName = folderName,
+                                        assemblyPage = 1,
+                                        plansPage = 1,
+                                        source = "3d",
+                                        room = room
+                                    )
+                                ) {
+                                    launchSingleTop = true
+                                }
                             }
                         },
                         onOpenDoorPanels = {
@@ -3232,6 +3247,21 @@ private fun resolveDefaultThreeDTarget(
         plansPage = firstPlansPage,
         room = firstRoom?.first
     )
+}
+
+private fun resolveSpecialtyThreeDRoom(
+    basePath: String,
+    jobFolderName: String
+): String? {
+    val threeDDir = File(basePath, "$jobFolderName/3D")
+    if (!threeDDir.isDirectory) return null
+    val rooms = threeDDir.listFiles()
+        ?.filter { it.isDirectory && File(it, "3d_medium.glb").exists() }
+        ?.map { it.name }
+        ?.sorted()
+        ?: emptyList()
+    if (rooms.isEmpty()) return null
+    return rooms.firstOrNull { it.equals("Kitchen", ignoreCase = true) } ?: rooms.first()
 }
 
 private fun normalizeRoomFolderName(roomText: String?): String? {

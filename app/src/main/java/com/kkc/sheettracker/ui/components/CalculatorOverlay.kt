@@ -753,6 +753,7 @@ private fun CalculatorPanel(
     onResize: ((Float, Float) -> Unit)? = null,
     onResizeEnd: (() -> Unit)? = null
 ) {
+    val lowEnd = LocalLowEndMode.current
     val keys = listOf(
         listOf("MC", "MR", "M+", "M-"),
         listOf("C", "⌫", "÷", "×"),
@@ -817,7 +818,11 @@ private fun CalculatorPanel(
                             onClick = { onKeyPress(key) },
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxHeight(),
+                                .fillMaxHeight()
+                                .then(
+                                    if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                    else Modifier
+                                ),
                             shape = RoundedCornerShape(8.dp),
                             colors = when {
                                 key == "=" -> ButtonDefaults.buttonColors(
