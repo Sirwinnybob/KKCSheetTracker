@@ -3,17 +3,23 @@ package com.kkc.sheettracker.ui.supply
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 
 @Composable
 fun ScannerReticle(
@@ -65,26 +71,46 @@ fun ScannerReticle(
     val targetColor = if (detectedBox != null) Color.Green else cornerColor
     val animColor by animateColorAsState(targetValue = targetColor, animationSpec = tween(durationMillis = 150), label = "color")
 
-    Canvas(modifier = modifier.fillMaxSize().onGloballyPositioned {
-        viewWidth = it.size.width.toFloat()
-        viewHeight = it.size.height.toFloat()
-    }) {
-        if (viewWidth <= 0f || viewHeight <= 0f) return@Canvas
+    Box(modifier = modifier) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned {
+                    viewWidth = it.size.width.toFloat()
+                    viewHeight = it.size.height.toFloat()
+                }
+        ) {
+            if (viewWidth <= 0f || viewHeight <= 0f) return@Canvas
 
-        // Scrim alpha: when detected, dim the background slightly more for drama
-        val scrimAlpha = if (detectedBox != null) 0.70f else 0.55f
-        
-        // Draw dark scrim outside the animated reticle box.
-        drawRect(color = Color.Black.copy(alpha = scrimAlpha), topLeft = Offset.Zero, size = Size(viewWidth, animTop)) // top
-        drawRect(color = Color.Black.copy(alpha = scrimAlpha), topLeft = Offset(0f, animBottom), size = Size(viewWidth, viewHeight - animBottom)) // bottom
-        drawRect(color = Color.Black.copy(alpha = scrimAlpha), topLeft = Offset(0f, animTop), size = Size(animLeft, animBottom - animTop)) // left
-        drawRect(color = Color.Black.copy(alpha = scrimAlpha), topLeft = Offset(animRight, animTop), size = Size(viewWidth - animRight, animBottom - animTop)) // right
+            val scrimAlpha = if (detectedBox != null) 0.80f else 0.75f
 
-        val cLen = cornerLength.toPx()
-        val sw = strokeWidth.toPx()
-        val finalColor = if (detectedBox != null) animColor else animColor.copy(alpha = alpha)
-        
-        drawCornerBrackets(animLeft, animTop, animRight, animBottom, cLen, sw, finalColor)
+            drawRect(color = Color.Black.copy(alpha = scrimAlpha), topLeft = Offset.Zero, size = Size(viewWidth, animTop))
+            drawRect(color = Color.Black.copy(alpha = scrimAlpha), topLeft = Offset(0f, animBottom), size = Size(viewWidth, viewHeight - animBottom))
+            drawRect(color = Color.Black.copy(alpha = scrimAlpha), topLeft = Offset(0f, animTop), size = Size(animLeft, animBottom - animTop))
+            drawRect(color = Color.Black.copy(alpha = scrimAlpha), topLeft = Offset(animRight, animTop), size = Size(viewWidth - animRight, animBottom - animTop))
+
+            drawRect(
+                color = Color.White.copy(alpha = 0.6f),
+                topLeft = Offset(animLeft, animTop),
+                size = Size(animRight - animLeft, animBottom - animTop),
+                style = Stroke(width = 2.dp.toPx())
+            )
+
+            val cLen = cornerLength.toPx()
+            val sw = strokeWidth.toPx()
+            val finalColor = if (detectedBox != null) animColor else animColor.copy(alpha = alpha)
+
+            drawCornerBrackets(animLeft, animTop, animRight, animBottom, cLen, sw, finalColor)
+        }
+
+        Text(
+            text = "Aim barcode inside the box",
+            color = Color.White.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 48.dp)
+        )
     }
 }
 
