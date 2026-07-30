@@ -221,6 +221,9 @@ fun SupplyItemDetailScreen(
         }
     }
 
+    val scanMode by barcodeStore.scanMode.collectAsState()
+    var itemScanResult by remember { mutableStateOf<String?>(null) }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isWide = maxWidth >= 600.dp
         var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -1247,6 +1250,48 @@ fun SupplyItemDetailScreen(
             headerTint = supplyStatusHeaderTint(currentItem.status)
         )
     }
+
+    // Scanner overlay (per-item mode)
+    if (scanMode is ScanMode.Item && currentItem != null && (scanMode as ScanMode.Item).itemId == currentItem.id) {
+        val item = currentItem
+        SupplyScannerOverlay(
+            barcodeStore = barcodeStore,
+            isModalActive = itemScanResult != null,
+            onDismiss = { barcodeStore.setScanMode(ScanMode.Idle) },
+            onKnownBarcode = { foundItem, barcode ->
+                if (foundItem.id == item.id) {
+                    barcodeStore.setScanMode(ScanMode.Idle)
+                } else {
+                    itemScanResult = barcode
+                }
+            },
+            onUnknownBarcode = { barcode -> itemScanResult = barcode }
+        )
+
+        itemScanResult?.let { barcode ->
+            val onOtherItem = barcodeStore.lookup(barcode)?.let { it != item.id } ?: false
+            AlertDialog(
+                onDismissRequest = { itemScanResult = null },
+                title = { Text(if (onOtherItem) "Move barcode?" else "Link barcode?") },
+                text = {
+                    if (onOtherItem)
+                        Text("This barcode is linked to another item. Move it to ${item.name}?")
+                    else
+                        Text("Link \"${barcode.take(24)}\" to ${item.name}?")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        itemScanResult = null
+                        barcodeStore.setScanMode(ScanMode.Idle)
+                        coroutineScope.launch { barcodeStore.link(barcode, item.id); loadData() }
+                    }) { Text(if (onOtherItem) "Move" else "Link") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { itemScanResult = null }) { Text("Cancel") }
+                }
+            )
+        }
+    }
 }
 
 @Composable
@@ -1352,8 +1397,6 @@ private fun ItemBarcodeSection(
     onRefresh: () -> Unit
 ) {
     var confirmRemoveBarcode by remember { mutableStateOf<String?>(null) }
-    val scanMode by barcodeStore.scanMode.collectAsState()
-    var itemScanResult by remember { mutableStateOf<String?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("BARCODES", style = MaterialTheme.typography.labelMedium,
@@ -1411,49 +1454,6 @@ private fun ItemBarcodeSection(
         )
     }
 
-    // Per-item scanner overlay
-    if (scanMode is ScanMode.Item && (scanMode as ScanMode.Item).itemId == item.id) {
-        val itemSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-        SupplyScannerOverlay(
-            barcodeStore = barcodeStore,
-            isModalActive = itemScanResult != null,
-            onDismiss = { barcodeStore.setScanMode(ScanMode.Idle) },
-            onKnownBarcode = { foundItem, barcode ->
-                if (foundItem.id == item.id) {
-                    barcodeStore.setScanMode(ScanMode.Idle)
-                    // Already linked
-                } else {
-                    itemScanResult = barcode
-                }
-            },
-            onUnknownBarcode = { barcode -> itemScanResult = barcode }
-        )
-
-        itemScanResult?.let { barcode ->
-            val onOtherItem = barcodeStore.lookup(barcode)?.let { it != item.id } ?: false
-            AlertDialog(
-                onDismissRequest = { itemScanResult = null },
-                title = { Text(if (onOtherItem) "Move barcode?" else "Link barcode?") },
-                text = {
-                    if (onOtherItem)
-                        Text("This barcode is linked to another item. Move it to ${item.name}?")
-                    else
-                        Text("Link \"${barcode.take(24)}\" to ${item.name}?")
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        itemScanResult = null
-                        barcodeStore.setScanMode(ScanMode.Idle)
-                        scope.launch { barcodeStore.link(barcode, item.id); onRefresh() }
-                    }) { Text(if (onOtherItem) "Move" else "Link") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { itemScanResult = null }) { Text("Cancel") }
-                }
-            )
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

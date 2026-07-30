@@ -77,6 +77,7 @@ fun SupplyScannerOverlay(
     var camera by remember { mutableStateOf<Camera?>(null) }
     var isTorchOn by remember { mutableStateOf(true) }
     val scannerSettingsStore = remember { ScannerSettingsStore(context) }
+    val barcodeScanner = remember { BarcodeScanning.getClient() }
 
     var detectedBox by remember { mutableStateOf<android.graphics.Rect?>(null) }
     val scope = rememberCoroutineScope()
@@ -110,7 +111,10 @@ fun SupplyScannerOverlay(
     }
 
     DisposableEffect(Unit) {
-        onDispose { cameraProvider?.unbindAll() }
+        onDispose {
+            cameraProvider?.unbindAll()
+            barcodeScanner.close()
+        }
     }
 
     DisposableEffect(Unit) {
@@ -121,13 +125,11 @@ fun SupplyScannerOverlay(
         }
     }
 
-    LaunchedEffect(Unit) {
-        isTorchOn = scannerSettingsStore.torchOnFlow.first()
-    }
-
     LaunchedEffect(camera) {
-        if (camera != null && isTorchOn) {
-            camera?.cameraControl?.enableTorch(true)
+        if (camera != null) {
+            val saved = scannerSettingsStore.torchOnFlow.first()
+            isTorchOn = saved
+            if (saved) camera?.cameraControl?.enableTorch(true)
         }
     }
 
@@ -146,16 +148,25 @@ fun SupplyScannerOverlay(
                                 it.surfaceProvider = previewView.surfaceProvider
                             }
 
-                            val barcodeScanner = BarcodeScanning.getClient()
                             val imageAnalysis = ImageAnalysis.Builder()
                                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                 .build()
 
                             imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
+                                if (isCooldownActive) {
+                                    imageProxy.close()
+                                    return@setAnalyzer
+                                }
+                                if (imageProxy.width <= 0 || imageProxy.height <= 0) {
+                                    imageProxy.close()
+                                    return@setAnalyzer
+                                }
+                                val mediaImage = imageProxy.image
+                                    ?: run {
+                                        imageProxy.close()
+                                        return@setAnalyzer
+                                    }
                                 try {
-                                    if (isCooldownActive) return@setAnalyzer
-                                    if (imageProxy.width <= 0 || imageProxy.height <= 0) return@setAnalyzer
-                                    val mediaImage = imageProxy.image ?: return@setAnalyzer
                                     val image = InputImage.fromMediaImage(
                                         mediaImage, imageProxy.imageInfo.rotationDegrees
                                     )
@@ -165,7 +176,6 @@ fun SupplyScannerOverlay(
                                             val lockedVal = lockedBarcodeValue
 
                                             if (lockedVal != null) {
-                                                // Keep tracking/updating coordinates for the locked barcode
                                                 val matchingBarcode = barcodes.firstOrNull { it.rawValue == lockedVal }
                                                 val rect = matchingBarcode?.boundingBox
                                                 if (rect != null && parentSize.width > 0 && parentSize.height > 0) {
@@ -229,7 +239,7 @@ fun SupplyScannerOverlay(
                                                         )
                                                     }
 
-                                                    if (consecutiveHits >= 3) {
+                                                    if (consecutiveHits >= 2) {
                                                         lockedBarcodeValue = raw
                                                         scope.launch {
                                                             delay(450)
@@ -268,9 +278,9 @@ fun SupplyScannerOverlay(
                                             }
                                         }
                                         .addOnFailureListener { Log.w(SCANNER_TAG, "Scan failed", it) }
+                                        .addOnCompleteListener { imageProxy.close() }
                                 } catch (e: Exception) {
                                     Log.w(SCANNER_TAG, "Analyzer error", e)
-                                } finally {
                                     imageProxy.close()
                                 }
                             }
@@ -385,12 +395,14 @@ private fun mapBoundingBox(
     val top = rect.top * scale - offsetY
     val bottom = rect.bottom * scale - offsetY
 
-    return android.graphics.Rect(
-        left.coerceAtLeast(0f).toInt(),
-        top.coerceAtLeast(0f).toInt(),
-        right.coerceAtMost(parentWidth).toInt(),
-        bottom.coerceAtMost(parentHeight).toInt()
-    )
+    val clampedLeft = left.coerceAtLeast(0f).toInt()
+    val clampedTop = top.coerceAtLeast(0f).toInt()
+    val clampedRight = right.coerceAtMost(parentWidth).toInt()
+    val clampedBottom = bottom.coerceAtMost(parentHeight).toInt()
+
+    if (clampedLeft > clampedRight || clampedTop > clampedBottom) return rect
+
+    return android.graphics.Rect(clampedLeft, clampedTop, clampedRight, clampedBottom)
 }
 
 private fun smoothRect(

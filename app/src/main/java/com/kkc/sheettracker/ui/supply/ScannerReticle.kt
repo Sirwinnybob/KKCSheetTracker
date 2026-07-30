@@ -25,7 +25,7 @@ import androidx.compose.material3.Text
 fun ScannerReticle(
     modifier: Modifier = Modifier,
     detectedBox: android.graphics.Rect? = null,
-    reticleSize: Dp = 260.dp,
+    reticleSize: Dp = 300.dp,
     cornerLength: Dp = 36.dp,
     strokeWidth: Dp = 4.dp,
     cornerColor: Color = Color.White
