@@ -234,6 +234,7 @@ fun SupplyScannerOverlay(
                                                         candidateBarcodeValue = null
                                                         consecutiveHits = 0
                                                         candidateFrameMisses = 0
+                                                        detectedBox = null
                                                     }
                                                 } else {
                                                     candidateBarcodeValue = raw
