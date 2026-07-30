@@ -223,6 +223,7 @@ fun SupplyScannerOverlay(
                                                         lockedBarcodeValue = raw
                                                         scope.launch {
                                                             delay(450)
+                                                            if (lockedBarcodeValue != raw) return@launch
                                                             val item = barcodeStore.resolveItem(raw)
                                                             if (item != null) onKnownBarcode(item, raw)
                                                             else onUnknownBarcode(raw)
