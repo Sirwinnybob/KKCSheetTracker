@@ -98,6 +98,7 @@ import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.data.TrackerChangeMonitor
 import com.kkc.sheettracker.data.StaticCachePoller
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
@@ -1108,6 +1109,7 @@ private fun JobsTabHost(
 ) {
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+    val unifiedEngine = remember { UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild) }
     val pinnedFolderNames by pinnedJobsStore.pinnedFolderNames.collectAsState(initial = emptyList())
     val jobsBackStack by navController.currentBackStackEntryAsState()
     val jobsListActive = active && isJobsListRoute(jobsBackStack?.destination?.route)
@@ -1152,6 +1154,7 @@ private fun JobsTabHost(
                     progressStore = progressStore,
                     jobRepository = jobRepository,
                     hardwoodsRepository = hardwoodsRepository,
+                    engine = unifiedEngine,
                     coroutineScope = coroutineScope,
                     onJobClick = { jobFolder ->
                         navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
@@ -1204,6 +1207,13 @@ private fun JobsTabHost(
                     coroutineScope = coroutineScope,
                     onJobClick = { jobFolder ->
                         navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
+                    },
+                    onView3D = { jobFolder ->
+                        val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
+                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
+                    },
+                    onViewCoverSheet = { jobFolder ->
+                        navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
                     }
                 )
             }
@@ -2124,6 +2134,7 @@ private fun LegacySingleStackNavigation(
     }
 
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
+    val unifiedEngine = remember { UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild) }
 
     val currentNavDest = remember(currentRoute) {
         when {
@@ -2299,6 +2310,7 @@ private fun LegacySingleStackNavigation(
                                 progressStore = progressStore,
                                 jobRepository = jobRepository,
                                 hardwoodsRepository = hardwoodsRepository,
+                                engine = unifiedEngine,
                                 coroutineScope = legacyCoroutineScope,
                                 onJobClick = { jobFolder ->
                                     navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }

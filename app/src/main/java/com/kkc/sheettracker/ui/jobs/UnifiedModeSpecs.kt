@@ -20,6 +20,7 @@ import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.hardwoods.applySkippedPartRowsToBoardStockRows
 import com.kkc.sheettracker.ui.hardwoods.buildBoardStockRows
@@ -37,6 +38,7 @@ fun rememberCncJobsSpec(
     progressStore: ProgressStore,
     jobRepository: JobRepository,
     hardwoodsRepository: HardwoodsRepository,
+    engine: UnifiedMetadataEngine,
     coroutineScope: CoroutineScope,
     onJobClick: (String) -> Unit,
     onView3D: (String) -> Unit,
@@ -56,38 +58,72 @@ fun rememberCncJobsSpec(
             
             override fun deriveJobCards(): List<UnifiedJobUiModel> {
                 return filteredJobs.map { job ->
-                    val appModel = appJobModelsByFolder[job.folderName]
-                    val counts = appModel?.counts ?: StatusCounts()
-                    val fraction = appModel?.completionFraction ?: if (counts.total <= 0) 0f else counts.complete.toFloat() / counts.total.toFloat()
-                    val materialSegments = appModel?.materials?.map { material ->
-                        val jobMaterial = job.materials.find { it.pdfFilename == material.pdfFilename }
-                        MaterialSegmentData(
-                            materialName = material.materialName,
-                            counts = material.counts,
-                            isRemake = jobMaterial?.metadata?.remakeLabel != null
+                    val indexProgress = engine.getProgressFromIndex(job.folderName)
+                    if (indexProgress?.cnc != null) {
+                        val cncProgress = indexProgress.cnc
+                        val counts = StatusCounts(
+                            total = cncProgress.totalSheets,
+                            complete = cncProgress.done,
+                            bad = cncProgress.bad,
+                            skipped = cncProgress.skipped
                         )
-                    } ?: job.materials.map { material ->
-                        MaterialSegmentData(
-                            materialName = material.materialName,
-                            counts = StatusCounts(),
-                            isRemake = material.metadata?.remakeLabel != null
+                        val fraction = if (counts.total <= 0) 0f else counts.complete.toFloat() / counts.total.toFloat()
+                        val materialSegments = cncProgress.materials.map { material ->
+                            MaterialSegmentData(
+                                materialName = material.materialName,
+                                counts = material.toStatusCounts(),
+                                isRemake = material.isRemake
+                            )
+                        }
+                        JobBrowserItemUiState(
+                            job = job,
+                            counts = counts,
+                            completionFraction = fraction,
+                            materialSegments = materialSegments,
+                            hasDeliverySheet = if (indexProgress.hasDeliverySheet) true else null,
+                            hasThreeDAssets = if (indexProgress.has3DAssets) true else null,
+                            revisionCount = null
+                        ).toUnifiedModel(
+                            isPinned = false,
+                            onCardClick = { onJobClick(job.folderName) },
+                            onView3DClick = { onView3D(job.folderName) },
+                            onViewCoverSheetClick = { onViewCoverSheet(job.folderName) },
+                            onHistoryClick = onHistoryClick
+                        )
+                    } else {
+                        val appModel = appJobModelsByFolder[job.folderName]
+                        val counts = appModel?.counts ?: StatusCounts()
+                        val fraction = appModel?.completionFraction ?: if (counts.total <= 0) 0f else counts.complete.toFloat() / counts.total.toFloat()
+                        val materialSegments = appModel?.materials?.map { material ->
+                            val jobMaterial = job.materials.find { it.pdfFilename == material.pdfFilename }
+                            MaterialSegmentData(
+                                materialName = material.materialName,
+                                counts = material.counts,
+                                isRemake = jobMaterial?.metadata?.remakeLabel != null
+                            )
+                        } ?: job.materials.map { material ->
+                            MaterialSegmentData(
+                                materialName = material.materialName,
+                                counts = StatusCounts(),
+                                isRemake = material.metadata?.remakeLabel != null
+                            )
+                        }
+                        JobBrowserItemUiState(
+                            job = job,
+                            counts = counts,
+                            completionFraction = fraction,
+                            materialSegments = materialSegments,
+                            hasDeliverySheet = null,
+                            hasThreeDAssets = null,
+                            revisionCount = null
+                        ).toUnifiedModel(
+                            isPinned = false,
+                            onCardClick = { onJobClick(job.folderName) },
+                            onView3DClick = { onView3D(job.folderName) },
+                            onViewCoverSheetClick = { onViewCoverSheet(job.folderName) },
+                            onHistoryClick = onHistoryClick
                         )
                     }
-                    JobBrowserItemUiState(
-                        job = job,
-                        counts = counts,
-                        completionFraction = fraction,
-                        materialSegments = materialSegments,
-                        hasDeliverySheet = null,
-                        hasThreeDAssets = null,
-                        revisionCount = null
-                    ).toUnifiedModel(
-                        isPinned = false,
-                        onCardClick = { onJobClick(job.folderName) },
-                        onView3DClick = { onView3D(job.folderName) },
-                        onViewCoverSheetClick = { onViewCoverSheet(job.folderName) },
-                        onHistoryClick = onHistoryClick
-                    )
                 }
             }
             
@@ -266,7 +302,9 @@ fun rememberSpecialtyJobsSpec(
     specialtyStateStore: SpecialtyStateStore,
     jobRepository: JobRepository,
     coroutineScope: CoroutineScope,
-    onJobClick: (String) -> Unit
+    onJobClick: (String) -> Unit,
+    onView3D: ((String) -> Unit)? = null,
+    onViewCoverSheet: ((String) -> Unit)? = null
 ): UnifiedJobsSpec {
     val scanState by specialtyScanCoordinator.state.collectAsState()
     
@@ -281,7 +319,9 @@ fun rememberSpecialtyJobsSpec(
                 return specialtyStateStore.deriveJobCards().map { card ->
                     card.toUnifiedModel(
                         isPinned = false,
-                        onCardClick = { onJobClick(card.folderName) }
+                        onCardClick = { onJobClick(card.folderName) },
+                        onView3DClick = onView3D?.let { { it(card.folderName) } },
+                        onViewCoverSheetClick = onViewCoverSheet?.let { { it(card.folderName) } }
                     )
                 }
             }
