@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -68,6 +70,9 @@ fun SupplyScannerOverlay(
     var isCooldownActive by remember { mutableStateOf(false) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
 
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    var isTorchOn by remember { mutableStateOf(true) }
+
     var detectedBox by remember { mutableStateOf<android.graphics.Rect?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -77,6 +82,8 @@ fun SupplyScannerOverlay(
             candidateBarcodeValue = null
             consecutiveHits = 0
             detectedBox = null
+            isTorchOn = false
+            camera?.cameraControl?.enableTorch(false)
             isCooldownActive = true
             delay(2000)
             isCooldownActive = false
@@ -99,6 +106,12 @@ fun SupplyScannerOverlay(
 
     DisposableEffect(Unit) {
         onDispose { cameraProvider?.unbindAll() }
+    }
+
+    LaunchedEffect(camera) {
+        if (camera != null && isTorchOn) {
+            camera?.cameraControl?.enableTorch(true)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -233,7 +246,7 @@ fun SupplyScannerOverlay(
 
                             runCatching {
                                 provider.unbindAll()
-                                provider.bindToLifecycle(
+                                camera = provider.bindToLifecycle(
                                     lifecycleOwner,
                                     CameraSelector.DEFAULT_BACK_CAMERA,
                                     preview, imageAnalysis
@@ -271,8 +284,20 @@ fun SupplyScannerOverlay(
                             .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Filled.Close, "Close scanner", tint = Color.White)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(onClick = {
+                            isTorchOn = !isTorchOn
+                            camera?.cameraControl?.enableTorch(isTorchOn)
+                        }) {
+                            Icon(
+                                if (isTorchOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
+                                "Toggle flashlight",
+                                tint = if (isTorchOn) Color.Yellow else Color.White
+                            )
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Filled.Close, "Close scanner", tint = Color.White)
+                        }
                     }
                 }
             }
