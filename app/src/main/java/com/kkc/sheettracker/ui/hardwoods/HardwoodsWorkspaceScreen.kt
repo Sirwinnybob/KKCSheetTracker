@@ -257,9 +257,9 @@ internal fun hardwoodsLazyRowEntries(
     docTypeName: String,
     sectionKey: String,
     rows: List<HardwoodCutlistRow>
-): List<HardwoodsLazyRowEntry> = rows.map { row ->
+): List<HardwoodsLazyRowEntry> = rows.mapIndexed { index, row ->
     HardwoodsLazyRowEntry(
-        key = "$docTypeName|$sectionKey|${row.rowId}",
+        key = "$docTypeName|$sectionKey|${row.rowId}:$index",
         row = row
     )
 }

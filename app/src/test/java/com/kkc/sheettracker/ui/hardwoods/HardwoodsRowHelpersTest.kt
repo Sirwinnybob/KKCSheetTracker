@@ -117,6 +117,22 @@ class HardwoodsRowHelpersTest {
     }
 
     @Test
+    fun hardwoodsLazyRowEntries_disambiguateDuplicateSourceRowIds() {
+        val rows = listOf(
+            HardwoodCutlistRow(rowId = "DOOR_CUT_LIST:1:15:531c238bdac1f295"),
+            HardwoodCutlistRow(rowId = "DOOR_CUT_LIST:1:15:531c238bdac1f295")
+        )
+
+        val entries = hardwoodsLazyRowEntries(
+            docTypeName = "DOOR_CUT_LIST",
+            sectionKey = "1/4 MDF",
+            rows = rows
+        )
+
+        assertEquals(2, entries.map { it.key }.toSet().size)
+    }
+
+    @Test
     fun boardStockLazyRowEntries_keepEvery95RowMaterialGroupAsItsOwnListEntry() {
         val rows = (1..95).map { index ->
             BoardStockRow(

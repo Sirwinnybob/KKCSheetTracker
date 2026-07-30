@@ -3,7 +3,6 @@ package com.kkc.sheettracker.ui.components
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -849,7 +848,7 @@ private fun DeliveryJobDetailSheet(
 private fun DeliveryAddressActionsRow(address: String, context: Context) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = {
-            context.startActivity(Intent(Intent.ACTION_VIEW, deliveryMapsUri(address)))
+            openDeliveryMapsSafely(context, address)
         }) {
             Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(KKCSpacing.xxs))

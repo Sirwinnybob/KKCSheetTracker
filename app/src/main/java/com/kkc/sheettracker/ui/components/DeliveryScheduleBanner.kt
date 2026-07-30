@@ -49,7 +49,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 import java.time.LocalDate
-import android.content.Intent
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -314,7 +313,7 @@ private fun DeliveryDaySegment(
                                 job = job,
                                 contentAlpha = contentAlpha,
                                 onOpenMaps = {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, deliveryMapsUri(job.address)))
+                                    openDeliveryMapsSafely(context, job.address)
                                 },
                                 onSelect = job.folderName.takeIf { it.isNotBlank() }
                                     ?.let { folderName -> { onJobSelected(folderName) } }

@@ -1,7 +1,9 @@
 package com.kkc.sheettracker.ui.components
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeliveryAddressUtilTest {
@@ -60,5 +62,27 @@ class DeliveryAddressUtilTest {
     fun parseDeliveryCoordinates_rejectsBlank() {
         assertNull(parseDeliveryCoordinates(""))
         assertNull(parseDeliveryCoordinates("   "))
+    }
+
+    @Test
+    fun deliveryMapActions_useTheSafeLauncherAtEveryEntryPoint() {
+        val workingDirectory = System.getProperty("user.dir") ?: error("Missing working directory")
+        var projectRoot = File(workingDirectory)
+        while (!File(projectRoot, "app/src/main").isDirectory) {
+            projectRoot = projectRoot.parentFile
+                ?: error("Unable to locate the project root from $workingDirectory")
+        }
+        val files = listOf(
+            "app/src/main/java/com/kkc/sheettracker/ui/components/DeliveryScheduleBanner.kt",
+            "app/src/main/java/com/kkc/sheettracker/ui/components/DeliveryScheduleDialog.kt"
+        )
+
+        files.forEach { relativePath ->
+            val source = File(projectRoot, relativePath).readText()
+            assertTrue(
+                "$relativePath must use openDeliveryMapsSafely so a missing map app cannot crash KKC",
+                source.contains("openDeliveryMapsSafely")
+            )
+        }
     }
 }
