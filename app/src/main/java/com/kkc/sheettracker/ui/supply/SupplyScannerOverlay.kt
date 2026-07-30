@@ -25,6 +25,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.kkc.sheettracker.data.SupplyBarcodeStore
@@ -61,6 +63,8 @@ fun SupplyScannerOverlay(
     var hasCameraPermission by remember { mutableStateOf(false) }
     var showPermissionRationale by remember { mutableStateOf(false) }
     var lockedBarcodeValue by remember { mutableStateOf<String?>(null) }
+    var candidateBarcodeValue by remember { mutableStateOf<String?>(null) }
+    var consecutiveHits by remember { mutableIntStateOf(0) }
     var isCooldownActive by remember { mutableStateOf(false) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
 
@@ -70,6 +74,8 @@ fun SupplyScannerOverlay(
     LaunchedEffect(isModalActive) {
         if (!isModalActive && lockedBarcodeValue != null) {
             lockedBarcodeValue = null
+            candidateBarcodeValue = null
+            consecutiveHits = 0
             detectedBox = null
             isCooldownActive = true
             delay(2000)
@@ -110,7 +116,17 @@ fun SupplyScannerOverlay(
                                 it.surfaceProvider = previewView.surfaceProvider
                             }
 
-                            val barcodeScanner = BarcodeScanning.getClient()
+                            val options = BarcodeScannerOptions.Builder()
+                                .setBarcodeFormats(
+                                    Barcode.FORMAT_EAN_13,
+                                    Barcode.FORMAT_UPC_A,
+                                    Barcode.FORMAT_CODE_128,
+                                    Barcode.FORMAT_CODE_39,
+                                    Barcode.FORMAT_ITF,
+                                    Barcode.FORMAT_QR_CODE
+                                )
+                                .build()
+                            val barcodeScanner = BarcodeScanning.getClient(options)
                             val imageAnalysis = ImageAnalysis.Builder()
                                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                 .build()
@@ -151,7 +167,6 @@ fun SupplyScannerOverlay(
                                                 detectedBox = null
                                             }
                                         } else {
-                                            // Search for a new barcode inside the center ROI window
                                             val filteredBarcodes = barcodes.filter { barcode ->
                                                 val rect = barcode.boundingBox ?: return@filter false
                                                 if (parentSize.width <= 0f || parentSize.height <= 0f) return@filter false
@@ -181,27 +196,34 @@ fun SupplyScannerOverlay(
 
                                             val barcode = filteredBarcodes.firstOrNull()
                                             val raw = barcode?.rawValue?.takeIf { it.isNotBlank() }
-                                            if (raw != null) {
-                                                lockedBarcodeValue = raw // Lock scanning
 
-                                                val rect = barcode.boundingBox
-                                                if (rect != null && parentSize.width > 0 && parentSize.height > 0) {
-                                                    detectedBox = mapBoundingBox(
-                                                        rect = rect,
-                                                        imageWidth = imageProxy.width,
-                                                        imageHeight = imageProxy.height,
-                                                        rotation = rotation,
-                                                        parentWidth = parentSize.width,
-                                                        parentHeight = parentSize.height
-                                                    )
-                                                }
+                                            if (raw != null && raw == candidateBarcodeValue) {
+                                                consecutiveHits++
+                                                if (consecutiveHits >= 3) {
+                                                    lockedBarcodeValue = raw
 
-                                                scope.launch {
-                                                    delay(450) // Short delay for visual lock feedback
-                                                    val item = barcodeStore.resolveItem(raw)
-                                                    if (item != null) onKnownBarcode(item, raw)
-                                                    else onUnknownBarcode(raw)
+                                                    val rect = barcode.boundingBox
+                                                    if (rect != null && parentSize.width > 0 && parentSize.height > 0) {
+                                                        detectedBox = mapBoundingBox(
+                                                            rect = rect,
+                                                            imageWidth = imageProxy.width,
+                                                            imageHeight = imageProxy.height,
+                                                            rotation = rotation,
+                                                            parentWidth = parentSize.width,
+                                                            parentHeight = parentSize.height
+                                                        )
+                                                    }
+
+                                                    scope.launch {
+                                                        delay(450)
+                                                        val item = barcodeStore.resolveItem(raw)
+                                                        if (item != null) onKnownBarcode(item, raw)
+                                                        else onUnknownBarcode(raw)
+                                                    }
                                                 }
+                                            } else {
+                                                candidateBarcodeValue = raw
+                                                consecutiveHits = if (raw != null) 1 else 0
                                             }
                                         }
                                     }
