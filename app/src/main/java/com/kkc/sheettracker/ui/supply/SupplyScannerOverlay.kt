@@ -144,6 +144,7 @@ fun SupplyScannerOverlay(
                             imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
                                 try {
                                     if (isCooldownActive) return@setAnalyzer
+                                    if (imageProxy.width <= 0 || imageProxy.height <= 0) return@setAnalyzer
                                     val mediaImage = imageProxy.image ?: return@setAnalyzer
                                     val image = InputImage.fromMediaImage(
                                         mediaImage, imageProxy.imageInfo.rotationDegrees
@@ -352,6 +353,7 @@ private fun mapBoundingBox(
     parentWidth: Float,
     parentHeight: Float
 ): android.graphics.Rect {
+    if (imageWidth <= 0 || imageHeight <= 0) return rect
     val isRotated = rotation == 90 || rotation == 270
     val displayWidth = if (isRotated) imageHeight.toFloat() else imageWidth.toFloat()
     val displayHeight = if (isRotated) imageWidth.toFloat() else imageHeight.toFloat()
