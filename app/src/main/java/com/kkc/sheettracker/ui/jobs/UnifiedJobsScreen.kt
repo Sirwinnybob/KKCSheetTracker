@@ -4,6 +4,9 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -83,6 +86,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import com.kkc.sheettracker.ui.components.RefreshIconButton
@@ -248,6 +252,7 @@ fun UnifiedJobsScreen(
     }
     val dragOffset = 2 + if (pinnedCards.isNotEmpty()) pinnedCards.size + 2 else 0
     val listState = rememberLazyListState()
+    val lowEndMode = LocalLowEndMode.current
 
     // "Jump to job" from a tapped delivery — scroll the list to the matching card and highlight
     // it. Index map mirrors the LazyColumn's exact item emission order below (pinned header +
@@ -273,7 +278,11 @@ fun UnifiedJobsScreen(
         val target = pendingScrollTarget ?: return@LaunchedEffect
         val idx = lazyIndexByFolderName[target]
         if (idx != null) {
-            listState.animateScrollToItem(idx)
+            if (lowEndMode.animationsDisabled) {
+                listState.scrollToItem(idx)
+            } else {
+                listState.animateScrollToItem(idx)
+            }
             highlightedFolderName = target
             pendingScrollTarget = null
         } else {
@@ -337,6 +346,7 @@ fun UnifiedJobsScreen(
     }
 
     LaunchedEffect(Unit) {
+        if (lowEndMode.lazyLoadingActive) delay(500)
         spec.refresh(RefreshReason.APP_FOREGROUND, force = false)
     }
 
@@ -386,8 +396,12 @@ fun UnifiedJobsScreen(
             AnimatedContent(
                 targetState = sortByName to boardView,
                 transitionSpec = {
-                    val dir = if (targetState.first) 1 else -1
-                    slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
+                    if (lowEndMode.animationsDisabled) {
+                        fadeIn(snap()) togetherWith fadeOut(snap())
+                    } else {
+                        val dir = if (targetState.first) 1 else -1
+                        slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
+                    }
                 },
                 label = "sort_anim"
             ) { (_, isBoardView) ->

@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.dashboard
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 
 object DashboardSurfaceDefaults {
@@ -90,6 +92,7 @@ fun DashboardSurfaceCard(
     tintOverride: Color? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val lowEnd = LocalLowEndMode.current
     val containerColor = if (tinted) {
         val wash = tintOverride?.copy(alpha = 0.14f) ?: DashboardSurfaceDefaults.accentWash(accent)
         wash.compositeOver(MaterialTheme.colorScheme.surface)
@@ -99,7 +102,12 @@ fun DashboardSurfaceCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(elevation = 3.dp, shape = shape, clip = false),
+            .shadow(elevation = if (lowEnd.shadowsDisabled) 0.dp else 3.dp, shape = shape, clip = false)
+            .clip(shape)
+            .then(
+                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                else Modifier
+            ),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(

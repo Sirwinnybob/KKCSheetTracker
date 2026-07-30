@@ -53,6 +53,8 @@ import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.TrackerLamportClock
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.ui.components.LowEndModeFlags
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.navigation.AppNavigation
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.onboarding.OnboardingStep
@@ -297,13 +299,26 @@ class MainActivity : ComponentActivity() {
                 themeCatalog = themeRepository.loadCatalog()
             }
 
+            val featureFlags = remember { AppStateFeatureFlags(prefs, BuildConfig.DEBUG) }
+            val flagsSnapshot by featureFlags.snapshotFlow.collectAsState(initial = featureFlags.snapshot())
+            val lowEndFlags = remember(flagsSnapshot) {
+                LowEndModeFlags(
+                    masterEnabled = flagsSnapshot.lowEndMode,
+                    animationsEnabled = !flagsSnapshot.lowEndMode || flagsSnapshot.animationsEnabled,
+                    shadowsEnabled = !flagsSnapshot.lowEndMode || flagsSnapshot.shadowsEnabled,
+                    blurEnabled = !flagsSnapshot.lowEndMode || flagsSnapshot.blurEnabled,
+                    lazyLoadingEnabled = !flagsSnapshot.lowEndMode || flagsSnapshot.lazyLoadingEnabled,
+                )
+            }
+
             KKCTheme(darkTheme = isDarkTheme, themeTokens = themeCatalog.activeTheme.tokens) {
                 PersistentNavigationBarHider()
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation(
+                    androidx.compose.runtime.CompositionLocalProvider(LocalLowEndMode provides lowEndFlags) {
+                        AppNavigation(
                         scanCoordinator = scanCoordinator,
                         appStateStore = appStateStore,
                         jobRepository = jobRepository,
@@ -375,6 +390,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onThemeCatalogReload = { reloadThemeCatalog() }
                     )
+                }
 
                     var showClockForUpdate by rememberSaveable { mutableStateOf(false) }
 

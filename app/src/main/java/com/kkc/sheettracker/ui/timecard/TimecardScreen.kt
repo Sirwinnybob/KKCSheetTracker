@@ -5,7 +5,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -42,6 +44,7 @@ import java.time.format.DateTimeFormatter
 import com.kkc.sheettracker.data.TimecardBgConfig
 import com.kkc.sheettracker.data.TimecardBgStore
 import com.kkc.sheettracker.ui.components.BatteryIndicator
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.FixedDensityWrapper
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 
@@ -146,12 +149,13 @@ private fun TimecardReadyState(store: TimecardStore, ready: TimecardUiState.Read
                     onBackspace = { store.backspacePressed() },
                     hazeState = hazeState,
                     actionContent = {
+                        val lowEnd = LocalLowEndMode.current
                         val bgColor = if (isClockedIn) ClockOutRed else ClockInGreen
                         val interactionSource = remember { MutableInteractionSource() }
                         val isPressed by interactionSource.collectIsPressedAsState()
                         val scale by animateFloatAsState(
                             targetValue = if (isPressed) 0.94f else 1f,
-                            animationSpec = spring(
+                            animationSpec = if (lowEnd.animationsDisabled) snap() else spring(
                                 stiffness = Spring.StiffnessMedium,
                                 dampingRatio = Spring.DampingRatioMediumBouncy
                             ),
@@ -163,19 +167,29 @@ private fun TimecardReadyState(store: TimecardStore, ready: TimecardUiState.Read
                                 .height(84.dp)
                                 .graphicsLayer { scaleX = scale; scaleY = scale }
                                 .shadow(
-                                    elevation = if (isActionEnabled) 6.dp else 0.dp,
+                                    elevation = if (lowEnd.shadowsDisabled || !isActionEnabled) 0.dp else 6.dp,
                                     shape = RoundedCornerShape(7.dp),
                                     clip = false
                                 )
                                 .clip(RoundedCornerShape(7.dp))
-                                .hazeEffect(
-                                    state = hazeState,
-                                    style = HazeDefaults.style(
-                                        backgroundColor = if (isActionEnabled) bgColor
-                                                          else bgColor.copy(alpha = 0.35f),
-                                        blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
-                                    )
+                                .then(
+                                    if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(7.dp))
+                                    else Modifier
                                 )
+                                .let { m ->
+                                    if (!lowEnd.blurDisabled) {
+                                        m.hazeEffect(
+                                            state = hazeState,
+                                            style = HazeDefaults.style(
+                                                backgroundColor = if (isActionEnabled) bgColor
+                                                                  else bgColor.copy(alpha = 0.35f),
+                                                blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
+                                            )
+                                        )
+                                    } else {
+                                        m.background(if (isActionEnabled) bgColor else bgColor.copy(alpha = 0.35f), RoundedCornerShape(7.dp))
+                                    }
+                                }
                                 .clickable(
                                     enabled = isActionEnabled,
                                     interactionSource = interactionSource,
@@ -261,9 +275,10 @@ private fun DisplayCard(
     ready: TimecardUiState.Ready
 ) {
     val frostedTokens = LocalKKCThemeTokens.current.frosted
+    val lowEnd = LocalLowEndMode.current
     val nameAlpha by animateFloatAsState(
         targetValue = if (ready.pin.length == 3) 1f else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = if (lowEnd.animationsDisabled) snap() else spring(stiffness = Spring.StiffnessMediumLow),
         label = "nameAlpha"
     )
     val nameColor = if (ready.pin.length == 3 && ready.matchedEmployee == null)
@@ -272,7 +287,7 @@ private fun DisplayCard(
         MaterialTheme.colorScheme.onSurface
     val animatedNameColor by animateColorAsState(
         targetValue = nameColor,
-        animationSpec = tween(260),
+        animationSpec = if (lowEnd.animationsDisabled) snap() else tween(260),
         label = "nameColor"
     )
 
@@ -292,22 +307,32 @@ private fun DisplayCard(
     }
     val animatedStatusColor by animateColorAsState(
         targetValue = statusColor,
-        animationSpec = tween(325),
+        animationSpec = if (lowEnd.animationsDisabled) snap() else tween(325),
         label = "statusColor"
     )
 
     Surface(
         modifier = modifier
             .height(160.dp)
-            .shadow(elevation = 12.dp, shape = RoundedCornerShape(10.dp))
+            .shadow(elevation = if (lowEnd.shadowsDisabled) 0.dp else 12.dp, shape = RoundedCornerShape(10.dp))
             .clip(RoundedCornerShape(10.dp))
-            .hazeEffect(
-                state = hazeState,
-                style = HazeDefaults.style(
-                    backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)),
-                    blurRadius = (frostedTokens.blurDp * 1.7f).coerceAtLeast(1f).dp
-                )
-            ),
+            .then(
+                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                else Modifier
+            )
+            .let { m ->
+                if (!lowEnd.blurDisabled) {
+                    m.hazeEffect(
+                        state = hazeState,
+                        style = HazeDefaults.style(
+                            backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)),
+                            blurRadius = (frostedTokens.blurDp * 1.7f).coerceAtLeast(1f).dp
+                        )
+                    )
+                } else {
+                    m.background(MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)), RoundedCornerShape(10.dp))
+                }
+            },
         shape = RoundedCornerShape(10.dp),
         color = Color.Transparent
     ) {
@@ -329,7 +354,9 @@ private fun DisplayCard(
                         AnimatedContent(
                             targetState = targetChar,
                             transitionSpec = {
-                                if (targetState != "—") {
+                                if (lowEnd.animationsDisabled) {
+                                    fadeIn(snap()) togetherWith fadeOut(snap())
+                                } else if (targetState != "—") {
                                     (slideInVertically(tween(208)) { it } + fadeIn(tween(208))) togetherWith
                                         (slideOutVertically(tween(130)) { -it } + fadeOut(tween(104)))
                                 } else {
@@ -374,7 +401,8 @@ private fun DisplayCard(
             AnimatedContent(
                 targetState = statusText,
                 transitionSpec = {
-                    fadeIn(tween(286)) togetherWith fadeOut(tween(195))
+                    if (lowEnd.animationsDisabled) fadeIn(snap()) togetherWith fadeOut(snap())
+                    else fadeIn(tween(286)) togetherWith fadeOut(tween(195))
                 },
                 label = "statusText"
             ) { text ->
@@ -445,29 +473,44 @@ private fun NumpadKey(
     onClick: () -> Unit
 ) {
     val frostedTokens = LocalKKCThemeTokens.current.frosted
+    val lowEnd = LocalLowEndMode.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.92f else 1f,
-        animationSpec = spring(
-            stiffness = Spring.StiffnessMedium,
-            dampingRatio = Spring.DampingRatioMediumBouncy
-        ),
+        animationSpec = if (lowEnd.animationsDisabled) {
+            androidx.compose.animation.core.snap()
+        } else {
+            spring(
+                stiffness = Spring.StiffnessMedium,
+                dampingRatio = Spring.DampingRatioMediumBouncy
+            )
+        },
         label = "keyScale"
     )
     Box(
         modifier = modifier
             .height(84.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .shadow(elevation = 6.dp, shape = RoundedCornerShape(7.dp), clip = false)
+            .shadow(elevation = if (lowEnd.shadowsDisabled) 0.dp else 6.dp, shape = RoundedCornerShape(7.dp), clip = false)
             .clip(RoundedCornerShape(7.dp))
-            .hazeEffect(
-                state = hazeState,
-                style = HazeDefaults.style(
-                    backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
-                    blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
-                )
+            .then(
+                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(7.dp))
+                else Modifier
             )
+            .let { m ->
+                if (!lowEnd.blurDisabled) {
+                    m.hazeEffect(
+                        state = hazeState,
+                        style = HazeDefaults.style(
+                            backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
+                            blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
+                        )
+                    )
+                } else {
+                    m.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f), RoundedCornerShape(7.dp))
+                }
+            }
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,

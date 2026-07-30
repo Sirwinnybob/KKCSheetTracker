@@ -106,6 +106,7 @@ import com.kkc.sheettracker.data.TimecardDiscovery
 import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.TimeclockMessagesRepository
+import com.kkc.sheettracker.data.UiPreferencesStore
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
 import com.kkc.sheettracker.ui.timecard.TimecardScreen
 import com.kkc.sheettracker.ui.timecard.TimecardStore
@@ -1828,12 +1829,13 @@ private fun SettingsTabHost(
                         launchSingleTop = true
                     }
                 },
-                onOpenSpecialtyViewerDefaults = {
-                    navController.navigate("settings/specialtyViewerDefaults") {
-                        launchSingleTop = true
-                    }
-                },
-            )
+onOpenSpecialtyViewerDefaults = {
+                        navController.navigate("settings/specialtyViewerDefaults") {
+                            launchSingleTop = true
+                        }
+                    },
+                    uiPreferencesStore = UiPreferencesStore(LocalContext.current),
+                )
         }
         composable("settings/assemblyViewerDefaults") {
             AssemblyViewerDefaultsScreen(
@@ -2966,6 +2968,7 @@ private fun LegacySingleStackNavigation(
                                 launchSingleTop = true
                             }
                         },
+                        uiPreferencesStore = UiPreferencesStore(LocalContext.current),
                     )
                 }
 

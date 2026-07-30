@@ -45,6 +45,7 @@ private const val SCANNER_TAG = "SupplyScannerOverlay"
  * First successful barcode decode pauses analysis (freeze-frame) and calls the appropriate
  * callback. Caller must call [onDismiss] to close the overlay and reset scan state.
  */
+@android.annotation.SuppressLint("UnsafeOptInUsageError")
 @Composable
 fun SupplyScannerOverlay(
     barcodeStore: SupplyBarcodeStore,

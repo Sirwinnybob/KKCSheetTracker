@@ -21,6 +21,7 @@ import coil.decode.ImageDecoderDecoder
 import coil.request.ImageRequest
 import com.kkc.sheettracker.data.TimecardBgConfig
 import com.kkc.sheettracker.data.TimecardBgType
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import java.io.File
 
 @Composable
@@ -28,6 +29,7 @@ fun TimeclockBackground(
     config: TimecardBgConfig,
     modifier: Modifier = Modifier
 ) {
+    val lowEnd = LocalLowEndMode.current
     when (config.type) {
         TimecardBgType.NONE ->
             Box(modifier = modifier.background(MaterialTheme.colorScheme.background))

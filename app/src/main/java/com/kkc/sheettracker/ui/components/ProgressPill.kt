@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.runtime.getValue
@@ -59,6 +60,7 @@ fun ProgressPill(
     showCheckOnComplete: Boolean = true,
     skippedFillColor: Color? = null
 ) {
+    val lowEnd = LocalLowEndMode.current
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)
     val safeDone = done.coerceAtLeast(0).coerceAtMost(if (safeTotal > 0) safeTotal else done.coerceAtLeast(0))
@@ -91,7 +93,7 @@ fun ProgressPill(
         modifier = modifier
             .height(22.dp)
             .width(80.dp)
-            .shadow(elevation = 2.dp, shape = shape, clip = false)
+            .shadow(elevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp, shape = shape, clip = false)
             .clip(shape)
             .background(trackColor)
             .semantics {
@@ -102,12 +104,13 @@ fun ProgressPill(
                 }
             }
     ) {
+        val animSpec = if (lowEnd.animationsDisabled) snap<Float>() else spring(
+            stiffness = Spring.StiffnessLow,
+            dampingRatio = Spring.DampingRatioNoBouncy
+        )
         val animatedFraction by animateFloatAsState(
             targetValue = fraction,
-            animationSpec = spring(
-                stiffness = Spring.StiffnessLow,
-                dampingRatio = Spring.DampingRatioNoBouncy
-            ),
+            animationSpec = animSpec,
             label = "progressPillFraction"
         )
         Box(

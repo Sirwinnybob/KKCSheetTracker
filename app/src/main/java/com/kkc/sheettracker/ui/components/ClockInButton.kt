@@ -1,6 +1,10 @@
 package com.kkc.sheettracker.ui.components
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import kotlinx.coroutines.delay
 
 @Composable
@@ -40,6 +45,11 @@ fun ClockInButton(
     onClockInClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val lowEndMode = LocalLowEndMode.current
+    val animateContentSize = remember(lowEndMode.animationsDisabled) {
+        if (lowEndMode.animationsDisabled) snap<IntSize>() else spring<IntSize>()
+    }
+    // ... rest of the function stays the same
     val snapshot = clockInState.snapshot
     val isMinimized = snapshot.isActive && snapshot.isMinimized
 
@@ -68,7 +78,7 @@ fun ClockInButton(
             ),
             shape = RoundedCornerShape(9.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            modifier = modifier.animateContentSize()
+            modifier = modifier.animateContentSize(animationSpec = animateContentSize)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

@@ -26,6 +26,10 @@ fun Modifier.bounceClick(
     scaleDown: Float = 0.97f,
     onClick: () -> Unit
 ): Modifier = composed {
+    val lowEnd = LocalLowEndMode.current
+    if (lowEnd.animationsDisabled) {
+        return@composed this.clickable(onClick = onClick)
+    }
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -53,7 +57,8 @@ fun Modifier.animateEntrance(
     initialLoadComplete: Boolean,
     delayUnit: Int = 30
 ): Modifier = composed {
-    if (initialLoadComplete) {
+    val lowEnd = LocalLowEndMode.current
+    if (initialLoadComplete || lowEnd.animationsDisabled) {
         return@composed this
     }
     var visible by remember { mutableStateOf(false) }

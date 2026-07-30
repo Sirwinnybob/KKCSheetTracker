@@ -63,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -93,6 +94,7 @@ import androidx.compose.material3.Surface
 import java.io.File
 import com.kkc.sheettracker.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -123,6 +125,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.text.input.TextFieldValue
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 
@@ -336,7 +339,11 @@ fun SupplyDashboardScreen(
         }
     }
 
-    LaunchedEffect(basePath) { loadData() }
+    val lowEndMode = LocalLowEndMode.current
+    LaunchedEffect(basePath) {
+        if (lowEndMode.lazyLoadingActive) delay(500)
+        loadData()
+    }
     LaunchedEffect(items, subscriptionData) { reloadUpdates() }
 
     val boardSearchMatches = remember(items, searchQuery) {
@@ -393,17 +400,35 @@ fun SupplyDashboardScreen(
         },
     ) {
         // Pick mode banner
-        AnimatedVisibility(visible = pickPendingBarcode != null, enter = expandVertically(), exit = shrinkVertically()) {
-            Surface(color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Tap an item to link barcode", style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer)
-                    IconButton(onClick = { barcodeStore.clearPickMode() }) {
-                        Icon(Icons.Filled.Close, "Cancel link", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        if (lowEndMode.animationsDisabled) {
+            if (pickPendingBarcode != null) {
+                Surface(color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Tap an item to link barcode", style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        IconButton(onClick = { barcodeStore.clearPickMode() }) {
+                            Icon(Icons.Filled.Close, "Cancel link", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                        }
+                    }
+                }
+            }
+        } else {
+            AnimatedVisibility(visible = pickPendingBarcode != null, enter = expandVertically(), exit = shrinkVertically()) {
+                Surface(color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Tap an item to link barcode", style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        IconButton(onClick = { barcodeStore.clearPickMode() }) {
+                            Icon(Icons.Filled.Close, "Cancel link", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                        }
                     }
                 }
             }
@@ -427,17 +452,29 @@ fun SupplyDashboardScreen(
                             Tab(
                                 selected = selectedTabIndex == index,
                                 onClick = {
-                                    scope.launch {
-                                        if (tabItem.type is SupplyTabType.CategoryTab) {
-                                            pagerState.animateScrollToPage(boardPageIndex)
-                                            val catIndex = sortedCategories.indexOf(tabItem.type.category)
-                                            if (catIndex >= 0) {
-                                                boardScrollState.animateScrollToItem(catIndex)
-                                            }
-                                        } else {
-                                            pagerState.animateScrollToPage(index)
-                                        }
-                                    }
+                                                    scope.launch {
+                                                        if (tabItem.type is SupplyTabType.CategoryTab) {
+                                                            if (lowEndMode.animationsDisabled) {
+                                                                pagerState.scrollToPage(boardPageIndex)
+                                                            } else {
+                                                                pagerState.animateScrollToPage(boardPageIndex)
+                                                            }
+                                                            val catIndex = sortedCategories.indexOf(tabItem.type.category)
+                                                            if (catIndex >= 0) {
+                                                                if (lowEndMode.animationsDisabled) {
+                                                                    boardScrollState.scrollToItem(catIndex)
+                                                                } else {
+                                                                    boardScrollState.animateScrollToItem(catIndex)
+                                                                }
+                                                            }
+                                                        } else {
+                                                            if (lowEndMode.animationsDisabled) {
+                                                                pagerState.scrollToPage(index)
+                                                            } else {
+                                                                pagerState.animateScrollToPage(index)
+                                                            }
+                                                        }
+                                                    }
                                 },
                                 text = {
                                     Row(
@@ -445,7 +482,7 @@ fun SupplyDashboardScreen(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Text(
-                                            tabItem.name.uppercase(java.util.Locale.getDefault()),
+                                            tabItem.name.uppercase(LocalLocale.current.platformLocale),
                                             maxLines = 1,
                                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                         )
@@ -1450,22 +1487,41 @@ private fun ToOrderJobSectionCard(
             }
         }
 
-        AnimatedVisibility(
-            visible = !section.isCollapsed,
-            enter = expandVertically(),
-            exit = shrinkVertically()
-        ) {
-            Column(
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+        val lowEndMode = LocalLowEndMode.current
+        if (lowEndMode.animationsDisabled) {
+            if (!section.isCollapsed) {
+                Column(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    section.group.items.forEach { resolvedItem ->
+                        ToOrderItemRow(
+                            jobFolderName = section.group.folderName,
+                            resolvedItem = resolvedItem,
+                            onEditItem = onEditItem,
+                            onToggleComplete = onToggleComplete
+                        )
+                    }
+                }
+            }
+        } else {
+            AnimatedVisibility(
+                visible = !section.isCollapsed,
+                enter = expandVertically(),
+                exit = shrinkVertically()
             ) {
-                section.group.items.forEach { resolvedItem ->
-                    ToOrderItemRow(
-                        jobFolderName = section.group.folderName,
-                        resolvedItem = resolvedItem,
-                        onEditItem = onEditItem,
-                        onToggleComplete = onToggleComplete
-                    )
+                Column(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    section.group.items.forEach { resolvedItem ->
+                        ToOrderItemRow(
+                            jobFolderName = section.group.folderName,
+                            resolvedItem = resolvedItem,
+                            onEditItem = onEditItem,
+                            onToggleComplete = onToggleComplete
+                        )
+                    }
                 }
             }
         }

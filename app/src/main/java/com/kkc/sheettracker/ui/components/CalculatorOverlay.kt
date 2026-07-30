@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.zIndex
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
@@ -412,7 +413,8 @@ private fun FullscreenCalculator(
     hazeState: HazeState?
 ) {
     val frostedTokens = LocalKKCThemeTokens.current.frosted
-    val panelModifier = if (hazeState != null) {
+    val lowEndMode = LocalLowEndMode.current
+    val panelModifier = if (hazeState != null && !lowEndMode.blurDisabled) {
         Modifier.hazeEffect(
             state = hazeState,
             style = HazeDefaults.style(
@@ -502,7 +504,8 @@ private fun ResizableModalCalculator(
 
         val modalShape = RoundedCornerShape(15.dp)
         val frostedTokens = LocalKKCThemeTokens.current.frosted
-        val panelModifier = if (hazeState != null) {
+        val lowEndMode = LocalLowEndMode.current
+        val panelModifier = if (hazeState != null && !lowEndMode.blurDisabled) {
             Modifier.hazeEffect(
                 state = hazeState,
                 style = HazeDefaults.style(
@@ -521,7 +524,7 @@ private fun ResizableModalCalculator(
                 .offset(stateSnapshot.modalX.dp, stateSnapshot.modalY.dp)
                 .width(widthDp.dp)
                 .height(heightDp.dp)
-                .shadow(10.dp, modalShape, clip = false)
+                .shadow(elevation = if (lowEndMode.shadowsDisabled) 0.dp else 10.dp, shape = modalShape, clip = false)
                 .clip(modalShape)
                 .then(panelModifier)
         ) {

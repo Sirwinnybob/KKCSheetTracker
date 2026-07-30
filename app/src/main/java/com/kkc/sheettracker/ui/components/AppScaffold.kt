@@ -16,6 +16,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -214,8 +215,10 @@ private fun MorphingNavIconRow(
     iconSize: Dp,
     showLabels: Boolean
 ) {
-    val hPad by animateDpAsState(if (showLabels) 14.dp else 8.dp, NavSpringDp, label = "navItemHPad")
-    val vPad by animateDpAsState(if (showLabels) 8.dp else 6.dp, NavSpringDp, label = "navItemVPad")
+    val lowEnd = LocalLowEndMode.current
+    val navPadSpec = if (!lowEnd.animationsDisabled) NavSpringDp else snap()
+    val hPad by animateDpAsState(if (showLabels) 14.dp else 8.dp, navPadSpec, label = "navItemHPad")
+    val vPad by animateDpAsState(if (showLabels) 8.dp else 6.dp, navPadSpec, label = "navItemVPad")
 
     Row(
         modifier = Modifier
@@ -255,11 +258,21 @@ private fun MorphingNavIconRow(
                                    else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(iconSize)
                         )
-                        AnimatedVisibility(
-                            visible = showLabels,
-                            enter = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
-                            exit  = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
-                        ) {
+                        if (!lowEnd.animationsDisabled) {
+                            AnimatedVisibility(
+                                visible = showLabels,
+                                enter = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
+                                exit  = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
+                            ) {
+                                Text(
+                                    text = "Calc",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isCalculatorOpen) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else if (showLabels) {
                             Text(
                                 text = "Calc",
                                 style = MaterialTheme.typography.labelSmall,
@@ -319,11 +332,17 @@ private fun MorphingNavIconRow(
                         } else {
                             iconContent()
                         }
-                        AnimatedVisibility(
-                            visible = showLabels,
-                            enter = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
-                            exit  = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
-                        ) {
+                        if (!lowEnd.animationsDisabled) {
+                            AnimatedVisibility(
+                                visible = showLabels,
+                                enter = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
+                                exit  = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
+                            ) {
+                                Text(
+                                    text = dest.label,
+                                )
+                            }
+                        } else if (showLabels) {
                             Text(
                                 text = dest.label,
                                 style = MaterialTheme.typography.labelSmall,
@@ -363,6 +382,7 @@ private fun MorphingNavBar(
     extendedControls: (@Composable RowScope.() -> Unit)? = null,
     onTimeclockBgEdit: () -> Unit = {}
 ) {
+    val lowEnd = LocalLowEndMode.current
     // Cache last non-null values so exit animations can still render content
     // when the parent clears decorations before the slide completes.
     var lastSearch    by remember { mutableStateOf(searchDecoration) }
@@ -383,6 +403,7 @@ private fun MorphingNavBar(
     val showLabels      = !minimized && !showExtended
 
     // Icons morph: 22 (full+labels) → 20 (minimized pill) → 18 (decoration/extended when minimized).
+    val iconSizeSpec = if (!lowEnd.animationsDisabled) NavSpringDp else snap()
     val minIconSize by animateDpAsState(
         targetValue   = when {
             showExtended    -> 18.dp
@@ -390,7 +411,7 @@ private fun MorphingNavBar(
             minimized       -> 20.dp
             else            -> 22.dp
         },
-        animationSpec = NavSpringDp,
+        animationSpec = iconSizeSpec,
         label         = "navIconSize"
     )
 
@@ -416,17 +437,17 @@ private fun MorphingNavBar(
         // One constant removes the race entirely: only the height moves.
         val cornerRadius = 20.dp
         val minNavShape = remember { RoundedCornerShape(cornerRadius) }
+        val minHazeSurface = MaterialTheme.colorScheme.surface
+        val frostedTokens = LocalKKCThemeTokens.current.frosted
         Surface(
             modifier       = Modifier.fillMaxWidth(),
             shape          = minNavShape,
-            color          = if (hazeState != null) Color.Transparent else MaterialTheme.colorScheme.surface,
-            shadowElevation = 3.dp,
+            color          = if (hazeState != null && !lowEnd.blurDisabled) Color.Transparent else minHazeSurface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
+            shadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 3.dp,
             tonalElevation = 0.dp
         ) {
-            val minHazeSurface = MaterialTheme.colorScheme.surface
-            val frostedTokens = LocalKKCThemeTokens.current.frosted
-            val minHazeModifier = remember(hazeState, minHazeSurface, frostedTokens) {
-                if (hazeState != null)
+            val minHazeModifier = remember(hazeState, minHazeSurface, frostedTokens, lowEnd.blurDisabled) {
+                if (hazeState != null && !lowEnd.blurDisabled)
                     Modifier.hazeEffect(
                         hazeState,
                         style = HazeDefaults.style(
@@ -439,11 +460,23 @@ private fun MorphingNavBar(
             Box(modifier = Modifier.fillMaxWidth().then(minHazeModifier)) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     // ── Extended controls (Hardwoods cut list, etc.) — full-bar path
-                    AnimatedVisibility(
-                        visible = showExtended,
-                        enter   = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
-                        exit    = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
-                    ) {
+                    if (!lowEnd.animationsDisabled) {
+                        AnimatedVisibility(
+                            visible = showExtended,
+                            enter   = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
+                            exit    = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                content = extendedControls ?: {}
+                            )
+                        }
+                    } else if (showExtended) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -469,17 +502,21 @@ private fun MorphingNavBar(
                     AnimatedContent(
                         targetState = activeDecor,
                         transitionSpec = {
-                            val forward = decorOrder.indexOf(targetState) > decorOrder.indexOf(initialState)
-                            val inOffset: (Int) -> Int  = { if (forward) it else -it }
-                            val outOffset: (Int) -> Int = { if (forward) -it else it }
-                            // Horizontal slide for the tab swap; height grows/shrinks on
-                            // the shared spring so the bar settles organically as content
-                            // of different heights (search vs pen vs cnc) slides through.
-                            ContentTransform(
-                                targetContentEnter = slideInHorizontally(tween(NAV_SLIDE_MS, easing = NavEasing), inOffset),
-                                initialContentExit = slideOutHorizontally(tween(NAV_SLIDE_MS, easing = NavEasing), outOffset),
-                                sizeTransform      = SizeTransform(clip = true) { _, _ -> NavSpringSize }
-                            )
+                            if (!lowEnd.animationsDisabled) {
+                                val forward = decorOrder.indexOf(targetState) > decorOrder.indexOf(initialState)
+                                val inOffset: (Int) -> Int  = { if (forward) it else -it }
+                                val outOffset: (Int) -> Int = { if (forward) -it else it }
+                                // Horizontal slide for the tab swap; height grows/shrinks on
+                                // the shared spring so the bar settles organically as content
+                                // of different heights (search vs pen vs cnc) slides through.
+                                ContentTransform(
+                                    targetContentEnter = slideInHorizontally(tween(NAV_SLIDE_MS, easing = NavEasing), inOffset),
+                                    initialContentExit = slideOutHorizontally(tween(NAV_SLIDE_MS, easing = NavEasing), outOffset),
+                                    sizeTransform      = SizeTransform(clip = true) { _, _ -> NavSpringSize }
+                                )
+                            } else {
+                                fadeIn(animationSpec = snap()) togetherWith fadeOut(animationSpec = snap())
+                            }
                         },
                         label = "decorationTabs"
                     ) { decor ->
@@ -739,11 +776,18 @@ private fun MorphingNavBar(
                     // ~15dp (line + padding) footprint would pop in/out in a single frame
                     // instead of shrinking together with the rest of the panel, leaving the
                     // bar looking like it collapses in two uneven steps.
-                    AnimatedVisibility(
-                        visible = showExtended || showDecorations,
-                        enter   = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
-                        exit    = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
-                    ) {
+                    if (!lowEnd.animationsDisabled) {
+                        AnimatedVisibility(
+                            visible = showExtended || showDecorations,
+                            enter   = expandVertically(NavSpringSize) + fadeIn(NavAnimEnter),
+                            exit    = shrinkVertically(NavSpringSize) + fadeOut(NavAnimExit)
+                        ) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                color    = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            )
+                        }
+                    } else if (showExtended || showDecorations) {
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                             color    = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)

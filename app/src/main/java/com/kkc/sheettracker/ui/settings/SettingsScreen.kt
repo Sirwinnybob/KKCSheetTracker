@@ -26,11 +26,13 @@ import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.EmployeeDirectory
 import com.kkc.sheettracker.data.TimecardServerConfig
+import com.kkc.sheettracker.data.UiPreferencesStore
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.ui.components.AdminPasswordDialog
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
 import kotlinx.coroutines.delay
@@ -73,6 +75,7 @@ fun SettingsScreen(
     onThemeCatalogReload: () -> Unit = {},
     onOpenAssemblyViewerDefaults: () -> Unit = {},
     onOpenSpecialtyViewerDefaults: () -> Unit = {},
+    uiPreferencesStore: UiPreferencesStore,
 ) {
     val adminMode by AdminModeController.enabled.collectAsState()
     var showAdminDialog by remember { mutableStateOf(false) }
@@ -380,6 +383,86 @@ fun SettingsScreen(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Text("Open", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+
+            // ── Performance ────────────────────────────────────────────────
+            SettingsCard(title = "Performance") {
+                var lowEndMode by remember { mutableStateOf(uiPreferencesStore.getLowEndMode()) }
+                var animationsEnabled by remember { mutableStateOf(uiPreferencesStore.getAnimationsEnabled()) }
+                var shadowsEnabled by remember { mutableStateOf(uiPreferencesStore.getShadowsEnabled()) }
+                var blurEnabled by remember { mutableStateOf(uiPreferencesStore.getBlurEnabled()) }
+                var lazyLoadingEnabled by remember { mutableStateOf(uiPreferencesStore.getLazyLoadingEnabled()) }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Low-end device mode", style = MaterialTheme.typography.bodyLarge)
+                    Switch(
+                        checked = lowEndMode,
+                        onCheckedChange = { enabled ->
+                            lowEndMode = enabled
+                            uiPreferencesStore.setLowEndMode(enabled)
+                            if (enabled) {
+                                animationsEnabled = false
+                                shadowsEnabled = false
+                                blurEnabled = false
+                                lazyLoadingEnabled = true
+                                uiPreferencesStore.setAnimationsEnabled(false)
+                                uiPreferencesStore.setShadowsEnabled(false)
+                                uiPreferencesStore.setBlurEnabled(false)
+                                uiPreferencesStore.setLazyLoadingEnabled(true)
+                            }
+                        }
+                    )
+                }
+
+                if (lowEndMode) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ToggleRow(
+                            label = "Animations",
+                            checked = animationsEnabled,
+                            onCheckedChange = {
+                                animationsEnabled = it
+                                uiPreferencesStore.setAnimationsEnabled(it)
+                            },
+                            subtitle = "Spring/tween transitions, animated content size"
+                        )
+                        ToggleRow(
+                            label = "Shadows",
+                            checked = shadowsEnabled,
+                            onCheckedChange = {
+                                shadowsEnabled = it
+                                uiPreferencesStore.setShadowsEnabled(it)
+                            },
+                            subtitle = "Card/button elevation shadows"
+                        )
+                        ToggleRow(
+                            label = "Frosted glass / blur",
+                            checked = blurEnabled,
+                            onCheckedChange = {
+                                blurEnabled = it
+                                uiPreferencesStore.setBlurEnabled(it)
+                            },
+                            subtitle = "hazeEffect() backgrounds, blur modifiers"
+                        )
+                        ToggleRow(
+                            label = "Lazy data loading",
+                            checked = lazyLoadingEnabled,
+                            onCheckedChange = {
+                                lazyLoadingEnabled = it
+                                uiPreferencesStore.setLazyLoadingEnabled(it)
+                            },
+                            subtitle = "Paginate job/supply lists, defer heavy loads"
+                        )
                     }
                 }
             }
@@ -799,10 +882,16 @@ private fun SettingsCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val lowEnd = LocalLowEndMode.current
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(2.dp, RoundedCornerShape(12.dp), clip = false),
+            .shadow(if (lowEnd.shadowsDisabled) 0.dp else 2.dp, RoundedCornerShape(12.dp), clip = false)
+            .clip(RoundedCornerShape(12.dp))
+            .then(
+                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                else Modifier
+            ),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp
@@ -824,6 +913,7 @@ private fun WorkModeIconTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val lowEnd = LocalLowEndMode.current
     val bgColor = if (isSelected) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
@@ -848,7 +938,7 @@ private fun WorkModeIconTile(
                 if (!isSelected) Modifier.border(1.dp, borderColor, RoundedCornerShape(12.dp))
                 else Modifier
             )
-            .shadow(if (isSelected) 0.dp else 1.dp, RoundedCornerShape(12.dp), clip = false)
+            .shadow(if (lowEnd.shadowsDisabled) 0.dp else if (isSelected) 0.dp else 1.dp, RoundedCornerShape(12.dp), clip = false)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         color = bgColor,
@@ -917,6 +1007,30 @@ private fun filledFieldColors(): TextFieldColors {
         focusedContainerColor = containerColor,
         focusedBorderColor = MaterialTheme.colorScheme.primary,
     )
+}
+
+@Composable
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    subtitle: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }
 
 // ── Private helper functions ────────────────────────────────────────────────

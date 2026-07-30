@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.jobs
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,7 @@ import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.hardwoods.toStatusCounts
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 
 @Composable
@@ -59,6 +61,7 @@ fun UnifiedJobCard(
     onEditLabels: () -> Unit = {},
     dragModifier: Modifier = Modifier
 ) {
+    val lowEnd = LocalLowEndMode.current
     val statusColors = KKCThemeColors.statusColors
 
     // For CNC/Hardwoods: used for segmented progress bar inside ProgressCard.
@@ -127,8 +130,12 @@ fun UnifiedJobCard(
 
     ProgressCard(
         modifier = modifier
-            .shadow(4.dp, RoundedCornerShape(12.dp), clip = false)
+            .shadow(if (lowEnd.shadowsDisabled) 0.dp else 4.dp, RoundedCornerShape(12.dp), clip = false)
             .clip(RoundedCornerShape(12.dp))
+            .then(
+                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                else Modifier
+            )
             .background(MaterialTheme.colorScheme.surface),
         title = model.folderName,
         subtitle = subtitle,

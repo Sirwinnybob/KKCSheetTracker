@@ -82,6 +82,7 @@ import com.kkc.sheettracker.data.models.SheetStatusSnapshot
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.models.SpecialtyJob
 import com.kkc.sheettracker.data.models.SpecialtyScanState
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.ProgressPill
 import com.kkc.sheettracker.ui.components.ProgressState
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
@@ -176,6 +177,7 @@ private fun CncDashboardContent(
     val dashboard by appStateStore.dashboardUiModel.collectAsState()
     val appUiState by appStateStore.uiState.collectAsState()
     val appFlags = appStateFlags.snapshot()
+    val lowEnd = LocalLowEndMode.current
     var showBadList by rememberSaveable { mutableStateOf(false) }
     var showSkippedList by rememberSaveable { mutableStateOf(false) }
 
@@ -230,17 +232,28 @@ private fun CncDashboardContent(
             jobRepository = jobRepository,
             onOpenSheet = onOpenSheet
         )
-        AnimatedVisibility(
-            visible = !hasLoadedOnce || dashboard.incompleteRemakeMaterials.isNotEmpty(),
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            CncRemakesSection(
-                items = dashboard.incompleteRemakeMaterials,
-                hasLoadedOnce = hasLoadedOnce,
-                jobRepository = jobRepository,
-                onOpenSheet = onOpenSheet
-            )
+        if (lowEnd.animationsDisabled) {
+            if (!hasLoadedOnce || dashboard.incompleteRemakeMaterials.isNotEmpty()) {
+                CncRemakesSection(
+                    items = dashboard.incompleteRemakeMaterials,
+                    hasLoadedOnce = hasLoadedOnce,
+                    jobRepository = jobRepository,
+                    onOpenSheet = onOpenSheet
+                )
+            }
+        } else {
+            AnimatedVisibility(
+                visible = !hasLoadedOnce || dashboard.incompleteRemakeMaterials.isNotEmpty(),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                CncRemakesSection(
+                    items = dashboard.incompleteRemakeMaterials,
+                    hasLoadedOnce = hasLoadedOnce,
+                    jobRepository = jobRepository,
+                    onOpenSheet = onOpenSheet
+                )
+            }
         }
         TextButton(onClick = onNavigateToJobs) { Text("View All Jobs") }
     }
@@ -282,12 +295,13 @@ private fun CncRecentMaterialsSection(
     jobRepository: JobRepository,
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
 ) {
+    val lowEnd = LocalLowEndMode.current
     DashboardSurfaceCard {
         DashboardSectionHeader(
             title = "Recent In-Progress Materials",
             subtitle = if (items.isEmpty()) null else "${items.size} recent material${if (items.size == 1) "" else "s"}"
         )
-        Box(modifier = Modifier.animateContentSize()) {
+        Box(modifier = if (lowEnd.animationsDisabled) Modifier else Modifier.animateContentSize()) {
             when {
                 !hasLoadedOnce -> {
                     Row(
@@ -400,6 +414,7 @@ private fun CncRemakeMaterialCard(
     thumbnail: Bitmap?,
     onClick: () -> Unit
 ) {
+    val lowEnd = LocalLowEndMode.current
     val tileShape = DashboardSurfaceDefaults.sectionShape
     DashboardSurfaceCard(
         modifier = Modifier
@@ -466,12 +481,17 @@ private fun CncRemakeMaterialCard(
                 )
             }
             val fraction = item?.completionFraction?.coerceIn(0f, 1f) ?: 0f
-            val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = fraction,
-                animationSpec = androidx.compose.animation.core.spring(
+            val animSpec = if (lowEnd.animationsDisabled) {
+                androidx.compose.animation.core.snap<Float>()
+            } else {
+                androidx.compose.animation.core.spring(
                     stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
                     dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy
-                ),
+                )
+            }
+            val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = fraction,
+                animationSpec = animSpec,
                 label = "remakeProgress"
             )
             LinearProgressIndicator(
@@ -590,6 +610,7 @@ private fun CncRecentMaterialCard(
     thumbnail: Bitmap?,
     onClick: () -> Unit
 ) {
+    val lowEnd = LocalLowEndMode.current
     val tileAccent = item?.let { recentMaterialAccent(it.counts) } ?: DashboardAccent.NEUTRAL
     val tileShape = DashboardSurfaceDefaults.sectionShape
     DashboardSurfaceCard(
@@ -664,12 +685,17 @@ private fun CncRecentMaterialCard(
                 )
             }
             val fraction = item?.completionFraction?.coerceIn(0f, 1f) ?: 0f
-            val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = fraction,
-                animationSpec = androidx.compose.animation.core.spring(
+            val animSpec = if (lowEnd.animationsDisabled) {
+                androidx.compose.animation.core.snap<Float>()
+            } else {
+                androidx.compose.animation.core.spring(
                     stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
                     dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy
-                ),
+                )
+            }
+            val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = fraction,
+                animationSpec = animSpec,
                 label = "recentProgress"
             )
             LinearProgressIndicator(

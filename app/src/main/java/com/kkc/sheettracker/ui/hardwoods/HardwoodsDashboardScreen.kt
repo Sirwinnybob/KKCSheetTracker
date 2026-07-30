@@ -53,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
@@ -73,6 +74,7 @@ import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.ProgressPill
 import com.kkc.sheettracker.ui.components.ProgressState
 import com.kkc.sheettracker.ui.components.StatusBorderedCard
@@ -101,11 +103,13 @@ fun HardwoodsDashboardScreen(
     val jobs = scanState.snapshot.jobs
     val loading = scanState.status == ScanStatus.LOADING && jobs.isEmpty()
 
+    val lowEndMode = LocalLowEndMode.current
     val summaries by produceState(
         initialValue = emptyList<HardwoodJobDashboardEntry>(),
         key1 = jobs,
         key2 = progressVersion,
     ) {
+        if (lowEndMode.lazyLoadingActive) delay(500)
         value = withContext(Dispatchers.IO) {
             jobs.map { job ->
                 ensureActive()
@@ -156,6 +160,7 @@ fun HardwoodsDashboardScreen(
         key1 = jobs,
         key2 = progressVersion,
     ) {
+        if (lowEndMode.lazyLoadingActive) delay(500)
         value = withContext(Dispatchers.IO) {
             jobs.map { job -> job to progressStore.getLocalLastTouchedAtMs(job.folderName) }
                 .filter { (_, ms) -> ms > 0L }
