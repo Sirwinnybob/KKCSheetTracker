@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
+import com.kkc.sheettracker.data.models.PartSearchEntry
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
@@ -69,6 +70,25 @@ internal fun computeSearchMatches(
     return SearchMatches(results = visibleResults, totalMatches = totalMatches)
 }
 
+internal fun searchResultsFromIndex(entries: List<PartSearchEntry>): List<SearchResult> = entries.map { entry ->
+    SearchResult(
+        jobFolderName = entry.jobFolderName,
+        jobNumber = entry.jobNumber,
+        materialName = entry.materialName,
+        pdfFilename = entry.pdfFilename,
+        pageNumber = entry.pageNumber,
+        partNumber = entry.partNumber,
+        partName = entry.partName,
+        room = entry.room,
+        cabNumber = entry.cabNumber
+    )
+}
+
+private data class SearchIndexUiState(
+    val results: List<SearchResult> = emptyList(),
+    val isLoading: Boolean = true
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
@@ -83,22 +103,22 @@ fun SearchScreen(
     var searchMatches by remember { mutableStateOf(SearchMatches(emptyList(), 0)) }
     val results = searchMatches.results
     val listState = rememberLazyListState()
-    val allResults = remember(scanState.snapshot.generation) {
-        scanState.snapshot.searchIndex.map { entry ->
-            SearchResult(
-                jobFolderName = entry.jobFolderName,
-                jobNumber = entry.jobNumber,
-                materialName = entry.materialName,
-                pdfFilename = entry.pdfFilename,
-                pageNumber = entry.pageNumber,
-                partNumber = entry.partNumber,
-                partName = entry.partName,
-                room = entry.room,
-                cabNumber = entry.cabNumber
+    val searchIndexState by produceState(
+        initialValue = SearchIndexUiState(),
+        key1 = scanState.snapshot.basePath,
+        key2 = scanState.snapshot.generation
+    ) {
+        value = withContext(Dispatchers.IO) {
+            // The lightweight scan intentionally leaves snapshot.searchIndex empty. Build from
+            // the repository's engine-backed index instead, off the Compose thread.
+            SearchIndexUiState(
+                results = searchResultsFromIndex(jobRepository.buildSearchIndex()),
+                isLoading = false
             )
         }
     }
-    val isLoaded = scanState.status != ScanStatus.LOADING
+    val allResults = searchIndexState.results
+    val isLoaded = scanState.status != ScanStatus.LOADING && !searchIndexState.isLoading
 
     LaunchedEffect(query, allResults) {
         val q = query.trim()

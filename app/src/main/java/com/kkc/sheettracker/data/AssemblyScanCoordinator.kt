@@ -110,7 +110,7 @@ class AssemblyScanCoordinator(
                 val unchanged = !force &&
                     currentSignature == lastStalenessSignature &&
                     previous.snapshot.basePath == baseDir.absolutePath &&
-                    previous.snapshot.jobs.isNotEmpty()
+                    previous.snapshot.generation > 0
 
                 if (unchanged) {
                     _state.value = previous.copy(
@@ -121,11 +121,6 @@ class AssemblyScanCoordinator(
                     return
                 }
 
-                // User pressed Refresh: deep-scan all jobs (full staleness check + re-parse) so
-                // newer on-disk files not yet in cache_static.json appear. Auto refreshes stay fast.
-                if (reason == RefreshReason.USER_REFRESH) {
-                    unifiedEngine.deepScanAllJobs()
-                }
                 val jobs = scanAssemblyJobs()
                 lastStalenessSignature = currentSignature
                 _state.value = AssemblyScanState(
@@ -152,26 +147,8 @@ class AssemblyScanCoordinator(
 
     private fun scanAssemblyJobs(): List<AssemblyJob> {
         if (!baseDir.exists() || !baseDir.isDirectory) return emptyList()
-        val (jobInfos, needsDeepLoad) = unifiedEngine.listJobsFromCacheOnly()
-        val jobs = jobInfos.mapNotNull { info ->
-            runCatching {
-                unifiedEngine.getAssemblySnapshot(info.folderName)?.job
-                    ?.copy(
-                        lineupPosition = info.lineupPosition,
-                        labels = info.labels,
-                        hiddenFromProduction = info.hiddenFromProduction,
-                        isPending = info.isPending,
-                        boardSection = info.boardSection
-                    )
-            }.getOrNull()
-        }
-        if (needsDeepLoad.isNotEmpty()) {
-            scope.launch {
-                val changed = needsDeepLoad.filter { unifiedEngine.refreshJobDeep(it) }
-                updateJobsInState(changed)
-            }
-        }
-        return jobs
+        val (_, _) = unifiedEngine.listJobsFromCacheIndex()
+        return emptyList()
     }
 
     /** Re-projects one job from the engine's in-memory cache and emits an updated AssemblyScanState. */

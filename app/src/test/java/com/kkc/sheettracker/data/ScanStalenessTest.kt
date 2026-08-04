@@ -29,7 +29,7 @@ class ScanStalenessTest {
     }
 
     @Test
-    fun changingBoardMtimeFlipsSignature() {
+    fun changingBoardMtimeDoesNotFlipListSignature() {
         val baseDir = Files.createTempDirectory("scan-staleness-board").toFile()
         val boardFile = File(baseDir, "job_board.json")
         writeFileWithMtime(boardFile, 1_000_000L)
@@ -39,7 +39,7 @@ class ScanStalenessTest {
         boardFile.setLastModified(9_000_000L)
         val after = computeLightStalenessSignature(baseDir)
 
-        assertNotEquals("a job_board.json mtime change must flip the signature", before, after)
+        assertEquals("Jobs lists must not read job_board.json", before, after)
     }
 
     @Test
@@ -58,7 +58,7 @@ class ScanStalenessTest {
     }
 
     @Test
-    fun changingCacheStaticMtimeFlipsSignature() {
+    fun changingCacheStaticMtimeDoesNotFlipListSignature() {
         val baseDir = Files.createTempDirectory("scan-staleness-cache").toFile()
         writeFileWithMtime(File(baseDir, "job_board.json"), 1_000_000L)
         val cacheFile = File(baseDir, "Job-A/.metadata/cache_static.json")
@@ -68,6 +68,19 @@ class ScanStalenessTest {
         cacheFile.setLastModified(9_000_000L)
         val after = computeLightStalenessSignature(baseDir)
 
-        assertNotEquals("a cache_static.json mtime change must flip the signature", before, after)
+        assertEquals("Jobs lists must not read cache_static.json", before, after)
+    }
+
+    @Test
+    fun changingCacheIndexMtimeFlipsListSignature() {
+        val baseDir = Files.createTempDirectory("scan-staleness-index").toFile()
+        val indexFile = File(baseDir, "Job-A/.metadata/cache_index.json")
+        writeFileWithMtime(indexFile, 2_000_000L)
+
+        val before = computeLightStalenessSignature(baseDir)
+        indexFile.setLastModified(9_000_000L)
+        val after = computeLightStalenessSignature(baseDir)
+
+        assertNotEquals("a cache_index.json mtime change must flip the signature", before, after)
     }
 }

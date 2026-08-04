@@ -5,6 +5,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class SafetyRepositoryTest {
     @get:Rule
@@ -50,5 +51,28 @@ class SafetyRepositoryTest {
         val comments = repository.getComments(item.id)
         assertEquals(1, comments.size)
         assertEquals("Cleanup in progress", comments[0].text)
+    }
+
+    @Test
+    fun newestFractionalSecondStatusWinsOverEarlierWholeSecondStatus() {
+        val repository = SafetyRepository(tempFolder.root.absolutePath)
+        val item = repository.addConcern("John", "Guard", "Equipment Hazard", "Loose", emptyList(), "tablet-1")
+        val statusDir = File(tempFolder.root, ".safety/status")
+        File(statusDir, "${item.id}.old.json").writeText("{\"status\":\"OPEN\",\"by\":\"Old\",\"at\":\"2099-08-01T10:00:00Z\"}")
+        File(statusDir, "${item.id}.new.json").writeText("{\"status\":\"RESOLVED\",\"by\":\"New\",\"at\":\"2099-08-01T10:00:00.5Z\"}")
+
+        assertEquals("RESOLVED", repository.getConcerns().single().status)
+    }
+
+    @Test
+    fun sameInstantStatusUsesStatusFilenameAsStableTieBreak() {
+        val repository = SafetyRepository(tempFolder.root.absolutePath)
+        val item = repository.addConcern("John", "Guard", "Equipment Hazard", "Loose", emptyList(), "tablet-1")
+        val statusDir = File(tempFolder.root, ".safety/status")
+        val sameInstant = "2099-08-01T10:00:00Z"
+        File(statusDir, "${item.id}.a.json").writeText("{\"status\":\"OPEN\",\"by\":\"First\",\"at\":\"$sameInstant\"}")
+        File(statusDir, "${item.id}.z.json").writeText("{\"status\":\"RESOLVED\",\"by\":\"Last\",\"at\":\"$sameInstant\"}")
+
+        assertEquals("RESOLVED", repository.getConcerns().single().status)
     }
 }

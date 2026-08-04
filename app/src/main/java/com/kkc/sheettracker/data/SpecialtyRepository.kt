@@ -30,10 +30,8 @@ class SpecialtyRepository(
     fun currentBasePath(): String = baseDir.absolutePath
 
     fun scanJobs(): List<SpecialtyJob> {
-        val (cachedJobInfos, needsDeepLoad) = engine().listJobsFromCacheOnly()
-        val jobInfos = if (needsDeepLoad.isEmpty()) cachedJobInfos else engine().listJobs()
-        return jobInfos.map { info -> buildSpecialtyJob(info) }
-        // Preserve production order (set by server in cache); no secondary sort needed
+        val (cachedJobInfos, _) = engine().listJobsFromCacheIndex()
+        return cachedJobInfos.map(::buildListSpecialtyJob)
     }
 
     /** Re-builds one SpecialtyJob from the current engine cache. Used by SpecialtyScanCoordinator. */
@@ -45,6 +43,19 @@ class SpecialtyRepository(
     private fun buildSpecialtyJob(info: UnifiedJobInfo): SpecialtyJob {
         val resolved = runCatching { progressStore.loadResolvedItems(info.folderName) }
             .getOrElse { emptyList() }
+        return buildSpecialtyJob(info, resolved)
+    }
+
+    private fun buildListSpecialtyJob(info: UnifiedJobInfo): SpecialtyJob {
+        val resolved = runCatching { progressStore.loadListResolvedItems(info.folderName) }
+            .getOrElse { emptyList() }
+        return buildSpecialtyJob(info, resolved)
+    }
+
+    private fun buildSpecialtyJob(
+        info: UnifiedJobInfo,
+        resolved: List<SpecialtyResolvedItem>
+    ): SpecialtyJob {
         val totalItems = resolved.size
         val completedItems = resolved.count { it.isComplete }
         return SpecialtyJob(

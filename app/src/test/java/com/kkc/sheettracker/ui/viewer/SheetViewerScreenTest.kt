@@ -16,6 +16,31 @@ import kotlin.math.abs
 
 class SheetViewerScreenTest {
 
+    @Test
+    fun sheetRenderQuality_usesHalfScaleForAdjacentAndFullScaleForCurrent() {
+        assertEquals(0.5f, SheetRenderQuality.ADJACENT.scale, 0.0001f)
+        assertEquals(1f, SheetRenderQuality.CURRENT.scale, 0.0001f)
+        assertEquals(SheetDiagramSource.SIDECAR_THUMBNAIL, SheetRenderQuality.ADJACENT.diagramSource)
+        assertEquals(SheetDiagramSource.FULL_EMBEDDED_IMAGE, SheetRenderQuality.CURRENT.diagramSource)
+    }
+
+    @Test
+    fun cachedAdjacentRender_isPromotedWhenPageBecomesCurrent() {
+        assertFalse(isRenderQualitySufficient(0.5f, SheetRenderQuality.CURRENT))
+        assertTrue(isRenderQualitySufficient(1f, SheetRenderQuality.CURRENT))
+        assertTrue(isRenderQualitySufficient(1f, SheetRenderQuality.ADJACENT))
+    }
+
+    @Test
+    fun resolveSheetDisplayBitmap_neverFallsBackToFullPageInDiagramMode() {
+        val fullPage = mock<Bitmap>()
+        val diagram = mock<Bitmap>()
+
+        assertEquals(diagram, resolveSheetDisplayBitmap(false, fullPage, diagram))
+        assertNull(resolveSheetDisplayBitmap(false, fullPage, null))
+        assertEquals(fullPage, resolveSheetDisplayBitmap(true, fullPage, diagram))
+    }
+
     private fun screenPositionOf(
         contentX: Float,
         contentY: Float,
@@ -210,45 +235,31 @@ class SheetViewerScreenTest {
     }
 
     @Test
-    fun shouldRecycleEvictedPageBitmap_falseWhenEvictedIsNull() {
-        val displayed = mock<Bitmap>()
-
-        assertFalse(shouldRecycleEvictedPageBitmap(evicted = null, currentlyDisplayed = displayed))
+    fun shouldRecycleRenderedPageBitmap_falseWhenBitmapIsNull() {
+        assertFalse(shouldRecycleRenderedPageBitmap(bitmap = null, wasDisplayed = false))
     }
 
     @Test
-    fun shouldRecycleEvictedPageBitmap_falseWhenEvictedIsStillOnScreen() {
-        // The LRU cache can hand back the same bitmap instance under a stale page key while it
-        // is still bound to the visible pageBitmap state -- recycling it would crash the next draw.
-        val displayed = mock<Bitmap>()
-        whenever(displayed.isRecycled).thenReturn(false)
+    fun shouldRecycleRenderedPageBitmap_falseOnceBitmapReachedCompose() {
+        val bitmap = mock<Bitmap>()
+        whenever(bitmap.isRecycled).thenReturn(false)
 
-        assertFalse(shouldRecycleEvictedPageBitmap(evicted = displayed, currentlyDisplayed = displayed))
+        assertFalse(shouldRecycleRenderedPageBitmap(bitmap = bitmap, wasDisplayed = true))
     }
 
     @Test
-    fun shouldRecycleEvictedPageBitmap_falseWhenAlreadyRecycled() {
-        val evicted = mock<Bitmap>()
-        whenever(evicted.isRecycled).thenReturn(true)
-        val displayed = mock<Bitmap>()
+    fun shouldRecycleRenderedPageBitmap_falseWhenAlreadyRecycled() {
+        val bitmap = mock<Bitmap>()
+        whenever(bitmap.isRecycled).thenReturn(true)
 
-        assertFalse(shouldRecycleEvictedPageBitmap(evicted = evicted, currentlyDisplayed = displayed))
+        assertFalse(shouldRecycleRenderedPageBitmap(bitmap = bitmap, wasDisplayed = false))
     }
 
     @Test
-    fun shouldRecycleEvictedPageBitmap_trueWhenEvictedIsUnreferencedAndNotRecycled() {
-        val evicted = mock<Bitmap>()
-        whenever(evicted.isRecycled).thenReturn(false)
-        val displayed = mock<Bitmap>()
+    fun shouldRecycleRenderedPageBitmap_trueWhenNeverDisplayedAndNotRecycled() {
+        val bitmap = mock<Bitmap>()
+        whenever(bitmap.isRecycled).thenReturn(false)
 
-        assertTrue(shouldRecycleEvictedPageBitmap(evicted = evicted, currentlyDisplayed = displayed))
-    }
-
-    @Test
-    fun shouldRecycleEvictedPageBitmap_trueWhenNothingIsCurrentlyDisplayed() {
-        val evicted = mock<Bitmap>()
-        whenever(evicted.isRecycled).thenReturn(false)
-
-        assertTrue(shouldRecycleEvictedPageBitmap(evicted = evicted, currentlyDisplayed = null))
+        assertTrue(shouldRecycleRenderedPageBitmap(bitmap = bitmap, wasDisplayed = false))
     }
 }

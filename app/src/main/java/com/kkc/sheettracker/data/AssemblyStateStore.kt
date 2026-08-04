@@ -8,10 +8,12 @@ import com.kkc.sheettracker.data.models.AssemblyCncSummary
 import com.kkc.sheettracker.data.models.AssemblyHardwoodRow
 import com.kkc.sheettracker.data.models.AssemblyHardwoodsSummary
 import com.kkc.sheettracker.data.models.AssemblyJob
+import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.AssemblySheetPart
 import com.kkc.sheettracker.data.models.AssemblyVirtualSourceRef
+import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.unified.UnifiedBoardStockOverlayLookup
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
@@ -35,7 +37,9 @@ class AssemblyStateStore(
     }
 
     fun getJobs(): List<AssemblyJob> {
-        return assemblyScanCoordinator.state.value.snapshot.jobs
+        return engine().getCachedJobInfos().mapNotNull { info ->
+            engine().getAssemblySnapshot(info.folderName)?.job
+        }
     }
 
     fun getCabinetSheetIndex(jobFolderName: String): CabinetSheetIndex? {
@@ -49,29 +53,20 @@ class AssemblyStateStore(
      */
     fun deriveJobCards(resolveCounts: Boolean = true): List<AssemblyJobCard> {
         val assemblyJobs = getJobs()
-        val cncJobsByFolder = if (resolveCounts) {
-            scanCoordinator.state.value.snapshot.jobs.associateBy { it.folderName }
-        } else {
-            emptyMap()
-        }
-        val hardwoodJobsByFolder = if (resolveCounts) {
-            hardwoodsScanCoordinator.state.value.snapshot.jobs.associateBy { it.folderName }
-        } else {
-            emptyMap()
-        }
 
         return assemblyJobs.map { job ->
-            val cncJob = cncJobsByFolder[job.folderName]
-            val hardwoodJob = hardwoodJobsByFolder[job.folderName]
-
-            val cncCounts = if (cncJob != null) {
-                progressStore.getJobStatusCounts(job.folderName, cncJob.materials)
+            val cncCounts = if (resolveCounts) {
+                engine().getProgressFromIndex(job.folderName)?.cnc?.let { cnc ->
+                    StatusCounts(total = cnc.totalSheets, complete = cnc.done, bad = cnc.bad, skipped = cnc.skipped)
+                }
             } else {
                 null
             }
 
-            val hardwoodCounts = if (hardwoodJob != null) {
-                hardwoodsProgressStore.summarizeJob(hardwoodJob).counts
+            val hardwoodCounts = if (resolveCounts) {
+                engine().getProgressFromIndex(job.folderName)?.hardwoods?.let { hw ->
+                    HardwoodStatusCounts(totalPieces = hw.totalPieces, donePieces = hw.donePieces, badPieces = hw.badPieces, skippedPieces = hw.skippedPieces)
+                }
             } else {
                 null
             }
@@ -100,7 +95,7 @@ class AssemblyStateStore(
                         skippedPieces = hardwoodCounts.skippedPieces
                     )
                 },
-                hasBothModes = cncJob != null && hardwoodJob != null,
+                hasBothModes = engine().getProgressFromIndex(job.folderName)?.let { it.cnc != null && it.hardwoods != null } ?: false,
                 hiddenFromProduction = job.hiddenFromProduction,
                 lineupPosition = job.lineupPosition,
                 labels = job.labels,

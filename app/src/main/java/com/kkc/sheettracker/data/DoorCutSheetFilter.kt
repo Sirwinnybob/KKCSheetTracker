@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.BuildConfig
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -469,7 +471,8 @@ fun syncCncToHardwoods(
     }
     if (targetDocs.isEmpty()) return
 
-    val cncJob = jobRepository.scanJobs().firstOrNull { it.folderName == jobFolderName } ?: return
+    val engine = UnifiedMetadataEngineRegistry.getOrCreate(File(hardwoodsRepository.currentBasePath()), BuildConfig.DEBUG)
+    val cncJob = engine.getCncSnapshot(jobFolderName)?.job ?: return
 
     data class CncPartState(
         val part: Part,

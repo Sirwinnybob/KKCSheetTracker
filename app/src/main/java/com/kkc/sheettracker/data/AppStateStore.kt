@@ -99,10 +99,43 @@ class AppStateStore(
                 )
 
                 try {
-                    val derivation = withContext(Dispatchers.Default) {
-                        derive(scanState.snapshot.jobs)
+                    val engine = scanCoordinator.unifiedEngine
+                    val jobInfos = engine.getCachedJobInfos()
+                    // The Jobs screen is index-only. The dashboard needs a PDF filename and
+                    // page metadata to make its Recent and Remake cards actionable, so hydrate
+                    // only jobs the index says can contribute one of those cards.
+                    val dashboardCandidates = jobInfos.filter { info ->
+                        val materials = info.indexProgress?.cnc?.materials.orEmpty()
+                        materials.any { material ->
+                            isRecentInProgressMaterial(material.toStatusCounts()) ||
+                                (material.isRemake && (material.done + material.renested) < material.totalSheets)
+                        }
                     }
-                    emitDistinctSnapshots(derivation)
+                    val loadedJobs = scanState.snapshot.jobs.associateBy { it.folderName }.toMutableMap()
+                    dashboardCandidates.forEach { info ->
+                        val snapshot = engine.getCncSnapshot(info.folderName) ?: return@forEach
+                        loadedJobs[info.folderName] = snapshot.job.copy(
+                            lineupPosition = info.lineupPosition,
+                            labels = info.labels,
+                            hiddenFromProduction = info.hiddenFromProduction,
+                            isPending = info.isPending,
+                            boardSection = info.boardSection
+                        )
+                    }
+                    val derivation = withContext(Dispatchers.Default) {
+                        derive(loadedJobs.values.toList())
+                    }
+                    val indexCncJobs = jobInfos.filter { it.indexProgress?.cnc != null }
+                    val dashboard = DashboardUiModel(
+                        totalJobs = if (indexCncJobs.isNotEmpty()) indexCncJobs.size else derivation.dashboard.totalJobs,
+                        totalSheets = if (indexCncJobs.isNotEmpty()) indexCncJobs.sumOf { (it.indexProgress?.cnc?.totalSheets ?: 0) - (it.indexProgress?.cnc?.renested ?: 0) } else derivation.dashboard.totalSheets,
+                        completedSheets = if (indexCncJobs.isNotEmpty()) indexCncJobs.sumOf { it.indexProgress?.cnc?.done ?: 0 } else derivation.dashboard.completedSheets,
+                        badPartsSheets = if (indexCncJobs.isNotEmpty()) indexCncJobs.sumOf { it.indexProgress?.cnc?.bad ?: 0 } else derivation.dashboard.badPartsSheets,
+                        skippedSheets = if (indexCncJobs.isNotEmpty()) indexCncJobs.sumOf { it.indexProgress?.cnc?.skipped ?: 0 } else derivation.dashboard.skippedSheets,
+                        recentInProgressMaterials = derivation.dashboard.recentInProgressMaterials,
+                        incompleteRemakeMaterials = derivation.dashboard.incompleteRemakeMaterials
+                    )
+                    emitDistinctSnapshots(derivation.copy(dashboard = dashboard))
 
                     _uiState.value = AppUiState(
                         status = AppDerivationStatus.READY,
@@ -116,7 +149,10 @@ class AppStateStore(
 
                     Log.i(
                         APP_STATE_TAG,
-                        "derive_done duration_ms=${System.currentTimeMillis() - derivingStartedAt} jobs=${scanState.snapshot.jobs.size} generation=${scanState.snapshot.generation} progress_version=$progressVersion"
+                        "derive_done duration_ms=${System.currentTimeMillis() - derivingStartedAt} " +
+                            "index_jobs=${jobInfos.size} dashboard_candidates=${dashboardCandidates.size} " +
+                            "hydrated_jobs=${loadedJobs.size} generation=${scanState.snapshot.generation} " +
+                            "progress_version=$progressVersion"
                     )
                 } catch (e: Exception) {
                     Log.e(APP_STATE_TAG, "derive_failed", e)
@@ -180,6 +216,7 @@ class AppStateStore(
             var jobBad = 0
             var jobSkipped = 0
             var jobNotStarted = 0
+            var jobReNested = 0
             var jobTotal = 0
 
             for (material in job.materials) {
@@ -196,6 +233,7 @@ class AppStateStore(
                 jobBad += materialUiModel.counts.bad
                 jobSkipped += materialUiModel.counts.skipped
                 jobNotStarted += materialUiModel.counts.notStarted
+                jobReNested += materialUiModel.counts.reNested
                 jobTotal += materialUiModel.counts.total
 
                 val touch = lastTouchesByPdf[material.pdfFilename]
@@ -229,7 +267,9 @@ class AppStateStore(
                 }
 
                 val remakeLabel = material.metadata?.remakeLabel
-                if (remakeLabel != null && materialUiModel.counts.complete < materialUiModel.counts.total) {
+                if (remakeLabel != null &&
+                    (materialUiModel.counts.complete + materialUiModel.counts.reNested) < materialUiModel.counts.total
+                ) {
                     val visiblePages = trackablePages(material)
                     val nextIncompletePage = nextIncompletePage(
                         trackablePages = visiblePages,
@@ -254,7 +294,7 @@ class AppStateStore(
                 }
             }
 
-            totalSheets += jobTotal
+            totalSheets += jobTotal - jobReNested
             completedSheets += jobComplete
             badPartsSheets += jobBad
             skippedSheets += jobSkipped
@@ -264,13 +304,14 @@ class AppStateStore(
                 jobNumber = job.jobNumber,
                 jobName = job.jobName,
                 counts = StatusCounts(
-                    total = jobTotal,
+                    total = jobTotal - jobReNested,
                     complete = jobComplete,
                     bad = jobBad,
                     skipped = jobSkipped,
-                    notStarted = jobNotStarted
+                    notStarted = jobNotStarted,
+                    reNested = jobReNested
                 ),
-                completionFraction = if (jobTotal > 0) jobComplete.toFloat() / jobTotal.toFloat() else 0f,
+                completionFraction = if (jobTotal - jobReNested > 0) jobComplete.toFloat() / (jobTotal - jobReNested).toFloat() else 0f,
                 materials = materialModels
             )
         }
@@ -361,13 +402,14 @@ class AppStateStore(
             }
         }
 
-        val total = visiblePages.size - reNestedCount
+        val total = visiblePages.size
         val counts = StatusCounts(
             total = total,
             complete = complete,
             bad = bad,
             skipped = skipped,
-            notStarted = notStarted
+            notStarted = notStarted,
+            reNested = reNestedCount
         )
 
         val pendingBadPartCount = progressStore.getPendingBadPartsForMaterial(

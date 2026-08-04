@@ -91,8 +91,13 @@ fun HardwoodsSearchScreen(
     onBack: () -> Unit
 ) {
     val scanState by scanCoordinator.state.collectAsState()
-    val all = scanState.snapshot.searchIndex
+    val all by scanCoordinator.searchIndex.collectAsState()
+    val isSearchProjectionLoading by scanCoordinator.isSearchProjectionLoading.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(scanState.snapshot.generation) {
+        scanCoordinator.loadSearchIndexOnSearchOpen()
+    }
 
     var searchMatches by remember { mutableStateOf(HardwoodsSearchMatches(emptyList(), 0)) }
     LaunchedEffect(all, query) {
@@ -140,7 +145,7 @@ fun HardwoodsSearchScreen(
             )
 
             when {
-                scanState.status == ScanStatus.LOADING && all.isEmpty() -> {
+                (scanState.status == ScanStatus.LOADING || isSearchProjectionLoading) && all.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }

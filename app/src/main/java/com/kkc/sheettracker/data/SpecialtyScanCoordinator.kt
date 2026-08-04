@@ -128,15 +128,15 @@ class SpecialtyScanCoordinator(
         try {
             val started = System.currentTimeMillis()
             val basePath = repository.currentBasePath()
-            // Lightweight signature: only checks cache_static.json mtimes (one stat per job).
-            // Skips the (potentially expensive) scanJobsProvider() call entirely when nothing
-            // on disk has changed, instead of computing the full job list just to discard it.
-            val currentSignature = computeLightStalenessSignature(File(basePath))
+            // Specialty list cards project their counts from compact Hours Tracker sidecars.
+            // Include only those files in the background freshness fingerprint; never read
+            // cache_static or full CNC/Hardwoods metadata from this list path.
+            val currentSignature = computeSpecialtyListStalenessSignature(File(basePath))
             val unchangedByStaleness = !force &&
                 currentSignature == lastStalenessSignature &&
                 previous.status == ScanStatus.READY &&
                 previous.snapshot.basePath == basePath &&
-                previous.snapshot.jobs.isNotEmpty()
+                previous.snapshot.generation > 0
 
             if (unchangedByStaleness) {
                 _state.value = previous.copy(
@@ -147,20 +147,13 @@ class SpecialtyScanCoordinator(
                 return
             }
 
-            // User pressed Refresh: deep-scan all jobs (full staleness check + re-parse) so newer
-            // on-disk files not yet in cache_static.json appear. Auto refreshes stay cache-only.
-            if (reason == RefreshReason.USER_REFRESH) {
-                UnifiedMetadataEngineRegistry.getOrCreate(
-                    baseDir = File(basePath),
-                    isDebugBuild = BuildConfig.DEBUG
-                ).deepScanAllJobs()
-            }
             val jobs = scanJobsProvider()
             lastStalenessSignature = currentSignature
             val unchanged = !force &&
                 previous.status == ScanStatus.READY &&
                 previous.snapshot.basePath == basePath &&
-                previous.snapshot.jobs == jobs
+                previous.snapshot.jobs == jobs &&
+                previous.snapshot.generation > 0
 
             if (unchanged) {
                 _state.value = previous.copy(

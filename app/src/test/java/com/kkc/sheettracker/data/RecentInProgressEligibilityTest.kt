@@ -32,4 +32,18 @@ class RecentInProgressEligibilityTest {
 
         assertTrue(isRecentInProgressMaterial(counts))
     }
+
+    @Test
+    fun fullyRenestedMaterialIsNotEligibleForRecentInProgress() {
+        val counts = StatusCounts(
+            total = 15,
+            complete = 2,
+            bad = 0,
+            skipped = 0,
+            notStarted = 0,
+            reNested = 13
+        )
+
+        assertFalse(isRecentInProgressMaterial(counts))
+    }
 }

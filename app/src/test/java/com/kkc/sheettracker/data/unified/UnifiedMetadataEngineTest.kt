@@ -321,6 +321,72 @@ class UnifiedMetadataEngineTest {
         assertEquals(listOf(jobFolder), engine.deepScanAllJobs())
     }
 
+    @Test
+    fun progressFromIndexReloadsWhenPublishedCacheIndexChanges() {
+        val baseDir = createTempBaseDir()
+        val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
+        val metadataDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(metadataDir, "deployment_gate.json").writeText("""{"deployed": true}""")
+        val indexFile = File(metadataDir, "cache_index.json")
+        indexFile.writeText(
+            """{"jobInfo":{"folderName":"$jobFolder","jobNumber":"1234","jobName":"Test Job"},"progressSummary":{"cnc":{"totalSheets":10,"done":1}}}"""
+        )
+        val firstTimestamp = indexFile.lastModified()
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+
+        engine.listJobsFromCacheIndex()
+        assertEquals(1, engine.getProgressFromIndex(jobFolder)?.cnc?.done)
+
+        indexFile.writeText(
+            """{"jobInfo":{"folderName":"$jobFolder","jobNumber":"1234","jobName":"Test Job"},"progressSummary":{"cnc":{"totalSheets":10,"done":2}}}"""
+        )
+        assertTrue(indexFile.setLastModified(firstTimestamp + 2_000))
+
+        assertEquals(2, engine.getProgressFromIndex(jobFolder)?.cnc?.done)
+    }
+
+    @Test
+    fun jobsListProjectionsDoNotReadJobBoardToBuildCards() {
+        val baseDir = createTempBaseDir()
+        val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
+        val metadataDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(metadataDir, "deployment_gate.json").writeText("""{"deployed": true}""")
+        File(metadataDir, "cache_index.json").writeText(
+            """{"jobInfo":{"folderName":"$jobFolder","jobNumber":"1234","jobName":"Test Job"},"progressSummary":{"cnc":{"totalSheets":10},"hasDeliverySheet":false,"has3DAssets":false}}"""
+        )
+        File(baseDir, "job_board.json").writeText(
+            """{"labels":[{"id":7,"name":"Urgent","color":"#FF0000"}],"jobs":[{"folder_name":"$jobFolder","label_ids":[7],"is_pending":1,"board_section":1}]}"""
+        )
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+
+        val indexJob = engine.listJobsFromCacheIndex().first.single()
+        val legacyProjectionJob = engine.listJobsFromCacheOnly().first.single()
+
+        listOf(indexJob, legacyProjectionJob).forEach { job ->
+            assertTrue(job.labels.isEmpty())
+            assertFalse(job.isPending)
+            assertEquals(0, job.boardSection)
+        }
+    }
+
+    @Test
+    fun transientMissingIndexDoesNotErasePublishedJobProjection() {
+        val baseDir = createTempBaseDir()
+        val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
+        val metadataDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(metadataDir, "deployment_gate.json").writeText("""{"deployed":true}""")
+        File(metadataDir, "cache_index.json").writeText(
+            """{"jobInfo":{"folderName":"$jobFolder","jobNumber":"1234","jobName":"Test Job"}}"""
+        )
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+
+        engine.listJobsFromCacheIndex()
+        assertTrue(File(metadataDir, "cache_index.json").delete())
+        engine.listJobsFromCacheIndex()
+
+        assertEquals(listOf(jobFolder), engine.getCachedJobInfos().map { it.folderName })
+    }
+
     private fun seedJob(baseDir: File) {
         val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
         val sheetIndexDir = File(jobDir, ".metadata").apply { mkdirs() }

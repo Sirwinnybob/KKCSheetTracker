@@ -38,7 +38,7 @@ class SpecialtyScanCoordinatorTest {
     }
 
     @Test
-    fun refreshLoadsSpecialtyJobsAndCompletionCounts() = runBlocking {
+    fun refreshProjectsSpecialtyCountsFromHoursTrackerSidecarsWithoutCacheStatic() = runBlocking {
         val baseDir = createTempBaseDir()
         writeSpecialtyItems(
             baseDir = baseDir,
@@ -87,13 +87,77 @@ class SpecialtyScanCoordinatorTest {
 
         val job = coordinator.state.value.snapshot.jobs.single()
         assertEquals(jobFolderName, job.folderName)
+        // Specialty is the exception to the general cache-index-only rule: these small,
+        // mode-owned Hours Tracker sidecars are the source of the list-card counts.
+        // This fixture deliberately has no cache_static.json.
         assertEquals(1, job.totalItems)
         assertEquals(1, job.completedItems)
         assertEquals(0, job.remainingItems)
+        assertTrue(job.resolvedItems.single().isComplete)
     }
 
     @Test
-    fun refreshChecklistOnlyJobProducesSpecialtyCounts() {
+    fun refreshDetectsTrackerSidecarChangeWithoutCacheIndexUpdate() {
+        val baseDir = createTempBaseDir()
+        writeSpecialtyItems(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            body = """
+                {
+                  "items": [
+                    {
+                      "id": "item-order",
+                      "name": "To Order Item",
+                      "cabinetNumbers": ["C1"],
+                      "category": "TO_ORDER",
+                      "stations": []
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+        val tracker = File(baseDir, "$jobFolderName/.metadata/admin/.tracker/tablet-a.json")
+        writeTrackerFile(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-a",
+            body = """{"tabletId":"tablet-a","schemaVersion":2,"completions":{}}"""
+        )
+
+        val coordinator = SpecialtyScanCoordinator(
+            SpecialtyRepository(
+                baseDir = baseDir,
+                progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-a")
+            )
+        )
+        coordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+        waitUntilReady { coordinator.state.value.status }
+        assertEquals(0, coordinator.state.value.snapshot.jobs.single().completedItems)
+
+        writeTrackerFile(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-a",
+            body = """
+                {
+                  "tabletId": "tablet-a",
+                  "schemaVersion": 2,
+                  "completions": {
+                    "item-order": { "completion": { "completed": true } }
+                  }
+                }
+            """.trimIndent()
+        )
+        tracker.setLastModified(tracker.lastModified() + 2_000L)
+
+        coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = false)
+        waitUntilReady { coordinator.state.value.status }
+
+        assertEquals(1, coordinator.state.value.snapshot.jobs.single().completedItems)
+    }
+
+    @Test
+    fun refreshProjectsChecklistSidecarCountWithoutCacheStatic() {
         val baseDir = createTempBaseDir()
         writeChecklistItems(
             baseDir = baseDir,
@@ -122,10 +186,11 @@ class SpecialtyScanCoordinatorTest {
         val job = coordinator.state.value.snapshot.jobs.single()
         assertEquals(1, job.totalItems)
         assertEquals(0, job.completedItems)
+        assertEquals("checklist:c1", job.resolvedItems.single().item.id)
     }
 
     @Test
-    fun refreshMergesSpecialtyItemsAndChecklistItems() {
+    fun refreshMergesSpecialtyAndChecklistSidecarsForListCounts() {
         val baseDir = createTempBaseDir()
         writeSpecialtyItems(
             baseDir = baseDir,
@@ -170,6 +235,7 @@ class SpecialtyScanCoordinatorTest {
 
         val job = coordinator.state.value.snapshot.jobs.single()
         assertEquals(2, job.totalItems)
+        assertEquals(listOf("checklist:c1", "item-order"), job.resolvedItems.map { it.item.id }.sorted())
     }
 
     @Test
@@ -292,6 +358,9 @@ class SpecialtyScanCoordinatorTest {
         val file = File(baseDir, "$jobFolderName/.metadata/deployment_gate.json")
         file.parentFile?.mkdirs()
         file.writeText("""{"deployed": true}""")
+        File(file.parentFile, "cache_index.json").writeText(
+            """{"jobInfo":{"folderName":"$jobFolderName","jobNumber":"1234","jobName":"Test Job"},"progressSummary":{"cnc":{"totalSheets":0},"hardwoods":{"totalPieces":0},"hasDeliverySheet":false,"has3DAssets":false}}"""
+        )
     }
 
     private fun writeSpecialtyItems(baseDir: File, jobFolderName: String, body: String) {

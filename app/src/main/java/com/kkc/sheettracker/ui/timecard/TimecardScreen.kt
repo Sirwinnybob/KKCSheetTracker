@@ -108,7 +108,7 @@ private fun TimecardNotFoundState() {
                 modifier = Modifier.size(48.dp),
                 tint = MaterialTheme.colorScheme.outline
             )
-            Text(text = "Timeclock server not found", style = MaterialTheme.typography.titleMedium)
+            Text(text = "Timeclock server unavailable", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = "Set the server IP in Settings to connect manually.",
                 style = MaterialTheme.typography.bodyMedium,

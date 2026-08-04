@@ -163,6 +163,7 @@ class SpecialtyStateStore(
             autoCompleteDoorPanelRows(jobFolderName, item, completed)
         }
         item?.let { autoCompleteClosetRodRows(jobFolderName, it, completed) }
+        specialtyScanCoordinator.updateJobInState(jobFolderName)
     }
 
     suspend fun setItemCompletion(
@@ -186,6 +187,7 @@ class SpecialtyStateStore(
             autoCompleteDoorPanelRows(jobFolderName, it, completed)
             autoCompleteClosetRodRows(jobFolderName, it, completed)
         }
+        specialtyScanCoordinator.updateJobInState(jobFolderName)
     }
 
     private fun autoCompleteClosetRodRows(

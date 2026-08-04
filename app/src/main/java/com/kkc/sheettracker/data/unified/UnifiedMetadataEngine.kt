@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data.unified
 
 import com.kkc.sheettracker.data.models.CacheIndexProgressSummary
 import com.kkc.sheettracker.data.models.JobLabel
+import com.kkc.sheettracker.data.models.PartSearchEntry
 
 interface UnifiedMetadataEngine {
     fun updateBasePath(path: String)
@@ -93,4 +94,10 @@ interface UnifiedMetadataEngine {
      * cache_static.json. Returns null if no cache_index.json exists or parse fails.
      */
     fun getProgressFromIndex(folderName: String): CacheIndexProgressSummary?
+
+    /** Returns the most recent job info list from background scan (zero I/O). */
+    fun getCachedJobInfos(): List<UnifiedJobInfo>
+
+    /** Returns the cached CNC part-search index for a job (zero I/O), or null if never loaded. */
+    fun getCachedCncSearchIndex(jobFolderName: String): List<PartSearchEntry>?
 }

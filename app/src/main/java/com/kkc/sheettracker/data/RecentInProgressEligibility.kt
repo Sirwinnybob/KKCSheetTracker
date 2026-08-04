@@ -7,5 +7,5 @@ internal fun isRecentInProgressMaterial(counts: StatusCounts): Boolean {
     // and the material is not fully done yet.
     return counts.total > 0 &&
         counts.complete > 0 &&
-        (counts.complete + counts.skipped) < counts.total
+        (counts.complete + counts.skipped + counts.reNested) < counts.total
 }

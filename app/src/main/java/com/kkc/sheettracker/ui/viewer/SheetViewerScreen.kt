@@ -92,9 +92,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.PathParser
 import com.kkc.sheettracker.BuildConfig
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.tom_roush.pdfbox.cos.COSName
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDResources
@@ -109,6 +106,7 @@ import com.kkc.sheettracker.data.PreparedPageKey
 import com.kkc.sheettracker.data.PreparedStateInvalidationReason
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.PageMetadata
@@ -139,21 +137,17 @@ import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 import java.io.File
 import kotlin.math.min
 import kotlin.math.sqrt
 import java.util.ArrayDeque
 
-private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 private val ROOM_PAREN_REGEX = Regex("""\(([^)]+)\)""")
 private val ROOM_ILLEGAL_CHARS_REGEX = Regex("""[/\\:*?"<>|]""")
 private val ROOM_WHITESPACE_REGEX = Regex("""\s+""")
@@ -166,7 +160,9 @@ private const val RENDER_PREWARM_RADIUS = 2
 
 private data class RenderedSheetPage(
     val pageBitmap: Bitmap?,
-    val diagramBitmap: Bitmap?
+    val diagramBitmap: Bitmap?,
+    val renderScale: Float,
+    var wasDisplayed: Boolean = false
 )
 
 private data class TocSheetInfo(
@@ -231,14 +227,16 @@ internal fun shouldShowPenMarkupOverlay(
     penModeEnabled: Boolean
 ): Boolean = penModeEnabled
 
-/**
- * Whether a page bitmap evicted from the render LRU cache is safe to recycle. It must exist,
- * not already be recycled, and must not be the bitmap currently bound to the on-screen page
- * (which the UI is still drawing from) -- recycling that would crash the next draw call.
- */
-internal fun shouldRecycleEvictedPageBitmap(evicted: Bitmap?, currentlyDisplayed: Bitmap?): Boolean {
-    return evicted != null && evicted !== currentlyDisplayed && !evicted.isRecycled
+/** Compose may retain a displayed bitmap in a recorded display list after state changes. */
+internal fun shouldRecycleRenderedPageBitmap(bitmap: Bitmap?, wasDisplayed: Boolean): Boolean {
+    return bitmap != null && !wasDisplayed && !bitmap.isRecycled
 }
+
+internal fun resolveSheetDisplayBitmap(
+    showFullPdfPage: Boolean,
+    pageBitmap: Bitmap?,
+    diagramBitmap: Bitmap?
+): Bitmap? = if (showFullPdfPage) pageBitmap else diagramBitmap
 
 internal fun resolveSheetViewerMarkupStoreConfig(
     basePath: String?,
@@ -282,6 +280,7 @@ fun SheetViewerScreen(
     clockInState: ClockInState? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
+    val unifiedEngine = remember(scanState.snapshot.basePath) { UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), BuildConfig.DEBUG) }
     val progressVersion by progressStore.progressVersion.collectAsState()
     val appSheetStatusSnapshots by appStateStore.sheetStatusSnapshots.collectAsState()
     val appUiState by appStateStore.uiState.collectAsState()
@@ -370,7 +369,7 @@ fun SheetViewerScreen(
     val markupToolState = rememberPdfMarkupToolState()
     val localMarkupStrokes = remember(jobFolderName, pdfFilename) { mutableStateListOf<PdfInkStroke>() }
     val localMarkupDeletedIds = remember(jobFolderName, pdfFilename) { mutableStateListOf<String>() }
-    var markupContentVersion by remember(jobFolderName, pdfFilename) { mutableStateOf(0L) }
+    val markupChangeGeneration = rememberPdfMarkupChangeGeneration(pdfMarkupStore, jobFolderName)
     var resetZoomTrigger by remember { mutableIntStateOf(0) }
     var showSheetToc by remember { mutableStateOf(false) }
     var showCncSearch by remember { mutableStateOf(false) }
@@ -384,7 +383,6 @@ fun SheetViewerScreen(
     var nameWeight by rememberSaveable { mutableFloatStateOf(initialPrefs.nameWeight) }
     var cabColDp by rememberSaveable { mutableFloatStateOf(initialPrefs.cabDp) }
     var roomColDp by rememberSaveable { mutableFloatStateOf(initialPrefs.roomDp) }
-    var prewarmJob by remember { mutableStateOf<Job?>(null) }
     var diagramBboxes by remember { mutableStateOf<Map<Int, List<Rect>>>(emptyMap()) }
     var renderEffectCount by remember { mutableIntStateOf(0) }
     var statusEffectCount by remember { mutableIntStateOf(0) }
@@ -443,20 +441,7 @@ fun SheetViewerScreen(
         resolvedShowPopupSegment = hasPlansReferenceState == true || hasAssemblyReferenceState == true
     }
 
-    LaunchedEffect(pdfMarkupStore, jobFolderName) {
-        if (pdfMarkupStore == null) {
-            markupContentVersion = 0L
-            return@LaunchedEffect
-        }
-        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-            markupContentVersion = withContext(Dispatchers.IO) {
-                pdfMarkupStore.trackerContentVersion(jobFolderName)
-            }
-            delay(1000)
-        }
-    }
-
-    LaunchedEffect(pdfMarkupStore, jobFolderName, pdfFilename, currentPage, markupContentVersion) {
+    LaunchedEffect(pdfMarkupStore, jobFolderName, pdfFilename, currentPage, markupChangeGeneration) {
         if (pdfMarkupStore == null || currentPage <= 0) {
             localMarkupStrokes.clear()
             localMarkupDeletedIds.clear()
@@ -565,7 +550,18 @@ fun SheetViewerScreen(
     }
 
     fun cacheRenderedPage(page: Int, rendered: RenderedSheetPage) {
+        val existing = renderCache[page]
+        if (existing != null && existing.renderScale >= rendered.renderScale) {
+            if (shouldRecycleRenderedPageBitmap(rendered.pageBitmap, rendered.wasDisplayed)) {
+                rendered.pageBitmap?.recycle()
+            }
+            touchRenderCache(page)
+            return
+        }
         renderCache[page] = rendered
+        if (shouldRecycleRenderedPageBitmap(existing?.pageBitmap, existing?.wasDisplayed == true)) {
+            existing?.pageBitmap?.recycle()
+        }
         touchRenderCache(page)
         while (renderCacheOrder.size > RENDER_CACHE_MAX_PAGES) {
             val stalePage = renderCacheOrder.removeFirst()
@@ -573,15 +569,19 @@ fun SheetViewerScreen(
                 val evicted = renderCache.remove(stalePage)
                 // Never recycle diagramBitmap: it is owned/evicted by ProgressStore's own
                 // prepared-page cache. Only the page render's own pageBitmap belongs to us.
-                val evictedPageBitmap = evicted?.pageBitmap
-                if (shouldRecycleEvictedPageBitmap(evictedPageBitmap, pageBitmap)) {
-                    evictedPageBitmap?.recycle()
+                if (shouldRecycleRenderedPageBitmap(evicted?.pageBitmap, evicted?.wasDisplayed == true)) {
+                    evicted?.pageBitmap?.recycle()
                 }
             }
         }
     }
 
     fun clearRenderCache(reason: PreparedStateInvalidationReason) {
+        renderCache.values.forEach { rendered ->
+            if (shouldRecycleRenderedPageBitmap(rendered.pageBitmap, rendered.wasDisplayed)) {
+                rendered.pageBitmap?.recycle()
+            }
+        }
         renderCache.clear()
         renderCacheOrder.clear()
         Log.d(VIEWER_PREPARED_TAG, "render_recompute_reason=$reason")
@@ -600,54 +600,62 @@ fun SheetViewerScreen(
         targetMaterial: Material,
         targetPdfFile: java.io.File,
         pageNumber: Int,
-        source: String
+        source: String,
+        quality: SheetRenderQuality
     ): RenderedSheetPage? {
         if (!kotlinx.coroutines.currentCoroutineContext().isActive) return null
+        var renderedBitmap: Bitmap? = null
         return try {
-            var outPage: Bitmap? = null
             var outDiagram: Bitmap? = null
-            val fd = ParcelFileDescriptor.open(targetPdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            val renderer = PdfRenderer(fd)
             val pageIndex = pageNumber - 1
-            Log.d(OCR_TAG, "render_fn: pageIndex=$pageIndex pageCount=${renderer.pageCount} file=${targetPdfFile.path} exists=${targetPdfFile.exists()}")
-            if (pageIndex in 0 until renderer.pageCount) {
-                if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
-                    renderer.close()
-                    fd.close()
-                    return null
-                }
-                val page = renderer.openPage(pageIndex)
-                val scale = 2
-                val bmp = Bitmap.createBitmap(
-                    page.width * scale,
-                    page.height * scale,
-                    Bitmap.Config.ARGB_8888
-                )
-                bmp.eraseColor(android.graphics.Color.WHITE)
-                if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
-                    page.close()
-                    bmp.recycle()
-                    renderer.close()
-                    fd.close()
-                    return null
-                }
-                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
-                outPage = bmp
-                val key = preparedPageKey(targetMaterial, pageNumber)
-                outDiagram = progressStore.getOrPrepareDiagramBitmap(
-                    key = key,
-                    source = source
-                ) {
-                    val pageMeta = resolvePageMetadata(targetMaterial, pageNumber)
-                    extractLargestEmbeddedImage(targetPdfFile, pageIndex)
-                        ?: loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
+            ParcelFileDescriptor.open(targetPdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                PdfRenderer(fd).use { renderer ->
+                    Log.d(OCR_TAG, "render_fn: pageIndex=$pageIndex pageCount=${renderer.pageCount} quality=$quality file=${targetPdfFile.path} exists=${targetPdfFile.exists()}")
+                    if (pageIndex !in 0 until renderer.pageCount) return null
+                    renderer.openPage(pageIndex).use { page ->
+                        val width = (page.width * quality.scale).toInt().coerceAtLeast(1)
+                        val height = (page.height * quality.scale).toInt().coerceAtLeast(1)
+                        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        bmp.eraseColor(android.graphics.Color.WHITE)
+                        try {
+                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                            renderedBitmap = bmp
+                        } catch (error: Throwable) {
+                            bmp.recycle()
+                            throw error
+                        }
+                    }
                 }
             }
-            renderer.close()
-            fd.close()
-            RenderedSheetPage(pageBitmap = outPage, diagramBitmap = outDiagram)
+            val pageMeta = resolvePageMetadata(targetMaterial, pageNumber)
+            when (quality.diagramSource) {
+                SheetDiagramSource.SIDECAR_THUMBNAIL -> {
+                    val thumbnail = loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
+                    if (thumbnail != null) {
+                        outDiagram = resizeThumbnail(thumbnail)
+                        if (outDiagram !== thumbnail) thumbnail.recycle()
+                    }
+                }
+                SheetDiagramSource.FULL_EMBEDDED_IMAGE -> {
+                    val key = preparedPageKey(targetMaterial, pageNumber)
+                    outDiagram = progressStore.getOrPrepareDiagramBitmap(
+                        key = key,
+                        source = source
+                    ) {
+                        extractLargestEmbeddedImage(targetPdfFile, pageIndex)
+                            ?: loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
+                    }
+                }
+            }
+            RenderedSheetPage(
+                pageBitmap = renderedBitmap,
+                diagramBitmap = outDiagram,
+                renderScale = quality.scale
+            )
         } catch (e: Exception) {
+            renderedBitmap?.takeUnless { it.isRecycled }?.recycle()
             if (e is CancellationException) throw e
             Log.e(OCR_TAG, "Page $pageNumber render error source=$source", e)
             null
@@ -695,8 +703,17 @@ fun SheetViewerScreen(
             .apply()
     }
 
+    var currentCncJob by remember { mutableStateOf<com.kkc.sheettracker.data.models.Job?>(null) }
+
+    val clockInFallback = remember(jobFolderName) {
+        unifiedEngine.getCachedJobInfos().find { it.folderName == jobFolderName }
+    }
+
     LaunchedEffect(jobFolderName, pdfFilename, scanState.snapshot.generation) {
-        val job = scanState.snapshot.jobs.find { it.folderName == jobFolderName }
+        val job = withContext(Dispatchers.IO) {
+            unifiedEngine.getCncSnapshot(jobFolderName)?.job
+        }
+        currentCncJob = job
         jobMaterials = job?.materials ?: emptyList()
         if (job != null) {
             withContext(Dispatchers.IO) {
@@ -776,37 +793,6 @@ fun SheetViewerScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    suspend fun runOcrForPage(page: Int, expectedSet: Set<Int>): Map<Int, List<Rect>> {
-        val material = currentMaterial ?: return emptyMap()
-        val cached = progressStore.getOcrCache(jobFolderName, pdfFilename, page, fileFingerprint)
-        if (cached != null) return cached
-        val pageMeta = resolvePageMetadata(material, page)
-        val sidecar = pageMeta.toSidecarOcrMap()
-        if (sidecar.isNotEmpty()) {
-            progressStore.saveOcrCache(jobFolderName, pdfFilename, page, fileFingerprint, sidecar)
-            return sidecar
-        }
-        val targetExpected = when {
-            expectedSet.isNotEmpty() -> expectedSet
-            else -> (1..500).toSet()
-        }
-        val missing = targetExpected - sidecar.keys
-        val preparedKey = preparedPageKey(material, page)
-        val embedded = progressStore.getOrPrepareDiagramBitmap(
-            key = preparedKey,
-            source = "ocr_current"
-        ) {
-            withContext(Dispatchers.IO) { extractLargestEmbeddedImage(pdfFile, page - 1) }
-        }
-        val display = embedded ?: return sidecar
-        val found = withContext(Dispatchers.Default) {
-            runMlKitOcrOnDiagramImage(display, if (missing.isEmpty()) targetExpected else missing)
-        }
-        val merged = mergeOcrMaps(sidecar, found)
-        progressStore.saveOcrCache(jobFolderName, pdfFilename, page, fileFingerprint, merged)
-        return merged
-    }
-
     LaunchedEffect(currentPage, fileFingerprint) {
         val material = currentMaterial ?: run {
             Log.w(OCR_TAG, "render_guard: currentMaterial=null page=$currentPage fp=$fileFingerprint")
@@ -834,6 +820,7 @@ fun SheetViewerScreen(
         diagramBboxes = emptyMap()
         val cached = renderCache[currentPage]
         if (cached != null) {
+            cached.wasDisplayed = true
             touchRenderCache(currentPage)
             pageBitmap = cached.pageBitmap
             diagramBitmap = cached.diagramBitmap
@@ -841,21 +828,24 @@ fun SheetViewerScreen(
                 OCR_TAG,
                 "Page $currentPage render cache hit: pageBitmap=${pageBitmap?.width}x${pageBitmap?.height}, diagram=${diagramBitmap?.width}x${diagramBitmap?.height}"
             )
-        } else {
+        }
+        if (cached == null || !isRenderQualitySufficient(cached.renderScale, SheetRenderQuality.CURRENT)) {
             Log.d(
                 VIEWER_PREPARED_TAG,
-                "render_recompute_reason=cache_miss page=$currentPage job=$jobFolderName pdf=$pdfFilename"
+                "render_recompute_reason=${if (cached == null) "cache_miss" else "quality_promotion"} page=$currentPage job=$jobFolderName pdf=$pdfFilename"
             )
-            delay(150L)
+            if (cached == null) delay(150L)
             val rendered = withContext(Dispatchers.IO) {
                 renderPageFromPdf(
                     targetMaterial = material,
                     targetPdfFile = pdfFile,
                     pageNumber = currentPage,
-                    source = "render_current"
+                    source = "render_current",
+                    quality = SheetRenderQuality.CURRENT
                 )
             }
             if (rendered != null) {
+                rendered.wasDisplayed = true
                 pageBitmap = rendered.pageBitmap
                 diagramBitmap = rendered.diagramBitmap
                 cacheRenderedPage(currentPage, rendered)
@@ -877,23 +867,7 @@ fun SheetViewerScreen(
         sheetFilesCache[currentPage] = resolvedFiles
         selectedPartType = null
 
-        if (diagramBitmap != null) {
-            val expectedFromParts = parts.map { it.number }.toSet()
-            try {
-                if (!progressStore.hasOcrCache(jobFolderName, pdfFilename, currentPage, fileFingerprint)) {
-                    delay(300L)
-                }
-                diagramBboxes = runOcrForPage(currentPage, expectedFromParts)
-                Log.i(
-                    OCR_TAG,
-                    "Page $currentPage OCR ready: matched=${diagramBboxes.size}, fromCache=${progressStore.hasOcrCache(jobFolderName, pdfFilename, currentPage, fileFingerprint)}"
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(OCR_TAG, "Page $currentPage OCR error", e)
-            }
-        }
+        diagramBboxes = meta.toSidecarOcrMap()
     }
 
     LaunchedEffect(currentPage, totalPages, fileFingerprint) {
@@ -911,20 +885,33 @@ fun SheetViewerScreen(
                 if (!kotlinx.coroutines.currentCoroutineContext().isActive) break
                 val p = pages[idx]
                 if (p == currentPage) continue
-                val shouldRender = withContext(Dispatchers.Main) { !renderCache.containsKey(p) }
+                val shouldRender = withContext(Dispatchers.Main) {
+                    val cachedAdjacent = renderCache[p]
+                    cachedAdjacent == null ||
+                        !isRenderQualitySufficient(cachedAdjacent.renderScale, SheetRenderQuality.ADJACENT)
+                }
                 if (!shouldRender) continue
                 val rendered = renderPageFromPdf(
                     targetMaterial = material,
                     targetPdfFile = pdfFile,
                     pageNumber = p,
-                    source = "render_prewarm"
+                    source = "render_prewarm",
+                    quality = SheetRenderQuality.ADJACENT
                 ) ?: continue
                 if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
                     rendered.pageBitmap?.recycle()
                     break
                 }
-                withContext(Dispatchers.Main) {
-                    cacheRenderedPage(p, rendered)
+                var cacheOwnsBitmap = false
+                try {
+                    withContext(Dispatchers.Main) {
+                        cacheRenderedPage(p, rendered)
+                        cacheOwnsBitmap = true
+                    }
+                } finally {
+                    if (!cacheOwnsBitmap) {
+                        rendered.pageBitmap?.takeUnless { it.isRecycled }?.recycle()
+                    }
                 }
             }
         }
@@ -960,66 +947,13 @@ fun SheetViewerScreen(
         draftBadParts = progressStore.getDraftBadParts(jobFolderName, pdfFilename, currentPage, fileFingerprint)
     }
 
-    LaunchedEffect(jobFolderName, pdfFilename, fileFingerprint, currentPage) {
-        if (currentMaterial == null || fileFingerprint.isBlank()) return@LaunchedEffect
-        prewarmJob?.cancel()
-        prewarmJob = scope.launch(Dispatchers.Default) {
-            delay(400L)
-            val current = currentMaterial ?: return@launch
-            val queue = mutableListOf<Pair<Material, Int>>()
-            for (p in current.visibleSheetPages()) {
-                if (p != currentPage) queue += current to p
-            }
-            jobMaterials.filter { it.pdfFilename != current.pdfFilename }.forEach { m ->
-                for (p in m.visibleSheetPages()) queue += m to p
-            }
-
-            for ((material, page) in queue) {
-                if (!isActive) break
-                if (material.fileFingerprint.isBlank()) continue
-                if (progressStore.hasOcrCache(jobFolderName, material.pdfFilename, page, material.fileFingerprint)) {
-                    continue
-                }
-                try {
-                    val pageMeta = resolvePageMetadata(material, page)
-                    val sidecar = pageMeta.toSidecarOcrMap()
-                    if (sidecar.isNotEmpty()) {
-                        progressStore.saveOcrCache(jobFolderName, material.pdfFilename, page, material.fileFingerprint, sidecar)
-                        continue
-                    }
-                    val expectedFromParts = pageMeta?.parts?.map { it.number }?.toSet().orEmpty()
-                    val targetExpected = when {
-                        expectedFromParts.isNotEmpty() -> expectedFromParts
-                        else -> (1..500).toSet()
-                    }
-                    val targetPdf = jobRepository.getPdfFile(jobFolderName, material.pdfFilename)
-                    val key = preparedPageKey(material, page)
-                    val embedded = progressStore.getOrPrepareDiagramBitmap(
-                        key = key,
-                        source = "ocr_prewarm"
-                    ) {
-                        withContext(Dispatchers.IO) { extractLargestEmbeddedImage(targetPdf, page - 1) }
-                    } ?: continue
-                    val missing = targetExpected - sidecar.keys
-                    val found = if (missing.isEmpty()) emptyMap() else runMlKitOcrOnDiagramImage(embedded, missing)
-                    val merged = mergeOcrMaps(sidecar, found)
-                    progressStore.saveOcrCache(jobFolderName, material.pdfFilename, page, material.fileFingerprint, merged)
-                    delay(120L)
-                } catch (_: Exception) {
-                }
-            }
-        }
-    }
-
     val materialName = remember(pdfFilename) {
         pdfFilename.removeSuffix(".pdf").let { name ->
             val dashIdx = name.indexOf(" - ")
             if (dashIdx >= 0) name.substring(dashIdx + 3) else name
         }
     }
-    val currentJobNumber = scanState.snapshot.jobs
-        .firstOrNull { it.folderName == jobFolderName }
-        ?.jobNumber
+    val currentJobNumber = currentCncJob?.jobNumber ?: ""
     val viewerTitle = cncSheetViewerTitle(currentJobNumber, materialName)
     val topBarColor = when (sheetStatus) {
         SheetStatus.COMPLETE -> KKCThemeColors.statusColors.complete
@@ -1328,7 +1262,9 @@ fun SheetViewerScreen(
                             )
                         }
                     }
-                    val clockInJob = scanState.snapshot.jobs.find { it.folderName == jobFolderName }
+                    val clockInJob = currentCncJob ?: clockInFallback?.let { 
+                        com.kkc.sheettracker.data.models.Job(folderName = it.folderName, jobNumber = it.jobNumber, jobName = it.jobName) 
+                    }
                     if (clockInJob != null) {
                         if (clockInState != null) {
                             ClockInButton(
@@ -1643,7 +1579,7 @@ fun SheetViewerScreen(
 
 
 
-            val bitmap = if (showFullPdfPage) pageBitmap else (diagramBitmap ?: pageBitmap)
+            val bitmap = resolveSheetDisplayBitmap(showFullPdfPage, pageBitmap, diagramBitmap)
             val visiblePdfMarkupStrokes = if (markupStrokesVisible) {
                 localMarkupStrokes.filter { it.id !in localMarkupDeletedIds }
             } else {
@@ -2444,458 +2380,6 @@ private fun buildTocLoadOrder(
     return ordered
 }
 
-private suspend fun runMlKitOcrOnDiagramImage(
-    diagramBitmap: Bitmap,
-    expectedNums: Set<Int>
-): Map<Int, List<Rect>> {
-    Log.i(OCR_TAG, "OCR preprocess: input=${diagramBitmap.width}x${diagramBitmap.height}")
-    val merged = mutableMapOf<Int, MutableList<OcrHit>>()
-
-    val variantProducers = listOf<suspend () -> Bitmap>(
-        { diagramBitmap },
-        { withContext(Dispatchers.Default) { toGrayscaleContrast(diagramBitmap, contrast = 1.20f) } },
-        { withContext(Dispatchers.Default) { preprocessForOcr(diagramBitmap, thresholdBias = 0, erode = false) } },
-        { withContext(Dispatchers.Default) { preprocessForOcr(diagramBitmap, thresholdBias = 10, erode = false) } },
-        { withContext(Dispatchers.Default) { preprocessForOcr(diagramBitmap, thresholdBias = 0, erode = true) } },
-        { withContext(Dispatchers.Default) { preprocessForOcr(diagramBitmap, thresholdBias = 10, erode = true) } }
-    )
-
-    variantProducers.forEachIndexed { idx, producer ->
-        kotlinx.coroutines.yield()
-        val bmp = producer()
-        try {
-            val r = runMlKitRawMultiPass(bmp, expectedNums)
-            Log.i(OCR_TAG, "OCR variant[$idx] matchedNums=${r.size}")
-            for ((n, hits) in r) {
-                merged.getOrPut(n) { mutableListOf() }.addAll(hits)
-            }
-        } finally {
-            if (idx > 0 && !bmp.isRecycled) {
-                bmp.recycle()
-            }
-        }
-    }
-    val deduped = merged.mapValues { (_, hits) ->
-        hits.sortedByDescending { it.conf }.fold(mutableListOf<OcrHit>()) { acc, h ->
-            val dup = acc.any { a ->
-                kotlin.math.abs(a.box.left - h.box.left) < 10 &&
-                    kotlin.math.abs(a.box.top - h.box.top) < 10 &&
-                    kotlin.math.abs(a.box.right - h.box.right) < 10 &&
-                    kotlin.math.abs(a.box.bottom - h.box.bottom) < 10
-            }
-            if (!dup) acc.add(h)
-            acc
-        }.take(2)
-    }
-    Log.i(OCR_TAG, "OCR merged result count=${deduped.size}")
-    val base = deduped.mapValues { it.value.map { hit -> hit.box } }.toMutableMap()
-
-    // If this is a double-sided layout (two sheet frames), use OCR from BOTH sides only.
-    // No synthetic mirroring here: we trust actual OCR detections on each side.
-    val frames = detectSheetFramesFromBoxes(base, diagramBitmap.width, diagramBitmap.height)
-    if (frames != null) {
-        val (leftFrame, rightFrame) = frames
-        val rebuilt = mutableMapOf<Int, List<Rect>>()
-        for ((n, hits) in deduped) {
-            val boxes = hits.map { it.box }
-            val leftHits = boxes.filter {
-                val cx = (it.left + it.right) / 2f
-                leftFrame.containsX(cx)
-            }
-            val rightHits = boxes.filter {
-                val cx = (it.left + it.right) / 2f
-                rightFrame.containsX(cx)
-            }
-            val chosen = mutableListOf<Rect>()
-
-            // Keep one OCR hit per side (if available), prefer lower-left placement
-            // because labels are typically near bottom-left of the part.
-            if (leftHits.isNotEmpty()) {
-                chosen += leftHits.minByOrNull { it.left - (it.top * 0.15f) }!!
-            }
-            if (rightHits.isNotEmpty()) {
-                chosen += rightHits.minByOrNull { it.left - (it.top * 0.15f) }!!
-            }
-
-            // Single-sided fallback for this number.
-            if (chosen.isEmpty() && boxes.isNotEmpty()) chosen += boxes.first()
-            if (chosen.isNotEmpty()) rebuilt[n] = chosen
-        }
-        val twoSide = rebuilt.values.count { it.size >= 2 }
-        Log.i(OCR_TAG, "OCR double-sided (true OCR both sides): nums=${rebuilt.size}, twoSide=$twoSide")
-        return rebuilt
-    }
-
-    // Double-sided fallback:
-    // If sheet is mirrored left/right and a number only OCRs on one side,
-    // infer the counterpart box using median horizontal offset from paired detections.
-    val inferred = inferMirroredBoxes(base, diagramBitmap.width, diagramBitmap.height)
-    for ((n, boxes) in inferred) {
-        val list = base.getOrPut(n) { emptyList() }.toMutableList()
-        for (b in boxes) {
-            val dup = list.any {
-                kotlin.math.abs(it.left - b.left) < 10 &&
-                    kotlin.math.abs(it.top - b.top) < 10 &&
-                    kotlin.math.abs(it.right - b.right) < 10 &&
-                    kotlin.math.abs(it.bottom - b.bottom) < 10
-            }
-            if (!dup && list.size < 2) list.add(b)
-        }
-        base[n] = list
-    }
-    val twoSide = base.values.count { it.size >= 2 }
-    Log.i(OCR_TAG, "OCR post-infer: nums=${base.size}, twoSide=$twoSide")
-    return base
-}
-
-private data class SheetFrame(val left: Float, val top: Float, val right: Float, val bottom: Float) {
-    val width: Float get() = (right - left).coerceAtLeast(1f)
-    val height: Float get() = (bottom - top).coerceAtLeast(1f)
-    fun containsX(x: Float): Boolean = x in left..right
-}
-
-private data class FlipModel(val flipX: Boolean, val flipY: Boolean)
-
-private fun detectSheetFramesFromBoxes(
-    detected: Map<Int, List<Rect>>,
-    imageWidth: Int,
-    imageHeight: Int
-): Pair<SheetFrame, SheetFrame>? {
-    val leftPts = mutableListOf<Pair<Float, Float>>()
-    val rightPts = mutableListOf<Pair<Float, Float>>()
-    val mid = imageWidth / 2f
-    for ((_, boxes) in detected) {
-        for (b in boxes) {
-            val cx = (b.left + b.right) / 2f
-            val cy = (b.top + b.bottom) / 2f
-            if (cx < mid) leftPts.add(cx to cy) else rightPts.add(cx to cy)
-        }
-    }
-    if (leftPts.size < 8 || rightPts.size < 8) return null
-
-    fun quantile(values: List<Float>, q: Float): Float {
-        val s = values.sorted()
-        if (s.isEmpty()) return 0f
-        val idx = ((s.size - 1) * q).toInt().coerceIn(0, s.size - 1)
-        return s[idx]
-    }
-
-    val lxs = leftPts.map { it.first }
-    val lys = leftPts.map { it.second }
-    val rxs = rightPts.map { it.first }
-    val rys = rightPts.map { it.second }
-
-    val left = SheetFrame(
-        left = (quantile(lxs, 0.02f) - 30f).coerceAtLeast(0f),
-        top = (quantile(lys, 0.02f) - 20f).coerceAtLeast(0f),
-        right = (quantile(lxs, 0.98f) + 30f).coerceAtMost(imageWidth.toFloat()),
-        bottom = (quantile(lys, 0.98f) + 20f).coerceAtMost(imageHeight.toFloat())
-    )
-    val right = SheetFrame(
-        left = (quantile(rxs, 0.02f) - 30f).coerceAtLeast(0f),
-        top = (quantile(rys, 0.02f) - 20f).coerceAtLeast(0f),
-        right = (quantile(rxs, 0.98f) + 30f).coerceAtMost(imageWidth.toFloat()),
-        bottom = (quantile(rys, 0.98f) + 20f).coerceAtMost(imageHeight.toFloat())
-    )
-    if (left.right >= right.left) return null
-    return left to right
-}
-
-private fun learnFlipModel(
-    detected: Map<Int, List<Rect>>,
-    left: SheetFrame,
-    right: SheetFrame
-): FlipModel {
-    data class Sample(val lx: Float, val ly: Float, val rx: Float, val ry: Float)
-    val samples = mutableListOf<Sample>()
-    for ((_, boxes) in detected) {
-        if (boxes.size < 2) continue
-        val l = boxes.minByOrNull { (it.left + it.right) / 2f } ?: continue
-        val r = boxes.maxByOrNull { (it.left + it.right) / 2f } ?: continue
-        val lcx = (l.left + l.right) / 2f
-        val lcy = (l.top + l.bottom) / 2f
-        val rcx = (r.left + r.right) / 2f
-        val rcy = (r.top + r.bottom) / 2f
-        if (!left.containsX(lcx) || !right.containsX(rcx)) continue
-        val lnx = ((lcx - left.left) / left.width).coerceIn(0f, 1f)
-        val lny = ((lcy - left.top) / left.height).coerceIn(0f, 1f)
-        val rnx = ((rcx - right.left) / right.width).coerceIn(0f, 1f)
-        val rny = ((rcy - right.top) / right.height).coerceIn(0f, 1f)
-        samples.add(Sample(lnx, lny, rnx, rny))
-    }
-    if (samples.size < 3) return FlipModel(flipX = false, flipY = true)
-
-    val candidates = listOf(
-        FlipModel(false, false),
-        FlipModel(true, false),
-        FlipModel(false, true),
-        FlipModel(true, true)
-    )
-    val best = candidates.minByOrNull { m ->
-        samples.sumOf { s ->
-            val px = if (m.flipX) 1f - s.lx else s.lx
-            val py = if (m.flipY) 1f - s.ly else s.ly
-            val dx = px - s.rx
-            val dy = py - s.ry
-            (dx * dx + dy * dy).toDouble()
-        }
-    } ?: FlipModel(false, true)
-    Log.i(OCR_TAG, "Mirror learned model: samples=${samples.size}, flipX=${best.flipX}, flipY=${best.flipY}")
-    return best
-}
-
-private fun inferMirroredBoxes(
-    detected: Map<Int, List<Rect>>,
-    imageWidth: Int,
-    imageHeight: Int
-): Map<Int, List<Rect>> {
-    fun deriveFramesFromDetections(): Pair<SheetFrame, SheetFrame>? =
-        detectSheetFramesFromBoxes(detected, imageWidth, imageHeight)
-
-    fun mapFlipVertical(
-        srcX: Float,
-        srcY: Float,
-        src: SheetFrame,
-        dst: SheetFrame
-    ): Pair<Float, Float> {
-        val nx = ((srcX - src.left) / src.width).coerceIn(0f, 1f)
-        val ny = ((srcY - src.top) / src.height).coerceIn(0f, 1f)
-        val tx = dst.left + nx * dst.width
-        val ty = dst.top + (1f - ny) * dst.height
-        return tx to ty
-    }
-
-    // Preferred strategy:
-    // derive each sheet frame and mirror within that frame (flip like turning the sheet over).
-    val derivedFrames = deriveFramesFromDetections()
-    if (derivedFrames != null) {
-        val (leftFrame, rightFrame) = derivedFrames
-        Log.i(
-            OCR_TAG,
-            "Mirror infer frames: L=(${leftFrame.left.toInt()},${leftFrame.top.toInt()},${leftFrame.right.toInt()},${leftFrame.bottom.toInt()}) " +
-                "R=(${rightFrame.left.toInt()},${rightFrame.top.toInt()},${rightFrame.right.toInt()},${rightFrame.bottom.toInt()})"
-        )
-
-        val out = mutableMapOf<Int, List<Rect>>()
-        for ((n, boxes) in detected) {
-            if (boxes.size >= 2) continue
-            val b = boxes.firstOrNull() ?: continue
-            val cx = (b.left + b.right) / 2f
-            val cy = (b.top + b.bottom) / 2f
-            val w = b.width().toFloat()
-            val h = b.height().toFloat()
-
-            val (targetCx, targetCy) = when {
-                leftFrame.containsX(cx) -> mapFlipVertical(cx, cy, leftFrame, rightFrame)
-                rightFrame.containsX(cx) -> mapFlipVertical(cx, cy, rightFrame, leftFrame)
-                else -> continue
-            }
-
-            val inferred = Rect(
-                (targetCx - w / 2f).toInt().coerceIn(0, imageWidth - 1),
-                (targetCy - h / 2f).toInt().coerceIn(0, imageHeight - 1),
-                (targetCx + w / 2f).toInt().coerceIn(0, imageWidth - 1),
-                (targetCy + h / 2f).toInt().coerceIn(0, imageHeight - 1)
-            )
-            out[n] = listOf(inferred)
-        }
-        return out
-    }
-
-    // Fallback strategy:
-    // infer by median offsets from already paired detections.
-    val midX = imageWidth / 2f
-    val deltasX = mutableListOf<Float>()
-    val deltaY = mutableListOf<Float>()   // same-orientation model: yR - yL
-    val sumY = mutableListOf<Float>()     // flipped-vertical model: yR + yL
-    data class PairSample(val yL: Float, val yR: Float)
-    val samples = mutableListOf<PairSample>()
-
-    for ((_, boxes) in detected) {
-        if (boxes.size < 2) continue
-        val left = boxes.minByOrNull { (it.left + it.right) / 2f } ?: continue
-        val right = boxes.maxByOrNull { (it.left + it.right) / 2f } ?: continue
-        val lx = (left.left + left.right) / 2f
-        val rx = (right.left + right.right) / 2f
-        if (!(lx < midX && rx > midX)) continue
-        val ly = (left.top + left.bottom) / 2f
-        val ry = (right.top + right.bottom) / 2f
-        deltasX.add(rx - lx)
-        deltaY.add(ry - ly)
-        sumY.add(ry + ly)
-        samples.add(PairSample(ly, ry))
-    }
-
-    if (samples.size < 3) return emptyMap()
-
-    val medianDeltaX = deltasX.sorted()[deltasX.size / 2]
-    val medianDy = deltaY.sorted()[deltaY.size / 2]
-    val medianSy = sumY.sorted()[sumY.size / 2]
-
-    // Decide Y mapping model from observed pairs.
-    val errSame = samples.map { kotlin.math.abs((it.yL + medianDy) - it.yR) }.average()
-    val errFlip = samples.map { kotlin.math.abs((medianSy - it.yL) - it.yR) }.average()
-    val useFlipY = errFlip < errSame
-    Log.i(OCR_TAG, "Mirror infer model: samples=${samples.size}, dx=$medianDeltaX, dy=$medianDy, sy=$medianSy, useFlipY=$useFlipY")
-
-    val out = mutableMapOf<Int, List<Rect>>()
-    for ((n, boxes) in detected) {
-        if (boxes.size >= 2) continue
-        val b = boxes.firstOrNull() ?: continue
-        val cx = (b.left + b.right) / 2f
-        val cy = (b.top + b.bottom) / 2f
-        val w = b.width()
-        val h = b.height()
-
-        val targetCx = if (cx < midX) cx + medianDeltaX else cx - medianDeltaX
-        if (targetCx !in 0f..imageWidth.toFloat()) continue
-        val targetCy = if (useFlipY) {
-            medianSy - cy
-        } else {
-            if (cx < midX) cy + medianDy else cy - medianDy
-        }.coerceIn(0f, imageHeight.toFloat())
-
-        val inferred = Rect(
-            (targetCx - w / 2f).toInt().coerceAtLeast(0),
-            (targetCy - h / 2f).toInt().coerceAtLeast(0),
-            (targetCx + w / 2f).toInt().coerceAtMost(imageWidth - 1),
-            (targetCy + h / 2f).toInt().coerceAtMost(imageHeight - 1)
-        )
-        out[n] = listOf(inferred)
-    }
-    return out
-}
-
-private data class OcrHit(val box: Rect, val conf: Float)
-
-private suspend fun runMlKitRawMultiPass(
-    bitmap: Bitmap,
-    expectedNums: Set<Int>
-): Map<Int, List<OcrHit>> {
-    val all = mutableMapOf<Int, MutableList<OcrHit>>()
-
-    fun addPass(result: Map<Int, List<OcrHit>>, offX: Int = 0, offY: Int = 0) {
-        for ((n, hits) in result) {
-            val list = all.getOrPut(n) { mutableListOf() }
-            for (h in hits) {
-                val b = h.box
-                val shifted = Rect(
-                    b.left + offX,
-                    b.top + offY,
-                    b.right + offX,
-                    b.bottom + offY
-                )
-                list.add(OcrHit(shifted, h.conf))
-            }
-        }
-    }
-
-    // Pass 1: whole image
-    addPass(runMlKitRawSingle(bitmap, expectedNums))
-
-    // Pass 2: tiled OCR (improves tiny/packed labels)
-    // 2x2 with overlap catches labels near tile boundaries.
-    val w = bitmap.width
-    val h = bitmap.height
-    val overlapX = (w * 0.08f).toInt()
-    val overlapY = (h * 0.08f).toInt()
-    val halfW = w / 2
-    val halfH = h / 2
-
-    val tiles = listOf(
-        Rect(0, 0, (halfW + overlapX).coerceAtMost(w), (halfH + overlapY).coerceAtMost(h)),
-        Rect((halfW - overlapX).coerceAtLeast(0), 0, w, (halfH + overlapY).coerceAtMost(h)),
-        Rect(0, (halfH - overlapY).coerceAtLeast(0), (halfW + overlapX).coerceAtMost(w), h),
-        Rect((halfW - overlapX).coerceAtLeast(0), (halfH - overlapY).coerceAtLeast(0), w, h)
-    )
-
-    tiles.forEachIndexed { i, t ->
-        kotlinx.coroutines.yield()
-        val tw = (t.right - t.left).coerceAtLeast(1)
-        val th = (t.bottom - t.top).coerceAtLeast(1)
-        val tileBmp = Bitmap.createBitmap(bitmap, t.left, t.top, tw, th)
-        val tileRes = runMlKitRawSingle(tileBmp, expectedNums)
-        addPass(tileRes, t.left, t.top)
-        Log.i(OCR_TAG, "OCR tile[$i] rect=(${t.left},${t.top},${t.right},${t.bottom}) matched=${tileRes.size}")
-    }
-
-    // De-dup + keep strongest 2 hits per number (double-sided support)
-    val deduped = all.mapValues { (_, hits) ->
-        hits.sortedByDescending { it.conf }.fold(mutableListOf<OcrHit>()) { acc, h ->
-            val dup = acc.any { a ->
-                kotlin.math.abs(a.box.left - h.box.left) < 10 &&
-                    kotlin.math.abs(a.box.top - h.box.top) < 10 &&
-                    kotlin.math.abs(a.box.right - h.box.right) < 10 &&
-                    kotlin.math.abs(a.box.bottom - h.box.bottom) < 10
-            }
-            if (!dup) acc.add(h)
-            acc
-        }.take(2)
-    }
-    val acceptedBoxes = deduped.values.sumOf { it.size }
-    Log.i(OCR_TAG, "OCR multipass merged: nums=${deduped.size}, boxes=$acceptedBoxes")
-    return deduped
-}
-
-private suspend fun runMlKitRawSingle(
-    bitmap: Bitmap,
-    expectedNums: Set<Int>
-): Map<Int, List<OcrHit>> =
-    suspendCoroutine { cont ->
-        val image = InputImage.fromBitmap(bitmap, 0)
-        recognizer.process(image)
-            .addOnSuccessListener { visionText ->
-                val result = mutableMapOf<Int, MutableList<OcrHit>>()
-                var totalElements = 0
-                var nonNumeric = 0
-                var lenReject = 0
-                var expectedReject = 0
-                var dupReject = 0
-                for (block in visionText.textBlocks) {
-                    for (line in block.lines) {
-                        for (element in line.elements) {
-                            totalElements++
-                            val txt = element.text.trim()
-                            // Per report constraints: part labels are numeric and max 2 digits.
-                            if (!txt.matches(Regex("^\\d{1,2}$"))) {
-                                if (txt.any { it.isDigit() }) lenReject++ else nonNumeric++
-                                continue
-                            }
-                            val n = txt.toIntOrNull() ?: continue
-                            if (n !in expectedNums) {
-                                expectedReject++
-                                continue
-                            }
-                            val box = element.boundingBox ?: continue
-                            val conf = element.confidence
-                            val list = result.getOrPut(n) { mutableListOf() }
-                            // avoid near-duplicate boxes for same number
-                            val isDup = list.any { existing ->
-                                val ex = existing.box
-                                kotlin.math.abs(ex.left - box.left) < 8 &&
-                                    kotlin.math.abs(ex.top - box.top) < 8 &&
-                                    kotlin.math.abs(ex.right - box.right) < 8 &&
-                                    kotlin.math.abs(ex.bottom - box.bottom) < 8
-                            }
-                            if (!isDup) {
-                                list.add(OcrHit(box, conf))
-                            } else {
-                                dupReject++
-                            }
-                        }
-                    }
-                }
-                // keep best 2 hits per number (double-sided support)
-                val trimmed = result.mapValues { (_, hits) ->
-                    hits.sortedByDescending { it.conf }.take(2)
-                }
-                val acceptedBoxes = trimmed.values.sumOf { it.size }
-                Log.i(OCR_TAG, "OCR raw stats: totalElements=$totalElements nonNumeric=$nonNumeric lenReject=$lenReject expectedReject=$expectedReject dupReject=$dupReject acceptedNums=${trimmed.size} acceptedBoxes=$acceptedBoxes")
-                cont.resume(trimmed)
-            }
-            .addOnFailureListener { cont.resumeWithException(it) }
-    }
-
 internal fun resolveCncSidecarFile(
     pdfFile: File,
     relativeOrAbsolute: String?
@@ -3101,118 +2585,11 @@ private fun com.kkc.sheettracker.data.models.PageMetadata?.toSidecarOcrMap(): Ma
     }.toMap()
 }
 
-private fun mergeOcrMaps(
-    preferred: Map<Int, List<Rect>>,
-    fallback: Map<Int, List<Rect>>
-): Map<Int, List<Rect>> {
-    if (preferred.isEmpty()) return fallback
-    if (fallback.isEmpty()) return preferred
-    val out = preferred.mapValues { it.value.toMutableList() }.toMutableMap()
-    fallback.forEach { (num, rects) ->
-        val list = out.getOrPut(num) { mutableListOf() }
-        rects.forEach { r ->
-            val dup = list.any { ex ->
-                kotlin.math.abs(ex.left - r.left) < 10 &&
-                    kotlin.math.abs(ex.top - r.top) < 10 &&
-                    kotlin.math.abs(ex.right - r.right) < 10 &&
-                    kotlin.math.abs(ex.bottom - r.bottom) < 10
-            }
-            if (!dup && list.size < 2) list.add(r)
-        }
-    }
-    return out.mapValues { it.value.toList() }
-}
-
-private fun preprocessForOcrVariants(src: Bitmap): List<Bitmap> {
-    // Keep some non-destructive variants; hard threshold alone misses faint/small labels.
-    return listOf(
-        src,
-        toGrayscaleContrast(src, contrast = 1.20f),
-        preprocessForOcr(src, thresholdBias = 0, erode = false),
-        preprocessForOcr(src, thresholdBias = 10, erode = false),
-        preprocessForOcr(src, thresholdBias = 0, erode = true),
-        preprocessForOcr(src, thresholdBias = 10, erode = true)
-    )
-}
-
-private fun toGrayscaleContrast(src: Bitmap, contrast: Float): Bitmap {
-    val w = src.width
-    val h = src.height
-    val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-    val inPx = IntArray(w * h)
-    val outPx = IntArray(w * h)
-    src.getPixels(inPx, 0, w, 0, 0, w, h)
-    for (i in inPx.indices) {
-        val c = inPx[i]
-        val r = (c shr 16) and 0xFF
-        val g = (c shr 8) and 0xFF
-        val b = c and 0xFF
-        var y = ((r * 30 + g * 59 + b * 11) / 100)
-        y = (((y - 128) * contrast) + 128).toInt().coerceIn(0, 255)
-        outPx[i] = (0xFF shl 24) or (y shl 16) or (y shl 8) or y
-    }
-    out.setPixels(outPx, 0, w, 0, 0, w, h)
-    return out
-}
-
-private fun preprocessForOcr(src: Bitmap, thresholdBias: Int, erode: Boolean): Bitmap {
-    val w = src.width
-    val h = src.height
-    val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-    val inPx = IntArray(w * h)
-    val gray = IntArray(w * h)
-    val outPx = IntArray(w * h)
-    src.getPixels(inPx, 0, w, 0, 0, w, h)
-
-    // 1) Grayscale + light contrast boost
-    var sum = 0L
-    for (i in inPx.indices) {
-        val c = inPx[i]
-        val r = (c shr 16) and 0xFF
-        val g = (c shr 8) and 0xFF
-        val b = c and 0xFF
-        var y = ((r * 30 + g * 59 + b * 11) / 100)
-        y = (((y - 128) * 1.35f) + 128).toInt().coerceIn(0, 255)
-        gray[i] = y
-        sum += y
-    }
-
-    // 2) Global threshold (scanner-ish), slightly above mean to suppress color artifacts
-    val thr = ((sum / gray.size).toInt() + 10 + thresholdBias).coerceIn(70, 220)
-    for (i in gray.indices) {
-        val v = if (gray[i] >= thr) 255 else 0
-        outPx[i] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
-    }
-
-    if (erode) {
-        val srcPx = outPx.copyOf()
-        for (y in 1 until h - 1) {
-            for (x in 1 until w - 1) {
-                var allBlack = true
-                for (yy in -1..1) {
-                    for (xx in -1..1) {
-                        if ((srcPx[(y + yy) * w + (x + xx)] and 0xFF) != 0) allBlack = false
-                    }
-                }
-                outPx[y * w + x] = if (allBlack) {
-                    (0xFF shl 24) or 0x000000
-                } else {
-                    (0xFF shl 24) or 0xFFFFFF
-                }
-            }
-        }
-    }
-
-    out.setPixels(outPx, 0, w, 0, 0, w, h)
-    return out
-}
-
 internal data class AnchoredZoomPan(val zoom: Float, val panX: Float, val panY: Float)
 
 /**
  * Computes the next zoom/pan so the content point under [centroid] stays under the
- * fingers as the user pinches, instead of the zoom always appearing to originate from
- * the view's center (the default graphicsLayer transformOrigin).
+ * fingers as the user pinches, instead of zooming from the view center.
  */
 internal fun computeAnchoredZoomPan(
     zoom: Float,

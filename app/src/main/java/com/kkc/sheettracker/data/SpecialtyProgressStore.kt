@@ -86,6 +86,25 @@ class SpecialtyProgressStore(
         return resolved
     }
 
+    /**
+     * Small Specialty Jobs-list projection. Unlike the other production modes, Specialty's
+     * canonical Hours Tracker files are intentionally compact and mode-owned, so the list may
+     * read them for its counts. Keep this path limited to specialty_items.json, checklist.json,
+     * and the Specialty tracker sidecars; full job metadata remains detail-screen work.
+     */
+    fun loadListResolvedItems(jobFolderName: String): List<SpecialtyResolvedItem> {
+        val items = loadHoursTrackerListItems(jobFolderName)
+        val merged = loadMergedCompletionByItem(jobFolderName, items)
+        return items.map { item ->
+            val completionByKey = resolveCompletionByKey(item, merged[item.id].orEmpty())
+            SpecialtyResolvedItem(
+                item = item,
+                completionByKey = completionByKey,
+                isComplete = isItemComplete(item, completionByKey)
+            )
+        }
+    }
+
     suspend fun setCompletion(
         jobFolderName: String,
         itemId: String,
@@ -820,6 +839,21 @@ class SpecialtyProgressStore(
         }
 
         return filteredItems
+            .distinctBy { it.id }
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+    }
+
+    private fun loadHoursTrackerListItems(jobFolderName: String): List<SpecialtyItem> {
+        val specialtyItems = specialtyItemsFile(jobFolderName)
+            .takeIf { it.exists() && it.isFile }
+            ?.let { parseSpecialtyItems(it.readText()) }
+            .orEmpty()
+        val checklistItems = checklistFile(jobFolderName)
+            .takeIf { it.exists() && it.isFile }
+            ?.let { parseChecklistAsSpecialtyItems(it.readText()) }
+            .orEmpty()
+
+        return (specialtyItems + checklistItems)
             .distinctBy { it.id }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
     }

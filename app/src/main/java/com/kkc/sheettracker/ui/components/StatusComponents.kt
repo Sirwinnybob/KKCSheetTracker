@@ -614,7 +614,7 @@ private fun inferProgressStatus(
         segmentedStatusCounts.bad > 0 -> SheetStatus.HAS_BAD_PARTS
         segmentedStatusCounts.skipped >= total -> SheetStatus.SKIPPED
         segmentedStatusCounts.complete >= total -> SheetStatus.COMPLETE
-        (segmentedStatusCounts.complete + segmentedStatusCounts.skipped) <= 0 -> SheetStatus.NOT_STARTED
+        (segmentedStatusCounts.complete + segmentedStatusCounts.skipped + segmentedStatusCounts.reNested) <= 0 -> SheetStatus.NOT_STARTED
         else -> SheetStatus.IN_PROGRESS
     }
 }
@@ -723,8 +723,9 @@ private fun MaterialSegmentedProgressBar(
             val total = segment.counts.total.coerceAtLeast(0)
             val bad = segment.counts.bad.coerceAtLeast(0)
             val skipped = segment.counts.skipped.coerceAtLeast(0)
+            val reNested = segment.counts.reNested.coerceAtLeast(0)
             val completeClean = (segment.counts.complete - bad).coerceAtLeast(0)
-            val remaining = (total - segment.counts.complete - skipped).coerceAtLeast(0)
+            val remaining = (total - segment.counts.complete - skipped - reNested).coerceAtLeast(0)
             val isRemakeIncomplete = segment.isRemake && remaining > 0
             val remainingColor = if (isRemakeIncomplete) colors.remakeBg else MaterialTheme.colorScheme.outlineVariant
 
@@ -755,6 +756,14 @@ private fun MaterialSegmentedProgressBar(
                             .fillMaxHeight()
                             .weight(skipped.toFloat())
                             .background(colors.skipBg)
+                    )
+                }
+                if (reNested > 0) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .weight(reNested.toFloat())
+                            .background(colors.completeBg.copy(alpha = 0.35f))
                     )
                 }
                 if (remaining > 0) {

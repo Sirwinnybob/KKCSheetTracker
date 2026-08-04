@@ -225,7 +225,8 @@ fun AppNavigation(
                 watcherRefreshSignal.value = System.currentTimeMillis()
             },
             onCncJobsChanged = { jobFolderNames ->
-                scanCoordinator.refreshJobsDeep(jobFolderNames)
+                jobFolderNames.forEach { scanCoordinator.unifiedEngine.invalidateJob(it) }
+                watcherRefreshSignal.value = System.currentTimeMillis()
             }
         )
     }
@@ -244,10 +245,9 @@ fun AppNavigation(
         }
     }
 
-    // StaticCachePoller: polls cache_static.json mtimes; when the admin server updates a
-    // cache file, loads new data into the engine and triggers a coordinator refresh via the
-    // same watcherRefreshSignal path used by TrackerChangeMonitor (fast — coordinators now
-    // use listJobsFromCacheOnly() so re-scans read only the already-updated in-memory cache).
+    // StaticCachePoller watches only cache_index.json and deployment_gate.json, then triggers
+    // the same coordinator refresh signal used by TrackerChangeMonitor. It never opens full
+    // cache_static.json; job detail/viewer routes own those per-job loads.
     val staticCachePoller = remember(basePath, watcherRefreshSignal) {
         StaticCachePoller(
             baseDir = File(basePath),
@@ -1172,6 +1172,7 @@ private fun JobsTabHost(
                     hardwoodsRepository = hardwoodsRepository,
                     progressStore = hardwoodsProgressStore,
                     jobRepository = jobRepository,
+                    engine = unifiedEngine,
                     coroutineScope = coroutineScope,
                     onJobClick = { jobFolder ->
                         navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
@@ -1188,6 +1189,9 @@ private fun JobsTabHost(
                     assemblyScanCoordinator = assemblyScanCoordinator,
                     assemblyStateStore = assemblyStateStore,
                     jobRepository = jobRepository,
+                    engine = unifiedEngine,
+                    progressStore = progressStore,
+                    hardwoodsProgressStore = hardwoodsProgressStore,
                     coroutineScope = coroutineScope,
                     onJobClick = { jobFolder ->
                         coroutineScope.launch {
@@ -1204,6 +1208,7 @@ private fun JobsTabHost(
                     specialtyScanCoordinator = specialtyScanCoordinator,
                     specialtyStateStore = specialtyStateStore,
                     jobRepository = jobRepository,
+                    engine = unifiedEngine,
                     coroutineScope = coroutineScope,
                     onJobClick = { jobFolder ->
                         navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
@@ -2332,6 +2337,7 @@ private fun LegacySingleStackNavigation(
                                 hardwoodsRepository = hardwoodsRepository,
                                 progressStore = hardwoodsProgressStore,
                                 jobRepository = jobRepository,
+                                engine = unifiedEngine,
                                 coroutineScope = legacyCoroutineScope,
                                 onJobClick = { jobFolder ->
                                     navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
@@ -2348,6 +2354,9 @@ private fun LegacySingleStackNavigation(
                                 assemblyScanCoordinator = assemblyScanCoordinator,
                                 assemblyStateStore = assemblyStateStore,
                                 jobRepository = jobRepository,
+                                engine = unifiedEngine,
+                                progressStore = progressStore,
+                                hardwoodsProgressStore = hardwoodsProgressStore,
                                 coroutineScope = legacyCoroutineScope,
                                 onJobClick = { jobFolder ->
                                     legacyCoroutineScope.launch {
@@ -2364,6 +2373,7 @@ private fun LegacySingleStackNavigation(
                                 specialtyScanCoordinator = specialtyScanCoordinator,
                                 specialtyStateStore = specialtyStateStore,
                                 jobRepository = jobRepository,
+                                engine = unifiedEngine,
                                 coroutineScope = legacyCoroutineScope,
                                 onJobClick = { jobFolder ->
                                     navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }

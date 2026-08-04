@@ -23,8 +23,13 @@ class SafetyRepository(private val basePath: String) {
     private fun resolveStatus(concernId: String, statusFiles: List<File>): SafetyStatusRecord {
         return statusFiles
             .filter { it.name.startsWith("$concernId.") && it.name.endsWith(".json") && !it.name.contains(".sync-conflict-") }
-            .mapNotNull { readJson<SafetyStatusRecord>(it) }
-            .maxByOrNull { it.at }
+            .mapNotNull { file -> readJson<SafetyStatusRecord>(file)?.let { record -> file.name to record } }
+            .maxWithOrNull(
+                compareBy<Pair<String, SafetyStatusRecord>> { (_, record) ->
+                    runCatching { Instant.parse(record.at) }.getOrNull() ?: Instant.MIN
+                }.thenBy { (_, record) -> record.at }.thenBy { (filename, _) -> filename }
+            )
+            ?.second
             ?: SafetyStatusRecord("OPEN")
     }
 
@@ -58,7 +63,7 @@ class SafetyRepository(private val basePath: String) {
         if (!dir.exists()) return emptyList()
         return dir.listFiles { f -> f.extension == "json" && !f.name.contains(".sync-conflict-") }
             ?.mapNotNull { readJson<SafetyComment>(it) }
-            ?.sortedBy { it.createdAt }
+            ?.sortedWith(compareBy<SafetyComment> { runCatching { Instant.parse(it.createdAt) }.getOrNull() ?: Instant.MIN }.thenBy { it.createdAt })
             ?: emptyList()
     }
 

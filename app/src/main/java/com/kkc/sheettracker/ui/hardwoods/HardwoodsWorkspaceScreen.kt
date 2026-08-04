@@ -130,7 +130,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.HardwoodsProgressStore
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
@@ -142,6 +144,7 @@ import com.kkc.sheettracker.data.parseDoorCutUnitTypeMetadata
 import com.kkc.sheettracker.data.resolveSheetRipTallyState
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
@@ -379,8 +382,18 @@ fun HardwoodsWorkspaceScreen(
     val snackbar = remember { SnackbarHostState() }
     val statusColors = KKCThemeColors.statusColors
 
-    val job = remember(scanState.snapshot.generation, jobFolderName) {
-        scanState.snapshot.jobs.firstOrNull { it.folderName == jobFolderName }
+    val engine = remember(scanState.snapshot.basePath) {
+        UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), BuildConfig.DEBUG)
+    }
+    val job by produceState<HardwoodJob?>(
+        initialValue = null,
+        engine,
+        scanState.snapshot.generation,
+        jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) {
+            engine.getHardwoodsSnapshot(jobFolderName)?.job
+        }
     }
     val documents = remember(job?.index) { job?.index?.documents.orEmpty() }
     var availableDocuments by remember(documents, jobFolderName, isDarkTheme) { mutableStateOf<List<com.kkc.sheettracker.data.models.HardwoodDocumentIndex>>(emptyList()) }

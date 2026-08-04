@@ -219,6 +219,9 @@ fun UnifiedJobCard(
                 if (statusCounts.skipped > 0) {
                     CountStatusChip("Skip", statusCounts.skipped, statusColors.skipBorder)
                 }
+                if (model.progressStyle is ProgressStyle.Cnc && statusCounts.reNested > 0) {
+                    CountStatusChip("Renested", statusCounts.reNested, statusColors.completeBg)
+                }
             }
 
             PinButton(isPinned = model.isPinned, onClick = onTogglePin)

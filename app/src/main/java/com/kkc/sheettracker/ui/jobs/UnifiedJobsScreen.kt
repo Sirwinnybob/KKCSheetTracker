@@ -70,6 +70,7 @@ import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProductionOrderRequestStore
 import com.kkc.sheettracker.data.UiPreferencesStore
 import com.kkc.sheettracker.data.models.DeliverySchedulePickerJob
+import com.kkc.sheettracker.data.models.DeliverySchedule
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.JobLabel
 import com.kkc.sheettracker.data.models.RefreshReason
@@ -131,7 +132,9 @@ fun UnifiedJobsScreen(
     onSettingsClick: () -> Unit = {},
     active: Boolean = true
 ) {
-    val serverGridCols = remember { jobRepository.getBoardGridColumns() }
+    // The Jobs list is deliberately index-only. Board configuration is full admin metadata and
+    // must not be opened until the operator enters an individual job/admin workflow.
+    val serverGridCols = 3
     val orientation = LocalConfiguration.current.orientation
     val gridCols = if (orientation == Configuration.ORIENTATION_LANDSCAPE) serverGridCols
                    else minOf(serverGridCols, 3)
@@ -199,9 +202,9 @@ fun UnifiedJobsScreen(
     val scanGeneration by spec.scanGeneration.collectAsState()
     val progressVersion by spec.progressVersion.collectAsState()
     
-    var deliverySchedule by remember(scanGeneration) {
-        mutableStateOf(deliveryScheduleRepository.fetchSchedule())
-    }
+    // Schedule is not part of the Jobs-list cache contract. Keep this decoration empty here;
+    // it can be populated by a future cache_index field without opening delivery_schedule.json.
+    var deliverySchedule by remember { mutableStateOf(DeliverySchedule()) }
 
     val badgeCache = remember(scanGeneration) { mutableStateMapOf<String, Set<JobBadge>>() }
     var localJobEdits by remember { mutableStateOf<Map<String, LocalJobEdit>>(emptyMap()) }

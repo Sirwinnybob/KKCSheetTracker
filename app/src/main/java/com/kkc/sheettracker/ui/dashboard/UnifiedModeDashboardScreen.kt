@@ -54,7 +54,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.AppStateFeatureFlags
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
@@ -69,7 +71,7 @@ import com.kkc.sheettracker.data.models.DashboardFlaggedSheetItem
 import com.kkc.sheettracker.data.models.DashboardRecentMaterialItem
 import com.kkc.sheettracker.data.models.DashboardUiModel
 import com.kkc.sheettracker.data.models.HardwoodJob
-import com.kkc.sheettracker.data.models.HardwoodJobSummary
+
 import com.kkc.sheettracker.data.models.HardwoodScanState
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.JobMaterialKey
@@ -553,23 +555,24 @@ private fun loadRecentMaterialThumbnail(
     item: DashboardRecentMaterialItem
 ): Bitmap? {
     val relativeOrAbsolute = item.thumbnailPath?.trim().orEmpty()
-    if (relativeOrAbsolute.isBlank()) return null
-    val sidecarThumb = try {
-        val pdfFile = jobRepository.getPdfFile(item.jobFolderName, item.pdfFilename)
-        val thumbFile = if (File(relativeOrAbsolute).isAbsolute) {
-            File(relativeOrAbsolute)
-        } else {
-            File(pdfFile.parentFile, relativeOrAbsolute)
-        }
-        if (thumbFile.exists() && thumbFile.isFile) {
-            BitmapFactory.decodeFile(thumbFile.absolutePath)
-        } else {
+    if (relativeOrAbsolute.isNotBlank()) {
+        val sidecarThumb = try {
+            val pdfFile = jobRepository.getPdfFile(item.jobFolderName, item.pdfFilename)
+            val thumbFile = if (File(relativeOrAbsolute).isAbsolute) {
+                File(relativeOrAbsolute)
+            } else {
+                File(pdfFile.parentFile, relativeOrAbsolute)
+            }
+            if (thumbFile.exists() && thumbFile.isFile) {
+                BitmapFactory.decodeFile(thumbFile.absolutePath)
+            } else {
+                null
+            }
+        } catch (_: Exception) {
             null
         }
-    } catch (_: Exception) {
-        null
+        if (sidecarThumb != null) return sidecarThumb
     }
-    if (sidecarThumb != null) return sidecarThumb
     return renderPdfThumbnail(jobRepository, item)
 }
 
@@ -743,40 +746,38 @@ private fun HardwoodsDashboardContent(
     onOpenJob: (HardwoodJob) -> Unit
 ) {
     val scanState by scanCoordinator.state.collectAsState()
-    val jobs = scanState.snapshot.jobs
-    val summaries by produceState(
-        initialValue = emptyList<HardwoodJobSummary>(),
-        key1 = jobs,
-        key2 = progressStore
-    ) {
-        value = withContext(Dispatchers.IO) {
-            jobs.map { job -> progressStore.summarizeJob(job) }
+    val engine = remember(scanState.snapshot.basePath) {
+        UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), BuildConfig.DEBUG)
+    }
+    // Lightweight: use cache_index progress, no getHardwoodsSnapshot() needed
+    val jobInfos = engine.getCachedJobInfos()
+    val totalCounts = remember(jobInfos) {
+        jobInfos.fold(HardwoodStatusCounts()) { acc, info ->
+            val hw = engine.getProgressFromIndex(info.folderName)?.hardwoods
+            if (hw != null) {
+                HardwoodStatusCounts(
+                    totalPieces = acc.totalPieces + hw.totalPieces,
+                    donePieces = acc.donePieces + hw.donePieces,
+                    badPieces = acc.badPieces + hw.badPieces,
+                    skippedPieces = acc.skippedPieces + hw.skippedPieces
+                )
+            } else acc
         }
     }
-    val totalCounts = remember(summaries) {
-        summaries.fold(HardwoodStatusCounts()) { acc, entry ->
-            HardwoodStatusCounts(
-                totalPieces = acc.totalPieces + entry.counts.totalPieces,
-                donePieces = acc.donePieces + entry.counts.donePieces,
-                badPieces = acc.badPieces + entry.counts.badPieces,
-                skippedPieces = acc.skippedPieces + entry.counts.skippedPieces
-            )
-        }
-    }
-    val recentJobs = remember(jobs) {
-        jobs.take(6).map { job ->
+    val recentJobs = remember(jobInfos) {
+        jobInfos.take(6).map { info ->
             DashboardProgressItemModel(
-                id = job.folderName,
-                title = job.jobNumber.ifBlank { job.folderName },
-                subtitle = job.folderName,
+                id = info.folderName,
+                title = info.jobNumber.ifBlank { info.folderName },
+                subtitle = info.folderName,
                 supportingText = null,
                 accent = DashboardAccent.INFO
             )
         }
     }
-    val widgets = remember(jobs.size, totalCounts, recentJobs) {
+    val widgets = remember(jobInfos, totalCounts, recentJobs) {
         buildHardwoodsDashboardWidgets(
-            totalJobs = jobs.size,
+            totalJobs = jobInfos.size,
             totalCounts = totalCounts,
             recentJobs = recentJobs
         )
@@ -787,14 +788,19 @@ private fun HardwoodsDashboardContent(
         loading = scanState.status == ScanStatus.LOADING,
         errorMessage = scanState.errorMessage,
         emptyMessage = "No hardwood jobs are available yet.",
-        hasContent = jobs.isNotEmpty(),
+        hasContent = jobInfos.isNotEmpty(),
         onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
     ) {
         DashboardWidgetRenderer(
             widgets = widgets,
             onItemClick = { item ->
                 if (item is DashboardProgressItemModel) {
-                    jobs.firstOrNull { it.folderName == item.id }?.let(onOpenJob)
+                    val selected = engine.getCachedJobInfos().find { it.folderName == item.id }
+                    if (selected != null) {
+                        val hwJob = engine.getHardwoodsSnapshot(selected.folderName)?.job
+                            ?: HardwoodJob(selected.folderName, selected.jobNumber, selected.jobName)
+                        onOpenJob(hwJob)
+                    }
                 }
             }
         )

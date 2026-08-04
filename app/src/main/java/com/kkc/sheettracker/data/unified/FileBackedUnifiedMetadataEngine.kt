@@ -107,6 +107,7 @@ class FileBackedUnifiedMetadataEngine(
     private val cncSearchByJob = ConcurrentHashMap<String, CachedSearchEntry>()
     // Lightweight cache_index.json entries: job info + progress summary, no full static data.
     private val cacheIndexByJob = ConcurrentHashMap<String, CachedCacheIndexEntry>()
+    @Volatile private var cachedJobInfoList: List<UnifiedJobInfo> = emptyList()
     private data class CachedCacheIndexEntry(
         val signature: Long,
         val jobInfo: UnifiedJobInfo,
@@ -130,6 +131,7 @@ class FileBackedUnifiedMetadataEngine(
         trackerByJob.remove(jobFolderName)
         cncSearchByJob.remove(jobFolderName)
         cacheIndexByJob.remove(jobFolderName)
+        cachedJobInfoList = cachedJobInfoList.filterNot { it.folderName == jobFolderName }
     }
 
     override fun basePath(): String = baseDir.absolutePath
@@ -321,110 +323,21 @@ class FileBackedUnifiedMetadataEngine(
             lineupPosition = rawInfo.lineupPosition,
             labels = config?.labels ?: emptyList(),
             isPending = config?.isPending ?: false,
-            boardSection = config?.boardSection ?: 0
+            boardSection = config?.boardSection ?: 0,
+            indexProgress = rawInfo.indexProgress
         )
     }
 
     override fun listJobsFromCacheOnly(): Pair<List<UnifiedJobInfo>, List<String>> {
-        if (!baseDir.exists() || !baseDir.isDirectory) return Pair(emptyList(), emptyList())
-        val loaded = mutableListOf<UnifiedJobInfo>()
-        val needsDeepLoad = mutableListOf<String>()
-        val dirs = baseDir.listFiles() ?: return Pair(emptyList(), emptyList())
-        // Read job_board.json once to get labels/isPending/boardSection — same as listJobs().
-        // These fields are NOT stored in cache_static.json (they come from job_board.json),
-        // so we must merge them here. Also guards against Gson setting non-null Kotlin
-        // List fields to null when the JSON key is absent.
-        val boardConfigs = readJobBoardConfig()
-        for (dir in dirs) {
-            if (!dir.isDirectory) continue
-            // Gate check first — skip hidden/undeployed jobs before touching the cache file.
-            // deployment_gate.json is owned exclusively by Ready Jobs Watcher.
-            if (!DeploymentGateRules.evaluate(dir, isDebugBuild = isDebugBuild).includeJob) continue
-            // Fast path: try cache_index.json first (lightweight, no full static data).
-            val indexFile = File(dir, ".metadata/cache_index.json")
-            if (indexFile.isFile) {
-                try {
-                    val cacheMTime = indexFile.lastModified()
-                    val existing = cacheIndexByJob[dir.name]
-                    val info = if (existing != null && existing.signature == cacheMTime) {
-                        existing.jobInfo
-                    } else {
-                        val root = gson.fromJson(indexFile.readText(), CacheIndexRoot::class.java)
-                        val rawInfo = root?.jobInfo ?: throw Exception()
-                        val ji = UnifiedJobInfo(
-                            folderName = rawInfo.folderName,
-                            jobNumber = rawInfo.jobNumber,
-                            jobName = rawInfo.jobName,
-                            hiddenFromProduction = rawInfo.hiddenFromProduction,
-                            lineupPosition = rawInfo.lineupPosition
-                        )
-                        cacheIndexByJob[dir.name] = CachedCacheIndexEntry(
-                            signature = cacheMTime,
-                            jobInfo = ji,
-                            progressSummary = root.progressSummary
-                        )
-                        ji
-                    }
-                    val config = boardConfigs[dir.name]
-                    loaded.add(mergedJobInfo(info, dir.name, config))
-                    continue
-                } catch (_: Exception) {
-                    // cache_index.json failed — fall through to cache_static.json
-                }
-            }
-            // Fallback: read from cache_static.json (existing logic, unchanged).
-            val cacheFile = File(dir, ".metadata/cache_static.json")
-            val existing = staticByJob[dir.name]
-            if (!cacheFile.isFile) {
-                if (existing?.origin == StaticEntryOrigin.DEEP_PARSE) {
-                    loaded.add(mergedJobInfo(existing.data.jobInfo, dir.name, boardConfigs[dir.name]))
-                } else if (parseJobFolderName(dir.name) != null) {
-                    needsDeepLoad.add(dir.name)
-                }
-                continue
-            }
-            try {
-                val cacheMTime = cacheFile.lastModified()
-                if (existing?.origin == StaticEntryOrigin.DEEP_PARSE &&
-                    checkIsCacheStale(dir, cacheMTime)
-                ) {
-                    loaded.add(mergedJobInfo(existing.data.jobInfo, dir.name, boardConfigs[dir.name]))
-                    continue
-                }
-                val rawInfo = if (existing != null && existing.signature == cacheMTime) {
-                    existing.data.jobInfo
-                } else {
-                    val rawData = gson.fromJson(cacheFile.readText(), StaticJobData::class.java) ?: continue
-                    val data = sanitizeStaticJobData(rawData)
-                    staticByJob[dir.name] = CachedStaticEntry(
-                        signature = cacheMTime,
-                        data = data,
-                        origin = StaticEntryOrigin.PUBLISHED_CACHE
-                    )
-                    data.jobInfo
-                }
-                // Merge board config fields that are missing from cache_static.json, and
-                // guard against Gson leaving non-null Kotlin fields as null.
-                val config = boardConfigs[dir.name]
-                loaded.add(mergedJobInfo(rawInfo, dir.name, config))
-            } catch (e: Exception) {
-                if (parseJobFolderName(dir.name) != null) needsDeepLoad.add(dir.name)
-            }
-        }
-        // Sort by lineup position (set by server), falling back to job-number descending
-        val sorted = loaded.sortedWith(
-            compareBy<UnifiedJobInfo> { it.lineupPosition ?: Int.MAX_VALUE }
-                .thenByDescending { it.jobNumber.toIntOrNull() ?: 0 }
-                .thenBy { it.folderName }
-        )
-        return Pair(sorted, needsDeepLoad)
+        // Kept for legacy callers, but list projections may only use Ready Jobs Watcher's
+        // deployment gate and lightweight cache index. Full static data belongs to job-open paths.
+        return listJobsFromCacheIndex()
     }
 
     override fun listJobsFromCacheIndex(): Pair<List<UnifiedJobInfo>, List<String>> {
         if (!baseDir.exists() || !baseDir.isDirectory) return Pair(emptyList(), emptyList())
         val loaded = mutableListOf<UnifiedJobInfo>()
         val needsDeep = mutableListOf<String>()
-        val boardConfigs = readJobBoardConfig()
         val dirs = baseDir.listFiles() ?: return Pair(emptyList(), emptyList())
         for (dir in dirs) {
             if (!dir.isDirectory) continue
@@ -447,7 +360,8 @@ class FileBackedUnifiedMetadataEngine(
                         jobNumber = rawInfo.jobNumber,
                         jobName = rawInfo.jobName,
                         hiddenFromProduction = rawInfo.hiddenFromProduction,
-                        lineupPosition = rawInfo.lineupPosition
+                        lineupPosition = rawInfo.lineupPosition,
+                        indexProgress = root.progressSummary
                     )
                     cacheIndexByJob[dir.name] = CachedCacheIndexEntry(
                         signature = cacheMTime,
@@ -456,8 +370,9 @@ class FileBackedUnifiedMetadataEngine(
                     )
                     ji
                 }
-                val config = boardConfigs[dir.name]
-                loaded.add(mergedJobInfo(info, dir.name, config))
+                // The Jobs list contract is deployment_gate.json + cache_index.json only.
+                // Do not pull job_board.json or cache_static.json while projecting list cards.
+                loaded.add(info)
             } catch (e: Exception) {
                 if (parseJobFolderName(dir.name) != null) needsDeep.add(dir.name)
             }
@@ -467,6 +382,12 @@ class FileBackedUnifiedMetadataEngine(
                 .thenByDescending { it.jobNumber.toIntOrNull() ?: 0 }
                 .thenBy { it.folderName }
         )
+        // Syncthing can briefly expose a job directory before its index arrives (or while it is
+        // being atomically replaced). Do not turn an already usable Jobs/dashboard projection
+        // into an empty screen during that short window; the next valid index scan replaces it.
+        if (sorted.isNotEmpty() || cachedJobInfoList.isEmpty()) {
+            cachedJobInfoList = sorted
+        }
         return Pair(sorted, needsDeep)
     }
 
@@ -488,7 +409,8 @@ class FileBackedUnifiedMetadataEngine(
                         jobNumber = rawInfo.jobNumber,
                         jobName = rawInfo.jobName,
                         hiddenFromProduction = rawInfo.hiddenFromProduction,
-                        lineupPosition = rawInfo.lineupPosition
+                        lineupPosition = rawInfo.lineupPosition,
+                        indexProgress = root.progressSummary
                     ),
                     progressSummary = root.progressSummary
                 )
@@ -497,6 +419,12 @@ class FileBackedUnifiedMetadataEngine(
         } catch (e: Exception) {
             null
         }
+    }
+
+    override fun getCachedJobInfos(): List<UnifiedJobInfo> = cachedJobInfoList
+
+    override fun getCachedCncSearchIndex(jobFolderName: String): List<PartSearchEntry>? {
+        return cncSearchByJob[jobFolderName]?.index
     }
 
     override fun refreshJobDeep(folderName: String): Boolean {

@@ -6,13 +6,16 @@ data class CacheIndexMaterialProgress(
     val done: Int = 0,
     val bad: Int = 0,
     val skipped: Int = 0,
+    val renested: Int = 0,
     val isRemake: Boolean = false
 ) {
     fun toStatusCounts(): StatusCounts = StatusCounts(
-        total = totalSheets,
+        total = totalSheets - renested,
         complete = done,
         bad = bad,
-        skipped = skipped
+        skipped = skipped,
+        notStarted = (totalSheets - done - skipped - renested).coerceAtLeast(0),
+        reNested = renested
     )
 }
 
@@ -21,6 +24,7 @@ data class CacheIndexCncProgress(
     val done: Int = 0,
     val bad: Int = 0,
     val skipped: Int = 0,
+    val renested: Int = 0,
     val materials: List<CacheIndexMaterialProgress> = emptyList()
 )
 

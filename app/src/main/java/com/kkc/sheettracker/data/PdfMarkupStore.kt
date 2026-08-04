@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import android.os.FileObserver
 import android.util.Log
 import com.google.gson.Gson
 import com.kkc.sheettracker.data.models.PdfInkStroke
@@ -17,6 +18,13 @@ class PdfMarkupStore(
 ) {
     companion object {
         private const val TAG = "PdfMarkupDebug"
+        private const val MARKUP_OBSERVER_EVENTS = FileObserver.CLOSE_WRITE or
+            FileObserver.CREATE or
+            FileObserver.DELETE or
+            FileObserver.MOVED_FROM or
+            FileObserver.MOVED_TO or
+            FileObserver.DELETE_SELF or
+            FileObserver.MOVE_SELF
     }
 
     private val gson = Gson()
@@ -138,6 +146,29 @@ class PdfMarkupStore(
                 next * 31L + file.length()
             }
             ?: 0L
+    }
+
+    @Suppress("DEPRECATION")
+    fun createTrackerChangeObserver(
+        jobFolderName: String,
+        onChanged: () -> Unit
+    ): FileObserver? {
+        val dir = trackerDir(jobFolderName)
+        if (!dir.isDirectory && !dir.mkdirs()) return null
+        return object : FileObserver(dir.absolutePath, MARKUP_OBSERVER_EVENTS) {
+            override fun onEvent(event: Int, path: String?) {
+                val filename = path
+                if (filename == null) {
+                    if (event and (FileObserver.DELETE_SELF or FileObserver.MOVE_SELF) != 0) {
+                        onChanged()
+                    }
+                    return
+                }
+                if (!filename.endsWith(".json", ignoreCase = true)) return
+                if (filename.startsWith(".") || filename.contains(".sync-conflict-")) return
+                onChanged()
+            }
+        }
     }
 
     fun getMergedActiveStrokesByPage(jobFolderName: String): Map<PdfMarkupPageKey, List<PdfInkStroke>> {

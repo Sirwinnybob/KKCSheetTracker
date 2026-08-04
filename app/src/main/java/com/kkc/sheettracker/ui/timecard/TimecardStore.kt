@@ -61,7 +61,9 @@ class TimecardStore(
         // Manual IP overrides everything — no discovery needed
         if (!manualIp.isNullOrBlank()) {
             val serverUrl = "http://${manualIp.trim()}:8765"
-            connectToServer(serverUrl, clearCacheOnFailure = false)
+            if (!connectToServer(serverUrl, clearCacheOnFailure = false)) {
+                _state.value = TimecardUiState.NotFound
+            }
             return
         }
 
@@ -80,7 +82,9 @@ class TimecardStore(
             return
         }
         config.setCachedUrl(discoveredUrl)
-        connectToServer(discoveredUrl, clearCacheOnFailure = false)
+        if (!connectToServer(discoveredUrl, clearCacheOnFailure = false)) {
+            _state.value = TimecardUiState.NotFound
+        }
     }
 
     // Returns true if the server was reachable and employees loaded (even if empty)
@@ -155,9 +159,8 @@ class TimecardStore(
                 }
             }
         } catch (e: Exception) {
-            (_state.value as? TimecardUiState.Ready)?.let {
-                _state.value = it.copy(isLoading = false)
-            }
+            repo = null
+            _state.value = TimecardUiState.NotFound
         }
     }
 

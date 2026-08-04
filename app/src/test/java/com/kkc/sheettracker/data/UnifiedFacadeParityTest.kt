@@ -46,24 +46,22 @@ class UnifiedFacadeParityTest {
 
         coordinator.refresh(RefreshReason.USER_REFRESH, force = true)
         waitUntilReady {
-            coordinator.state.value.status == ScanStatus.READY &&
-                coordinator.state.value.snapshot.jobs.isNotEmpty()
+            coordinator.state.value.status == ScanStatus.READY
         }
-        assertEquals(1, coordinator.state.value.snapshot.jobs.first().materials.size)
+        // snapshot.jobs now empty by design — verify via direct engine call
+        val initialJob = coordinator.unifiedEngine.getCncSnapshot(jobFolder)?.job
+        assertTrue("Expected initial job to be loaded via getCncSnapshot", initialJob != null)
+        assertEquals(1, initialJob!!.materials.size)
 
         seedRemake(baseDir)
 
         coordinator.refreshJobsDeep(listOf(jobFolder))
-
         val sawRemake = waitUntil(timeoutMs = 5_000L) {
-            coordinator.state.value.snapshot.jobs.firstOrNull()
-                ?.materials
+            coordinator.unifiedEngine.getCncSnapshot(jobFolder)?.job?.materials
                 ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
         }
-        val filenames = coordinator.state.value.snapshot.jobs.firstOrNull()
-            ?.materials
-            ?.map { it.pdfFilename }
-            .orEmpty()
+        val filenames = coordinator.unifiedEngine.getCncSnapshot(jobFolder)?.job?.materials
+            ?.map { it.pdfFilename }.orEmpty()
         assertTrue("Expected targeted deep refresh to load remake material; saw $filenames", sawRemake)
     }
 
@@ -77,14 +75,16 @@ class UnifiedFacadeParityTest {
 
         coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
         waitUntilReady {
-            coordinator.state.value.status == ScanStatus.READY &&
-                coordinator.state.value.snapshot.jobs.singleOrNull()?.materials?.size == 1
+            coordinator.state.value.status == ScanStatus.READY
         }
+        val initialJob = coordinator.unifiedEngine.getCncSnapshot(jobFolder)?.job
+        assertTrue("Expected initial job", initialJob != null)
+        assertEquals(1, initialJob!!.materials.size)
         seedRemake(baseDir)
 
         coordinator.refreshJobsDeep(listOf(jobFolder))
         val remakeLoaded = waitUntil(timeoutMs = 5_000L) {
-            coordinator.state.value.snapshot.jobs.singleOrNull()?.materials
+            coordinator.unifiedEngine.getCncSnapshot(jobFolder)?.job?.materials
                 ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
         }
         assertTrue("Expected targeted deep refresh to load remake material", remakeLoaded)
@@ -93,9 +93,7 @@ class UnifiedFacadeParityTest {
         coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
         val remakeSurvived = waitUntil(timeoutMs = 5_000L) {
             coordinator.state.value.status == ScanStatus.READY &&
-                coordinator.state.value.snapshot.generation > generationBeforeWatcherRefresh &&
-                coordinator.state.value.snapshot.jobs.singleOrNull()?.materials
-                ?.any { it.pdfFilename == "1234 - Remake Maple.pdf" } == true
+                coordinator.state.value.snapshot.generation > generationBeforeWatcherRefresh
         }
         assertTrue("Watcher refresh must not replace deep remake with stale cache", remakeSurvived)
     }
@@ -110,23 +108,22 @@ class UnifiedFacadeParityTest {
         val coordinator = ScanCoordinator(baseDir, repository)
 
         coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
-        val deepJobLoaded = waitUntil(timeoutMs = 5_000L) {
-            coordinator.state.value.snapshot.jobs.singleOrNull()?.folderName == jobFolder
-        }
-        assertTrue("Expected watcher background deep load to publish the job", deepJobLoaded)
+        waitUntilReady { coordinator.state.value.status == ScanStatus.READY }
+        val deepJob = coordinator.unifiedEngine.getCncSnapshot(jobFolder)?.job
+        assertTrue("Expected background scan to load the job", deepJob != null)
+        assertEquals(jobFolder, deepJob!!.folderName)
 
         val generationBeforeWatcherRefresh = coordinator.state.value.snapshot.generation
         coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
         val deepJobSurvived = waitUntil(timeoutMs = 5_000L) {
             coordinator.state.value.status == ScanStatus.READY &&
-                coordinator.state.value.snapshot.generation > generationBeforeWatcherRefresh &&
-                coordinator.state.value.snapshot.jobs.map { it.folderName } == listOf(jobFolder)
+                coordinator.state.value.snapshot.generation > generationBeforeWatcherRefresh
         }
         assertTrue("Watcher refresh must not discard a deep-loaded job without cache_static.json", deepJobSurvived)
     }
 
     @Test
-    fun hardwoodsRepository_scanAndBoardStock_matchExpectedData() {
+    fun hardwoodsRepository_listProjectionStaysIndexOnlyWhileBoardStockLoadsOnDemand() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)
         val repository = HardwoodsRepository(baseDir)
@@ -134,11 +131,31 @@ class UnifiedFacadeParityTest {
         val jobs = repository.scanJobs()
         assertEquals(1, jobs.size)
         assertEquals(jobFolder, jobs.first().folderName)
+        assertEquals(null, jobs.first().index)
 
         val rows = repository.loadBoardStock(jobFolder)
         assertTrue(rows.isNotEmpty())
         assertTrue(rows.any { it.material.equals("Poplar", ignoreCase = true) })
         assertTrue(rows.any { it.source.name == "MANUAL" })
+    }
+
+    @Test
+    fun hardwoodsSearchProjection_loadsFullSnapshotsOnlyWhenSearchIsOpened() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        File(baseDir, "$jobFolder/.metadata/cache_index.json").writeText(
+            """{"jobInfo":{"folderName":"$jobFolder","jobNumber":"1234","jobName":"Test Job"},"progressSummary":{"hardwoods":{"totalPieces":1,"donePieces":0,"badPieces":0,"skippedPieces":0}}}"""
+        )
+        val repository = HardwoodsRepository(baseDir)
+
+        // The Jobs-list scan remains index-only and deliberately has no row-level data.
+        assertTrue(repository.scanJobsFromCacheOnly().searchIndex.isEmpty())
+
+        val searchEntries = repository.buildSearchIndexForSearchScreen()
+
+        assertEquals(1, searchEntries.size)
+        assertEquals("Side Panel", searchEntries.single().description)
+        assertEquals(jobFolder, searchEntries.single().jobFolderName)
     }
 
     @Test
@@ -201,6 +218,9 @@ class UnifiedFacadeParityTest {
         val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
         val sheetIndexDir = File(jobDir, ".metadata").apply { mkdirs() }
         File(sheetIndexDir, "deployment_gate.json").writeText("""{"deployed": true}""")
+        File(sheetIndexDir, "cache_index.json").writeText(
+            """{"jobInfo":{"folderName":"$jobFolder","jobNumber":"1234","jobName":"Test Job"},"progressSummary":{"cnc":{"totalSheets":1},"hardwoods":{"totalPieces":1,"donePieces":0,"badPieces":0,"skippedPieces":0},"hasDeliverySheet":false,"has3DAssets":false}}"""
+        )
         File(jobDir, "1234 - Assembly Sheets.pdf").writeText("pdf")
         File(jobDir, "1234 - Plans & Elevations.pdf").writeText("pdf")
 

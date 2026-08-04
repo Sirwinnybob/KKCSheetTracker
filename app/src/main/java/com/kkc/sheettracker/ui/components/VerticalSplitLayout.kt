@@ -103,14 +103,8 @@ fun VerticalSplitLayout(
         when (fullscreen) {
             SplitFullscreen.FIRST -> {
                 topContent(Modifier.fillMaxWidth().weight(1f))
-                Box(Modifier.height(0.dp).fillMaxWidth()) {
-                    bottomContent(Modifier.fillMaxSize())
-                }
             }
             SplitFullscreen.SECOND -> {
-                Box(Modifier.height(0.dp).fillMaxWidth()) {
-                    topContent(Modifier.fillMaxSize())
-                }
                 bottomContent(Modifier.fillMaxWidth().weight(1f))
             }
             SplitFullscreen.NONE -> {

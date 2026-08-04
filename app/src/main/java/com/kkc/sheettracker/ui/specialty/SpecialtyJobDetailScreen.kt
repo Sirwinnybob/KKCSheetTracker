@@ -62,7 +62,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
@@ -104,7 +103,6 @@ import com.kkc.sheettracker.data.SpecialtyViewerDefaults
 import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.completionKeysForItem
 import com.kkc.sheettracker.data.resolveSheetRipTallyState
-import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
@@ -189,12 +187,6 @@ fun SpecialtyJobDetailScreen(
     // Show current content immediately, then verify this job in the background.
     LaunchedEffect(jobFolderName) {
         specialtyStateStore.refreshJobOnOpen(jobFolderName)
-    }
-    LaunchedEffect(jobFolderName) {
-        while (true) {
-            delay(30_000L)
-            specialtyStateStore.refresh(RefreshReason.APP_FOREGROUND, force = true)
-        }
     }
     LaunchedEffect(jobFolderName, viewerDefaults.expandedSectionIds) {
         if (expandedSectionIds == null) {

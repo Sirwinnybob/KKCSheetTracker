@@ -50,6 +50,7 @@ import com.kkc.sheettracker.ui.components.ClockInButton
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -64,8 +65,10 @@ import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
+import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyStateStore
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.MaterialUiModel
@@ -83,8 +86,14 @@ import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 private const val DETAIL_PARITY_TAG = "KKC_APP_STATE_PARITY_DETAIL"
+
+private data class LegacyMaterialProgress(
+    val countsByPdfFilename: Map<String, StatusCounts> = emptyMap(),
+    val pendingBadPartsByPdfFilename: Map<String, Int> = emptyMap()
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,13 +124,51 @@ fun JobDetailScreen(
     }
 
     val scanState by scanCoordinator.state.collectAsState()
+    val unifiedEngine = remember(scanState.snapshot.basePath) { UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), BuildConfig.DEBUG) }
     val progressVersion by progressStore.progressVersion.collectAsState()
     val appMaterialsByKey by appStateStore.materialUiModels.collectAsState()
     val appUiState by appStateStore.uiState.collectAsState()
     val appFlags = remember(appStateFlags) { appStateFlags.snapshot() }
     val useAppState = appFlags.detailEnabled
-    val job = remember(scanState.snapshot.generation, jobFolderName) {
-        scanState.snapshot.jobs.find { it.folderName == jobFolderName }
+    val job by produceState<Job?>(
+        initialValue = null,
+        unifiedEngine,
+        scanState.snapshot.generation,
+        jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) {
+            unifiedEngine.getCncSnapshot(jobFolderName)?.job
+        }
+    }
+    // The legacy fallback remains available while AppState rolls out, but it must not cold-load
+    // the tracker cache once per material during composition.
+    val legacyMaterialProgress by produceState(
+        initialValue = LegacyMaterialProgress(),
+        job,
+        jobFolderName,
+        progressVersion,
+        useAppState,
+        appMaterialsByKey
+    ) {
+        val currentJob = job
+        val fallbackMaterials = currentJob?.materials.orEmpty().filter { material ->
+            !useAppState ||
+                appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)] == null
+        }
+        value = withContext(Dispatchers.IO) {
+            LegacyMaterialProgress(
+                countsByPdfFilename = fallbackMaterials.associate { material ->
+                    material.pdfFilename to progressStore.getMaterialStatusCounts(jobFolderName, material)
+                },
+                pendingBadPartsByPdfFilename = fallbackMaterials.associate { material ->
+                    material.pdfFilename to progressStore.getPendingBadPartsForMaterial(
+                        jobFolderName,
+                        material.pdfFilename,
+                        material.fileFingerprint
+                    )
+                }
+            )
+        }
     }
     // Document availability loaded async — avoids blocking the composition thread on I/O
     var hasDeliverySheet by remember(jobFolderName) { mutableStateOf(false) }
@@ -143,10 +190,11 @@ fun JobDetailScreen(
     var legacyPageStatuses by remember(jobFolderName) { mutableStateOf<Map<String, Map<Int, SheetStatus>>>(emptyMap()) }
 
     LaunchedEffect(job, progressVersion, useAppState) {
-        if (useAppState || job == null) return@LaunchedEffect
+        if (useAppState) return@LaunchedEffect
+        val currentJob = job ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
             val statuses = mutableMapOf<String, Map<Int, SheetStatus>>()
-            for (material in job.materials) {
+            for (material in currentJob.materials) {
                 val pages = progressStore.getMaterialTrackablePages(material)
                 val materialStatuses = mutableMapOf<Int, SheetStatus>()
                 for (physicalPage in pages) {
@@ -174,11 +222,13 @@ fun JobDetailScreen(
         if (!appFlags.shadowEnabled) return@LaunchedEffect
         val currentJob = job ?: return@LaunchedEffect
 
-        val mismatch = currentJob.materials.firstOrNull { material ->
-            val appModel = appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)]
-                ?: return@firstOrNull true
-            val legacy = progressStore.getMaterialStatusCounts(jobFolderName, material)
-            appModel.counts != legacy
+        val mismatch = withContext(Dispatchers.IO) {
+            currentJob.materials.firstOrNull { material ->
+                val appModel = appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)]
+                    ?: return@firstOrNull true
+                val legacy = progressStore.getMaterialStatusCounts(jobFolderName, material)
+                appModel.counts != legacy
+            }
         }
 
         if (mismatch != null) {
@@ -337,20 +387,13 @@ fun JobDetailScreen(
                     )
                 }
 
-                items(job.materials, key = { it.pdfFilename }) { material ->
+                items(job?.materials.orEmpty(), key = { it.pdfFilename }) { material ->
                     val statusColors = KKCThemeColors.statusColors
                     val appMaterialModel: MaterialUiModel? = appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)]
                     val counts = if (useAppState && appMaterialModel != null) {
                         appMaterialModel.counts
-                    } else remember(
-                        progressVersion,
-                        material.pdfFilename,
-                        material.fileFingerprint,
-                        material.pageCount,
-                        material.metadata
-                    ) {
-                        progressStore.getMaterialStatusCounts(jobFolderName, material)
-                    }
+                    } else legacyMaterialProgress.countsByPdfFilename[material.pdfFilename]
+                        ?: StatusCounts(total = material.pageCount)
                     val trackablePages = remember(
                         progressVersion,
                         material.pdfFilename,
@@ -366,17 +409,7 @@ fun JobDetailScreen(
                     else counts.complete.toFloat() / counts.total.toFloat()
                     val pendingBadPartCount = if (useAppState && appMaterialModel != null) {
                         appMaterialModel.pendingBadPartCount
-                    } else remember(
-                        progressVersion,
-                        material.pdfFilename,
-                        material.fileFingerprint
-                    ) {
-                        progressStore.getPendingBadPartsForMaterial(
-                            jobFolderName,
-                            material.pdfFilename,
-                            material.fileFingerprint
-                        )
-                    }
+                    } else legacyMaterialProgress.pendingBadPartsByPdfFilename[material.pdfFilename] ?: 0
                     ProgressCard(
                         title = material.materialName,
                         subtitle = "${counts.complete}/${counts.total} complete",

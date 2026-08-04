@@ -37,7 +37,7 @@ class ScanCoordinator(
 
     @Volatile private var baseDir: File = initialBaseDir
     @Volatile
-    private var unifiedEngine: UnifiedMetadataEngine = UnifiedMetadataEngineRegistry.getOrCreate(
+    var unifiedEngine: UnifiedMetadataEngine = UnifiedMetadataEngineRegistry.getOrCreate(
         baseDir = initialBaseDir,
         isDebugBuild = BuildConfig.DEBUG,
         pdfPageCounter = ::countPdfPagesForEngine
@@ -111,12 +111,10 @@ class ScanCoordinator(
     fun currentSnapshotJobs(): List<Job> = state.value.snapshot.jobs
 
     fun currentSearchIndex(): List<PartSearchEntry> {
-        // Always rebuild from current job list — avoids returning partial index after
-        // incremental updateJobsInState(). Engine internal cache (cncSearchByJob) makes
-        // getCncSnapshot() fast for already-loaded jobs.
-        return state.value.snapshot.jobs.mapNotNull { job ->
-            unifiedEngine.getCncSnapshot(job.folderName)?.searchIndex
-        }.flatten()
+        return unifiedEngine.getCachedJobInfos().flatMap { info ->
+            unifiedEngine.getCachedCncSearchIndex(info.folderName)
+                ?: unifiedEngine.getCncSnapshot(info.folderName)?.searchIndex.orEmpty()
+        }
     }
 
     private suspend fun runRefresh(reason: RefreshReason, force: Boolean) {
@@ -136,7 +134,7 @@ class ScanCoordinator(
                 val unchanged = !force &&
                     currentSignature == lastStalenessSignature &&
                     previous.snapshot.basePath == baseDir.absolutePath &&
-                    previous.snapshot.jobs.isNotEmpty()
+                    previous.snapshot.generation > 0
 
                 if (unchanged) {
                     _state.value = previous.copy(
@@ -145,13 +143,6 @@ class ScanCoordinator(
                         lastRefreshReason = reason
                     )
                     return
-                }
-
-                // User pressed Refresh: force a full per-file staleness check + re-parse across
-                // ALL jobs so newer on-disk files not yet folded into cache_static.json show up.
-                // Automatic refreshes (foreground/watcher/start) stay cache-only for speed.
-                if (reason == RefreshReason.USER_REFRESH) {
-                    unifiedEngine.deepScanAllJobs()
                 }
 
                 val (jobs, searchIndex, issues, needsDeepLoad) = scanJobsFromCacheOnly()
@@ -173,16 +164,9 @@ class ScanCoordinator(
                     lastRefreshReason = reason
                 )
 
-                // Background: deep-load any job folders that had no cache_static.json yet.
-                // Coalesce all changed folders into ONE re-projection + ONE state emission instead
-                // of re-filtering the whole search index and emitting per folder (O(K·M) + K
-                // recompositions). Trade-off: deep-loaded jobs appear as a batch, not one-by-one.
-                if (needsDeepLoad.isNotEmpty()) {
-                    scope.launch {
-                        val changed = needsDeepLoad.filter { unifiedEngine.refreshJobDeep(it) }
-                        updateJobsInState(changed)
-                    }
-                }
+                // Jobs load on per-tap via getCncSnapshot() in detail/viewer screens.
+                // No background deep-load needed — generating cache_index.json from RJW
+                // already makes every deployed job visible in the list.
             } catch (e: Exception) {
                 Log.e("KKC_SCAN", "runRefresh EXCEPTION: ${e.javaClass.simpleName}: ${e.message}", e)
                 _state.value = previous.copy(
@@ -197,27 +181,11 @@ class ScanCoordinator(
     private fun scanJobsFromCacheOnly(): ScanResult {
         if (!baseDir.exists() || !baseDir.isDirectory)
             return ScanResult(emptyList(), emptyList(), emptyList(), emptyList())
-        val (jobInfos, needsDeepLoad) = unifiedEngine.listJobsFromCacheOnly()
-        // Full CNC data still loaded here for downstream consumers (detail screen,
-        // sheet viewer, AppStateStore). List cards now use cache_index progress
-        // directly via rememberCncJobsSpec.
-        val jobs = mutableListOf<Job>()
-        val search = mutableListOf<PartSearchEntry>()
-        val issues = mutableListOf<ScanIssue>()
-        jobInfos.forEach { info ->
-            if (!File(baseDir, "${info.folderName}/CNC").isDirectory) return@forEach
-            val snapshot = unifiedEngine.getCncSnapshot(info.folderName) ?: return@forEach
-            jobs += snapshot.job.copy(
-                lineupPosition = info.lineupPosition,
-                labels = info.labels,
-                hiddenFromProduction = info.hiddenFromProduction,
-                isPending = info.isPending,
-                boardSection = info.boardSection
-            )
-            search += snapshot.searchIndex
-            issues += snapshot.issues
-        }
-        return ScanResult(jobs, search, issues, needsDeepLoad)
+        val (_, needsDeepLoad) = unifiedEngine.listJobsFromCacheIndex()
+        // List screen reads cache_index.json directly via rememberCncJobsSpec.
+        // Full cache_static.json loads on per-job tap via getCncSnapshot().
+        // Background deep load populates snapshot.jobs via updateJobsInState().
+        return ScanResult(emptyList(), emptyList(), emptyList(), needsDeepLoad)
     }
 
     private data class ScanResult(

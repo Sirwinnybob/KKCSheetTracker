@@ -46,6 +46,7 @@ import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.ui.components.ClockInButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -68,7 +69,10 @@ import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
+import com.kkc.sheettracker.BuildConfig
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
+import java.io.File
 
 internal fun HardwoodStatusCounts.toStatusCounts(): StatusCounts {
     val effectiveTotal = effectiveTotalPieces
@@ -80,6 +84,12 @@ internal fun HardwoodStatusCounts.toStatusCounts(): StatusCounts {
         skipped = 0
     )
 }
+
+private data class HardwoodsDetailProgress(
+    val summary: com.kkc.sheettracker.data.models.HardwoodJobSummary? = null,
+    val rowProgressMap: Map<Pair<String, String>, HardwoodRowProgress> = emptyMap(),
+    val totalsDoneMap: Map<String, Int> = emptyMap()
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,26 +117,57 @@ fun HardwoodsJobDetailScreen(
 
     val scanState by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
-    val job: HardwoodJob = remember(scanState.snapshot.generation, jobFolderName) {
-        scanState.snapshot.jobs.firstOrNull { it.folderName == jobFolderName }
-            ?: HardwoodJob(jobFolderName, "", "")
+    val engine = remember(scanState.snapshot.basePath) {
+        UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), BuildConfig.DEBUG)
     }
-    val summary = remember(progressVersion, job.index) { progressStore.summarizeJob(job) }
+    val emptyJob = remember(jobFolderName) { HardwoodJob(jobFolderName, "", "") }
+    val job by produceState<HardwoodJob?>(
+        initialValue = null,
+        engine,
+        scanState.snapshot.generation,
+        jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) {
+            engine.getHardwoodsSnapshot(jobFolderName)?.job
+        }
+    }
+    val resolvedJob = job ?: emptyJob
+    val detailProgress by produceState(
+        initialValue = HardwoodsDetailProgress(),
+        resolvedJob,
+        jobFolderName,
+        progressVersion
+    ) {
+        value = withContext(Dispatchers.IO) {
+            HardwoodsDetailProgress(
+                summary = progressStore.summarizeJob(resolvedJob),
+                rowProgressMap = progressStore.getRowProgressMap(jobFolderName),
+                totalsDoneMap = progressStore.getTotalsRip10DoneMap(jobFolderName)
+            )
+        }
+    }
+    val summary = detailProgress.summary ?: com.kkc.sheettracker.data.models.HardwoodJobSummary(resolvedJob)
     var progressExpanded by rememberSaveable(jobFolderName) { mutableStateOf(true) }
     var expandedDocs by rememberSaveable(jobFolderName) { mutableStateOf(setOf<String>()) }
-    val rowProgressMap = remember(progressVersion, jobFolderName) { progressStore.getRowProgressMap(jobFolderName) }
-    val totalsDoneMap = remember(progressVersion, jobFolderName) { progressStore.getTotalsRip10DoneMap(jobFolderName) }
-    val docsByType = remember(job.index) {
-        job.index?.documents.orEmpty().associateBy { it.docType }
+    val rowProgressMap = detailProgress.rowProgressMap
+    val totalsDoneMap = detailProgress.totalsDoneMap
+    val docsByType = remember(resolvedJob.index) {
+        resolvedJob.index?.documents.orEmpty().associateBy { it.docType }
     }
-    val availableDocsByType = remember(docsByType, jobFolderName) {
-        docsByType.filterValues { doc ->
-            doc.pdfFilename.isNotBlank() &&
-                jobRepository.getJobRootPdfFile(
-                    jobFolderName = jobFolderName,
-                    pdfFilename = doc.pdfFilename,
-                    preferDarkMode = false
-                ) != null
+    val availableDocsByType by produceState(
+        initialValue = emptyMap<HardwoodDocType, HardwoodDocumentIndex>(),
+        docsByType,
+        jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) {
+            docsByType.filterValues { doc ->
+                doc.pdfFilename.isNotBlank() &&
+                    jobRepository.getJobRootPdfFile(
+                        jobFolderName = jobFolderName,
+                        pdfFilename = doc.pdfFilename,
+                        preferDarkMode = false
+                    ) != null
+            }
         }
     }
     // Document availability loaded async — avoids blocking the composition thread on I/O
@@ -159,7 +200,7 @@ fun HardwoodsJobDetailScreen(
             KKCTopAppBar(
                 title = {
                     Text(
-                        job.folderName.ifBlank { "Hardwoods Job" },
+                        resolvedJob.folderName.ifBlank { "Hardwoods Job" },
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
@@ -175,11 +216,11 @@ fun HardwoodsJobDetailScreen(
                         ClockInButton(
                             clockInState = clockInState,
                             isClockedInHere = isClockedInHere,
-                            onClockInClick = { onClockIn(job.jobNumber, job.jobName) }
+                            onClockInClick = { onClockIn(resolvedJob.jobNumber, resolvedJob.jobName) }
                         )
                     } else {
                         Button(
-                            onClick = { onClockIn(job.jobNumber, job.jobName) },
+                            onClick = { onClockIn(resolvedJob.jobNumber, resolvedJob.jobName) },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF38A169),
                                 contentColor = Color.White
@@ -271,14 +312,14 @@ fun HardwoodsJobDetailScreen(
                 )
             }
 
-            var boardStockCounts by remember(job.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
+            var boardStockCounts by remember(resolvedJob.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
                 mutableStateOf(HardwoodStatusCounts(0, 0))
             }
-            LaunchedEffect(job.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
+            LaunchedEffect(resolvedJob.index, totalsDoneMap, scanState.snapshot.basePath, rowProgressMap) {
                 val calculated = withContext(Dispatchers.IO) {
                     val rows = applySkippedPartRowsToBoardStockRows(
-                        rows = buildBoardStockRows(scanState.snapshot.basePath, job.folderName, job.index),
-                        index = job.index,
+                        rows = buildBoardStockRows(scanState.snapshot.basePath, resolvedJob.folderName, resolvedJob.index),
+                        index = resolvedJob.index,
                         rowProgressMap = rowProgressMap
                     )
                     val total = rows.sumOf { row ->

@@ -96,14 +96,8 @@ private fun HorizontalSplitLayout(
         when (fullscreen) {
             SplitFullscreen.FIRST -> {
                 leftContent(Modifier.fillMaxHeight().weight(1f))
-                Box(Modifier.width(0.dp).fillMaxHeight()) {
-                    rightContent(Modifier.fillMaxSize())
-                }
             }
             SplitFullscreen.SECOND -> {
-                Box(Modifier.width(0.dp).fillMaxHeight()) {
-                    leftContent(Modifier.fillMaxSize())
-                }
                 rightContent(Modifier.fillMaxHeight().weight(1f))
             }
             SplitFullscreen.NONE -> {

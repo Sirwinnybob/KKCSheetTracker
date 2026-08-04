@@ -5,6 +5,7 @@ import com.kkc.sheettracker.data.models.AssemblyCabinetParts
 import com.kkc.sheettracker.data.models.AssemblyJob
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
+import com.kkc.sheettracker.data.models.CacheIndexProgressSummary
 import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
@@ -23,7 +24,12 @@ data class UnifiedJobInfo(
     val lineupPosition: Int? = null,
     val labels: List<JobLabel> = emptyList(),
     val isPending: Boolean = false,
-    val boardSection: Int = 0
+    val boardSection: Int = 0,
+    /**
+     * Published with cache_index.json for Jobs-screen projections. This must remain null for
+     * full-cache/deep-parse records so list cards never use a cache_static.json read as fallback.
+     */
+    val indexProgress: CacheIndexProgressSummary? = null
 )
 
 data class UnifiedCncSnapshot(

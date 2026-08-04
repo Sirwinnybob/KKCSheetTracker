@@ -40,6 +40,14 @@ class HardwoodsScanCoordinator(
     )
     val state: StateFlow<HardwoodScanState> = _state.asStateFlow()
 
+    private val _searchIndex = MutableStateFlow<List<com.kkc.sheettracker.data.models.HardwoodSearchEntry>>(emptyList())
+    val searchIndex: StateFlow<List<com.kkc.sheettracker.data.models.HardwoodSearchEntry>> = _searchIndex.asStateFlow()
+    private val _isSearchProjectionLoading = MutableStateFlow(false)
+    val isSearchProjectionLoading: StateFlow<Boolean> = _isSearchProjectionLoading.asStateFlow()
+    private val searchProjectionLock = Any()
+    @Volatile private var searchProjectionGeneration: Long = -1L
+    @Volatile private var searchProjectionInFlight = false
+
     /**
      * Coalesces overlapping refresh() calls into a single in-flight run (e.g. the app-start
      * foreground trigger and the Jobs screen's own LaunchedEffect firing back-to-back on cold
@@ -74,6 +82,30 @@ class HardwoodsScanCoordinator(
         }
     }
 
+    /** Loads full hardwood row data only after the operator opens the Search screen. */
+    fun loadSearchIndexOnSearchOpen() {
+        val requestedGeneration = _state.value.snapshot.generation
+        synchronized(searchProjectionLock) {
+            if (searchProjectionInFlight || searchProjectionGeneration == requestedGeneration) return
+            searchProjectionInFlight = true
+            _isSearchProjectionLoading.value = true
+        }
+        scope.launch {
+            var reloadForNewGeneration = false
+            try {
+                _searchIndex.value = repository.buildSearchIndexForSearchScreen()
+                searchProjectionGeneration = requestedGeneration
+            } finally {
+                synchronized(searchProjectionLock) {
+                    searchProjectionInFlight = false
+                    _isSearchProjectionLoading.value = false
+                    reloadForNewGeneration = _state.value.snapshot.generation != requestedGeneration
+                }
+            }
+            if (reloadForNewGeneration) loadSearchIndexOnSearchOpen()
+        }
+    }
+
     private suspend fun runRefresh(reason: RefreshReason, force: Boolean) {
         refreshMutex.withLock {
             val startedAt = System.currentTimeMillis()
@@ -92,7 +124,7 @@ class HardwoodsScanCoordinator(
                 val unchanged = !force &&
                     currentSignature == lastStalenessSignature &&
                     previous.snapshot.basePath == basePath &&
-                    previous.snapshot.jobs.isNotEmpty()
+                    previous.snapshot.generation > 0
 
                 if (unchanged) {
                     _state.value = previous.copy(
@@ -101,13 +133,6 @@ class HardwoodsScanCoordinator(
                         lastRefreshReason = reason
                     )
                     return
-                }
-
-                // User pressed Refresh: force a full per-file staleness check + re-parse across
-                // ALL jobs so newer on-disk files not yet folded into cache_static.json show up.
-                // Automatic refreshes stay cache-only for speed.
-                if (reason == RefreshReason.USER_REFRESH) {
-                    UnifiedMetadataEngineRegistry.getOrCreate(baseDir, BuildConfig.DEBUG).deepScanAllJobs()
                 }
 
                 val result = repository.scanJobsFromCacheOnly()
@@ -126,15 +151,7 @@ class HardwoodsScanCoordinator(
                     lastRefreshReason = reason
                 )
 
-                // Background: deep-load any job folders that had no cache_static.json yet, so the
-                // rest of the list isn't blocked waiting on a full re-parse of those few jobs.
-                if (result.needsDeepLoad.isNotEmpty()) {
-                    scope.launch {
-                        val engine = UnifiedMetadataEngineRegistry.getOrCreate(baseDir, BuildConfig.DEBUG)
-                        val changed = result.needsDeepLoad.filter { engine.refreshJobDeep(it) }
-                        updateJobsInState(changed)
-                    }
-                }
+                // Jobs load on per-tap via HardwoodsJobDetailScreen. No background deep-load needed.
             } catch (e: Exception) {
                 _state.value = previous.copy(
                     status = ScanStatus.ERROR,

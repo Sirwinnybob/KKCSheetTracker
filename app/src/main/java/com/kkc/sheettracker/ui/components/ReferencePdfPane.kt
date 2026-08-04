@@ -739,8 +739,8 @@ fun ReferencePdfPane(
                                 tonalElevation = 3.dp,
                                 shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(6.dp)
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = if (onToggleMarkupEnabled != null) 52.dp else 8.dp, end = 6.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),

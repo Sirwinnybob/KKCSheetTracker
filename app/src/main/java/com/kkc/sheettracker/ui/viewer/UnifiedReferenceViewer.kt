@@ -481,22 +481,9 @@ fun UnifiedReferenceViewer(
     val localMarkupStrokes = remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateListOf<PdfInkStroke>() }
     val localDeletedIds = remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateListOf<String>() }
     var markupStrokesVisible by remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateOf(true) }
-    var markupContentVersion by remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateOf(0L) }
+    val markupChangeGeneration = rememberPdfMarkupChangeGeneration(pdfMarkupStore, pdfMarkupJobFolderName)
 
-    LaunchedEffect(pdfMarkupStore, pdfMarkupJobFolderName) {
-        if (pdfMarkupStore == null || pdfMarkupJobFolderName.isBlank()) {
-            markupContentVersion = 0L
-            return@LaunchedEffect
-        }
-        while (isActive) {
-            markupContentVersion = withContext(Dispatchers.IO) {
-                pdfMarkupStore.trackerContentVersion(pdfMarkupJobFolderName)
-            }
-            delay(1000)
-        }
-    }
-
-    LaunchedEffect(pdfMarkupStore, pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage, markupContentVersion) {
+    LaunchedEffect(pdfMarkupStore, pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage, markupChangeGeneration) {
         if (pdfMarkupStore == null || pdfMarkupJobFolderName.isBlank() || resolvedPdfFilename.isBlank() || sourcePage <= 0) {
             localMarkupStrokes.clear()
             localDeletedIds.clear()

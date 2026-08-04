@@ -245,9 +245,52 @@ class ProgressStoreTest {
         // Unmark re-nested
         store.unmarkSheetRenested(jobFolderName, pdfFilename, page, fileFingerprint)
 
-        // Status should return to NOT_STARTED and isSheetSkipped to false
-        assertEquals(SheetStatus.NOT_STARTED, store.getSheetStatus(jobFolderName, pdfFilename, page, fileFingerprint))
+        // Removing a re-nested skip means its remake has been queued, so it becomes done.
+        assertEquals(SheetStatus.COMPLETE, store.getSheetStatus(jobFolderName, pdfFilename, page, fileFingerprint))
         assertFalse(store.isSheetSkipped(jobFolderName, pdfFilename, page, fileFingerprint))
+    }
+
+    @Test
+    fun pruneWithUnknownMaterialsDoesNotDiscardLocalDrafts() {
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+
+        store.toggleBadPart(jobFolderName, "A.pdf", 1, "fp1", 7)
+        store.pruneLocalStateForJob(jobFolderName, emptyList())
+
+        assertEquals(setOf(7), store.getDraftBadParts(jobFolderName, "A.pdf", 1, "fp1"))
+    }
+
+    @Test
+    fun indexStatusCountsUseCanonicalTotalAndKeepRenestedSeparate() {
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+
+        // Build the in-memory index, then append two actions to it.
+        store.getSheetStatus(jobFolderName, "A.pdf", 1, "fp1")
+        store.markSheetComplete(jobFolderName, "A.pdf", 1, "fp1")
+        store.markSheetRenested(jobFolderName, "A.pdf", 2, "fp1")
+
+        val counts = store.getIndexJobStatusCountsOrNull(jobFolderName, canonicalTotal = 20)
+            ?: error("expected loaded index counts")
+
+        assertEquals(19, counts.total)
+        assertEquals(1, counts.complete)
+        assertEquals(0, counts.bad)
+        assertEquals(0, counts.skipped)
+        assertEquals(1, counts.reNested)
+        assertEquals(18, counts.notStarted)
+    }
+
+    @Test
+    fun indexStatusCountsWithoutCanonicalTotalDoNotPretendTouchedPagesAreTheJobTotal() {
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+
+        store.getSheetStatus(jobFolderName, "A.pdf", 1, "fp1")
+        store.markSheetComplete(jobFolderName, "A.pdf", 1, "fp1")
+
+        assertEquals(null, store.getIndexJobStatusCountsOrNull(jobFolderName))
     }
 
     private fun trackerAction(file: String, page: Int, action: String, timestamp: String): TrackerAction {

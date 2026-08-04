@@ -9,6 +9,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 data class EmployeeInfo(
@@ -31,6 +32,8 @@ data class PunchResult(
     val action: String,        // "in" or "out"
     val hoursWorked: Double?   // non-null on clock-out
 )
+
+class TimecardHttpException(val statusCode: Int) : IOException("Timecard server request failed: HTTP $statusCode")
 
 class TimecardRepository(
     private val serverUrl: String,
@@ -58,7 +61,7 @@ class TimecardRepository(
             .withHubAuth()
             .build()
         client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@withContext emptyList()
+            if (!response.isSuccessful) throw TimecardHttpException(response.code)
             val body = response.body?.string() ?: return@withContext emptyList()
             val arr = JSONArray(body)
             (0 until arr.length()).map { i ->
@@ -86,14 +89,7 @@ class TimecardRepository(
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                return@withContext PunchStatus(
-                    found = false,
-                    name = null,
-                    displayName = null,
-                    isClockedIn = false,
-                    clockedInSince = null,
-                    hoursToday = 0.0
-                )
+                throw TimecardHttpException(response.code)
             }
             val body = response.body?.string() ?: "{}"
             val obj = JSONObject(body)
@@ -120,7 +116,7 @@ class TimecardRepository(
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw Exception("Punch failed: HTTP ${response.code}")
+                throw TimecardHttpException(response.code)
             }
             val respBody = response.body?.string() ?: "{}"
             val obj = JSONObject(respBody)

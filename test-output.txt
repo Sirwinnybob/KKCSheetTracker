@@ -1,0 +1,79 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.3.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:processDebugNavigationResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:generateDebugRFile UP-TO-DATE
+> Task :app:compileDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebug
+> Task :app:checkDebugAarMetadata
+> Task :app:compileDebugJavaWithJavac
+> Task :app:mapDebugSourceSetPaths
+> Task :app:compileDebugNavigationResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:mergeDebugResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileDebugUnitTest
+> Task :app:processDebugJavaRes
+> Task :app:processDebugManifestForPackage
+> Task :app:processDebugResources
+> Task :app:bundleDebugClassesToCompileJar
+> Task :app:bundleDebugClassesToRuntimeJar
+
+> Task :app:compileDebugUnitTestKotlin
+w: file:///C:/Scripts/KKCSheetTracker/app/src/test/java/com/kkc/sheettracker/ui/dashboard/UnifiedDashboardFactoriesTest.kt:70:45 Unnecessary non-null assertion (!!) on a non-null receiver of type 'String'.
+w: file:///C:/Scripts/KKCSheetTracker/app/src/test/java/com/kkc/sheettracker/ui/dashboard/UnifiedDashboardFactoriesTest.kt:111:37 Unnecessary non-null assertion (!!) on a non-null receiver of type 'String'.
+w: file:///C:/Scripts/KKCSheetTracker/app/src/test/java/com/kkc/sheettracker/ui/dashboard/UnifiedDashboardFactoriesTest.kt:197:38 Unnecessary non-null assertion (!!) on a non-null receiver of type 'String'.
+
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+
+> Task :app:testDebugUnitTest
+
+SpecialtyScanCoordinatorTest > refreshLoadsSpecialtyJobsAndCompletionCounts FAILED
+    java.util.NoSuchElementException at SpecialtyScanCoordinatorTest.kt:41
+
+SpecialtyScanCoordinatorTest > refreshChecklistOnlyJobProducesSpecialtyCounts FAILED
+    java.util.NoSuchElementException at SpecialtyScanCoordinatorTest.kt:122
+
+SpecialtyScanCoordinatorTest > refreshLatestRequestWinsWhenEarlierRefreshCompletesLater FAILED
+    java.lang.AssertionError at SpecialtyScanCoordinatorTest.kt:286
+
+SpecialtyScanCoordinatorTest > refreshMergesSpecialtyItemsAndChecklistItems FAILED
+    java.util.NoSuchElementException at SpecialtyScanCoordinatorTest.kt:171
+
+SpecialtyScanCoordinatorTest > refreshQueuedDuringIdleTransition_isNotDropped FAILED
+    java.lang.AssertionError at SpecialtyScanCoordinatorTest.kt:286
+
+SpecialtyScanCoordinatorTest > refreshWithMissingSpecialtyFiles_listsJobWithZeroSpecialtyItems FAILED
+    java.util.NoSuchElementException at SpecialtyScanCoordinatorTest.kt:34
+
+SpecialtyStateStoreTest > deriveJobCards_countsDeliveryBackedChecklistItems FAILED
+    java.util.NoSuchElementException at SpecialtyStateStoreTest.kt:345
+
+570 tests completed, 7 failed
+
+> Task :app:testDebugUnitTest FAILED
+
+[Incubating] Problems report is available at: file:///C:/Scripts/KKCSheetTracker/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:testDebugUnitTest'.
+> There were failing tests. See the report at: file:///C:/Scripts/KKCSheetTracker/app/build/reports/tests/testDebugUnitTest/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 51s
+26 actionable tasks: 19 executed, 7 up-to-date

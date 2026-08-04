@@ -546,13 +546,27 @@ class ProgressStore(
                 val value = action.action == "skip"
                 val renestedValue = value && (action.reNested == true)
                 if (fp == null) {
+                    val wasRenested = entry.renestedLegacy
                     entry.skippedLegacy = value
                     entry.renestedLegacy = renestedValue
+                    if (renestedValue) {
+                        entry.completeLegacy = false
+                    } else if (!value && wasRenested) {
+                        entry.completeLegacy = true
+                    }
                 } else {
+                    val wasRenested = entry.renestedByFingerprint[fp] ?: false
                     entry.skippedHasFingerprint = true
                     entry.skippedByFingerprint[fp] = value
                     entry.renestedHasFingerprint = true
                     entry.renestedByFingerprint[fp] = renestedValue
+                    if (renestedValue) {
+                        entry.completeHasFingerprint = true
+                        entry.completeByFingerprint[fp] = false
+                    } else if (!value && wasRenested) {
+                        entry.completeHasFingerprint = true
+                        entry.completeByFingerprint[fp] = true
+                    }
                 }
             }
             "bad_part", "unbad_part" -> {
@@ -1007,11 +1021,6 @@ class ProgressStore(
                 val isRenested = resolveRenested(entry, material.fileFingerprint)
                 val hasBad = isComplete && resolveCommittedBadParts(entry, material.fileFingerprint).isNotEmpty()
 
-                if (isRenested) {
-                    reNested++
-                    continue
-                }
-
                 total++
                 when {
                     hasBad -> {
@@ -1019,6 +1028,7 @@ class ProgressStore(
                         bad++
                     }
                     isComplete -> complete++
+                    isRenested -> reNested++
                     isSkipped -> skipped++
                     else -> notStarted++
                 }
@@ -1026,6 +1036,50 @@ class ProgressStore(
         }
 
         return StatusCounts(total, complete, bad, skipped, notStarted, reNested)
+    }
+
+    /**
+     * Returns live tracker-state counts against a caller-owned canonical sheet total.
+     *
+     * The tracker index records only pages that have actions, so it cannot establish a
+     * job denominator on its own. Callers without a canonical total must fall back to
+     * cache_index instead of turning one acted-on sheet into a one-sheet job.
+     */
+    fun getIndexJobStatusCountsOrNull(
+        jobFolderName: String,
+        canonicalTotal: Int? = null
+    ): StatusCounts? {
+        val index = synchronized(indexLock) { jobIndexes[jobFolderName] } ?: return null
+        val total = canonicalTotal?.coerceAtLeast(0) ?: return null
+        var complete = 0
+        var bad = 0
+        var skipped = 0
+        var reNested = 0
+        index.sheets.forEach { (_, entry) ->
+            val hasFP = entry.completeByFingerprint.isNotEmpty() ||
+                    entry.skippedByFingerprint.isNotEmpty() ||
+                    entry.renestedByFingerprint.isNotEmpty()
+            val isComplete = if (hasFP) entry.completeByFingerprint.values.any { it } else entry.completeLegacy
+            val isSkipped = if (hasFP) entry.skippedByFingerprint.values.any { it } else entry.skippedLegacy
+            val hasRenested = if (hasFP) entry.renestedByFingerprint.values.any { it } else entry.renestedLegacy
+            val hasBad = isComplete && (entry.badPartsByFingerprint.any { (_, parts) -> parts.any { it.value } } ||
+                         entry.badPartsLegacy.any { it.value })
+            when {
+                hasBad -> { complete++; bad++ }
+                isComplete -> complete++
+                hasRenested -> reNested++
+                isSkipped -> skipped++
+                else -> {}
+            }
+        }
+        return StatusCounts(
+            total = total - reNested,
+            complete = complete,
+            bad = bad,
+            skipped = skipped,
+            notStarted = (total - complete - skipped - reNested).coerceAtLeast(0),
+            reNested = reNested
+        )
     }
 
     fun getMaterialLastTouches(jobFolderName: String): Map<String, MaterialLastTouch> {
@@ -1255,6 +1309,9 @@ class ProgressStore(
 
     fun pruneLocalStateForJob(jobFolderName: String, materials: List<Material>) {
         if (readOnly) return
+        // A missing/empty metadata result is not authoritative. Pruning it would erase
+        // local bad-part drafts and expensive OCR/prepared-page caches for the whole job.
+        if (materials.isEmpty()) return
         val validFingerprintsByPdf = materials.associate { it.pdfFilename to it.fileFingerprint }
         // This method runs from app-state derivation; precomputing the safe-name map avoids
         // scanning every PDF key for every OCR directory (O(D*M) -> O(D+M)).

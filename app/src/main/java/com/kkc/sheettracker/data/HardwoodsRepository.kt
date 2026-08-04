@@ -40,42 +40,45 @@ class HardwoodsRepository(private var baseDir: File) {
     fun currentBasePath(): String = baseDir.absolutePath
 
     fun scanJobs(): List<HardwoodJob> {
-        val (cachedJobInfos, needsDeepLoad) = engine().listJobsFromCacheOnly()
-        val jobInfos = if (needsDeepLoad.isEmpty()) cachedJobInfos else engine().listJobs()
-        return jobInfos.mapNotNull { info ->
-            engine().getHardwoodsSnapshot(info.folderName)?.job
-                ?.copy(
-                    lineupPosition = info.lineupPosition,
-                    labels = info.labels,
-                    hiddenFromProduction = info.hiddenFromProduction,
-                    isPending = info.isPending,
-                    boardSection = info.boardSection
-                )
-        }
-        // Preserve production order (set by server in cache); no secondary sort needed
+        return scanJobsFromCacheOnly().jobs
     }
 
     /**
-     * Fast path used by HardwoodsScanCoordinator: builds the job list purely from each job's
-     * cache_static.json (one file read per job, no fallback to a full listJobs() re-evaluation).
-     * Jobs missing a cache file are reported via needsDeepLoad for the caller to load in the
-     * background instead of blocking the whole list on them.
+     * Fast path used by HardwoodsScanCoordinator: builds list identities and progress inputs
+     * solely from cache_index.json. The cutlist index remains a detail/search-only read.
      */
     fun scanJobsFromCacheOnly(): HardwoodsCacheScanResult {
-        val (cachedJobInfos, needsDeepLoad) = engine().listJobsFromCacheOnly()
-        val jobs = cachedJobInfos.mapNotNull { info ->
-            runCatching {
-                engine().getHardwoodsSnapshot(info.folderName)?.job
-                    ?.copy(
-                        lineupPosition = info.lineupPosition,
-                        labels = info.labels,
-                        hiddenFromProduction = info.hiddenFromProduction,
-                        isPending = info.isPending,
-                        boardSection = info.boardSection
-                    )
-            }.getOrNull()
+        val (jobInfos, missingIndexes) = engine().listJobsFromCacheIndex()
+        val jobs = jobInfos.map { info ->
+            HardwoodJob(
+                folderName = info.folderName,
+                jobNumber = info.jobNumber,
+                jobName = info.jobName,
+                hiddenFromProduction = info.hiddenFromProduction,
+                lineupPosition = info.lineupPosition,
+                labels = info.labels,
+                isPending = info.isPending,
+                boardSection = info.boardSection
+            )
         }
-        return HardwoodsCacheScanResult(jobs = jobs, searchIndex = buildSearchIndex(jobs), needsDeepLoad = needsDeepLoad)
+        return HardwoodsCacheScanResult(
+            jobs = jobs,
+            searchIndex = emptyList(),
+            needsDeepLoad = missingIndexes
+        )
+    }
+
+    /**
+     * Search-screen-only projection. The Jobs list must never call this: it expands the already
+     * gate-filtered cache-index job set into full hardwood snapshots so row-level search data is
+     * available after the operator explicitly opens Search.
+     */
+    fun buildSearchIndexForSearchScreen(): List<HardwoodSearchEntry> {
+        val (jobInfos, _) = engine().listJobsFromCacheIndex()
+        val jobs = jobInfos.mapNotNull { info ->
+            engine().getHardwoodsSnapshot(info.folderName)?.job
+        }
+        return buildSearchIndex(jobs)
     }
 
     /** Re-projects one job from the engine's in-memory cache. Used by HardwoodsScanCoordinator. */
