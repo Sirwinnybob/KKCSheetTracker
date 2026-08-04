@@ -27,4 +27,32 @@ class ContinuousReferencePdfPaneTest {
 
         assertEquals(IntRange.EMPTY, window)
     }
+
+    @Test
+    fun lruTouch_movesExistingKeyToTheEnd() {
+        val order = lruTouch(listOf("a", "b", "c"), "a")
+
+        assertEquals(listOf("b", "c", "a"), order)
+    }
+
+    @Test
+    fun lruTouch_appendsNewKeyToTheEnd() {
+        val order = lruTouch(listOf("a", "b"), "c")
+
+        assertEquals(listOf("a", "b", "c"), order)
+    }
+
+    @Test
+    fun lruEvictionCandidates_returnsOldestEntriesBeyondCap() {
+        val evicted = lruEvictionCandidates(listOf("a", "b", "c", "d"), maxOpen = 2)
+
+        assertEquals(listOf("a", "b"), evicted)
+    }
+
+    @Test
+    fun lruEvictionCandidates_returnsEmptyWhenUnderCap() {
+        val evicted = lruEvictionCandidates(listOf("a", "b"), maxOpen = 3)
+
+        assertEquals(emptyList<String>(), evicted)
+    }
 }
