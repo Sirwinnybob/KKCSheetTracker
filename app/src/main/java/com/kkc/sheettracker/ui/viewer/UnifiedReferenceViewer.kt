@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -48,9 +49,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.models.PdfInkStroke
+import com.kkc.sheettracker.ui.components.ContinuousReferencePdfPane
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarPenDecoration
+import com.kkc.sheettracker.ui.components.PdfLabelScrollbar
 import com.kkc.sheettracker.ui.components.PdfViewportState
 import com.kkc.sheettracker.ui.components.ReferencePdfPane
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
@@ -512,7 +515,9 @@ fun UnifiedReferenceViewer(
     ownsNavBarMarkupControls: Boolean = true,
     // When true, pen controls slide in as a decoration tab (against the search tab) in the
     // minimized nav bar instead of swapping the whole bar to the full extendedControls layout.
-    markupControlsAsSlidingTab: Boolean = false
+    markupControlsAsSlidingTab: Boolean = false,
+    continuousScrollEnabled: Boolean = false,
+    isSplitPaneActive: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
     var sourceTotalPages by remember(defaultPdfFilename, virtualMapping) { mutableIntStateOf(0) }
@@ -650,76 +655,6 @@ fun UnifiedReferenceViewer(
         }
     }
 
-    ReferencePdfPane(
-        modifier = modifier,
-        pdfFile = pdfFile,
-        currentPage = sourcePage,
-        onCurrentPageChange = { nextSourcePage ->
-            if (virtualMapping != null) {
-                val mapped = resolveDisplayPageFromSource(
-                    reverseIndex = reverseIndex,
-                    sourceFilename = resolvedPdfFilename,
-                    sourcePage = nextSourcePage
-                )
-                if (mapped != null && mapped != clampedDisplayPage) {
-                    onDisplayPageChange(mapped)
-                }
-            } else {
-                onDisplayPageChange(nextSourcePage)
-            }
-        },
-        showDocControls = showDocControls,
-        missingText = missingText,
-        unreadableText = unreadableText,
-        onTotalPagesChanged = { totalPages ->
-            sourceTotalPages = totalPages
-            if (virtualMapping != null) {
-                onTotalPagesChanged(virtualMapping.totalDisplayPages)
-            } else {
-                onTotalPagesChanged(totalPages)
-            }
-        },
-        onViewportStateChange = onViewportStateChange,
-        showHeaderRow = showHeaderRow,
-        showNavigationButtons = showNavigationButtons,
-        innerPadding = innerPadding,
-        tocRequestToken = tocRequestToken,
-        displayPageOverride = clampedDisplayPage,
-        displayTotalPagesOverride = effectiveTotalPages,
-        onStepPage = {
-            onDisplayPageChange(
-                (clampedDisplayPage + it).coerceIn(1, effectiveTotalPages.coerceAtLeast(1))
-            )
-        },
-        onOpenSheetNavigator = { showSheetNavigator = true },
-        onSingleTap = onSingleTap,
-        compactArrows = compactArrows,
-        preferDarkMode = preferDarkMode,
-        contentPadding = contentPadding,
-        markupEnabled = markupEnabled,
-        onToggleMarkupEnabled = onToggleMarkupEnabled,
-        markupToolState = markupToolState,
-        markupStrokes = if (markupStrokesVisible) visibleMarkupStrokes else emptyList(),
-        onMarkupStrokeAdded = { stroke ->
-            localMarkupStrokes.add(stroke)
-            Log.d(
-                "PdfMarkupDebug",
-                "UnifiedReferenceViewer addStroke job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage local=${localMarkupStrokes.size}"
-            )
-            persistMarkupState()
-        },
-        onMarkupStrokeErased = { strokeId ->
-            if (strokeId !in localDeletedIds) {
-                localDeletedIds.add(strokeId)
-            }
-            persistMarkupState()
-        }
-    )
-
-    LaunchedEffect(tocRequestToken) {
-        if (tocRequestToken > 0) showSheetNavigator = true
-    }
-
     val rowModels = remember(
         effectiveTotalPages,
         virtualMapping,
@@ -737,6 +672,116 @@ fun UnifiedReferenceViewer(
             navigatorSecondaryLabel = navigatorSecondaryLabel
         )
     }
+
+    Box(modifier = modifier) {
+        if (!continuousScrollEnabled) {
+            ReferencePdfPane(
+                modifier = Modifier.fillMaxSize(),
+                pdfFile = pdfFile,
+                currentPage = sourcePage,
+                onCurrentPageChange = { nextSourcePage ->
+                    if (virtualMapping != null) {
+                        val mapped = resolveDisplayPageFromSource(
+                            reverseIndex = reverseIndex,
+                            sourceFilename = resolvedPdfFilename,
+                            sourcePage = nextSourcePage
+                        )
+                        if (mapped != null && mapped != clampedDisplayPage) {
+                            onDisplayPageChange(mapped)
+                        }
+                    } else {
+                        onDisplayPageChange(nextSourcePage)
+                    }
+                },
+                showDocControls = showDocControls,
+                missingText = missingText,
+                unreadableText = unreadableText,
+                onTotalPagesChanged = { totalPages ->
+                    sourceTotalPages = totalPages
+                    if (virtualMapping != null) {
+                        onTotalPagesChanged(virtualMapping.totalDisplayPages)
+                    } else {
+                        onTotalPagesChanged(totalPages)
+                    }
+                },
+                onViewportStateChange = onViewportStateChange,
+                showHeaderRow = showHeaderRow,
+                showNavigationButtons = showNavigationButtons,
+                innerPadding = innerPadding,
+                tocRequestToken = tocRequestToken,
+                displayPageOverride = clampedDisplayPage,
+                displayTotalPagesOverride = effectiveTotalPages,
+                onStepPage = {
+                    onDisplayPageChange(
+                        (clampedDisplayPage + it).coerceIn(1, effectiveTotalPages.coerceAtLeast(1))
+                    )
+                },
+                onOpenSheetNavigator = { showSheetNavigator = true },
+                onSingleTap = onSingleTap,
+                compactArrows = compactArrows,
+                preferDarkMode = preferDarkMode,
+                contentPadding = contentPadding,
+                markupEnabled = markupEnabled,
+                onToggleMarkupEnabled = onToggleMarkupEnabled,
+                markupToolState = markupToolState,
+                markupStrokes = if (markupStrokesVisible) visibleMarkupStrokes else emptyList(),
+                onMarkupStrokeAdded = { stroke ->
+                    localMarkupStrokes.add(stroke)
+                    Log.d(
+                        "PdfMarkupDebug",
+                        "UnifiedReferenceViewer addStroke job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage local=${localMarkupStrokes.size}"
+                    )
+                    persistMarkupState()
+                },
+                onMarkupStrokeErased = { strokeId ->
+                    if (strokeId !in localDeletedIds) {
+                        localDeletedIds.add(strokeId)
+                    }
+                    persistMarkupState()
+                }
+            )
+        } else {
+            ContinuousReferencePdfPane(
+                modifier = Modifier.fillMaxSize().padding(end = 28.dp),
+                orientation = if (isSplitPaneActive) {
+                    androidx.compose.foundation.gestures.Orientation.Horizontal
+                } else {
+                    androidx.compose.foundation.gestures.Orientation.Vertical
+                },
+                totalPages = effectiveTotalPages,
+                resolvePage = { page -> resolvePageSource(page, virtualMapping, defaultPdfFilename) },
+                pdfFileForFilename = pdfFileForFilename,
+                fileIdentitySeed = fileIdentitySeed,
+                preferDarkMode = preferDarkMode,
+                onCenteredPageChange = onDisplayPageChange,
+                scrollToPage = clampedDisplayPage,
+                markupEnabled = markupEnabled,
+                markupToolState = markupToolState,
+                markupStrokesForPage = { _, _ -> if (markupStrokesVisible) visibleMarkupStrokes else emptyList() },
+                onMarkupStrokeAdded = { _, _, stroke ->
+                    localMarkupStrokes.add(stroke)
+                    persistMarkupState()
+                },
+                onMarkupStrokeErased = { _, _, strokeId ->
+                    if (strokeId !in localDeletedIds) {
+                        localDeletedIds.add(strokeId)
+                    }
+                    persistMarkupState()
+                }
+            )
+            PdfLabelScrollbar(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                rows = rowModels,
+                currentPage = clampedDisplayPage,
+                onPageSelected = onDisplayPageChange
+            )
+        }
+    }
+
+    LaunchedEffect(tocRequestToken) {
+        if (tocRequestToken > 0) showSheetNavigator = true
+    }
+
     val searchFilteredRows = remember(rowModels, searchQuery) {
         if (searchQuery.trim().isBlank()) {
             rowModels
