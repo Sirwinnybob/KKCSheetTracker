@@ -283,5 +283,44 @@ class UnifiedReferenceViewerTest {
         assertEquals("fallback.pdf", resolved.pdfFilename)
         assertEquals(1, resolved.sourcePage)
     }
+
+    @Test
+    fun buildNavigatorRowModels_fallsBackToPlainPageNumberWithNoCabinetsOrMapping() {
+        val rows = buildNavigatorRowModels(
+            totalPages = 3,
+            virtualMapping = null,
+            navigatorCabinetToPages = emptyMap(),
+            navigatorPlanViewLabels = emptyMap()
+        )
+
+        assertEquals(listOf(1, 2, 3), rows.map { it.page })
+        assertEquals(listOf("Page 1", "Page 2", "Page 3"), rows.map { it.primaryLabel })
+    }
+
+    @Test
+    fun buildNavigatorRowModels_usesCabinetLabelsWhenPresent() {
+        val rows = buildNavigatorRowModels(
+            totalPages = 2,
+            virtualMapping = null,
+            navigatorCabinetToPages = mapOf("12" to listOf(1)),
+            navigatorPlanViewLabels = emptyMap()
+        )
+
+        assertEquals("Cabinet 12", rows.first { it.page == 1 }.primaryLabel)
+        assertEquals("Page 2", rows.first { it.page == 2 }.primaryLabel)
+    }
+
+    @Test
+    fun buildNavigatorRowModels_usesPlanViewLabelForPlanPages() {
+        val rows = buildNavigatorRowModels(
+            totalPages = 2,
+            virtualMapping = null,
+            navigatorCabinetToPages = emptyMap(),
+            navigatorPlanViewLabels = mapOf(1 to "KITCHEN - PLAN VIEW")
+        )
+
+        assertEquals("KITCHEN - PLAN VIEW", rows.first { it.page == 1 }.primaryLabel)
+        assertTrue(rows.first { it.page == 1 }.isPlanView)
+    }
 }
 

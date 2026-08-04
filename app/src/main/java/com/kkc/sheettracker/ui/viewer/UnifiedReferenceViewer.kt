@@ -88,7 +88,7 @@ data class UnifiedCabinetSearchResult(
     val pages: List<Int>
 )
 
-private data class NavigatorRowModel(
+internal data class NavigatorRowModel(
     val page: Int,
     val cabinets: List<String>,
     val roomKey: String?,
@@ -98,6 +98,46 @@ private data class NavigatorRowModel(
     val primaryLabel: String,
     val secondaryLabel: String
 )
+
+internal fun buildNavigatorRowModels(
+    totalPages: Int,
+    virtualMapping: UnifiedVirtualPageMapping?,
+    navigatorCabinetToPages: Map<String, List<Int>>,
+    navigatorPlanViewLabels: Map<Int, String>,
+    navigatorPrimaryLabel: (page: Int, cabinets: List<String>, source: UnifiedVirtualPageSource?) -> String =
+        ::defaultNavigatorPrimaryLabel,
+    navigatorSecondaryLabel: (page: Int, cabinets: List<String>, source: UnifiedVirtualPageSource?) -> String =
+        ::defaultNavigatorSecondaryLabel
+): List<NavigatorRowModel> {
+    if (totalPages <= 0) return emptyList()
+    val pages = (1..totalPages).toList()
+    val pageToCabinets = buildPageToCabinets(navigatorCabinetToPages)
+    val pageToRoomKey = buildPageToRoomKey(totalPages = totalPages, navigatorPlanViewLabels = navigatorPlanViewLabels)
+    return pages.map { page ->
+        val source = virtualMapping?.sourceByDisplayPage?.get(page)
+        val cabinets = buildList {
+            val sourceCabinet = source?.cabinet?.trim().orEmpty()
+            if (sourceCabinet.isNotBlank()) add(sourceCabinet)
+            pageToCabinets[page].orEmpty().forEach { cabinet ->
+                if (cabinet !in this) add(cabinet)
+            }
+        }
+        val planViewLabel = navigatorPlanViewLabels[page]?.trim().orEmpty()
+        val isPlanView = planViewLabel.isNotBlank()
+        val primaryLabel = if (isPlanView) planViewLabel else navigatorPrimaryLabel(page, cabinets, source)
+        val secondaryLabel = if (isPlanView) "Sheet $page • Plan View" else navigatorSecondaryLabel(page, cabinets, source)
+        NavigatorRowModel(
+            page = page,
+            cabinets = cabinets,
+            roomKey = pageToRoomKey[page],
+            source = source,
+            isPlanView = isPlanView,
+            matchedCabinets = emptyList(),
+            primaryLabel = primaryLabel,
+            secondaryLabel = secondaryLabel
+        )
+    }
+}
 
 internal data class NavigatorSearchRow(
     val page: Int,
@@ -530,13 +570,6 @@ fun UnifiedReferenceViewer(
     val tocThumbCache = remember(virtualMapping, defaultPdfFilename) { mutableStateMapOf<Int, Bitmap?>() }
     val tocLruOrder = remember(virtualMapping, defaultPdfFilename) { mutableListOf<Int>() }
     val tocLoadedCount by remember { derivedStateOf { tocThumbCache.count { it.value != null } } }
-    val pageToCabinets = remember(navigatorCabinetToPages) { buildPageToCabinets(navigatorCabinetToPages) }
-    val pageToRoomKey = remember(effectiveTotalPages, navigatorPlanViewLabels) {
-        buildPageToRoomKey(
-            totalPages = effectiveTotalPages,
-            navigatorPlanViewLabels = navigatorPlanViewLabels
-        )
-    }
 
     LaunchedEffect(navigatorWarningMessage) {
         if (!navigatorWarningMessage.isNullOrBlank()) {
@@ -687,50 +720,22 @@ fun UnifiedReferenceViewer(
         if (tocRequestToken > 0) showSheetNavigator = true
     }
 
-    val pages = remember(effectiveTotalPages) {
-        if (effectiveTotalPages <= 0) emptyList() else (1..effectiveTotalPages).toList()
-    }
     val rowModels = remember(
-        pages,
-        pageToCabinets,
-        pageToRoomKey,
+        effectiveTotalPages,
         virtualMapping,
+        navigatorCabinetToPages,
+        navigatorPlanViewLabels,
         navigatorPrimaryLabel,
-        navigatorSecondaryLabel,
-        navigatorPlanViewLabels
+        navigatorSecondaryLabel
     ) {
-        pages.map { page ->
-            val source = virtualMapping?.sourceByDisplayPage?.get(page)
-            val cabinets = buildList {
-                val sourceCabinet = source?.cabinet?.trim().orEmpty()
-                if (sourceCabinet.isNotBlank()) add(sourceCabinet)
-                pageToCabinets[page].orEmpty().forEach { cabinet ->
-                    if (cabinet !in this) add(cabinet)
-                }
-            }
-            val planViewLabel = navigatorPlanViewLabels[page]?.trim().orEmpty()
-            val isPlanView = planViewLabel.isNotBlank()
-            val primaryLabel = if (isPlanView) {
-                planViewLabel
-            } else {
-                navigatorPrimaryLabel(page, cabinets, source)
-            }
-            val secondaryLabel = if (isPlanView) {
-                "Sheet $page • Plan View"
-            } else {
-                navigatorSecondaryLabel(page, cabinets, source)
-            }
-            NavigatorRowModel(
-                page = page,
-                cabinets = cabinets,
-                roomKey = pageToRoomKey[page],
-                source = source,
-                isPlanView = isPlanView,
-                matchedCabinets = emptyList(),
-                primaryLabel = primaryLabel,
-                secondaryLabel = secondaryLabel
-            )
-        }
+        buildNavigatorRowModels(
+            totalPages = effectiveTotalPages,
+            virtualMapping = virtualMapping,
+            navigatorCabinetToPages = navigatorCabinetToPages,
+            navigatorPlanViewLabels = navigatorPlanViewLabels,
+            navigatorPrimaryLabel = navigatorPrimaryLabel,
+            navigatorSecondaryLabel = navigatorSecondaryLabel
+        )
     }
     val searchFilteredRows = remember(rowModels, searchQuery) {
         if (searchQuery.trim().isBlank()) {
