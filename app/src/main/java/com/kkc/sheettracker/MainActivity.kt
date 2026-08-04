@@ -276,6 +276,7 @@ class MainActivity : ComponentActivity() {
             var darkThemeOverride by remember { mutableStateOf(prefs.getBoolean("dark_theme", false)) }
             val isDarkTheme = if (followSystemTheme) systemDark else darkThemeOverride
             var useStandardSheets by remember { mutableStateOf(prefs.getBoolean("use_standard_sheets", false)) }
+            var continuousScrollDefault by remember { mutableStateOf(prefs.getBoolean("continuous_scroll_default", false)) }
             var employeeName by rememberSaveable { mutableStateOf(prefs.getString("employee_name", "") ?: "") }
             var workMode by remember {
                 mutableStateOf(
@@ -332,6 +333,7 @@ class MainActivity : ComponentActivity() {
                         followSystemTheme = followSystemTheme,
                         darkThemeOverride = darkThemeOverride,
                         useStandardSheets = useStandardSheets,
+                        continuousScrollDefault = continuousScrollDefault,
                         workMode = workMode,
                         employeeName = employeeName,
                         supplySubscriptionManager = supplySubscriptionManager,
@@ -351,6 +353,10 @@ class MainActivity : ComponentActivity() {
                         onUseStandardSheetsChanged = { useStd ->
                             useStandardSheets = useStd
                             prefs.edit().putBoolean("use_standard_sheets", useStd).apply()
+                        },
+                        onContinuousScrollDefaultChanged = { enabled ->
+                            continuousScrollDefault = enabled
+                            prefs.edit().putBoolean("continuous_scroll_default", enabled).apply()
                         },
                         onWorkModeChanged = { mode ->
                             workMode = mode
