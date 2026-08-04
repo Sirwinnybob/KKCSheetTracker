@@ -538,6 +538,20 @@ fun UnifiedReferenceViewer(
     val pdfFile = remember(resolvedPdfFilename, fileIdentitySeed, preferDarkMode) {
         resolvedPdfFilename.takeIf { it.isNotBlank() }?.let(pdfFileForFilename)
     }
+
+    // Plans & Elevations / Cover Sheet docs have no virtualMapping, so effectiveTotalPages falls
+    // back to sourceTotalPages. In single-page mode that's discovered via ReferencePdfPane's
+    // onTotalPagesChanged callback, but ContinuousReferencePdfPane has no equivalent — without
+    // this effect, continuous mode for these doc types would render zero pages forever.
+    LaunchedEffect(continuousScrollEnabled, virtualMapping, pdfFile, fileIdentitySeed) {
+        if (!continuousScrollEnabled || virtualMapping != null || pdfFile == null) return@LaunchedEffect
+        val engine = com.kkc.sheettracker.ui.components.PdfRenderEngine(pdfFile)
+        val count = withContext(Dispatchers.IO) { engine.pageCount() }
+        sourceTotalPages = count
+        onTotalPagesChanged(count)
+        withContext(Dispatchers.IO) { engine.close() }
+    }
+
     val localMarkupStrokes = remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateListOf<PdfInkStroke>() }
     val localDeletedIds = remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateListOf<String>() }
     var markupStrokesVisible by remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateOf(true) }
@@ -742,7 +756,7 @@ fun UnifiedReferenceViewer(
             )
         } else {
             ContinuousReferencePdfPane(
-                modifier = Modifier.fillMaxSize().padding(end = 28.dp),
+                modifier = Modifier.fillMaxSize().padding(end = 44.dp),
                 orientation = if (isSplitPaneActive) {
                     androidx.compose.foundation.gestures.Orientation.Horizontal
                 } else {
@@ -757,7 +771,13 @@ fun UnifiedReferenceViewer(
                 scrollToPage = clampedDisplayPage,
                 markupEnabled = markupEnabled,
                 markupToolState = markupToolState,
-                markupStrokesForPage = { _, _ -> if (markupStrokesVisible) visibleMarkupStrokes else emptyList() },
+                markupStrokesForPage = { filename, page ->
+                    if (markupStrokesVisible && filename == resolvedPdfFilename && page == sourcePage) {
+                        visibleMarkupStrokes
+                    } else {
+                        emptyList()
+                    }
+                },
                 onMarkupStrokeAdded = { _, _, stroke ->
                     localMarkupStrokes.add(stroke)
                     persistMarkupState()
