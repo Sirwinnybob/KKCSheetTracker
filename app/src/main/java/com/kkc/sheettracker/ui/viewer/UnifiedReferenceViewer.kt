@@ -61,6 +61,7 @@ import com.kkc.sheettracker.ui.markup.PdfMarkupToolbar
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -546,10 +547,13 @@ fun UnifiedReferenceViewer(
     LaunchedEffect(continuousScrollEnabled, virtualMapping, pdfFile, fileIdentitySeed) {
         if (!continuousScrollEnabled || virtualMapping != null || pdfFile == null) return@LaunchedEffect
         val engine = com.kkc.sheettracker.ui.components.PdfRenderEngine(pdfFile)
-        val count = withContext(Dispatchers.IO) { engine.pageCount() }
-        sourceTotalPages = count
-        onTotalPagesChanged(count)
-        withContext(Dispatchers.IO) { engine.close() }
+        try {
+            val count = withContext(Dispatchers.IO) { engine.pageCount() }
+            sourceTotalPages = count
+            onTotalPagesChanged(count)
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { engine.close() }
+        }
     }
 
     val localMarkupStrokes = remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateListOf<PdfInkStroke>() }
