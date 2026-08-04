@@ -67,6 +67,8 @@ fun SettingsScreen(
     onEmployeeNameChanged: (String) -> Unit,
     useStandardSheets: Boolean = false,
     onUseStandardSheetsChanged: (Boolean) -> Unit = {},
+    continuousScrollDefault: Boolean = false,
+    onContinuousScrollDefaultChanged: (Boolean) -> Unit = {},
     timecardConfig: TimecardServerConfig,
     adminSyncConfig: AdminSyncConfig,
     themeCatalog: KKCThemeCatalog = KKCThemeRepository.builtInCatalog(),
@@ -258,6 +260,25 @@ fun SettingsScreen(
                             onCheckedChange = onUseStandardSheetsChanged
                         )
                     }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Continuous Scroll", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Scroll reference PDFs page-to-page instead of tapping through them.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = continuousScrollDefault,
+                        onCheckedChange = onContinuousScrollDefaultChanged
+                    )
                 }
 
                 HorizontalDivider()
