@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,6 +51,7 @@ fun ReferencePdfViewerScreen(
     docType: ReferenceDocType,
     startPage: Int,
     refreshGeneration: Long = 0L,
+    continuousScrollDefault: Boolean = false,
     isDarkTheme: Boolean,
     onBack: () -> Unit,
     onUiVisibilityChanged: (Boolean) -> Unit = {}
@@ -77,6 +80,7 @@ fun ReferencePdfViewerScreen(
     // Tap-to-show/hide overlay UI.
     var showUi by rememberSaveable { mutableStateOf(true) }
     var markupEnabled by rememberSaveable { mutableStateOf(false) }
+    var continuousScrollEnabled by rememberSaveable(jobFolderName, docType) { mutableStateOf(continuousScrollDefault) }
     val markupToolState = rememberPdfMarkupToolState()
     // Restore bottom nav visibility when navigating back.
     DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
@@ -117,7 +121,15 @@ fun ReferencePdfViewerScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                
+                actions = {
+                    IconButton(onClick = { continuousScrollEnabled = !continuousScrollEnabled }) {
+                        Icon(
+                            if (continuousScrollEnabled) Icons.Default.ViewDay else Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = if (continuousScrollEnabled) "Switch to single page" else "Switch to continuous scroll",
+                            tint = if (continuousScrollEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                },
                 windowInsets = androidx.compose.foundation.layout.WindowInsets.statusBars
             )
         }
@@ -149,6 +161,8 @@ fun ReferencePdfViewerScreen(
             markupEnabled = markupEnabled,
             onToggleMarkupEnabled = { markupEnabled = !markupEnabled },
             markupToolState = markupToolState,
+            continuousScrollEnabled = continuousScrollEnabled,
+            isSplitPaneActive = false,
             onSingleTap = {
                 showUi = !showUi
                 onUiVisibilityChanged(showUi)

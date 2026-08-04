@@ -729,6 +729,7 @@ private fun MultiBackStackNavigation(
                         progressStore = progressStore,
                         appStateFlags = appStateFlags,
                         isDarkTheme = preferDarkMode,
+                        continuousScrollDefault = continuousScrollDefault,
                         workMode = workMode,
                         hardwoodsRepository = hardwoodsRepository,
                         hardwoodsScanCoordinator = hardwoodsScanCoordinator,
@@ -1093,6 +1094,7 @@ private fun JobsTabHost(
     progressStore: ProgressStore,
     appStateFlags: AppStateFeatureFlags,
     isDarkTheme: Boolean,
+    continuousScrollDefault: Boolean = false,
     workMode: WorkMode,
     hardwoodsRepository: HardwoodsRepository,
     hardwoodsScanCoordinator: HardwoodsScanCoordinator,
@@ -1539,6 +1541,7 @@ private fun JobsTabHost(
                 docType = docType,
                 startPage = startPage,
                 refreshGeneration = refreshGeneration,
+                continuousScrollDefault = continuousScrollDefault,
                 isDarkTheme = isDarkTheme,
                 onBack = { navController.popBackStack() },
                 onUiVisibilityChanged = onUiVisibilityChanged
@@ -2702,6 +2705,7 @@ private fun LegacySingleStackNavigation(
                         docType = docType,
                         startPage = startPage,
                         refreshGeneration = refreshGeneration,
+                        continuousScrollDefault = continuousScrollDefault,
                         isDarkTheme = preferDarkMode,
                         onBack = { navController.popBackStack() },
                         onUiVisibilityChanged = { viewerUiVisible = it }
