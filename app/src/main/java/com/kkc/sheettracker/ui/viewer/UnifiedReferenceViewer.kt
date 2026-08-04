@@ -135,6 +135,22 @@ internal fun buildVirtualReverseIndex(mapping: UnifiedVirtualPageMapping): Map<P
         .toMap()
 }
 
+internal data class ResolvedPageSource(
+    val pdfFilename: String,
+    val sourcePage: Int
+)
+
+internal fun resolvePageSource(
+    displayPage: Int,
+    virtualMapping: UnifiedVirtualPageMapping?,
+    defaultPdfFilename: String
+): ResolvedPageSource {
+    val source = virtualMapping?.sourceByDisplayPage?.get(displayPage)
+    val filename = source?.pdfFilename?.takeIf { it.isNotBlank() } ?: defaultPdfFilename
+    val sourcePage = source?.page?.takeIf { it > 0 } ?: displayPage
+    return ResolvedPageSource(pdfFilename = filename, sourcePage = sourcePage)
+}
+
 internal fun buildPageToCabinets(cabinetToPages: Map<String, List<Int>>): Map<Int, List<String>> {
     if (cabinetToPages.isEmpty()) return emptyMap()
     val out = linkedMapOf<Int, MutableList<String>>()
@@ -471,10 +487,9 @@ fun UnifiedReferenceViewer(
         virtualMapping?.let(::buildVirtualReverseIndex).orEmpty()
     }
 
-    val activeVirtualSource = virtualMapping?.sourceByDisplayPage?.get(clampedDisplayPage)
-    val resolvedPdfFilename = activeVirtualSource?.pdfFilename?.takeIf { it.isNotBlank() }
-        ?: defaultPdfFilename
-    val sourcePage = activeVirtualSource?.page?.takeIf { it > 0 } ?: clampedDisplayPage
+    val resolvedSource = resolvePageSource(clampedDisplayPage, virtualMapping, defaultPdfFilename)
+    val resolvedPdfFilename = resolvedSource.pdfFilename
+    val sourcePage = resolvedSource.sourcePage
     val pdfFile = remember(resolvedPdfFilename, fileIdentitySeed, preferDarkMode) {
         resolvedPdfFilename.takeIf { it.isNotBlank() }?.let(pdfFileForFilename)
     }

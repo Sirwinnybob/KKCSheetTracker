@@ -245,5 +245,43 @@ class UnifiedReferenceViewerTest {
 
         assertTrue(filtered.isEmpty())
     }
+
+    @Test
+    fun resolvePageSource_usesVirtualMappingWhenPresent() {
+        val mapping = UnifiedVirtualPageMapping(
+            totalDisplayPages = 2,
+            defaultPdfFilename = "fallback.pdf",
+            sourceByDisplayPage = mapOf(
+                1 to UnifiedVirtualPageSource(pdfFilename = "assembly.pdf", page = 5)
+            )
+        )
+
+        val resolved = resolvePageSource(displayPage = 1, virtualMapping = mapping, defaultPdfFilename = "fallback.pdf")
+
+        assertEquals("assembly.pdf", resolved.pdfFilename)
+        assertEquals(5, resolved.sourcePage)
+    }
+
+    @Test
+    fun resolvePageSource_fallsBackToDefaultFilenameAndDisplayPageWhenNoMapping() {
+        val resolved = resolvePageSource(displayPage = 3, virtualMapping = null, defaultPdfFilename = "plans.pdf")
+
+        assertEquals("plans.pdf", resolved.pdfFilename)
+        assertEquals(3, resolved.sourcePage)
+    }
+
+    @Test
+    fun resolvePageSource_fallsBackWhenDisplayPageMissingFromMapping() {
+        val mapping = UnifiedVirtualPageMapping(
+            totalDisplayPages = 1,
+            defaultPdfFilename = "fallback.pdf",
+            sourceByDisplayPage = emptyMap()
+        )
+
+        val resolved = resolvePageSource(displayPage = 1, virtualMapping = mapping, defaultPdfFilename = "fallback.pdf")
+
+        assertEquals("fallback.pdf", resolved.pdfFilename)
+        assertEquals(1, resolved.sourcePage)
+    }
 }
 
