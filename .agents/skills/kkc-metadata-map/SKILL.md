@@ -50,11 +50,12 @@ Cabinet Vision (external CAD database, not one of the five programs above) is th
 |---|---|---|
 | `Y:\Ready Jobs\<job>\.metadata\deployment_gate.json` | Ready Jobs Watcher | Inspect `deployed`, `parseReady`, `hiddenFromProduction`, then `ready_jobs_watcher.log` |
 | `Y:\Ready Jobs\<job>\.metadata\cache_static.json` | Ready Jobs Watcher | Check mtime/content, then `metadata_cache.py` and watcher logs |
-| `Y:\Ready Jobs\<job>\CNC\.metadata\<pdf-stem>.json` | Ready Jobs Watcher | Check sidecar exists for each CNC PDF and parse errors in `cnc_scan.log` |
+| `Y:\Ready Jobs\<job>\.metadata\cache_index.json` | Ready Jobs Watcher | Lightweight index (~2 KB vs ~300 KB cache_static.json). Written alongside cache_static.json on every cache write. Contains `jobInfo` + `progressSummary` (per-material CNC: done/bad/skipped/renested; hardwoods: done/bad/skipped per docType). `totalSheets` counts only pages with tracker actions (not metadata pageCount). `renested` = skip actions where consolidated `reNested: true`. Tablet reads this for jobs list screen progress bars; falls back to cache_static.json if missing. Check mtime matches cache_static.json, then `metadata_cache.py:generate_cache_index` |
+| `Y:\Ready Jobs\<job>\CNC\.metadata\<pdf-stem>.json` | PGM Sorting PDF splitter | This is the canonical CNC page/part/OCR sidecar. Check the splitter output/logs first; Ready Jobs Watcher consumes and indexes it but does not author it. Tagged-v1 sidecars intentionally omit legacy OCR boxes because the structured page/part metadata is authoritative |
 | `Y:\Ready Jobs\<job>\CNC\.metadata\remake_bad_parts_candidates.json` | Ready Jobs Watcher | Check CNC scan log and scheduled cache refresh entries |
-| `Y:\Ready Jobs\<job>\CNC\.tracker\<tablet>.json` | KKCSheetTracker tablets | **LIVE channel** for CNC actions (carries `bad_part_submitted` alert marker, `ProgressStore.kt:818`). RJW consolidates then DELETES these files — `bad_part_submitted` loss on consolidation was fixed (audit C-01, `_merge_cnc_actions` re-emits both `bad_part` and `bad_part_submitted` with original timestamps before deletion) |
+| `Y:\Ready Jobs\<job>\CNC\.tracker\<tablet>.json` | KKCSheetTracker tablets | **LIVE channel** for CNC actions (carries `bad_part_submitted` alert marker and `reNested` flag on skip actions, `ProgressStore.kt:818`). RJW consolidates then DELETES these files — `bad_part_submitted` loss on consolidation was fixed (audit C-01, `_merge_cnc_actions` re-emits both `bad_part` and `bad_part_submitted` with original timestamps before deletion). `reNested: true` on a skip action means the sheet was re-exported into a REMAKE PDF; preserved through consolidation |
 | `Y:\Ready Jobs\<job>\CNC\.tracker\events\**\*.ndjson` | (designed for tablets) Ready Jobs Watcher reads | **DORMANT** as of 2026-07-09 — RJW's `tracker_action_stream.py` reader exists but the tablet writes NO ndjson (grep-confirmed). Legacy `<tablet>.json` above is the real channel |
-| `Y:\Ready Jobs\<job>\CNC\.tracker\consolidated.json` | Ready Jobs Watcher | Check tracker action stream/reconcile logs |
+| `Y:\Ready Jobs\<job>\CNC\.tracker\consolidated.json` | Ready Jobs Watcher | Merged tracker actions containing `reNested` boolean on skip actions. Check tracker action stream/reconcile logs |
 | `Y:\Ready Jobs\<job>\CNC\.tracker\watcher_refresh_watcher.json` | Ready Jobs Watcher | Refresh heartbeat; not source-of-truth progress |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_index.json` | Ready Jobs Watcher | Compare against hardwood source files and watcher logs |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_revisions.json` | Ready Jobs Watcher | Check revision state before blaming tablet UI |
@@ -131,7 +132,7 @@ Cabinet Vision (external CAD database, not one of the five programs above) is th
 | `Y:\Ready Jobs\.appupdates\<tabletId>\updater-fallback-required.json` | updater-agent writes; KKCSheetTracker reads | Signal to use legacy update prompt |
 | `Y:\Ready Jobs\.appupdates\migration_complete.json` | KKCSheetTracker | Migration completion marker |
 
-Important caveat: Hours Tracker normally does not own `<job>\.metadata\cache_static.json`. It only reads that file unless emergency legacy writes are enabled with `HOURS_TRACKER_ENABLE_LEGACY_CACHE_WRITES=1`.
+Important caveat: Hours Tracker normally does not own `<job>\.metadata\cache_static.json` or `<job>\.metadata\cache_index.json`. It only reads those files unless emergency legacy writes are enabled with `HOURS_TRACKER_ENABLE_LEGACY_CACHE_WRITES=1`.
 
 Second caveat: if a Cabinet Vision molding profile is renamed or removed, Ready Jobs Watcher deletes its obsolete `.xml` (`moldings_sync.py:186-193`); dimensions saved under that `moldingId` in `molding_dimensions.json` are not deleted, just orphaned until re-linked to a live profile.
 
@@ -210,8 +211,11 @@ Second caveat: if a Cabinet Vision molding profile is renamed or removed, Ready 
 | Symptom | Start Here |
 |---|---|
 | Tablet does not show a job | `deployment_gate.json`, then `cache_static.json`, then Ready Jobs Watcher logs |
+| Jobs list progress bars stale/empty (before tapping job) | `cache_index.json` (lightweight, read by tablet for list screen). Falls back to `cache_static.json` if missing |
 | Job appears but material counts/pages are wrong | `cache_static.json`, CNC sidecars, `cnc_scan.log` |
+| CNC sidecar missing or legacy OCR boxes absent | Start with the PGM Sorting PDF splitter. Ready Jobs Watcher consumes/indexes the sidecar; it is not the sidecar owner. Tagged-v1 OCR omission is intentional |
 | CNC progress/bad parts stale | `CNC\.tracker\*.json`, `events\*.ndjson`, `consolidated.json` |
+| CNC skipped/re-nested status wrong (skip vs re-nested confusion) | `consolidated.json` — check `reNested` field on skip actions. `cache_index.json` `progressSummary.cnc.renested` counts these. `cache_static.json` `cncJob.materials[].metadata` sidecar has `remakeLabel`. If `reNested` missing from consolidated, check tablet `ProgressStore.kt` skip action write |
 | Hardwoods rows/revisions wrong | `.metadata\hardwoods\cutlist_index.json`, `cutlist_revisions.json` |
 | Hardwoods row missing/excluded entirely for one doc type, siblings fine | `.metadata\hardwoods\cutlist_job_mismatch.json` (printed job number on that PDF's page 1 didn't match the folder) — check this before assuming a parser bug |
 | Cutlist rip width looks swapped with length | Confirm PDF is a readable "3.0" template (title line contains `3.0`) — as of 2026-07-28 RJW's `build_board_stock_rows` always treats the printed Width column as authoritative and never swaps by numeric size (`e79a88a`); a wrong-looking width means the source PDF/OCR data itself, not RJW's aggregation |
@@ -239,6 +243,7 @@ Ready Jobs Watcher:
 ```powershell
 Get-Content "Y:\Ready Jobs\<job>\.metadata\deployment_gate.json"
 Get-Item "Y:\Ready Jobs\<job>\.metadata\cache_static.json"
+Get-Item "Y:\Ready Jobs\<job>\.metadata\cache_index.json"
 Get-Content "C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher.log" -Tail 200
 Get-Content "C:\Scripts\Ready Jobs Watcher\cnc_scan.log" -Tail 200
 Get-Content "C:\Scripts\Ready Jobs Watcher\pending_queue.json"
@@ -294,7 +299,7 @@ adb shell dumpsys package com.example.timecard | Select-String "versionName|vers
 |---|---|
 | How does KKCSheetTracker read job metadata? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data` |
 | How are crash files written? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\crash` |
-| How does Ready Jobs Watcher publish gates/cache? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\deployment_gate.py`, `metadata_cache.py` |
+| How does Ready Jobs Watcher publish gates/cache? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\deployment_gate.py`, `metadata_cache.py` (cache_index progress: `_compute_cnc_progress`, `_compute_hardwood_progress`) |
 | How are CNC tracker events consolidated? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\tracker_action_stream.py` |
 | How does Android append/order CNC tracker events? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\ProgressStore.kt`, `TrackerEventLog.kt` |
 | How does Android append/order hardwood events? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\HardwoodsProgressStore.kt`, `TrackerEventLog.kt` |
