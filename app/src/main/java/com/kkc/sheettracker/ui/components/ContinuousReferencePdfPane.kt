@@ -20,6 +20,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -89,10 +90,6 @@ internal class PdfEngineCache(
         engine
     }
 
-    suspend fun trim() = mutex.withLock {
-        evictLocked()
-    }
-
     suspend fun closeAll() = mutex.withLock {
         engines.values.forEach { it.close() }
         engines.clear()
@@ -140,6 +137,7 @@ internal fun ContinuousReferencePdfPane(
     }
 
     val listState = rememberLazyListState()
+    val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
 
     LaunchedEffect(scrollToPage, totalPages) {
         if (totalPages > 0 && scrollToPage in 1..totalPages) {
@@ -154,7 +152,7 @@ internal fun ContinuousReferencePdfPane(
             if (visible.isEmpty()) null else visible.first().index + 1
         }
             .distinctUntilChanged()
-            .collectLatest { centeredPage -> if (centeredPage != null) onCenteredPageChange(centeredPage) }
+            .collectLatest { centeredPage -> if (centeredPage != null) currentOnCenteredPageChange(centeredPage) }
     }
 
     val renderWindow by remember(totalPages) {
@@ -182,22 +180,22 @@ internal fun ContinuousReferencePdfPane(
         val resolved = remember(displayPage, fileIdentitySeed) { resolvePage(displayPage) }
         val file = remember(resolved.pdfFilename, fileIdentitySeed) { pdfFileForFilename(resolved.pdfFilename) }
         val inWindow = displayPage in renderWindow
-        var bitmap by remember(displayPage, resolved) { mutableStateOf<Bitmap?>(null) }
-        var aspectRatio by remember(displayPage, resolved) { mutableStateOf<Float?>(null) }
+        var bitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
+        var aspectRatio by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Float?>(null) }
         // Real box size, needed so PdfMarkupOverlay's page transform is valid — with
         // viewSize left at IntSize.Zero, currentTransform() returns null and the overlay's
         // pointerInteropFilter bails out before ever registering a stroke.
-        var boxSize by remember(displayPage, resolved) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+        var boxSize by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
         val matteColorArgb = if (preferDarkMode) MaterialTheme.colorScheme.surface.toArgb() else android.graphics.Color.WHITE
 
-        LaunchedEffect(displayPage, resolved, file) {
+        LaunchedEffect(displayPage, resolved, file, fileIdentitySeed) {
             if (file == null) return@LaunchedEffect
             aspectRatio = withContext(Dispatchers.IO) {
                 engineCache.get(file).pageAspectRatio((resolved.sourcePage - 1).coerceAtLeast(0))
             }
         }
 
-        LaunchedEffect(displayPage, resolved, file, inWindow, isSettled, matteColorArgb) {
+        LaunchedEffect(displayPage, resolved, file, inWindow, isSettled, matteColorArgb, fileIdentitySeed) {
             if (file == null || !inWindow || !isSettled) return@LaunchedEffect
             if (bitmap != null) return@LaunchedEffect
             // Settle-only: waits for scroll to stop before spending render work, same
