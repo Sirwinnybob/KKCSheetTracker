@@ -36,6 +36,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material.icons.filled.ViewDay
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -185,6 +187,7 @@ fun AssemblyViewerScreen(
     initialSecondPane: AssemblyPaneView? = null,
     initialHideUi: Boolean = false,
     refreshGeneration: Long = 0L,
+    continuousScrollDefault: Boolean = false,
     isDarkTheme: Boolean,
     onBack: () -> Unit,
     isClockedInHere: Boolean = false,
@@ -366,6 +369,7 @@ fun AssemblyViewerScreen(
     var firstPaneTotalPages by remember { mutableIntStateOf(0) }
     var secondPaneTotalPages by remember { mutableIntStateOf(0) }
     var sharedPdfMarkupEnabled by rememberSaveable { mutableStateOf(false) }
+    var continuousScrollEnabled by rememberSaveable(jobFolderName) { mutableStateOf(continuousScrollDefault) }
     val sharedPdfMarkupToolState = rememberPdfMarkupToolState()
     var firstPaneTocRequestToken by remember { mutableIntStateOf(0) }
     var secondPaneTocRequestToken by remember { mutableIntStateOf(0) }
@@ -652,6 +656,13 @@ fun AssemblyViewerScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { continuousScrollEnabled = !continuousScrollEnabled }) {
+                            Icon(
+                                if (continuousScrollEnabled) Icons.Default.ViewDay else Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = if (continuousScrollEnabled) "Switch to single page" else "Switch to continuous scroll",
+                                tint = if (continuousScrollEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                         if (clockInState != null) {
                             ClockInButton(
                                 clockInState = clockInState,
@@ -708,6 +719,8 @@ fun AssemblyViewerScreen(
                         isDarkTheme = isDarkTheme,
                         title = firstSourceName,
                         compactArrows = (fullscreenPane == FullscreenPane.NONE),
+                        continuousScrollEnabled = continuousScrollEnabled,
+                        isSplitPaneActive = (fullscreenPane == FullscreenPane.NONE),
                         pdfFilename = firstSourceFilename,
                         currentPage = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
                             assemblyPage
@@ -812,6 +825,8 @@ fun AssemblyViewerScreen(
                         isDarkTheme = isDarkTheme,
                         title = secondSourceName,
                         compactArrows = (fullscreenPane == FullscreenPane.NONE),
+                        continuousScrollEnabled = continuousScrollEnabled,
+                        isSplitPaneActive = (fullscreenPane == FullscreenPane.NONE),
                         pdfFilename = secondSourceFilename,
                         currentPage = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
                             assemblyPage
@@ -1031,7 +1046,9 @@ private fun PdfPaneWithFloatingControls(
     customContent: (@Composable () -> Unit)? = null,
     // true for fullscreen panes and the bottom/right pane in split view (nav bar below them);
     // false for the top pane in portrait split (bottom edge is the divider, not the nav bar)
-    hasNavBarBelow: Boolean = true
+    hasNavBarBelow: Boolean = true,
+    continuousScrollEnabled: Boolean = false,
+    isSplitPaneActive: Boolean = false
 ) {
     // Two truly independent inset layers:
     //
@@ -1111,7 +1128,9 @@ private fun PdfPaneWithFloatingControls(
                 markupEnabled = markupEnabled,
                 onToggleMarkupEnabled = onToggleMarkupEnabled,
                 markupToolState = markupToolState,
-                markupControlsAsSlidingTab = true
+                markupControlsAsSlidingTab = true,
+                continuousScrollEnabled = continuousScrollEnabled,
+                isSplitPaneActive = isSplitPaneActive
             )
         }
 
