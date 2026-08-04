@@ -157,7 +157,7 @@ internal fun ContinuousReferencePdfPane(
             .collectLatest { centeredPage -> if (centeredPage != null) onCenteredPageChange(centeredPage) }
     }
 
-    val renderWindow by remember {
+    val renderWindow by remember(totalPages) {
         derivedStateOf {
             val info = listState.layoutInfo
             val visible = info.visibleItemsInfo
