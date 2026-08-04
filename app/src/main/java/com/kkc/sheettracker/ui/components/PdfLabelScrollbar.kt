@@ -47,7 +47,7 @@ internal fun PdfLabelScrollbar(
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .width(28.dp)
+            .width(44.dp)
             .onSizeChanged { trackHeightPx = it.height.toFloat() }
             .pointerInput(rows.size) {
                 detectTapGestures { offset ->
