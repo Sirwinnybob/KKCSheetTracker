@@ -1076,6 +1076,15 @@ private fun PdfPaneWithFloatingControls(
         label = "botBarPad"
     )
     val hazeState = remember { HazeState() }
+    // Separate from hazeState above on purpose: hazeState's source is UnifiedReferenceViewer's
+    // whole subtree so the control pill below (a sibling, OUTSIDE that subtree) can blur it — a
+    // legitimate, non-self-referential source→effect relationship. But the continuous-scroll
+    // scrollbar's own frosted panel lives INSIDE that same subtree, so if it consumed hazeState
+    // too it would be nested inside its own source (self-referential — confirmed on-device this
+    // silently renders no blur at all, even though the pill's identical-looking pattern works
+    // fine). It gets a dedicated HazeState sourced only from the PDF content itself instead — see
+    // ContinuousReferencePdfPane's hazeSource wiring in UnifiedReferenceViewer.
+    val scrollbarHazeState = remember { HazeState() }
 
     // Root Box: blue-grey background fills the full pane edge-to-edge.
     // The canvasPad inset reveals that blue-grey as a consistent 8dp border on all sides.
@@ -1130,7 +1139,8 @@ private fun PdfPaneWithFloatingControls(
                 markupToolState = markupToolState,
                 markupControlsAsSlidingTab = true,
                 continuousScrollEnabled = continuousScrollEnabled,
-                isSplitPaneActive = isSplitPaneActive
+                isSplitPaneActive = isSplitPaneActive,
+                hazeState = scrollbarHazeState
             )
         }
 

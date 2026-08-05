@@ -58,6 +58,7 @@ import com.kkc.sheettracker.ui.components.PdfViewportState
 import com.kkc.sheettracker.ui.components.ReferencePdfPane
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolbar
+import dev.chrisbanes.haze.hazeSource
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -518,7 +519,12 @@ fun UnifiedReferenceViewer(
     // minimized nav bar instead of swapping the whole bar to the full extendedControls layout.
     markupControlsAsSlidingTab: Boolean = false,
     continuousScrollEnabled: Boolean = false,
-    isSplitPaneActive: Boolean = false
+    isSplitPaneActive: Boolean = false,
+    // Shared with the caller's own frosted chrome (e.g. AssemblyViewerScreen's nav bar) so the
+    // continuous-scroll scrollbar's expanded panel can blur the same PDF content behind it
+    // instead of a second, disconnected blur source. Null falls back to a solid translucent
+    // panel — see PdfLabelScrollbar.
+    hazeState: dev.chrisbanes.haze.HazeState? = null
 ) {
     val scope = rememberCoroutineScope()
     var sourceTotalPages by remember(defaultPdfFilename, virtualMapping) { mutableIntStateOf(0) }
@@ -550,9 +556,20 @@ fun UnifiedReferenceViewer(
         try {
             val count = withContext(Dispatchers.IO) { engine.pageCount() }
             sourceTotalPages = count
-            onTotalPagesChanged(count)
         } finally {
             withContext(NonCancellable + Dispatchers.IO) { engine.close() }
+        }
+    }
+
+    // ReferencePdfPane's own onTotalPagesChanged branch (below) only fires in single-page
+    // mode. Continuous mode needs the same external callback kept in sync — for virtualMapping
+    // docs (e.g. Assembly) effectiveTotalPages is already known synchronously; for the
+    // no-mapping case it becomes known once the discovery effect above populates
+    // sourceTotalPages. Callers (AssemblyViewerScreen's per-pane page counters, etc.) rely on
+    // this firing regardless of which pane/branch is active.
+    LaunchedEffect(continuousScrollEnabled, effectiveTotalPages) {
+        if (continuousScrollEnabled && effectiveTotalPages > 0) {
+            onTotalPagesChanged(effectiveTotalPages)
         }
     }
 
@@ -759,8 +776,16 @@ fun UnifiedReferenceViewer(
                 }
             )
         } else {
+          Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
             ContinuousReferencePdfPane(
-                modifier = Modifier.fillMaxSize().padding(end = 44.dp),
+                // hazeSource lives here, on the actual background content, NOT on the shared
+                // outer `modifier` — PdfLabelScrollbar's hazeEffect panel is a sibling of this
+                // pane, and a hazeEffect consumer can't be nested inside its own source (that's
+                // a self-referential capture and silently produces no visible blur).
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(end = com.kkc.sheettracker.ui.components.PDF_LABEL_SCROLLBAR_IDLE_WIDTH)
+                    .let { m -> if (hazeState != null) m.hazeSource(hazeState) else m },
                 orientation = if (isSplitPaneActive) {
                     androidx.compose.foundation.gestures.Orientation.Horizontal
                 } else {
@@ -797,8 +822,12 @@ fun UnifiedReferenceViewer(
                 modifier = Modifier.align(Alignment.CenterEnd),
                 rows = rowModels,
                 currentPage = clampedDisplayPage,
-                onPageSelected = onDisplayPageChange
+                onPageSelected = onDisplayPageChange,
+                pdfFileForFilename = pdfFileForFilename,
+                defaultPdfFilename = defaultPdfFilename,
+                hazeState = hazeState
             )
+          }
         }
     }
 

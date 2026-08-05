@@ -41,6 +41,7 @@ import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
+import dev.chrisbanes.haze.HazeState
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,6 +83,9 @@ fun ReferencePdfViewerScreen(
     var markupEnabled by rememberSaveable { mutableStateOf(false) }
     var continuousScrollEnabled by rememberSaveable(jobFolderName, docType) { mutableStateOf(continuousScrollDefault) }
     val markupToolState = rememberPdfMarkupToolState()
+    // Lets the continuous-scroll scrollbar's expanded panel blur the PDF content behind it —
+    // same frosted pattern used elsewhere in the app, not a plain opaque panel.
+    val hazeState = remember { HazeState() }
     // Restore bottom nav visibility when navigating back.
     DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
     val pdfMarkupStore = remember {
@@ -135,6 +139,14 @@ fun ReferencePdfViewerScreen(
         }
     ) { padding ->
         UnifiedReferenceViewer(
+            // NOT .hazeSource(hazeState) here — this screen's only hazeEffect consumer is the
+            // continuous-scroll scrollbar's own panel, which is a DESCENDANT of this modifier's
+            // node. A hazeSource wrapping its own hazeEffect consumer is self-referential and
+            // silently produced no visible blur (confirmed on-device: nav bar/calculator/clock-in
+            // modal elsewhere in the app render blur correctly, so Haze itself works fine — this
+            // screen just had two overlapping hazeSource registrations under the same HazeState,
+            // one of them self-referential). The scrollbar gets its own clean, non-self-referential
+            // source directly from ContinuousReferencePdfPane — see UnifiedReferenceViewer.
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -163,6 +175,7 @@ fun ReferencePdfViewerScreen(
             markupToolState = markupToolState,
             continuousScrollEnabled = continuousScrollEnabled,
             isSplitPaneActive = false,
+            hazeState = hazeState,
             onSingleTap = {
                 showUi = !showUi
                 onUiVisibilityChanged(showUi)

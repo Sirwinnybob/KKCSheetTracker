@@ -1,28 +1,79 @@
 package com.kkc.sheettracker.ui.components
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PdfLabelScrollbarTest {
 
     @Test
-    fun segmentIndexForOffsetFraction_mapsZeroToFirstIndex() {
-        assertEquals(0, segmentIndexForOffsetFraction(segmentCount = 10, fraction = 0f))
+    fun dockScaleForDistance_isFullScaleAtZeroDistance() {
+        assertEquals(1f, dockScaleForDistance(distance = 0, radius = 1.6f), 0.001f)
     }
 
     @Test
-    fun segmentIndexForOffsetFraction_mapsOneToLastIndex() {
-        assertEquals(9, segmentIndexForOffsetFraction(segmentCount = 10, fraction = 1f))
+    fun dockScaleForDistance_decreasesAsDistanceGrows() {
+        val near = dockScaleForDistance(distance = 1, radius = 1.6f)
+        val far = dockScaleForDistance(distance = 4, radius = 1.6f)
+        assertTrue("near ($near) should be larger than far ($far)", near > far)
+        assertTrue(near < 1f)
+        assertTrue(far > 0f)
     }
 
     @Test
-    fun segmentIndexForOffsetFraction_clampsOutOfRangeFractions() {
-        assertEquals(0, segmentIndexForOffsetFraction(segmentCount = 10, fraction = -0.5f))
-        assertEquals(9, segmentIndexForOffsetFraction(segmentCount = 10, fraction = 1.5f))
+    fun dockScaleForDistance_approachesZeroFarFromFocus() {
+        val scale = dockScaleForDistance(distance = 20, radius = 1.6f)
+        assertTrue(scale < 0.01f)
     }
 
     @Test
-    fun segmentIndexForOffsetFraction_returnsZeroForEmptyList() {
-        assertEquals(0, segmentIndexForOffsetFraction(segmentCount = 0, fraction = 0.5f))
+    fun dockScaleForDistance_zeroRadiusOnlyMagnifiesExactMatch() {
+        assertEquals(1f, dockScaleForDistance(distance = 0, radius = 0f), 0.001f)
+        assertEquals(0f, dockScaleForDistance(distance = 1, radius = 0f), 0.001f)
+    }
+
+    @Test
+    fun centerOutLoadOrder_startsAtFocusAndAlternatesOutward() {
+        val order = centerOutLoadOrder(count = 5, focus = 2)
+        assertEquals(listOf(2, 1, 3, 0, 4), order)
+    }
+
+    @Test
+    fun centerOutLoadOrder_clampsFocusToValidRange() {
+        val order = centerOutLoadOrder(count = 3, focus = 99)
+        assertEquals(listOf(2, 1, 0), order)
+    }
+
+    @Test
+    fun centerOutLoadOrder_handlesFocusAtEdge() {
+        val order = centerOutLoadOrder(count = 4, focus = 0)
+        assertEquals(listOf(0, 1, 2, 3), order)
+    }
+
+    @Test
+    fun centerOutLoadOrder_returnsEmptyForEmptyDocument() {
+        assertEquals(emptyList<Int>(), centerOutLoadOrder(count = 0, focus = 0))
+    }
+
+    @Test
+    fun idleIndexForFraction_mapsZeroToFirstIndex() {
+        assertEquals(0, idleIndexForFraction(rowCount = 10, fraction = 0f))
+    }
+
+    @Test
+    fun idleIndexForFraction_mapsOneToLastIndex() {
+        assertEquals(9, idleIndexForFraction(rowCount = 10, fraction = 1f))
+    }
+
+    @Test
+    fun idleIndexForFraction_clampsOutOfRangeFractions() {
+        assertEquals(0, idleIndexForFraction(rowCount = 10, fraction = -0.5f))
+        assertEquals(9, idleIndexForFraction(rowCount = 10, fraction = 1.5f))
+    }
+
+    @Test
+    fun idleIndexForFraction_returnsZeroForEmptyOrSingleRow() {
+        assertEquals(0, idleIndexForFraction(rowCount = 0, fraction = 0.5f))
+        assertEquals(0, idleIndexForFraction(rowCount = 1, fraction = 0.5f))
     }
 }

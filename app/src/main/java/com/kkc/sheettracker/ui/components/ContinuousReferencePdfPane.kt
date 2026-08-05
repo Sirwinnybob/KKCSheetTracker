@@ -3,6 +3,11 @@ package com.kkc.sheettracker.ui.components
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,16 +23,21 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.ui.markup.PdfMarkupOverlay
@@ -114,6 +124,131 @@ internal class PdfEngineCache(
 // which in Kotlin is file-private (not package-private) and therefore not visible here.
 private val continuousPdfEngineDisposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+/**
+ * Per-page pinch-to-zoom that cooperates with the surrounding Lazy list scroll: a single
+ * finger is left UNCONSUMED (so the list's own scrollable() keeps handling ordinary swipes)
+ * unless the page is already zoomed in, in which case a single finger pans the zoomed image
+ * instead. Two or more fingers always claim the gesture for pinch-zoom.
+ *
+ * While zoomed, re-renders a sharp high-res crop of the current viewport (same
+ * [PdfRenderEngine.renderViewportTile] mechanism the single-page viewer uses) 120ms after the
+ * gesture settles, so zoomed-in pages aren't just an upscaled blur of the base bitmap.
+ */
+@Composable
+private fun ZoomablePageImage(
+    bitmap: Bitmap?,
+    contentDescription: String,
+    gesturesEnabled: Boolean,
+    engineCache: PdfEngineCache,
+    file: java.io.File?,
+    pageIndex: Int,
+    matteColorArgb: Int,
+    modifier: Modifier = Modifier
+) {
+    var viewSize by remember { mutableStateOf(IntSize.Zero) }
+    var zoom by remember { mutableFloatStateOf(1f) }
+    var panX by remember { mutableFloatStateOf(0f) }
+    var panY by remember { mutableFloatStateOf(0f) }
+    var isInteracting by remember { mutableStateOf(false) }
+    var detailBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val minZoom = 1f
+    val maxZoom = 6f
+
+    fun clampPan(targetZoom: Float, x: Float, y: Float): Pair<Float, Float> {
+        if (viewSize == IntSize.Zero || targetZoom <= minZoom) return 0f to 0f
+        val vw = viewSize.width.toFloat().coerceAtLeast(1f)
+        val vh = viewSize.height.toFloat().coerceAtLeast(1f)
+        val maxPanX = ((vw * targetZoom - vw) / 2f).coerceAtLeast(0f)
+        val maxPanY = ((vh * targetZoom - vh) / 2f).coerceAtLeast(0f)
+        return x.coerceIn(-maxPanX, maxPanX) to y.coerceIn(-maxPanY, maxPanY)
+    }
+
+    LaunchedEffect(zoom, panX, panY, isInteracting, file, viewSize) {
+        if (file == null || isInteracting || zoom <= 1.02f || viewSize == IntSize.Zero) {
+            if (zoom <= 1.02f) detailBitmap = null
+            return@LaunchedEffect
+        }
+        delay(120)
+        if (isInteracting) return@LaunchedEffect
+        val viewport = PdfViewportState(zoom = zoom, panX = panX, panY = panY, viewSize = viewSize)
+        detailBitmap = withContext(Dispatchers.IO) {
+            engineCache.get(file).renderViewportTile(pageIndex, viewport, matteColorArgb)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .onSizeChanged { viewSize = it }
+            .then(
+                if (gesturesEnabled) {
+                    Modifier.pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            do {
+                                val event = awaitPointerEvent()
+                                val pointerCount = event.changes.count { it.pressed }
+                                val claim = pointerCount >= 2 || zoom > 1.02f
+                                if (claim) {
+                                    isInteracting = true
+                                    val zoomChange = event.calculateZoom()
+                                    val panChange = event.calculatePan()
+                                    val centroid = event.calculateCentroid(useCurrent = true)
+                                    val nextZoom = (zoom * zoomChange).coerceIn(minZoom, maxZoom)
+                                    val appliedZoomChange = if (zoom == 0f) 1f else nextZoom / zoom
+                                    val anchorX = if (centroid.isSpecified) centroid.x - viewSize.width / 2f else 0f
+                                    val anchorY = if (centroid.isSpecified) centroid.y - viewSize.height / 2f else 0f
+                                    val nextPanX = panX * appliedZoomChange + panChange.x + anchorX * (1f - appliedZoomChange)
+                                    val nextPanY = panY * appliedZoomChange + panChange.y + anchorY * (1f - appliedZoomChange)
+                                    val (cx, cy) = clampPan(nextZoom, nextPanX, nextPanY)
+                                    zoom = nextZoom
+                                    panX = cx
+                                    panY = cy
+                                    event.changes.forEach { it.consume() }
+                                }
+                            } while (event.changes.any { it.pressed })
+                            isInteracting = false
+                            if (zoom <= 1.02f) {
+                                zoom = 1f
+                                panX = 0f
+                                panY = 0f
+                            }
+                        }
+                    }
+                } else {
+                    Modifier
+                }
+            )
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = contentDescription,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = zoom
+                        scaleY = zoom
+                        translationX = panX
+                        translationY = panY
+                    },
+                contentScale = ContentScale.Fit
+            )
+            // Sharp high-res crop of the current viewport, drawn at full size on top of the
+            // scaled (and therefore softening) base bitmap once it's ready — same layering
+            // idea as the single-page viewer's base+detail bitmaps.
+            val currentDetail = detailBitmap
+            if (currentDetail != null && zoom > 1.02f) {
+                Image(
+                    bitmap = currentDetail.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            }
+        }
+    }
+}
+
 @Composable
 internal fun ContinuousReferencePdfPane(
     modifier: Modifier = Modifier,
@@ -140,9 +275,18 @@ internal fun ContinuousReferencePdfPane(
     val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
 
     LaunchedEffect(scrollToPage, totalPages) {
-        if (totalPages > 0 && scrollToPage in 1..totalPages) {
-            listState.scrollToItem((scrollToPage - 1).coerceIn(0, totalPages - 1))
-        }
+        // Only jump for an EXTERNAL request (initial open, scrollbar drag, resume-to-page).
+        // scrollToPage is also fed by this list's OWN onCenteredPageChange reporting further
+        // up the tree, so without these guards every ordinary scroll would re-trigger a
+        // scrollToItem back to page-alignment — fighting the user's drag and feeling like
+        // forced pagination instead of free scroll.
+        if (totalPages <= 0 || scrollToPage !in 1..totalPages) return@LaunchedEffect
+        if (listState.isScrollInProgress) return@LaunchedEffect
+        val current = listState.firstVisibleItemIndex + 1
+        if (current == scrollToPage) return@LaunchedEffect
+        // Animated, not an instant cut — external jumps (scrollbar drag, resume-to-page)
+        // should read as a smooth scroll, not a series of hard snaps.
+        listState.animateScrollToItem((scrollToPage - 1).coerceIn(0, totalPages - 1))
     }
 
     LaunchedEffect(listState) {
@@ -172,10 +316,6 @@ internal fun ContinuousReferencePdfPane(
         }
     }
 
-    val isSettled by remember {
-        derivedStateOf { !listState.isScrollInProgress }
-    }
-
     val pageContent: @Composable (Int) -> Unit = { displayPage ->
         val resolved = remember(displayPage, fileIdentitySeed) { resolvePage(displayPage) }
         val file = remember(resolved.pdfFilename, fileIdentitySeed) { pdfFileForFilename(resolved.pdfFilename) }
@@ -195,13 +335,13 @@ internal fun ContinuousReferencePdfPane(
             }
         }
 
-        LaunchedEffect(displayPage, resolved, file, inWindow, isSettled, matteColorArgb, fileIdentitySeed) {
-            if (file == null || !inWindow || !isSettled) return@LaunchedEffect
+        LaunchedEffect(displayPage, resolved, file, inWindow, matteColorArgb, fileIdentitySeed) {
+            if (file == null || !inWindow) return@LaunchedEffect
             if (bitmap != null) return@LaunchedEffect
-            // Settle-only: waits for scroll to stop before spending render work, same
-            // debounce intent as ReferencePdfPane's zoom-detail-tile flow.
-            delay(120)
-            if (!inWindow || listState.isScrollInProgress) return@LaunchedEffect
+            // Renders as soon as a page enters the small render window, including while
+            // actively scrolling — real pages are what make continuous scroll usable, not
+            // gray placeholders. The window itself (visible ± 1 buffer) is what keeps this
+            // bounded, and the bitmap != null guard above stops re-render on every frame.
             val viewSize = androidx.compose.ui.unit.IntSize(1080, 1400)
             bitmap = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderBasePage(
@@ -212,7 +352,10 @@ internal fun ContinuousReferencePdfPane(
             }
         }
 
-        val strokes = if (markupEnabled) markupStrokesForPage(resolved.pdfFilename, resolved.sourcePage) else emptyList()
+        // markupStrokesForPage already scopes visibility (markupStrokesVisible + centered
+        // page match) independent of markupEnabled — gating on markupEnabled here as well
+        // would make drawn strokes vanish the instant the pen is toggled off.
+        val strokes = markupStrokesForPage(resolved.pdfFilename, resolved.sourcePage)
 
         Box(
             modifier = Modifier
@@ -222,11 +365,15 @@ internal fun ContinuousReferencePdfPane(
         ) {
             val currentBitmap = bitmap
             if (currentBitmap != null) {
-                Image(
-                    bitmap = currentBitmap.asImageBitmap(),
+                ZoomablePageImage(
+                    bitmap = currentBitmap,
                     contentDescription = "Page $displayPage",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
+                    gesturesEnabled = !markupEnabled,
+                    engineCache = engineCache,
+                    file = file,
+                    pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
+                    matteColorArgb = matteColorArgb,
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
