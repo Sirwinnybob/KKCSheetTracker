@@ -83,6 +83,31 @@ internal fun centerOutLoadOrder(count: Int, focus: Int): List<Int> {
     return out
 }
 
+/** Real (not estimated) bounds of one rendered scrollbar row, in the scrollbar's own local
+ * coordinate space — sourced from LazyListState.layoutInfo.visibleItemsInfo. Decoupled into a
+ * plain data class (rather than using LazyListItemInfo directly) so the hit-test below is a pure
+ * function, testable without a Compose runtime. */
+internal data class ItemBounds(val index: Int, val offset: Int, val size: Int)
+
+/** Nearest visible row to a touch Y, by comparing the touch position against each row's real
+ * measured center. Replaces two separate estimate-based hit-test functions (one for the idle
+ * track, one for the expanded panel) that could disagree with each other and with the real
+ * layout — this is the single hit-test both regimes now share, always against real bounds. */
+internal fun indexForTouchY(items: List<ItemBounds>, touchY: Float, fallback: Int): Int {
+    if (items.isEmpty()) return fallback
+    var closest = items.first().index
+    var closestDist = Float.MAX_VALUE
+    for (item in items) {
+        val center = item.offset + item.size / 2f
+        val dist = kotlin.math.abs(center - touchY)
+        if (dist < closestDist) {
+            closestDist = dist
+            closest = item.index
+        }
+    }
+    return closest
+}
+
 /**
  * How much detail the scrollbar can afford to show, derived from available vertical space vs.
  * page count — never hardcoded to a specific count. Mirrors the degrade pattern in
