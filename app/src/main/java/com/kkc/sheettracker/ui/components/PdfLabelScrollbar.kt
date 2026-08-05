@@ -1,6 +1,8 @@
 package com.kkc.sheettracker.ui.components
 
 import android.graphics.Bitmap
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -14,9 +16,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -28,6 +30,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -400,31 +403,36 @@ internal fun PdfLabelScrollbar(
 
             Column(
                 modifier = Modifier
-                    // TopStart, not TopEnd — combined with requiredWidth (a child reporting a
-                    // size larger than its parent's constraints), Compose's Box alignment logic
-                    // centers the oversized child on the narrow space it WOULD have been assigned
-                    // rather than right-aligning it (confirmed on-device: the carousel rendered
-                    // centered on the pill, half off the right edge of the screen). TopStart plus
-                    // an explicit x offset below sidesteps that entirely — anchor at the box's own
-                    // top-left (0,0), then offset left by exactly enough that the carousel's RIGHT
-                    // edge lands flush against the track's right edge, extending fully leftward
-                    // onto the visible PDF content instead of off-screen.
-                    .align(Alignment.TopStart)
-                    .offset(x = idleWidth - carouselWidth, y = carouselTopDp)
-                    // requiredWidth, not width — this Box's own root is permanently pinned to
-                    // idleWidth (36dp) now (the track no longer expands to make room like the
-                    // old design did), so a plain .width(carouselWidth) here gets coerced down to
-                    // that 36dp incoming max constraint instead of actually rendering at 240dp —
-                    // that's what "little grey lines instead of previews" was: the carousel was
-                    // silently clamped to the track's own width. requiredWidth ignores the
-                    // incoming constraint and actually escapes the narrow parent, the same way
-                    // Compose Box children can draw outside their own measured bounds.
-                    .requiredWidth(carouselWidth),
+                    // TopEnd works correctly here as long as the child actually REPORTS its true
+                    // 240dp size to this Box — requiredWidth doesn't do that (it reports a size
+                    // COERCED to the incoming 36dp constraint and auto-centers the real content
+                    // within that reported slot internally, which is why the previous attempt
+                    // rendered centered-on-the-pill regardless of align/offset: the coercion and
+                    // centering happen inside requiredWidth, before Box's own alignment math ever
+                    // sees a real 240dp size to align against). wrapContentWidth(unbounded = true)
+                    // instead relaxes the incoming constraint to unbounded for its own child, lets
+                    // the inner .width(carouselWidth) measure at the true 240dp, and reports THAT
+                    // real size back up — so TopEnd's normal "child.width > box.width -> flush
+                    // right, extend left" math applies exactly as expected, no manual offset math
+                    // needed.
+                    .align(Alignment.TopEnd)
+                    .offset(y = carouselTopDp)
+                    .wrapContentWidth(unbounded = true, align = Alignment.Start)
+                    .width(carouselWidth),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(rowSpacing)
             ) {
                 fittedSlots.forEach { (distance, entry) ->
-                    val thumbHeightDp = thumbHeightForDistance(distance)
+                    // Keyed by page identity (not iteration position) so a page's own animation
+                    // state survives as it moves between roles while dragging — this is what
+                    // makes a page visibly grow/shrink smoothly as it becomes/stops being the
+                    // touched page, instead of an instant size swap. Position math above still
+                    // uses the fixed target tiers (footprintForDistance) — the carousel's overall
+                    // placement doesn't need to track mid-animation sizes, only the visible card
+                    // does.
+                    key(entry.rowIndex) {
+                    val targetHeight = thumbHeightForDistance(distance)
+                    val thumbHeightDp by animateDpAsState(targetValue = targetHeight, animationSpec = tween(160), label = "carouselHeight${entry.rowIndex}")
                     val hPx = with(density) { thumbHeightDp.toPx() }
                     val bitmap = thumbCache[entry.rowIndex]
                     val aspect = bitmap?.let { it.width.toFloat() / it.height.toFloat().coerceAtLeast(1f) } ?: fallbackAspect
@@ -505,6 +513,7 @@ internal fun PdfLabelScrollbar(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
