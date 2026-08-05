@@ -57,29 +57,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
-/** Falloff for the dock-style magnification — smooth gaussian taper across neighbors. */
-internal fun dockScaleForDistance(distance: Int, radius: Float): Float {
-    if (radius <= 0f) return if (distance == 0) 1f else 0f
-    val t = distance.toDouble() / radius.toDouble()
-    return kotlin.math.exp(-(t * t)).toFloat()
-}
-
-/** Center-out load order so the focused page's thumbnail (and its neighbors) load first. */
-internal fun centerOutLoadOrder(count: Int, focus: Int): List<Int> {
-    if (count <= 0) return emptyList()
-    val center = focus.coerceIn(0, count - 1)
-    val out = mutableListOf(center)
-    var radius = 1
-    while (out.size < count) {
-        val left = center - radius
-        val right = center + radius
-        if (left >= 0) out += left
-        if (right < count) out += right
-        radius++
-    }
-    return out
-}
-
 /** Real (not estimated) bounds of one rendered scrollbar row, in the scrollbar's own local
  * coordinate space — sourced from LazyListState.layoutInfo.visibleItemsInfo. Decoupled into a
  * plain data class (rather than using LazyListItemInfo directly) so the hit-test below is a pure
