@@ -400,8 +400,17 @@ internal fun PdfLabelScrollbar(
 
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(y = carouselTopDp)
+                    // TopStart, not TopEnd — combined with requiredWidth (a child reporting a
+                    // size larger than its parent's constraints), Compose's Box alignment logic
+                    // centers the oversized child on the narrow space it WOULD have been assigned
+                    // rather than right-aligning it (confirmed on-device: the carousel rendered
+                    // centered on the pill, half off the right edge of the screen). TopStart plus
+                    // an explicit x offset below sidesteps that entirely — anchor at the box's own
+                    // top-left (0,0), then offset left by exactly enough that the carousel's RIGHT
+                    // edge lands flush against the track's right edge, extending fully leftward
+                    // onto the visible PDF content instead of off-screen.
+                    .align(Alignment.TopStart)
+                    .offset(x = idleWidth - carouselWidth, y = carouselTopDp)
                     // requiredWidth, not width — this Box's own root is permanently pinned to
                     // idleWidth (36dp) now (the track no longer expands to make room like the
                     // old design did), so a plain .width(carouselWidth) here gets coerced down to
