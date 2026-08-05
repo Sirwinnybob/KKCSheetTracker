@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -401,7 +402,15 @@ internal fun PdfLabelScrollbar(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .offset(y = carouselTopDp)
-                    .width(carouselWidth),
+                    // requiredWidth, not width — this Box's own root is permanently pinned to
+                    // idleWidth (36dp) now (the track no longer expands to make room like the
+                    // old design did), so a plain .width(carouselWidth) here gets coerced down to
+                    // that 36dp incoming max constraint instead of actually rendering at 240dp —
+                    // that's what "little grey lines instead of previews" was: the carousel was
+                    // silently clamped to the track's own width. requiredWidth ignores the
+                    // incoming constraint and actually escapes the narrow parent, the same way
+                    // Compose Box children can draw outside their own measured bounds.
+                    .requiredWidth(carouselWidth),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(rowSpacing)
             ) {
