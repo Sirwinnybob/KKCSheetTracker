@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -193,7 +194,7 @@ internal fun PdfLabelScrollbar(
 
     // Real viewport height, sourced straight from the Lazy list's own layout — replaces the
     // manually-tracked onGloballyPositioned height from before.
-    val trackHeightPx = listState.layoutInfo.viewportSize.height.toFloat()
+    val trackHeightPx by remember { derivedStateOf { listState.layoutInfo.viewportSize.height.toFloat() } }
 
     // Adaptive display mode — mirrors github.com/mooalot/alphabetical-scroll-bar's approach of
     // dropping detail as space tightens, driven by measured space vs. page count rather than a
@@ -349,6 +350,7 @@ internal fun PdfLabelScrollbar(
         LazyColumn(
             state = listState,
             modifier = Modifier.align(Alignment.TopEnd).fillMaxSize(),
+            userScrollEnabled = false,
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(if (isDragging) rowSpacing else 0.dp),
             contentPadding = PaddingValues(vertical = if (isDragging) panelPadding else 0.dp)
