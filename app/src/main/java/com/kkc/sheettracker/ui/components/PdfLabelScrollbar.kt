@@ -157,6 +157,16 @@ internal fun PdfLabelScrollbar(
     val rowCenterY = remember { mutableStateMapOf<Int, Float>() }
     var dockWindowY by remember { mutableFloatStateOf(0f) }
     var trackHeightPx by remember { mutableFloatStateOf(0f) }
+    // Real (measured, not estimated) resting center Y for a row, captured the moment a drag
+    // releases on it — keyed by rowIndex (stable page identity, unlike `entries` index which
+    // shifts when bucket boundaries recompute). The idle pill prefers this over the cumulative
+    // estimate below whenever it's available: the estimate assumes every row costs the same
+    // caption-chrome space, but most rows (far from focus) render only a bare dot, not a
+    // caption block, so the estimate inflates them and skews the resting fraction toward the
+    // bottom — confirmed on-device (real center 927px vs estimated-fraction pill position
+    // ~1370px on a 2664px track). A row we've actually dragged to and released on has a known
+    // real position; trust that over the guess.
+    val realRestCenterByRowIndex = remember { mutableStateMapOf<Int, Float>() }
 
     // Minimum resting thumbnail size — barely more than a sliver, just enough to still read as
     // "a page" rather than vanishing. The focused page always gets the same full-size peak
@@ -357,8 +367,22 @@ internal fun PdfLabelScrollbar(
                         dragIndex = index
                         onPageSelected(entries[index].page)
                     },
-                    onDragEnd = { isDragging = false; dragIndex = null; rowCenterY.clear() },
-                    onDragCancel = { isDragging = false; dragIndex = null; rowCenterY.clear() }
+                    onDragEnd = {
+                        // Snapshot the real measured center of wherever the drag actually
+                        // released, before rowCenterY is wiped — this is what makes the idle
+                        // pill land exactly back where the preview showed instead of an
+                        // estimate-derived guess (see realRestCenterByRowIndex above).
+                        dragIndex?.let { idx ->
+                            rowCenterY[idx]?.let { center -> realRestCenterByRowIndex[entries[idx].rowIndex] = center }
+                        }
+                        isDragging = false; dragIndex = null; rowCenterY.clear()
+                    },
+                    onDragCancel = {
+                        dragIndex?.let { idx ->
+                            rowCenterY[idx]?.let { center -> realRestCenterByRowIndex[entries[idx].rowIndex] = center }
+                        }
+                        isDragging = false; dragIndex = null; rowCenterY.clear()
+                    }
                 )
             }
     ) {
@@ -549,19 +573,29 @@ internal fun PdfLabelScrollbar(
                     .padding(end = 6.dp)
                     .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
             )
-            // Bulge-aware fraction (same cumulative model the drag-start hit-test inverts) so the
-            // pill's resting position agrees with where dragging would actually land you.
-            val idleFraction = if (restingContentHeightPx > 0f) {
-                val centerPx = cumulativeTopPx(currentEntryIndex, currentEntryIndex) +
-                    rowFootprintPxAt(currentEntryIndex, currentEntryIndex) / 2f
-                (centerPx / restingContentHeightPx).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
             val thumbHeightDp = 64.dp
             val thumbHeightPx = with(density) { thumbHeightDp.toPx() }
-            val thumbTravel = (effectiveTrackHeightPx - thumbHeightPx).coerceAtLeast(0f)
-            val thumbOffsetDp = with(density) { (idleFraction * thumbTravel).toDp() }
+            // realRestCenterByRowIndex holds the actually-measured center from the last drag
+            // release onto this row — use it directly (bypassing the estimate, and the
+            // estimate-clamped effectiveTrackHeightPx) whenever we have it, since it's ground
+            // truth for exactly where the preview showed this page. Falls back to the
+            // bulge-aware cumulative estimate (same model the drag-start hit-test inverts) only
+            // for a row we've never actually dragged to.
+            val realCenterPx = realRestCenterByRowIndex[entries[currentEntryIndex].rowIndex]
+            val thumbOffsetPx = if (realCenterPx != null && trackHeightPx > 0f) {
+                (realCenterPx - thumbHeightPx / 2f).coerceIn(0f, (trackHeightPx - thumbHeightPx).coerceAtLeast(0f))
+            } else {
+                val idleFraction = if (restingContentHeightPx > 0f) {
+                    val centerPx = cumulativeTopPx(currentEntryIndex, currentEntryIndex) +
+                        rowFootprintPxAt(currentEntryIndex, currentEntryIndex) / 2f
+                    (centerPx / restingContentHeightPx).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+                val thumbTravel = (effectiveTrackHeightPx - thumbHeightPx).coerceAtLeast(0f)
+                idleFraction * thumbTravel
+            }
+            val thumbOffsetDp = with(density) { thumbOffsetPx.toDp() }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
