@@ -1172,7 +1172,7 @@ private fun JobsTabHost(
                         navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                     },
                     onView3D = { jobFolder ->
-                        val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
+                        val target = resolveDefaultThreeDTarget(basePath, jobRepository, jobFolder)
                         navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                     },
                     onViewCoverSheet = { jobFolder ->
@@ -1190,7 +1190,7 @@ private fun JobsTabHost(
                         navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                     },
                     onView3D = { jobFolder ->
-                        val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
+                        val target = resolveDefaultThreeDTarget(basePath, jobRepository, jobFolder)
                         navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                     },
                     onViewCoverSheet = { jobFolder ->
@@ -1324,7 +1324,7 @@ private fun JobsTabHost(
                     }
                 },
                 onOpenThreeD = {
-                    val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                    val target = resolveDefaultThreeDTarget(basePath, jobRepository, folderName)
                     navController.navigate(
                         assemblyViewerRoute(
                             jobFolderName = folderName,
@@ -1594,7 +1594,7 @@ private fun JobsTabHost(
                     }
                 },
                 onOpenThreeD = {
-                    val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                    val target = resolveDefaultThreeDTarget(basePath, jobRepository, folderName)
                     navController.navigate(
                         assemblyViewerRoute(
                             jobFolderName = folderName,
@@ -2345,7 +2345,7 @@ private fun LegacySingleStackNavigation(
                                     navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                                 },
                                 onView3D = { jobFolder ->
-                                    val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
+                                    val target = resolveDefaultThreeDTarget(basePath, jobRepository, jobFolder)
                                     navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                                 },
                                 onViewCoverSheet = { jobFolder ->
@@ -2363,7 +2363,7 @@ private fun LegacySingleStackNavigation(
                                     navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                                 },
                                 onView3D = { jobFolder ->
-                                    val target = resolveDefaultThreeDTarget(jobRepository, jobFolder)
+                                    val target = resolveDefaultThreeDTarget(basePath, jobRepository, jobFolder)
                                     navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                                 },
                                 onViewCoverSheet = { jobFolder ->
@@ -2463,7 +2463,7 @@ private fun LegacySingleStackNavigation(
                             }
                         },
                         onOpenThreeD = {
-                            val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                            val target = resolveDefaultThreeDTarget(basePath, jobRepository, folderName)
                             navController.navigate(
                                 assemblyViewerRoute(
                                     jobFolderName = folderName,
@@ -2754,7 +2754,7 @@ private fun LegacySingleStackNavigation(
                             }
                         },
                         onOpenThreeD = {
-                            val target = resolveDefaultThreeDTarget(jobRepository, folderName)
+                            val target = resolveDefaultThreeDTarget(basePath, jobRepository, folderName)
                             navController.navigate(
                                 assemblyViewerRoute(
                                     jobFolderName = folderName,
@@ -3248,6 +3248,7 @@ private data class ThreeDRouteTarget(
 )
 
 private fun resolveDefaultThreeDTarget(
+    basePath: String,
     jobRepository: JobRepository,
     jobFolderName: String
 ): ThreeDRouteTarget {
@@ -3267,11 +3268,35 @@ private fun resolveDefaultThreeDTarget(
             val room = normalizeRoomFolderName(detail.room) ?: return@mapNotNull null
             room to page
         }
-    val firstRoom = assemblyRooms
+    // Pick best room from sheet index, verify GLB exists on disk, fallback to filesystem scan
+    val threeDDir = java.io.File(basePath, "$jobFolderName/3D")
+    val sheetRooms = assemblyRooms
         .firstOrNull { it.first.equals("Kitchen", ignoreCase = true) }
         ?: assemblyRooms
             .sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
             .firstOrNull()
+    val sheetRoomHasGlb = sheetRooms?.let { (room, _) ->
+        java.io.File(threeDDir, room).isDirectory && java.io.File(threeDDir, "$room/3d_medium.glb").exists()
+    } == true
+    val firstRoom = if (sheetRoomHasGlb) {
+        sheetRooms
+    } else {
+        // Sheet-index room has no GLB - scan filesystem like resolveSpecialtyThreeDRoom
+        val fsRooms = threeDDir.listFiles()
+            ?.filter { it.isDirectory && java.io.File(it, "3d_medium.glb").exists() }
+            ?.map { it.name }
+            ?.sorted()
+            ?: emptyList()
+        val fsRoom = fsRooms.firstOrNull { it.equals("Kitchen", ignoreCase = true) }
+            ?: fsRooms.firstOrNull()
+        if (fsRoom != null) {
+            // Try to find matching assembly page for this filesystem room
+            assemblyRooms.firstOrNull { it.first.equals(fsRoom, ignoreCase = true) }
+                ?: (fsRoom to (sheetRooms?.second ?: 1))
+        } else {
+            null
+        }
+    }
 
     val firstAssemblyPage = firstRoom?.second
         ?: assemblyCabinetToPages.values.flatten().minOrNull()
