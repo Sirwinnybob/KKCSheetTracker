@@ -1,8 +1,6 @@
 package com.kkc.sheettracker.ui.components
 
 import android.graphics.Bitmap
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -14,14 +12,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,6 +27,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +41,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import com.kkc.sheettracker.ui.viewer.NavigatorRowModel
@@ -131,7 +130,7 @@ private data class ScrollbarEntry(
 private val scrollbarThumbDisposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 /** Reserved space when idle (collapsed) — just enough for a thin track + thumb. */
-internal val PDF_LABEL_SCROLLBAR_IDLE_WIDTH = 20.dp
+internal val PDF_LABEL_SCROLLBAR_IDLE_WIDTH = 36.dp
 
 /**
  * Expanded dock panel width while dragging — thumbnails magnify WITHIN this width (growing
@@ -142,16 +141,17 @@ internal val PDF_LABEL_SCROLLBAR_IDLE_WIDTH = 20.dp
 internal val PDF_LABEL_SCROLLBAR_PANEL_WIDTH = 240.dp
 
 /**
- * Right-edge scrollbar for the continuous-scroll pane. Idle: a thin column of tick marks, one
- * per row, with the current page's tick drawn as a highlighted pill. Dragging: the same list
- * expands into a frosted rounded panel (same style as AppScaffold's nav bar) showing every
- * page's thumbnail with its label underneath — magnified by distance from the touch position,
- * same falloff shape as macOS Dock icons. Both regimes are the SAME LazyColumn/LazyListState —
- * there is no separate estimate computing where the idle pill should rest; it reads the same
- * real layout the drag preview does, so they can never disagree about where a page actually is.
- * Thumbnails keep their real page aspect ratio once rendered (most KKC sheets are landscape) and
- * load progressively, center-out, starting only once the user first drags (idle ticks never
- * show a bitmap, so there's no reason to pay for decoding them before then).
+ * Right-edge scrollbar for the continuous-scroll pane. Always renders as a full-height column of
+ * tick marks, one per row, with the current page's tick drawn as a highlighted pill — this is the
+ * one and only "where am I in the document" indicator, and it never changes appearance between
+ * idle and dragging (it always reads the track's own real layout, never a separate estimate).
+ * While dragging, a small floating carousel (up to 5 entries — the touched page plus 2 shrinking
+ * neighbors on each side) tracks the finger as a local detail preview; it does NOT drive page
+ * selection or represent overall document position — the track does both of those, always.
+ * Reserves 150dp of clearance at the bottom so the track never renders into AppScaffold's
+ * floating nav bar. Thumbnails keep their real page aspect ratio once rendered (most KKC sheets
+ * are landscape); only the up-to-5 entries currently in the carousel window are ever decoded,
+ * (re)loaded as that window moves during a drag.
  */
 @Composable
 internal fun PdfLabelScrollbar(
@@ -169,38 +169,32 @@ internal fun PdfLabelScrollbar(
     val listState = rememberLazyListState()
     var isDragging by remember { mutableStateOf(false) }
     var dragIndex by remember { mutableStateOf<Int?>(null) }
-    var thumbnailsRequested by remember { mutableStateOf(false) }
+    var touchYPx by remember { mutableFloatStateOf(0f) }
     val thumbCache = remember { mutableStateMapOf<Int, Bitmap?>() }
 
-    // Minimum resting thumbnail size — barely more than a sliver, just enough to still read as
-    // "a page" rather than vanishing. The focused page always gets the same full-size peak
-    // (maxHeight) regardless of document length.
-    val baseHeight = 2.dp
-    val maxHeight = 140.dp
     val idleTickHeight = 2.dp
     val idlePillHeight = 64.dp
+    val tickWidth = 16.dp
     val fallbackAspect = 11f / 8.5f // most KKC sheets are landscape
     val idleWidth = PDF_LABEL_SCROLLBAR_IDLE_WIDTH
-    val expandedWidth = PDF_LABEL_SCROLLBAR_PANEL_WIDTH
+    val carouselWidth = PDF_LABEL_SCROLLBAR_PANEL_WIDTH
     val rowSpacing = 5.dp
     val panelPadding = 16.dp
+    // So the track never renders into AppScaffold's floating bottom nav bar.
+    val bottomClearance = 150.dp
     // Rough per-row footprint at rest — used only to decide FULL vs. BUCKETED display mode
     // (i.e. "can every page get its own draggable/previewable row"), not to position anything.
-    // Idle ticks are far smaller than this, so once bucketing makes `entries` fit this
-    // footprint, idle-tick rendering fits with plenty of room to spare — the idle list never
-    // needs to scroll for realistic document lengths.
+    // Idle ticks are far smaller than this, so bucketed entries always fit the track comfortably.
     val captionAllowance = 20.dp
-    val rowFootprintPx = with(density) { (baseHeight + captionAllowance + rowSpacing).toPx() }
+    val rowFootprintPx = with(density) { (idleTickHeight + captionAllowance + rowSpacing).toPx() }
 
-    // Real viewport height, sourced straight from the Lazy list's own layout — replaces the
-    // manually-tracked onGloballyPositioned height from before.
+    // Real viewport height (already clearance-adjusted, since this reads the Lazy list's own
+    // layout and the list sits inside the bottom-padded root Box below).
     val trackHeightPx by remember { derivedStateOf { listState.layoutInfo.viewportSize.height.toFloat() } }
 
     // Adaptive display mode — mirrors github.com/mooalot/alphabetical-scroll-bar's approach of
     // dropping detail as space tightens, driven by measured space vs. page count rather than a
-    // hardcoded threshold. Thumbnails never disappear — grouping into page-range buckets only
-    // kicks in once even the (already-shrunk-for-this-page-count) smallest row can't fit one per
-    // page, and each bucket still previews its first page's thumbnail.
+    // hardcoded threshold.
     val displayMode = remember(rows.size, trackHeightPx) {
         if (trackHeightPx <= 0f || rows.size * rowFootprintPx <= trackHeightPx) {
             ScrollbarDisplayMode.FULL
@@ -215,11 +209,6 @@ internal fun PdfLabelScrollbar(
             rows.indices.chunked(perBucket).map { chunk ->
                 val first = rows[chunk.first()]
                 val last = rows[chunk.last()]
-                // The real content label (cabinet/room/etc.), never a bare number — the page
-                // range is a secondary hint (rangeLabel), not the primary caption. chunk.size==1
-                // is the actual "is this a single page" condition; first.page==last.page happened
-                // to be equivalent only because page numbers are unique per row, which isn't a
-                // guarantee this code should depend on.
                 val rangeLabel = if (chunk.size == 1) null else "${first.page}–${last.page}"
                 ScrollbarEntry(label = first.primaryLabel, rangeLabel = rangeLabel, page = first.page, pageRange = first.page..last.page, rowIndex = chunk.first())
             }
@@ -229,9 +218,6 @@ internal fun PdfLabelScrollbar(
             }
         }
     }
-    // Reaches (visually indistinguishable from) baseHeight by 3 entries out from focus:
-    // dockScaleForDistance(3, 1.3) ≈ 0.005.
-    val radius = 1.3f
 
     val currentEntryIndex = remember(entries, currentPage) {
         entries.indexOfFirst { currentPage in it.pageRange }.let { if (it < 0) 0 else it }
@@ -243,13 +229,24 @@ internal fun PdfLabelScrollbar(
         onDispose { scrollbarThumbDisposalScope.launch { withContext(NonCancellable) { engineCache.closeAll() } } }
     }
 
-    // Idle ticks never show a bitmap, so there's no reason to decode any thumbnails until the
-    // user actually drags for the first time.
-    LaunchedEffect(entries, defaultPdfFilename, thumbnailsRequested) {
-        if (!thumbnailsRequested) return@LaunchedEffect
-        for (entryIndex in centerOutLoadOrder(entries.size, currentEntryIndex)) {
+    // Floating preview window — up to 5 entries centered on focusIndex (distance -2..2), ordered
+    // top-to-bottom. Recomputed whenever the window moves; only ever needs at most 5 thumbnails,
+    // unlike the old full-document dock.
+    val carouselSlots = remember(entries, focusIndex) {
+        (-2..2).mapNotNull { distance ->
+            val slotIndex = focusIndex + distance
+            if (slotIndex in entries.indices) distance to entries[slotIndex] else null
+        }
+    }
+
+    // Idle ticks never show a bitmap, and the carousel only ever needs the entries currently in
+    // its window — no reason to decode anything until dragging, and no reason to preload the
+    // whole document like the old full-dock design did.
+    LaunchedEffect(carouselSlots, defaultPdfFilename, isDragging) {
+        if (!isDragging) return@LaunchedEffect
+        for ((_, entry) in carouselSlots) {
             if (!isActive) break
-            val rowIndex = entries[entryIndex].rowIndex
+            val rowIndex = entry.rowIndex
             if (thumbCache.containsKey(rowIndex)) continue
             val row = rows[rowIndex]
             val filename = row.source?.pdfFilename?.takeIf { it.isNotBlank() } ?: defaultPdfFilename
@@ -265,16 +262,12 @@ internal fun PdfLabelScrollbar(
         }
     }
 
-    val animatedWidth by animateDpAsState(targetValue = if (isDragging) expandedWidth else idleWidth, label = "scrollbarWidth")
-
     // Keeps the current page's row anchored/visible whenever the user isn't actively dragging
-    // this scrollbar themselves — mirrors the isProgrammaticScroll guard already used in
-    // ContinuousReferencePdfPane.kt for the same reason (don't fight an in-progress user
-    // gesture). BUCKETED mode already sizes `entries` so idle-tick rows — far smaller than the
-    // drag-chip footprint bucketing is computed against — always fit inside trackHeightPx, so in
-    // practice this call is a no-op safety net, not the mechanism that positions the pill: the
-    // pill's real screen position always comes straight from listState.layoutInfo in the item
-    // content below, not from this scroll call.
+    // this scrollbar themselves. BUCKETED mode already sizes `entries` so idle-tick rows — far
+    // smaller than the drag-chip-sized footprint bucketing is computed against — always fit
+    // inside trackHeightPx, so in practice this is a no-op safety net, not the mechanism that
+    // positions the pill: the pill's real screen position always comes straight from
+    // listState.layoutInfo in the item content below.
     LaunchedEffect(currentEntryIndex, isDragging) {
         if (!isDragging) listState.scrollToItem(currentEntryIndex)
     }
@@ -285,35 +278,11 @@ internal fun PdfLabelScrollbar(
         fallback = focusIndex
     )
 
-    val frostedTokens = LocalKKCThemeTokens.current.frosted
-    val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
-    val panelSurfaceColor = MaterialTheme.colorScheme.surface
-    val safeHazeState = hazeState
-    val hazeAvailable = safeHazeState != null && !lowEnd.blurDisabled
-    val chipColor = if (hazeAvailable) {
-        androidx.compose.ui.graphics.Color.Transparent
-    } else {
-        panelSurfaceColor.copy(alpha = frostedAlpha)
-    }
-    val chipHazeModifier = if (safeHazeState != null && hazeAvailable) {
-        Modifier.hazeEffect(
-            safeHazeState,
-            style = HazeDefaults.style(
-                backgroundColor = panelSurfaceColor.copy(alpha = frostedAlpha),
-                blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
-            )
-        )
-    } else {
-        Modifier
-    }
-    val chipShadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
-    val maxThumbWidthPx = with(density) { (expandedWidth - panelPadding * 2).toPx() }
-    val maxThumbWidth = expandedWidth - panelPadding * 2
-
     Box(
         modifier = modifier
+            .padding(bottom = bottomClearance)
             .fillMaxHeight()
-            .width(animatedWidth)
+            .width(idleWidth)
             .pointerInput(entries.size, displayMode) {
                 detectTapGestures { offset -> onPageSelected(entries[hitTest(offset.y)].page) }
             }
@@ -321,12 +290,13 @@ internal fun PdfLabelScrollbar(
                 detectVerticalDragGestures(
                     onDragStart = { offset ->
                         isDragging = true
-                        thumbnailsRequested = true
+                        touchYPx = offset.y
                         val index = hitTest(offset.y)
                         dragIndex = index
                         onPageSelected(entries[index].page)
                     },
                     onVerticalDrag = { change, _ ->
+                        touchYPx = change.position.y
                         val index = hitTest(change.position.y)
                         dragIndex = index
                         onPageSelected(entries[index].page)
@@ -336,52 +306,101 @@ internal fun PdfLabelScrollbar(
                 )
             }
     ) {
-        if (!isDragging) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(4.dp)
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 6.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
-            )
-        }
-
+        // The track — always the tick/pill rendering, in both idle and dragging. This is the
+        // permanent position indicator; the carousel below is a separate, purely local preview.
         LazyColumn(
             state = listState,
             modifier = Modifier.align(Alignment.TopEnd).fillMaxSize(),
             userScrollEnabled = false,
             horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(if (isDragging) rowSpacing else 0.dp),
-            contentPadding = PaddingValues(vertical = if (isDragging) panelPadding else 0.dp)
+            verticalArrangement = Arrangement.SpaceBetween,
+            contentPadding = PaddingValues(vertical = 8.dp)
         ) {
-            itemsIndexed(entries, key = { _, entry -> entry.rowIndex }) { index, entry ->
-                if (!isDragging) {
-                    // The current page's tick IS the pill — same list, same real layout, no
-                    // separately-positioned floating widget to drift out of sync.
-                    val isCurrent = index == currentEntryIndex
-                    Box(
-                        modifier = Modifier
-                            .padding(end = 6.dp, top = 1.dp, bottom = 1.dp)
-                            .width(8.dp)
-                            .height(if (isCurrent) idlePillHeight else idleTickHeight)
-                            .background(
-                                if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(4.dp)
-                            )
+            itemsIndexed(entries, key = { _, entry -> entry.rowIndex }) { index, _ ->
+                val isCurrent = index == currentEntryIndex
+                Box(
+                    modifier = Modifier
+                        .padding(end = 6.dp)
+                        .width(tickWidth)
+                        .height(if (isCurrent) idlePillHeight else idleTickHeight)
+                        .background(
+                            if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                )
+            }
+        }
+
+        if (isDragging) {
+            // Fixed size tiers, not a continuous falloff — the carousel only ever shows exactly
+            // these 5 roles (main/±1/±2), so there's no "many more neighbors fading to zero" case
+            // to model the way the old whole-document dock needed to.
+            fun thumbHeightForDistance(distance: Int): Dp = when (kotlin.math.abs(distance)) {
+                0 -> 160.dp
+                1 -> 100.dp
+                else -> 60.dp
+            }
+            // Whole-chip footprint (thumbnail + its own chrome/padding + caption allowance where
+            // applicable) for each role, used only to position the carousel so its main slot
+            // tracks the touch point — NOT a measurement of anything dynamic (unlike the old
+            // per-row cumulative-height estimate this whole redesign replaced), just the known
+            // sum of fixed constants below, so there's no real-vs-estimate drift possible here.
+            fun footprintForDistance(distance: Int): Dp = when (kotlin.math.abs(distance)) {
+                0 -> 222.dp // 160 thumbnail + 18 chip chrome + ~44 two-line caption + range label
+                1 -> 138.dp // 100 thumbnail + 18 chip chrome + ~20 one-line caption
+                else -> 78.dp // 60 thumbnail + 18 chip chrome, no caption
+            }
+
+            val footprintsPx = carouselSlots.associate { (distance, _) -> distance to with(density) { footprintForDistance(distance).toPx() } }
+            var mainTopPx = 0f
+            for ((distance, _) in carouselSlots) {
+                if (distance >= 0) break
+                mainTopPx += (footprintsPx[distance] ?: 0f) + with(density) { rowSpacing.toPx() }
+            }
+            val mainCenterPx = mainTopPx + (footprintsPx[0] ?: 0f) / 2f
+            val totalContentPx = footprintsPx.values.sum() + (carouselSlots.size - 1).coerceAtLeast(0) * with(density) { rowSpacing.toPx() }
+            val maxTopPx = (trackHeightPx - totalContentPx).coerceAtLeast(0f)
+            val carouselTopPx = (touchYPx - mainCenterPx).coerceIn(0f, maxTopPx)
+            val carouselTopDp = with(density) { carouselTopPx.toDp() }
+
+            val frostedTokens = LocalKKCThemeTokens.current.frosted
+            val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
+            val panelSurfaceColor = MaterialTheme.colorScheme.surface
+            val safeHazeState = hazeState
+            val hazeAvailable = safeHazeState != null && !lowEnd.blurDisabled
+            val chipColor = if (hazeAvailable) {
+                androidx.compose.ui.graphics.Color.Transparent
+            } else {
+                panelSurfaceColor.copy(alpha = frostedAlpha)
+            }
+            val chipHazeModifier = if (safeHazeState != null && hazeAvailable) {
+                Modifier.hazeEffect(
+                    safeHazeState,
+                    style = HazeDefaults.style(
+                        backgroundColor = panelSurfaceColor.copy(alpha = frostedAlpha),
+                        blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
                     )
-                } else {
-                    val distance = kotlin.math.abs(index - focusIndex)
-                    val scale = dockScaleForDistance(distance, radius)
-                    val target = baseHeight + (maxHeight - baseHeight) * scale
-                    val animatedHeight = animateDpAsState(targetValue = target, animationSpec = tween(160), label = "rowHeight$index").value
-                    val hPx = with(density) { animatedHeight.toPx() }
+                )
+            } else {
+                Modifier
+            }
+            val chipShadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
+            val maxThumbWidthPx = with(density) { (carouselWidth - panelPadding * 2).toPx() }
+            val maxThumbWidth = carouselWidth - panelPadding * 2
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(y = carouselTopDp)
+                    .width(carouselWidth),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(rowSpacing)
+            ) {
+                carouselSlots.forEach { (distance, entry) ->
+                    val thumbHeightDp = thumbHeightForDistance(distance)
+                    val hPx = with(density) { thumbHeightDp.toPx() }
                     val bitmap = thumbCache[entry.rowIndex]
                     val aspect = bitmap?.let { it.width.toFloat() / it.height.toFloat().coerceAtLeast(1f) } ?: fallbackAspect
-                    // Keep the box aspect-locked to the thumbnail's real aspect even when capped
-                    // by the panel width — otherwise a wide-but-height-capped box leaves the
-                    // image letterboxed (ContentScale.Fit gapping top/bottom) instead of filling
-                    // it.
                     val uncappedWidthPx = hPx * aspect
                     val (effectiveHeightPx, effectiveWidthPx) = if (uncappedWidthPx > maxThumbWidthPx) {
                         (maxThumbWidthPx / aspect) to maxThumbWidthPx
@@ -390,10 +409,8 @@ internal fun PdfLabelScrollbar(
                     }
                     val rowHeight = with(density) { effectiveHeightPx.toDp() }
                     val thumbWidth = with(density) { effectiveWidthPx.toDp() }
-                    // Same falloff driving the thumbnail's own size — once a row has shrunk to
-                    // (near enough) baseHeight, its label wouldn't be legible anyway, so it
-                    // shrinks away too, down to a bare dot instead of unreadable text.
-                    val showLabel = scale > 0.15f
+                    val isMain = distance == 0
+                    val showLabel = kotlin.math.abs(distance) <= 1
 
                     androidx.compose.material3.Surface(
                         modifier = Modifier.padding(vertical = 3.dp, horizontal = panelPadding),
@@ -414,7 +431,7 @@ internal fun PdfLabelScrollbar(
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(MaterialTheme.colorScheme.surfaceVariant)
                                         .then(
-                                            if (index == currentEntryIndex) {
+                                            if (isMain) {
                                                 Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
                                             } else {
                                                 Modifier
@@ -441,13 +458,13 @@ internal fun PdfLabelScrollbar(
                                     Text(
                                         text = entry.label,
                                         modifier = Modifier.widthIn(max = maxThumbWidth + 20.dp).padding(top = 2.dp),
-                                        style = if (index == focusIndex) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall,
+                                        style = if (isMain) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         textAlign = TextAlign.Center,
-                                        maxLines = if (index == focusIndex) 2 else 1,
+                                        maxLines = if (isMain) 2 else 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (entry.rangeLabel != null) {
+                                    if (isMain && entry.rangeLabel != null) {
                                         Text(
                                             text = entry.rangeLabel,
                                             modifier = Modifier.widthIn(max = maxThumbWidth + 20.dp),
@@ -458,14 +475,6 @@ internal fun PdfLabelScrollbar(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     }
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .padding(top = 2.dp)
-                                            .size(3.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.onSurfaceVariant)
-                                    )
                                 }
                             }
                         }
