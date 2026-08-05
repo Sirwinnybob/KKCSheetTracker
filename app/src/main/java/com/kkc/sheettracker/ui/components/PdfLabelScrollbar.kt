@@ -133,10 +133,11 @@ private val scrollbarThumbDisposalScope = CoroutineScope(SupervisorJob() + Dispa
 internal val PDF_LABEL_SCROLLBAR_IDLE_WIDTH = 36.dp
 
 /**
- * Expanded dock panel width while dragging — thumbnails magnify WITHIN this width (growing
- * taller, capped narrower). The panel overlays the PDF content transiently while dragging;
- * only [PDF_LABEL_SCROLLBAR_IDLE_WIDTH] is permanently reserved (see [UnifiedReferenceViewer]'s
- * contentPadding for the continuous branch).
+ * Fixed width of the floating carousel shown while dragging — the carousel's fixed-tier slots
+ * (main/±1/±2) are laid out and capped to this width; thumbnails scale down to fit within it
+ * rather than the carousel growing to fit them. The carousel overlays the PDF content transiently
+ * while dragging; only [PDF_LABEL_SCROLLBAR_IDLE_WIDTH] is permanently reserved (see
+ * [UnifiedReferenceViewer]'s contentPadding for the continuous branch).
  */
 internal val PDF_LABEL_SCROLLBAR_PANEL_WIDTH = 240.dp
 
@@ -179,7 +180,7 @@ internal fun PdfLabelScrollbar(
     val idleWidth = PDF_LABEL_SCROLLBAR_IDLE_WIDTH
     val carouselWidth = PDF_LABEL_SCROLLBAR_PANEL_WIDTH
     val rowSpacing = 5.dp
-    val panelPadding = 16.dp
+    val carouselPadding = 16.dp
     // So the track never renders into AppScaffold's floating bottom nav bar.
     val bottomClearance = 150.dp
     // Rough per-row footprint at rest — used only to decide FULL vs. BUCKETED display mode
@@ -306,6 +307,19 @@ internal fun PdfLabelScrollbar(
                 )
             }
     ) {
+        // Thin continuous background rail so the track reads as "a scrollbar" even where ticks
+        // are sparse (BUCKETED mode, or long documents with few visible rows) — always rendered,
+        // both idle and dragging, as a backdrop behind the ticks; the carousel floats to the side
+        // while dragging so it never visually conflicts with this rail.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(end = 6.dp + (tickWidth - 4.dp) / 2)
+                .width(4.dp)
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
+        )
+
         // The track — always the tick/pill rendering, in both idle and dragging. This is the
         // permanent position indicator; the carousel below is a separate, purely local preview.
         LazyColumn(
@@ -351,33 +365,51 @@ internal fun PdfLabelScrollbar(
                 else -> 78.dp // 60 thumbnail + 18 chip chrome, no caption
             }
 
-            val footprintsPx = carouselSlots.associate { (distance, _) -> distance to with(density) { footprintForDistance(distance).toPx() } }
+            // The full 5-slot carousel (≈674dp: 78+138+222+138+78 + 4×5dp spacing) can exceed
+            // trackHeightPx on constrained viewports (landscape split-pane, smaller tablets) — if
+            // rendered at full size it would overflow past the bottom of the track and into the
+            // bottomClearance zone this whole indicator is meant to stay out of. Trim from the
+            // outer slots inward (largest |distance| first) until what's left actually fits,
+            // always keeping at least the main slot.
+            val fittedSlots = run {
+                var candidate = carouselSlots
+                while (candidate.size > 1) {
+                    val totalPx = candidate.sumOf { (distance, _) -> with(density) { footprintForDistance(distance).toPx() }.toDouble() }.toFloat() +
+                        (candidate.size - 1).coerceAtLeast(0) * with(density) { rowSpacing.toPx() }
+                    if (totalPx <= trackHeightPx) break
+                    val maxAbsDistance = candidate.maxOf { (distance, _) -> kotlin.math.abs(distance) }
+                    candidate = candidate.filterNot { (distance, _) -> kotlin.math.abs(distance) == maxAbsDistance }
+                }
+                candidate
+            }
+
+            val footprintsPx = fittedSlots.associate { (distance, _) -> distance to with(density) { footprintForDistance(distance).toPx() } }
             var mainTopPx = 0f
-            for ((distance, _) in carouselSlots) {
+            for ((distance, _) in fittedSlots) {
                 if (distance >= 0) break
                 mainTopPx += (footprintsPx[distance] ?: 0f) + with(density) { rowSpacing.toPx() }
             }
             val mainCenterPx = mainTopPx + (footprintsPx[0] ?: 0f) / 2f
-            val totalContentPx = footprintsPx.values.sum() + (carouselSlots.size - 1).coerceAtLeast(0) * with(density) { rowSpacing.toPx() }
+            val totalContentPx = footprintsPx.values.sum() + (fittedSlots.size - 1).coerceAtLeast(0) * with(density) { rowSpacing.toPx() }
             val maxTopPx = (trackHeightPx - totalContentPx).coerceAtLeast(0f)
             val carouselTopPx = (touchYPx - mainCenterPx).coerceIn(0f, maxTopPx)
             val carouselTopDp = with(density) { carouselTopPx.toDp() }
 
             val frostedTokens = LocalKKCThemeTokens.current.frosted
             val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
-            val panelSurfaceColor = MaterialTheme.colorScheme.surface
+            val carouselSurfaceColor = MaterialTheme.colorScheme.surface
             val safeHazeState = hazeState
             val hazeAvailable = safeHazeState != null && !lowEnd.blurDisabled
             val chipColor = if (hazeAvailable) {
                 androidx.compose.ui.graphics.Color.Transparent
             } else {
-                panelSurfaceColor.copy(alpha = frostedAlpha)
+                carouselSurfaceColor.copy(alpha = frostedAlpha)
             }
             val chipHazeModifier = if (safeHazeState != null && hazeAvailable) {
                 Modifier.hazeEffect(
                     safeHazeState,
                     style = HazeDefaults.style(
-                        backgroundColor = panelSurfaceColor.copy(alpha = frostedAlpha),
+                        backgroundColor = carouselSurfaceColor.copy(alpha = frostedAlpha),
                         blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
                     )
                 )
@@ -385,8 +417,8 @@ internal fun PdfLabelScrollbar(
                 Modifier
             }
             val chipShadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
-            val maxThumbWidthPx = with(density) { (carouselWidth - panelPadding * 2).toPx() }
-            val maxThumbWidth = carouselWidth - panelPadding * 2
+            val maxThumbWidthPx = with(density) { (carouselWidth - carouselPadding * 2).toPx() }
+            val maxThumbWidth = carouselWidth - carouselPadding * 2
 
             Column(
                 modifier = Modifier
@@ -396,7 +428,7 @@ internal fun PdfLabelScrollbar(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(rowSpacing)
             ) {
-                carouselSlots.forEach { (distance, entry) ->
+                fittedSlots.forEach { (distance, entry) ->
                     val thumbHeightDp = thumbHeightForDistance(distance)
                     val hPx = with(density) { thumbHeightDp.toPx() }
                     val bitmap = thumbCache[entry.rowIndex]
@@ -413,7 +445,7 @@ internal fun PdfLabelScrollbar(
                     val showLabel = kotlin.math.abs(distance) <= 1
 
                     androidx.compose.material3.Surface(
-                        modifier = Modifier.padding(vertical = 3.dp, horizontal = panelPadding),
+                        modifier = Modifier.padding(vertical = 3.dp, horizontal = carouselPadding),
                         shape = RoundedCornerShape(10.dp),
                         color = chipColor,
                         shadowElevation = chipShadowElevation,
