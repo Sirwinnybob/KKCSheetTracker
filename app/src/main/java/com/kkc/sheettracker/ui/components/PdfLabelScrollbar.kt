@@ -59,7 +59,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import kotlin.math.roundToInt
 
 /** Falloff for the dock-style magnification — smooth gaussian taper across neighbors. */
 internal fun dockScaleForDistance(distance: Int, radius: Float): Float {
@@ -82,15 +81,6 @@ internal fun centerOutLoadOrder(count: Int, focus: Int): List<Int> {
         radius++
     }
     return out
-}
-
-/** Maps a touch fraction along the idle (collapsed) track to a row index — uniform spacing,
- * used only before the expanded dock has laid out real (unevenly magnified) row positions. */
-internal fun idleIndexForFraction(rowCount: Int, fraction: Float): Int {
-    if (rowCount <= 0) return 0
-    if (rowCount == 1) return 0
-    val clamped = fraction.coerceIn(0f, 1f)
-    return (clamped * (rowCount - 1)).roundToInt().coerceIn(0, rowCount - 1)
 }
 
 /**

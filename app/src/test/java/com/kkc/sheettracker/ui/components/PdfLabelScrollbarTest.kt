@@ -54,26 +54,4 @@ class PdfLabelScrollbarTest {
     fun centerOutLoadOrder_returnsEmptyForEmptyDocument() {
         assertEquals(emptyList<Int>(), centerOutLoadOrder(count = 0, focus = 0))
     }
-
-    @Test
-    fun idleIndexForFraction_mapsZeroToFirstIndex() {
-        assertEquals(0, idleIndexForFraction(rowCount = 10, fraction = 0f))
-    }
-
-    @Test
-    fun idleIndexForFraction_mapsOneToLastIndex() {
-        assertEquals(9, idleIndexForFraction(rowCount = 10, fraction = 1f))
-    }
-
-    @Test
-    fun idleIndexForFraction_clampsOutOfRangeFractions() {
-        assertEquals(0, idleIndexForFraction(rowCount = 10, fraction = -0.5f))
-        assertEquals(9, idleIndexForFraction(rowCount = 10, fraction = 1.5f))
-    }
-
-    @Test
-    fun idleIndexForFraction_returnsZeroForEmptyOrSingleRow() {
-        assertEquals(0, idleIndexForFraction(rowCount = 0, fraction = 0.5f))
-        assertEquals(0, idleIndexForFraction(rowCount = 1, fraction = 0.5f))
-    }
 }
