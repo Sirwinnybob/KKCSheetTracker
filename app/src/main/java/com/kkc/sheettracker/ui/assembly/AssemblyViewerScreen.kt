@@ -218,6 +218,7 @@ fun AssemblyViewerScreen(
     }
     val initialPaneSource = parseInitialSource(initialSource)
 
+    val enteredVia3D = initialPaneSource == PaneSource.THREE_D
     val assemblyFilename by produceState<String>(
         initialValue = "",
         key1 = sheetIndex,
@@ -325,16 +326,16 @@ fun AssemblyViewerScreen(
     var contextLine by remember { mutableStateOf("") }
     var showPartsSheet by remember { mutableStateOf(false) }
     var fullscreenPane by rememberSaveable(initialSource) {
-        val saved = prefs.getString("${resumePrefix}_fullscreen", null)
-        mutableStateOf(
-            runCatching { saved?.let { FullscreenPane.valueOf(it) } }.getOrNull()
-                ?: when {
-                    initialPaneSource == PaneSource.THREE_D -> FullscreenPane.FIRST
-                    initialLayout == AssemblyViewLayout.SINGLE -> FullscreenPane.FIRST
-                    else -> FullscreenPane.NONE
-                }
-        )
-    }
+    val saved = if (enteredVia3D) null else prefs.getString("${resumePrefix}_fullscreen", null)
+    mutableStateOf(
+        runCatching { saved?.let { FullscreenPane.valueOf(it) } }.getOrNull()
+            ?: when {
+                enteredVia3D -> FullscreenPane.FIRST
+                initialLayout == AssemblyViewLayout.SINGLE -> FullscreenPane.FIRST
+                else -> FullscreenPane.NONE
+            }
+    )
+}
 
     // True fullscreen: hide system bars for the lifetime of this screen.
     ImmersiveSystemBars()
@@ -344,22 +345,22 @@ fun AssemblyViewerScreen(
     DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
 
     var firstPaneSource by rememberSaveable(initialSource) {
-        val saved = prefs.getString("${resumePrefix}_first_source", null)
-        mutableStateOf(
-            runCatching { saved?.let { PaneSource.valueOf(it) } }.getOrNull()
-                ?: initialPaneSource
-                ?: initialFirstPane?.toPaneSource()
-                ?: PaneSource.PLANS
-        )
-    }
+    val saved = if (enteredVia3D) null else prefs.getString("${resumePrefix}_first_source", null)
+    mutableStateOf(
+        runCatching { saved?.let { PaneSource.valueOf(it) } }.getOrNull()
+            ?: initialPaneSource
+            ?: initialFirstPane?.toPaneSource()
+            ?: PaneSource.PLANS
+    )
+}
     var secondPaneSource by rememberSaveable(initialSource) {
-        val saved = prefs.getString("${resumePrefix}_second_source", null)
-        mutableStateOf(
-            runCatching { saved?.let { PaneSource.valueOf(it) } }.getOrNull()
-                ?: initialSecondPane?.toPaneSource()
-                ?: PaneSource.ASSEMBLY
-        )
-    }
+    val saved = if (enteredVia3D) null else prefs.getString("${resumePrefix}_second_source", null)
+    mutableStateOf(
+        runCatching { saved?.let { PaneSource.valueOf(it) } }.getOrNull()
+            ?: initialSecondPane?.toPaneSource()
+            ?: PaneSource.ASSEMBLY
+    )
+}
     var firstPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
     var secondPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
     var firstPaneDeliveryPage by rememberSaveable { mutableIntStateOf(1) }
@@ -388,7 +389,8 @@ fun AssemblyViewerScreen(
     }
 
     LaunchedEffect(assemblyPage, plansPage, firstPaneSource, secondPaneSource, fullscreenPane) {
-        prefs.edit()
+    if (enteredVia3D) return@LaunchedEffect
+    prefs.edit()
             .putInt("${resumePrefix}_assembly_page", assemblyPage)
             .putInt("${resumePrefix}_plans_page", plansPage)
             .putString("${resumePrefix}_first_source", firstPaneSource.name)

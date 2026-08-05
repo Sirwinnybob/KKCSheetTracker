@@ -405,7 +405,9 @@ fun rememberSpecialtyJobsSpec(
                 return jobInfos.map { info ->
                     snapshotCards[info.folderName]?.toUnifiedModel(
                         isPinned = false,
-                        onCardClick = { onJobClick(info.folderName) }
+                        onCardClick = { onJobClick(info.folderName) },
+                        onView3DClick = onView3D?.let { h -> { h(info.folderName) } },
+                        onViewCoverSheetClick = onViewCoverSheet?.let { h -> { h(info.folderName) } }
                     ) ?: UnifiedJobUiModel(
                         folderName = info.folderName,
                         jobNumber = info.jobNumber,
@@ -421,7 +423,9 @@ fun rememberSpecialtyJobsSpec(
                             completedItems = 0,
                             fraction = 0f
                         ),
-                        onCardClick = { onJobClick(info.folderName) }
+                        onCardClick = { onJobClick(info.folderName) },
+                        onView3DClick = onView3D?.let { h -> { h(info.folderName) } },
+                        onViewCoverSheetClick = onViewCoverSheet?.let { h -> { h(info.folderName) } }
                     )
                 }
             }

@@ -3268,8 +3268,10 @@ private fun resolveDefaultThreeDTarget(
             room to page
         }
     val firstRoom = assemblyRooms
-        .sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
-        .firstOrNull()
+        .firstOrNull { it.first.equals("Kitchen", ignoreCase = true) }
+        ?: assemblyRooms
+            .sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
+            .firstOrNull()
 
     val firstAssemblyPage = firstRoom?.second
         ?: assemblyCabinetToPages.values.flatten().minOrNull()
