@@ -81,4 +81,55 @@ class ReferencePdfPaneZoomPanTest {
 
         assertEquals(maxZoom, result.zoom, 0.001f)
     }
+
+    @Test
+    fun computeDetailRelativeTransform_identityWhenNothingChanged() {
+        val result = computeDetailRelativeTransform(
+            liveZoom = 3f, livePanX = 50f, livePanY = -20f,
+            capturedZoom = 3f, capturedPanX = 50f, capturedPanY = -20f
+        )
+
+        assertEquals(1f, result.zoom, 0.001f)
+        assertEquals(0f, result.panX, 0.001f)
+        assertEquals(0f, result.panY, 0.001f)
+    }
+
+    @Test
+    fun computeDetailRelativeTransform_panOnlyShiftsByExactDelta() {
+        // Zoom unchanged since capture, pan moved by (30, -10) — detail should slide by exactly that.
+        val result = computeDetailRelativeTransform(
+            liveZoom = 2f, livePanX = 80f, livePanY = -30f,
+            capturedZoom = 2f, capturedPanX = 50f, capturedPanY = -20f
+        )
+
+        assertEquals(1f, result.zoom, 0.001f)
+        assertEquals(30f, result.panX, 0.001f)
+        assertEquals(-10f, result.panY, 0.001f)
+    }
+
+    @Test
+    fun computeDetailRelativeTransform_zoomOnlyScalesAroundCenterWithNoTranslate() {
+        // Pan unchanged (both zero) — further zoom should scale around center, no shift.
+        val result = computeDetailRelativeTransform(
+            liveZoom = 4f, livePanX = 0f, livePanY = 0f,
+            capturedZoom = 2f, capturedPanX = 0f, capturedPanY = 0f
+        )
+
+        assertEquals(2f, result.zoom, 0.001f)
+        assertEquals(0f, result.panX, 0.001f)
+        assertEquals(0f, result.panY, 0.001f)
+    }
+
+    @Test
+    fun computeDetailRelativeTransform_combinedZoomAndPanChange() {
+        val result = computeDetailRelativeTransform(
+            liveZoom = 6f, livePanX = 100f, livePanY = 40f,
+            capturedZoom = 3f, capturedPanX = 20f, capturedPanY = 10f
+        )
+
+        // relativeScale = 6/3 = 2; panX = 100 - 2*20 = 60; panY = 40 - 2*10 = 20
+        assertEquals(2f, result.zoom, 0.001f)
+        assertEquals(60f, result.panX, 0.001f)
+        assertEquals(20f, result.panY, 0.001f)
+    }
 }

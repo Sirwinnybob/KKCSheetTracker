@@ -285,6 +285,63 @@ class PdfRenderEngine(private val pdfFile: File) {
         }
     }
 
+    /**
+     * Renders only a sub-rectangle of the page (fractions of full page width/height, 0..1),
+     * scaled to fill [outputSize]. Used by continuous-scroll's shared whole-stack zoom so each
+     * page only re-renders the slice that's actually on screen instead of the whole page.
+     */
+    suspend fun renderCropFraction(
+        pageIndex: Int,
+        cropLeft: Float,
+        cropTop: Float,
+        cropRight: Float,
+        cropBottom: Float,
+        outputSize: IntSize,
+        matteColorArgb: Int = android.graphics.Color.WHITE
+    ): Bitmap? = mutex.withLock {
+        if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
+        if (!pdfFile.exists() || outputSize == IntSize.Zero) return null
+        val localRenderer = ensureRendererLocked()
+        if (pageIndex !in 0 until localRenderer.pageCount) return null
+        var page: PdfRenderer.Page? = null
+        try {
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
+            page = localRenderer.openPage(pageIndex)
+            val activePage = page
+            val pageWidth = activePage.width.toFloat().coerceAtLeast(1f)
+            val pageHeight = activePage.height.toFloat().coerceAtLeast(1f)
+            val srcLeft = cropLeft.coerceIn(0f, 1f) * pageWidth
+            val srcTop = cropTop.coerceIn(0f, 1f) * pageHeight
+            val srcRight = (cropRight.coerceIn(0f, 1f) * pageWidth).coerceAtLeast(srcLeft + 1f)
+            val srcBottom = (cropBottom.coerceIn(0f, 1f) * pageHeight).coerceAtLeast(srcTop + 1f)
+            var outWidth = outputSize.width.coerceAtLeast(1)
+            var outHeight = outputSize.height.coerceAtLeast(1)
+            val maxArea = 12_000_000
+            val area = outWidth.toLong() * outHeight.toLong()
+            if (area > maxArea) {
+                val down = sqrt(area.toDouble() / maxArea.toDouble()).toFloat()
+                outWidth = (outWidth / down).toInt().coerceAtLeast(1)
+                outHeight = (outHeight / down).toInt().coerceAtLeast(1)
+            }
+            val bmp = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
+            bmp.eraseColor(matteColorArgb)
+            val scaleX = outWidth / (srcRight - srcLeft)
+            val scaleY = outHeight / (srcBottom - srcTop)
+            val matrix = Matrix().apply {
+                postTranslate(-srcLeft, -srcTop)
+                postScale(scaleX, scaleY)
+            }
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
+                bmp.recycle()
+                return@withLock null
+            }
+            activePage.render(bmp, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            bmp
+        } finally {
+            runCatching { page?.close() }
+        }
+    }
+
     suspend fun renderThumbnail(pageIndex: Int, maxWidth: Int = 340): Bitmap? = mutex.withLock {
         if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
         if (!pdfFile.exists()) return null
@@ -585,9 +642,17 @@ fun ReferencePdfPane(
                     Box(Modifier.fillMaxSize().padding(contentPadding)) {
                         val vw = viewportState.viewSize.width.toFloat().coerceAtLeast(1f)
                         val isSliding = slideProgress.value < 1f
+                        // Kept visible through interaction now (continuous-scroll's crop tiles
+                        // proved this reads much smoother than dropping to the blurry upscaled
+                        // base every time you touch the screen) — ZoomablePdfImage applies a
+                        // corrective delta-transform so the bitmap tracks the live pan/zoom
+                        // instead of needing an exact match. Still requires a same-size capture:
+                        // a resize (rotation, split-pane change) invalidates the geometry the
+                        // correction math assumes, so fall back to base-only until a fresh
+                        // detail render lands for the new size.
                         val shouldShowDetail = detailBitmap != null &&
-                            detailForViewport == viewportState.quantized() &&
-                            !isInteracting
+                            detailForViewport?.width == viewportState.viewSize.width &&
+                            detailForViewport?.height == viewportState.viewSize.height
 
                         // Old page slides out while the new page slides in.
                         val snapSlideOut = slideOutBitmap
@@ -608,6 +673,7 @@ fun ReferencePdfPane(
                             // Suppress fallback during slide — the slideOutBitmap layer covers it.
                             baseBitmap = baseBitmap ?: if (!isSliding) fallbackBitmap else null,
                             detailBitmap = if (shouldShowDetail) detailBitmap else null,
+                            detailCaptured = if (shouldShowDetail) detailForViewport else null,
                             pageKey = currentPage,
                             onViewportStateChanged = { viewportState = it },
                             onInteractionChanged = { isInteracting = it },
@@ -804,6 +870,7 @@ fun ReferencePdfPane(
 private fun ZoomablePdfImage(
     baseBitmap: Bitmap?,
     detailBitmap: Bitmap?,
+    detailCaptured: QuantizedViewportState?,
     pageKey: Int,
     onViewportStateChanged: (PdfViewportState) -> Unit,
     onInteractionChanged: (Boolean) -> Unit,
@@ -964,10 +1031,32 @@ private fun ZoomablePdfImage(
                 contentScale = ContentScale.Fit
             )
             if (detailBitmap != null) {
+                // detailBitmap was rendered to exactly fill the box at detailCaptured's
+                // zoom/pan. If the live zoom/pan has moved on since, a relative delta-transform
+                // (center-pivot, matching graphicsLayer's own pivot) keeps it correctly
+                // positioned over the page instead of needing a fresh render on every frame —
+                // same trick continuous-scroll's crop tiles get for free from inheriting their
+                // page's ancestor transform. Identity (no-op) when nothing has changed since
+                // capture.
+                val relative = computeDetailRelativeTransform(
+                    liveZoom = zoom,
+                    livePanX = panX,
+                    livePanY = panY,
+                    capturedZoom = detailCaptured?.zoomX100?.let { it / 100f } ?: zoom,
+                    capturedPanX = detailCaptured?.panX?.toFloat() ?: panX,
+                    capturedPanY = detailCaptured?.panY?.toFloat() ?: panY
+                )
                 Image(
                     bitmap = detailBitmap.asImageBitmap(),
                     contentDescription = "Reference page detail",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = relative.zoom
+                            scaleY = relative.zoom
+                            translationX = relative.panX
+                            translationY = relative.panY
+                        },
                     contentScale = ContentScale.Fit
                 )
             }
@@ -1143,6 +1232,33 @@ internal fun computeZoomPan(
     val nextPanX = panX * appliedZoomChange + panChange.x + anchorX * (1f - appliedZoomChange)
     val nextPanY = panY * appliedZoomChange + panChange.y + anchorY * (1f - appliedZoomChange)
     return ZoomPanResult(zoom = nextZoom, panX = nextPanX, panY = nextPanY)
+}
+
+/**
+ * Relative delta-transform between a captured (already-rendered) viewport and the live one, so a
+ * bitmap rendered for the captured viewport can keep tracking the live pan/zoom without a fresh
+ * render every frame. Both scale and translate use graphicsLayer's own center pivot convention.
+ * Derivation: a box-local point p appears on screen at `center + (p-center)*zoom + pan` for
+ * either viewport. Solving for the same page point p under both and re-arranging to express the
+ * captured bitmap's own coordinate space in terms of the live one's yields `relativeScale =
+ * liveZoom/capturedZoom` and `relativePan = livePan - relativeScale * capturedPan` — the
+ * `center` terms cancel because graphicsLayer already pivots around center by default.
+ * Identity (no-op) when live == captured.
+ */
+internal fun computeDetailRelativeTransform(
+    liveZoom: Float,
+    livePanX: Float,
+    livePanY: Float,
+    capturedZoom: Float,
+    capturedPanX: Float,
+    capturedPanY: Float
+): ZoomPanResult {
+    val relativeScale = if (capturedZoom != 0f) liveZoom / capturedZoom else 1f
+    return ZoomPanResult(
+        zoom = relativeScale,
+        panX = livePanX - relativeScale * capturedPanX,
+        panY = livePanY - relativeScale * capturedPanY
+    )
 }
 
 private data class QuantizedViewportState(

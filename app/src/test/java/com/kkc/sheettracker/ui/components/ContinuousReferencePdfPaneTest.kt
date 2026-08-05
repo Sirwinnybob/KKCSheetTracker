@@ -55,4 +55,65 @@ class ContinuousReferencePdfPaneTest {
 
         assertEquals(emptyList<String>(), evicted)
     }
+
+    @Test
+    fun visiblePageFraction_fullyOnScreenReturnsWholePage() {
+        val frac = visiblePageFraction(
+            pageLeft = 0f, pageTop = 0f, pageRight = 800f, pageBottom = 1000f,
+            viewportWidth = 800f, viewportHeight = 1000f
+        )
+
+        assertEquals(0f, frac!!.left, 0.001f)
+        assertEquals(0f, frac.top, 0.001f)
+        assertEquals(1f, frac.right, 0.001f)
+        assertEquals(1f, frac.bottom, 0.001f)
+    }
+
+    @Test
+    fun visiblePageFraction_zoomedInShowsOnlyOnScreenSlice() {
+        // Page is 3x the viewport (zoomed in), scrolled so only its middle third is on screen.
+        val frac = visiblePageFraction(
+            pageLeft = 0f, pageTop = -1000f, pageRight = 800f, pageBottom = 2000f,
+            viewportWidth = 800f, viewportHeight = 1000f
+        )
+
+        assertEquals(0f, frac!!.left, 0.001f)
+        assertEquals(1f / 3f, frac.top, 0.001f)
+        assertEquals(1f, frac.right, 0.001f)
+        assertEquals(2f / 3f, frac.bottom, 0.001f)
+    }
+
+    @Test
+    fun visiblePageFraction_noOverlapReturnsNull() {
+        val frac = visiblePageFraction(
+            pageLeft = 0f, pageTop = 2000f, pageRight = 800f, pageBottom = 3000f,
+            viewportWidth = 800f, viewportHeight = 1000f
+        )
+
+        assertEquals(null, frac)
+    }
+
+    @Test
+    fun visiblePageFraction_partialOverlapAtEdge() {
+        // Page's bottom half hangs off below the viewport.
+        val frac = visiblePageFraction(
+            pageLeft = 0f, pageTop = 500f, pageRight = 800f, pageBottom = 1500f,
+            viewportWidth = 800f, viewportHeight = 1000f
+        )
+
+        assertEquals(0f, frac!!.left, 0.001f)
+        assertEquals(0f, frac.top, 0.001f)
+        assertEquals(1f, frac.right, 0.001f)
+        assertEquals(0.5f, frac.bottom, 0.001f)
+    }
+
+    @Test
+    fun maxCrossAxisPan_zoomOneAllowsNoPan() {
+        assertEquals(0f, maxCrossAxisPan(viewportExtent = 800f, zoom = 1f), 0.001f)
+    }
+
+    @Test
+    fun maxCrossAxisPan_scalesWithZoom() {
+        assertEquals(400f, maxCrossAxisPan(viewportExtent = 800f, zoom = 2f), 0.001f)
+    }
 }

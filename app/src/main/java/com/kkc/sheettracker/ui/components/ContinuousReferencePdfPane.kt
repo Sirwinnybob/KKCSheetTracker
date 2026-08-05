@@ -3,16 +3,20 @@ package com.kkc.sheettracker.ui.components
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -30,13 +34,15 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.PdfInkStroke
@@ -47,6 +53,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -54,6 +61,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+private const val CONTINUOUS_MAX_ZOOM = 10f
+private const val CONTINUOUS_MIN_ZOOM = 1f
 
 internal fun computeRenderWindow(
     firstVisiblePage: Int,
@@ -72,6 +85,44 @@ internal fun <T> lruTouch(order: List<T>, key: T): List<T> =
 
 internal fun <T> lruEvictionCandidates(order: List<T>, maxOpen: Int): List<T> =
     if (order.size <= maxOpen) emptyList() else order.take(order.size - maxOpen)
+
+/** A sub-rectangle of a page, expressed as fractions (0..1) of that page's own width/height. */
+internal data class UnitRect(val left: Float, val top: Float, val right: Float, val bottom: Float)
+
+/**
+ * Given where a page is currently drawn on screen (already reflecting the shared whole-stack
+ * zoom + pan) and the pane's own visible viewport, returns which fraction of that PAGE (local to
+ * its own bounds, 0..1 each axis) is actually on screen right now. Null if there's no overlap.
+ *
+ * This is what lets continuous-scroll zoom re-render only the on-screen slice of a page instead
+ * of the whole page, even though the zoom is shared across every page in the stack.
+ */
+internal fun visiblePageFraction(
+    pageLeft: Float,
+    pageTop: Float,
+    pageRight: Float,
+    pageBottom: Float,
+    viewportWidth: Float,
+    viewportHeight: Float
+): UnitRect? {
+    val ix0 = max(pageLeft, 0f)
+    val iy0 = max(pageTop, 0f)
+    val ix1 = min(pageRight, viewportWidth)
+    val iy1 = min(pageBottom, viewportHeight)
+    if (ix1 <= ix0 || iy1 <= iy0) return null
+    val pw = (pageRight - pageLeft).coerceAtLeast(0.001f)
+    val ph = (pageBottom - pageTop).coerceAtLeast(0.001f)
+    return UnitRect(
+        left = ((ix0 - pageLeft) / pw).coerceIn(0f, 1f),
+        top = ((iy0 - pageTop) / ph).coerceIn(0f, 1f),
+        right = ((ix1 - pageLeft) / pw).coerceIn(0f, 1f),
+        bottom = ((iy1 - pageTop) / ph).coerceIn(0f, 1f)
+    )
+}
+
+/** Max cross-axis pan (screen px) allowed for a given zoom, matching the existing single-page clamp rule. */
+internal fun maxCrossAxisPan(viewportExtent: Float, zoom: Float): Float =
+    ((viewportExtent * zoom - viewportExtent) / 2f).coerceAtLeast(0f)
 
 /**
  * Keeps at most [maxOpen] [PdfRenderEngine]s open at once, keyed by absolute file path.
@@ -124,125 +175,41 @@ internal class PdfEngineCache(
 // which in Kotlin is file-private (not package-private) and therefore not visible here.
 private val continuousPdfEngineDisposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-/**
- * Per-page pinch-to-zoom that cooperates with the surrounding Lazy list scroll: a single
- * finger is left UNCONSUMED (so the list's own scrollable() keeps handling ordinary swipes)
- * unless the page is already zoomed in, in which case a single finger pans the zoomed image
- * instead. Two or more fingers always claim the gesture for pinch-zoom.
- *
- * While zoomed, re-renders a sharp high-res crop of the current viewport (same
- * [PdfRenderEngine.renderViewportTile] mechanism the single-page viewer uses) 120ms after the
- * gesture settles, so zoomed-in pages aren't just an upscaled blur of the base bitmap.
- */
 @Composable
-private fun ZoomablePageImage(
-    bitmap: Bitmap?,
-    contentDescription: String,
-    gesturesEnabled: Boolean,
-    engineCache: PdfEngineCache,
-    file: java.io.File?,
-    pageIndex: Int,
-    matteColorArgb: Int,
-    modifier: Modifier = Modifier
+private fun PageBitmapLayers(
+    baseBitmap: Bitmap?,
+    cropBitmap: Bitmap?,
+    cropFrac: UnitRect?,
+    boxSize: IntSize,
+    contentDescription: String
 ) {
-    var viewSize by remember { mutableStateOf(IntSize.Zero) }
-    var zoom by remember { mutableFloatStateOf(1f) }
-    var panX by remember { mutableFloatStateOf(0f) }
-    var panY by remember { mutableFloatStateOf(0f) }
-    var isInteracting by remember { mutableStateOf(false) }
-    var detailBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    val minZoom = 1f
-    val maxZoom = 6f
-
-    fun clampPan(targetZoom: Float, x: Float, y: Float): Pair<Float, Float> {
-        if (viewSize == IntSize.Zero || targetZoom <= minZoom) return 0f to 0f
-        val vw = viewSize.width.toFloat().coerceAtLeast(1f)
-        val vh = viewSize.height.toFloat().coerceAtLeast(1f)
-        val maxPanX = ((vw * targetZoom - vw) / 2f).coerceAtLeast(0f)
-        val maxPanY = ((vh * targetZoom - vh) / 2f).coerceAtLeast(0f)
-        return x.coerceIn(-maxPanX, maxPanX) to y.coerceIn(-maxPanY, maxPanY)
-    }
-
-    LaunchedEffect(zoom, panX, panY, isInteracting, file, viewSize) {
-        if (file == null || isInteracting || zoom <= 1.02f || viewSize == IntSize.Zero) {
-            if (zoom <= 1.02f) detailBitmap = null
-            return@LaunchedEffect
-        }
-        delay(120)
-        if (isInteracting) return@LaunchedEffect
-        val viewport = PdfViewportState(zoom = zoom, panX = panX, panY = panY, viewSize = viewSize)
-        detailBitmap = withContext(Dispatchers.IO) {
-            engineCache.get(file).renderViewportTile(pageIndex, viewport, matteColorArgb)
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .onSizeChanged { viewSize = it }
-            .then(
-                if (gesturesEnabled) {
-                    Modifier.pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            do {
-                                val event = awaitPointerEvent()
-                                val pointerCount = event.changes.count { it.pressed }
-                                val claim = pointerCount >= 2 || zoom > 1.02f
-                                if (claim) {
-                                    isInteracting = true
-                                    val zoomChange = event.calculateZoom()
-                                    val panChange = event.calculatePan()
-                                    val centroid = event.calculateCentroid(useCurrent = true)
-                                    val nextZoom = (zoom * zoomChange).coerceIn(minZoom, maxZoom)
-                                    val appliedZoomChange = if (zoom == 0f) 1f else nextZoom / zoom
-                                    val anchorX = if (centroid.isSpecified) centroid.x - viewSize.width / 2f else 0f
-                                    val anchorY = if (centroid.isSpecified) centroid.y - viewSize.height / 2f else 0f
-                                    val nextPanX = panX * appliedZoomChange + panChange.x + anchorX * (1f - appliedZoomChange)
-                                    val nextPanY = panY * appliedZoomChange + panChange.y + anchorY * (1f - appliedZoomChange)
-                                    val (cx, cy) = clampPan(nextZoom, nextPanX, nextPanY)
-                                    zoom = nextZoom
-                                    panX = cx
-                                    panY = cy
-                                    event.changes.forEach { it.consume() }
-                                }
-                            } while (event.changes.any { it.pressed })
-                            isInteracting = false
-                            if (zoom <= 1.02f) {
-                                zoom = 1f
-                                panX = 0f
-                                panY = 0f
-                            }
-                        }
-                    }
-                } else {
-                    Modifier
-                }
-            )
-    ) {
-        if (bitmap != null) {
+    Box(Modifier.fillMaxSize()) {
+        if (baseBitmap != null) {
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = baseBitmap.asImageBitmap(),
                 contentDescription = contentDescription,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = zoom
-                        scaleY = zoom
-                        translationX = panX
-                        translationY = panY
-                    },
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit
             )
-            // Sharp high-res crop of the current viewport, drawn at full size on top of the
-            // scaled (and therefore softening) base bitmap once it's ready — same layering
-            // idea as the single-page viewer's base+detail bitmaps.
-            val currentDetail = detailBitmap
-            if (currentDetail != null && zoom > 1.02f) {
+        } else {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
+        }
+        // Sharp crop tile of just the on-screen slice, positioned at its true sub-rect within
+        // this page's box so it lines up with the (softer, whole-page) base bitmap beneath it.
+        if (cropBitmap != null && cropFrac != null && boxSize != IntSize.Zero) {
+            val density = LocalDensity.current
+            val leftPx = cropFrac.left * boxSize.width
+            val topPx = cropFrac.top * boxSize.height
+            val wPx = ((cropFrac.right - cropFrac.left) * boxSize.width).coerceAtLeast(1f)
+            val hPx = ((cropFrac.bottom - cropFrac.top) * boxSize.height).coerceAtLeast(1f)
+            with(density) {
                 Image(
-                    bitmap = currentDetail.asImageBitmap(),
+                    bitmap = cropBitmap.asImageBitmap(),
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
+                    modifier = Modifier
+                        .offset(x = leftPx.toDp(), y = topPx.toDp())
+                        .size(width = wPx.toDp(), height = hPx.toDp()),
+                    contentScale = ContentScale.FillBounds
                 )
             }
         }
@@ -252,7 +219,7 @@ private fun ZoomablePageImage(
 @Composable
 internal fun ContinuousReferencePdfPane(
     modifier: Modifier = Modifier,
-    orientation: androidx.compose.foundation.gestures.Orientation,
+    orientation: Orientation,
     totalPages: Int,
     resolvePage: (Int) -> ResolvedPageSource,
     pdfFileForFilename: (String) -> java.io.File?,
@@ -273,20 +240,63 @@ internal fun ContinuousReferencePdfPane(
 
     val listState = rememberLazyListState()
     val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
+    // True only while THIS composable is driving an animateScrollToItem below (external nav
+    // request — scrollbar drag, resume-to-page). Distinguishes "the list moved because we
+    // told it to" from "the list moved because the user swiped/panned it" — the snapshotFlow
+    // below must not echo the former back as a nav request, or every animation frame it passes
+    // through re-fires onCenteredPageChange -> scrollToPage -> cancels-and-restarts itself
+    // mid-flight (this was the scrollbar-drag-vs-actual-drop-page mismatch: the animation kept
+    // self-interrupting toward whatever intermediate page it last reported, not the page
+    // actually requested).
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
+
+    // Shared whole-stack zoom: one zoom/pan transform applied over the entire scrollable
+    // content, not per page. Lets the user pinch in and keep scrolling/panning freely across
+    // page boundaries, matching how Word/Samsung Notes continuous view behaves.
+    var sharedZoom by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(CONTINUOUS_MIN_ZOOM) }
+    var sharedCrossPan by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
+    var isInteracting by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
+    var paneSize by remember { mutableStateOf(IntSize.Zero) }
+    var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val zoomedIn = sharedZoom > 1.02f
+
+    // awaitPointerEvent()'s scope is a restricted suspend scope (@RestrictsSuspension) — it
+    // cannot directly call an arbitrary suspend function like listState.scrollBy(). Hand deltas
+    // off through a channel instead and drain them sequentially on a plain coroutine, same
+    // pattern Compose's own scrollable() uses internally for this exact restriction.
+    val scrollDeltaChannel = remember(listState) { Channel<Float>(Channel.UNLIMITED) }
+    LaunchedEffect(scrollDeltaChannel, listState) {
+        for (delta in scrollDeltaChannel) {
+            listState.scrollBy(delta)
+        }
+    }
+
+    // Rendering (in particular the expensive crop-tile re-render while zoomed) only kicks in
+    // once input has settled — same debounce-after-settle rule the single-page viewer already
+    // uses for its zoomed detail tile, so a fast pinch/scroll doesn't flood the render engine.
+    var settled by remember(fileIdentitySeed, orientation) { mutableStateOf(true) }
+    LaunchedEffect(isInteracting, listState.isScrollInProgress, fileIdentitySeed, orientation) {
+        if (isInteracting || listState.isScrollInProgress) {
+            settled = false
+        } else {
+            delay(120)
+            settled = true
+        }
+    }
 
     LaunchedEffect(scrollToPage, totalPages) {
         // Only jump for an EXTERNAL request (initial open, scrollbar drag, resume-to-page).
-        // scrollToPage is also fed by this list's OWN onCenteredPageChange reporting further
-        // up the tree, so without these guards every ordinary scroll would re-trigger a
-        // scrollToItem back to page-alignment — fighting the user's drag and feeling like
-        // forced pagination instead of free scroll.
         if (totalPages <= 0 || scrollToPage !in 1..totalPages) return@LaunchedEffect
-        if (listState.isScrollInProgress) return@LaunchedEffect
         val current = listState.firstVisibleItemIndex + 1
         if (current == scrollToPage) return@LaunchedEffect
         // Animated, not an instant cut — external jumps (scrollbar drag, resume-to-page)
         // should read as a smooth scroll, not a series of hard snaps.
-        listState.animateScrollToItem((scrollToPage - 1).coerceIn(0, totalPages - 1))
+        isProgrammaticScroll = true
+        try {
+            listState.animateScrollToItem((scrollToPage - 1).coerceIn(0, totalPages - 1))
+        } finally {
+            isProgrammaticScroll = false
+        }
     }
 
     LaunchedEffect(listState) {
@@ -296,7 +306,11 @@ internal fun ContinuousReferencePdfPane(
             if (visible.isEmpty()) null else visible.first().index + 1
         }
             .distinctUntilChanged()
-            .collectLatest { centeredPage -> if (centeredPage != null) currentOnCenteredPageChange(centeredPage) }
+            .collectLatest { centeredPage ->
+                // Suppress while we're the ones scrolling (see isProgrammaticScroll above) —
+                // only report positions the USER'S OWN swipe/pan produced.
+                if (centeredPage != null && !isProgrammaticScroll) currentOnCenteredPageChange(centeredPage)
+            }
     }
 
     val renderWindow by remember(totalPages) {
@@ -320,12 +334,16 @@ internal fun ContinuousReferencePdfPane(
         val resolved = remember(displayPage, fileIdentitySeed) { resolvePage(displayPage) }
         val file = remember(resolved.pdfFilename, fileIdentitySeed) { pdfFileForFilename(resolved.pdfFilename) }
         val inWindow = displayPage in renderWindow
-        var bitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
+        var baseBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
+        var cropBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
+        var cropFrac by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<UnitRect?>(null) }
         var aspectRatio by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Float?>(null) }
         // Real box size, needed so PdfMarkupOverlay's page transform is valid — with
         // viewSize left at IntSize.Zero, currentTransform() returns null and the overlay's
-        // pointerInteropFilter bails out before ever registering a stroke.
-        var boxSize by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+        // pointerInteropFilter bails out before ever registering a stroke. Also drives crop
+        // tile placement (below) and the fallback render size before first layout.
+        var boxSize by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf(IntSize.Zero) }
+        var pageCoordinates by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<LayoutCoordinates?>(null) }
         val matteColorArgb = if (preferDarkMode) MaterialTheme.colorScheme.surface.toArgb() else android.graphics.Color.WHITE
 
         LaunchedEffect(displayPage, resolved, file, fileIdentitySeed) {
@@ -335,20 +353,58 @@ internal fun ContinuousReferencePdfPane(
             }
         }
 
+        // Base (fit-to-box) bitmap: loaded once per page while in window, cheap + cached.
+        // Doubles as the fallback shown under the sharp crop tile and as the whole picture
+        // when not zoomed.
         LaunchedEffect(displayPage, resolved, file, inWindow, matteColorArgb, fileIdentitySeed) {
-            if (file == null || !inWindow) return@LaunchedEffect
-            if (bitmap != null) return@LaunchedEffect
-            // Renders as soon as a page enters the small render window, including while
-            // actively scrolling — real pages are what make continuous scroll usable, not
-            // gray placeholders. The window itself (visible ± 1 buffer) is what keeps this
-            // bounded, and the bitmap != null guard above stops re-render on every frame.
-            val viewSize = androidx.compose.ui.unit.IntSize(1080, 1400)
-            bitmap = withContext(Dispatchers.IO) {
+            if (file == null || !inWindow || baseBitmap != null) return@LaunchedEffect
+            val viewSize = boxSize.takeIf { it != IntSize.Zero } ?: IntSize(1080, 1400)
+            baseBitmap = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderBasePage(
                     pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
                     viewSize = viewSize,
                     matteColorArgb = matteColorArgb
                 )
+            }
+        }
+
+        // Sharp crop of just the on-screen slice of this page — only while zoomed in and only
+        // once the gesture/scroll has settled, so scrolling fast past a page never queues up a
+        // render that immediately gets thrown away.
+        LaunchedEffect(displayPage, resolved, file, inWindow, zoomedIn, settled, matteColorArgb, fileIdentitySeed) {
+            if (!zoomedIn) {
+                cropBitmap = null
+                cropFrac = null
+            }
+            if (file == null || !inWindow || !zoomedIn || !settled) return@LaunchedEffect
+            val pc = pageCoordinates
+            val root = paneRootCoordinates
+            if (pc == null || root == null || !pc.isAttached || paneSize == IntSize.Zero) return@LaunchedEffect
+            val rect = root.localBoundingBoxOf(pc, clipBounds = false)
+            val frac = visiblePageFraction(
+                pageLeft = rect.left,
+                pageTop = rect.top,
+                pageRight = rect.right,
+                pageBottom = rect.bottom,
+                viewportWidth = paneSize.width.toFloat(),
+                viewportHeight = paneSize.height.toFloat()
+            ) ?: return@LaunchedEffect
+            val outW = (rect.right - rect.left).roundToInt().coerceIn(1, 2200)
+            val outH = (rect.bottom - rect.top).roundToInt().coerceIn(1, 2200)
+            val tile = withContext(Dispatchers.IO) {
+                engineCache.get(file).renderCropFraction(
+                    pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
+                    cropLeft = frac.left,
+                    cropTop = frac.top,
+                    cropRight = frac.right,
+                    cropBottom = frac.bottom,
+                    outputSize = IntSize(outW, outH),
+                    matteColorArgb = matteColorArgb
+                )
+            }
+            if (tile != null) {
+                cropBitmap = tile
+                cropFrac = frac
             }
         }
 
@@ -362,22 +418,15 @@ internal fun ContinuousReferencePdfPane(
                 .fillMaxWidth()
                 .aspectRatio(aspectRatio ?: (8.5f / 11f))
                 .onSizeChanged { boxSize = it }
+                .onGloballyPositioned { pageCoordinates = it }
         ) {
-            val currentBitmap = bitmap
-            if (currentBitmap != null) {
-                ZoomablePageImage(
-                    bitmap = currentBitmap,
-                    contentDescription = "Page $displayPage",
-                    gesturesEnabled = !markupEnabled,
-                    engineCache = engineCache,
-                    file = file,
-                    pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
-                    matteColorArgb = matteColorArgb,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
-            }
+            PageBitmapLayers(
+                baseBitmap = baseBitmap,
+                cropBitmap = cropBitmap,
+                cropFrac = cropFrac,
+                boxSize = boxSize,
+                contentDescription = "Page $displayPage"
+            )
             if (markupToolState != null && onMarkupStrokeAdded != null && onMarkupStrokeErased != null &&
                 (markupEnabled || strokes.isNotEmpty())
             ) {
@@ -399,28 +448,112 @@ internal fun ContinuousReferencePdfPane(
         }
     }
 
-    // Markup drawing pins the list to the current page — the pen and the list scroll
-    // gesture must not fight each other, same rule ReferencePdfPane applies today.
-    val userScrollEnabled = !markupEnabled
+    // Markup drawing pins the list to the current page — the pen and the scroll/zoom gesture
+    // must not fight each other, same rule ReferencePdfPane applies today. When markup is
+    // enabled our own gesture handler below is simply absent, so touches pass straight through
+    // to PdfMarkupOverlay. The list's own userScrollEnabled stays false at all times regardless,
+    // because scrolling is otherwise always driven programmatically by our handler rather than
+    // the list's built-in touch handling — that built-in handling is what used to race against
+    // each page's own independent pinch detector.
+    val gesturesEnabled = !markupEnabled
 
-    if (orientation == androidx.compose.foundation.gestures.Orientation.Vertical) {
-        LazyColumn(
-            modifier = modifier,
-            state = listState,
-            userScrollEnabled = userScrollEnabled,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+    Box(
+        modifier = modifier
+            .onSizeChanged { paneSize = it }
+            .onGloballyPositioned { paneRootCoordinates = it }
+            .then(
+                if (gesturesEnabled) {
+                    // Single gesture owner for scroll AND pinch-zoom AND pan-while-zoomed.
+                    // The previous design let each page's own pinch detector compete with the
+                    // LazyColumn/LazyRow's built-in scrollable — a real pinch almost always
+                    // starts with one finger moving slightly before the second lands, which was
+                    // enough for the list to claim that pointer for scrolling before the second
+                    // finger ever arrived, breaking pinch-to-zoom. Owning everything here (the
+                    // list's userScrollEnabled is always false; see below) removes that race
+                    // entirely, the same way the single-page viewer avoids it by not being
+                    // nested inside a scrollable at all.
+                    Modifier.pointerInput(orientation) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            isInteracting = true
+                            do {
+                                val event = awaitPointerEvent()
+                                val zoomChange = event.calculateZoom()
+                                val panChange = event.calculatePan()
+                                val centroid = event.calculateCentroid(useCurrent = true)
+                                val viewW = paneSize.width
+                                val viewH = paneSize.height
+                                val next = computeZoomPan(
+                                    zoom = sharedZoom,
+                                    panX = if (orientation == Orientation.Vertical) sharedCrossPan else 0f,
+                                    panY = if (orientation == Orientation.Vertical) 0f else sharedCrossPan,
+                                    zoomChange = zoomChange,
+                                    panChange = panChange,
+                                    centroid = centroid,
+                                    viewWidth = viewW,
+                                    viewHeight = viewH,
+                                    minZoom = CONTINUOUS_MIN_ZOOM,
+                                    maxZoom = CONTINUOUS_MAX_ZOOM
+                                )
+                                sharedZoom = next.zoom
+                                when (orientation) {
+                                    Orientation.Vertical -> {
+                                        val maxCross = maxCrossAxisPan(viewW.toFloat(), next.zoom)
+                                        sharedCrossPan = next.panX.coerceIn(-maxCross, maxCross)
+                                        if (viewH > 0 && next.panY != 0f) {
+                                            scrollDeltaChannel.trySend(-next.panY / next.zoom)
+                                        }
+                                    }
+                                    Orientation.Horizontal -> {
+                                        val maxCross = maxCrossAxisPan(viewH.toFloat(), next.zoom)
+                                        sharedCrossPan = next.panY.coerceIn(-maxCross, maxCross)
+                                        if (viewW > 0 && next.panX != 0f) {
+                                            scrollDeltaChannel.trySend(-next.panX / next.zoom)
+                                        }
+                                    }
+                                }
+                                event.changes.forEach { it.consume() }
+                            } while (event.changes.any { it.pressed })
+                            isInteracting = false
+                        }
+                    }
+                } else {
+                    Modifier
+                }
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = sharedZoom
+                    scaleY = sharedZoom
+                    when (orientation) {
+                        Orientation.Vertical -> translationX = sharedCrossPan
+                        Orientation.Horizontal -> translationY = sharedCrossPan
+                    }
+                }
         ) {
-            items(count = totalPages, key = { it + 1 }) { index -> pageContent(index + 1) }
-        }
-    } else {
-        LazyRow(
-            modifier = modifier,
-            state = listState,
-            userScrollEnabled = userScrollEnabled,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            items(count = totalPages, key = { it + 1 }) { index ->
-                Box(Modifier.fillParentMaxWidth()) { pageContent(index + 1) }
+            if (orientation == Orientation.Vertical) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = listState,
+                    userScrollEnabled = false,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(count = totalPages, key = { it + 1 }) { index -> pageContent(index + 1) }
+                }
+            } else {
+                LazyRow(
+                    modifier = Modifier.fillMaxSize(),
+                    state = listState,
+                    userScrollEnabled = false,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(count = totalPages, key = { it + 1 }) { index ->
+                        Box(Modifier.fillParentMaxWidth()) { pageContent(index + 1) }
+                    }
+                }
             }
         }
     }
