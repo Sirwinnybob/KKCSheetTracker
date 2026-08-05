@@ -7,29 +7,28 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,8 +39,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -144,13 +141,16 @@ internal val PDF_LABEL_SCROLLBAR_IDLE_WIDTH = 20.dp
 internal val PDF_LABEL_SCROLLBAR_PANEL_WIDTH = 240.dp
 
 /**
- * Right-edge scrollbar for the continuous-scroll pane. Idle: a thin track with a positioned
- * thumb (just a "you are here" indicator). Dragging: pops out into a frosted rounded panel (same
- * style as AppScaffold's nav bar) showing every page's thumbnail with its label underneath —
- * magnified by distance from the touch position, same falloff shape as macOS Dock icons.
+ * Right-edge scrollbar for the continuous-scroll pane. Idle: a thin column of tick marks, one
+ * per row, with the current page's tick drawn as a highlighted pill. Dragging: the same list
+ * expands into a frosted rounded panel (same style as AppScaffold's nav bar) showing every
+ * page's thumbnail with its label underneath — magnified by distance from the touch position,
+ * same falloff shape as macOS Dock icons. Both regimes are the SAME LazyColumn/LazyListState —
+ * there is no separate estimate computing where the idle pill should rest; it reads the same
+ * real layout the drag preview does, so they can never disagree about where a page actually is.
  * Thumbnails keep their real page aspect ratio once rendered (most KKC sheets are landscape) and
- * load progressively, center-out, so opening a long document doesn't stall on rendering every
- * page.
+ * load progressively, center-out, starting only once the user first drags (idle ticks never
+ * show a bitmap, so there's no reason to pay for decoding them before then).
  */
 @Composable
 internal fun PdfLabelScrollbar(
@@ -165,41 +165,35 @@ internal fun PdfLabelScrollbar(
     if (rows.isEmpty()) return
     val density = LocalDensity.current
     val lowEnd = LocalLowEndMode.current
-    val scrollState = rememberScrollState()
+    val listState = rememberLazyListState()
     var isDragging by remember { mutableStateOf(false) }
     var dragIndex by remember { mutableStateOf<Int?>(null) }
+    var thumbnailsRequested by remember { mutableStateOf(false) }
     val thumbCache = remember { mutableStateMapOf<Int, Bitmap?>() }
-    val rowCenterY = remember { mutableStateMapOf<Int, Float>() }
-    var dockWindowY by remember { mutableFloatStateOf(0f) }
-    var trackHeightPx by remember { mutableFloatStateOf(0f) }
-    // Real (measured, not estimated) resting center Y for a row, captured the moment a drag
-    // releases on it — keyed by rowIndex (stable page identity, unlike `entries` index which
-    // shifts when bucket boundaries recompute). The idle pill prefers this over the cumulative
-    // estimate below whenever it's available: the estimate assumes every row costs the same
-    // caption-chrome space, but most rows (far from focus) render only a bare dot, not a
-    // caption block, so the estimate inflates them and skews the resting fraction toward the
-    // bottom — confirmed on-device (real center 927px vs estimated-fraction pill position
-    // ~1370px on a 2664px track). A row we've actually dragged to and released on has a known
-    // real position; trust that over the guess.
-    val realRestCenterByRowIndex = remember { mutableStateMapOf<Int, Float>() }
 
     // Minimum resting thumbnail size — barely more than a sliver, just enough to still read as
     // "a page" rather than vanishing. The focused page always gets the same full-size peak
     // (maxHeight) regardless of document length.
     val baseHeight = 2.dp
     val maxHeight = 140.dp
+    val idleTickHeight = 2.dp
+    val idlePillHeight = 64.dp
     val fallbackAspect = 11f / 8.5f // most KKC sheets are landscape
     val idleWidth = PDF_LABEL_SCROLLBAR_IDLE_WIDTH
     val expandedWidth = PDF_LABEL_SCROLLBAR_PANEL_WIDTH
     val rowSpacing = 5.dp
     val panelPadding = 16.dp
-    // Rough per-row footprint at rest (thumbnail + caption + its own padding) — used only to
-    // estimate scroll position / travel range / display mode before real layout exists. Real
-    // layout (rowCenterY) takes over once available.
+    // Rough per-row footprint at rest — used only to decide FULL vs. BUCKETED display mode
+    // (i.e. "can every page get its own draggable/previewable row"), not to position anything.
+    // Idle ticks are far smaller than this, so once bucketing makes `entries` fit this
+    // footprint, idle-tick rendering fits with plenty of room to spare — the idle list never
+    // needs to scroll for realistic document lengths.
     val captionAllowance = 20.dp
-    val spacingPx = with(density) { rowSpacing.toPx() }
-    val panelPaddingPx = with(density) { panelPadding.toPx() }
-    val rowFootprintPx = with(density) { (baseHeight + captionAllowance).toPx() } + spacingPx
+    val rowFootprintPx = with(density) { (baseHeight + captionAllowance + rowSpacing).toPx() }
+
+    // Real viewport height, sourced straight from the Lazy list's own layout — replaces the
+    // manually-tracked onGloballyPositioned height from before.
+    val trackHeightPx = listState.layoutInfo.viewportSize.height.toFloat()
 
     // Adaptive display mode — mirrors github.com/mooalot/alphabetical-scroll-bar's approach of
     // dropping detail as space tightens, driven by measured space vs. page count rather than a
@@ -243,54 +237,15 @@ internal fun PdfLabelScrollbar(
     }
     val focusIndex = dragIndex ?: currentEntryIndex
 
-    // Single source of truth for "where does row i's top edge / height land if `focus` were the
-    // magnified row" — the exact same dock-bulge math the real dragging layout uses below. The
-    // idle pill position and the drag-start jump-to-touched-page estimate both use this too, so
-    // they can never disagree with where a page actually ends up in the expanded panel (which is
-    // what caused the scrollbar-vs-preview-location mismatch: they used to assume flat, uniform
-    // row heights while the real panel is deliberately non-uniform).
-    fun rowHeightPxAt(index: Int, focus: Int): Float {
-        val scale = dockScaleForDistance(kotlin.math.abs(index - focus), radius)
-        return with(density) { (baseHeight + (maxHeight - baseHeight) * scale).toPx() }
-    }
-    // rowHeightPxAt is just the thumbnail's own height (correct for sizing the thumbnail Box
-    // itself). Each rendered row is a whole chip though — thumbnail + caption text + its own
-    // padding/margin — so anywhere this is used to estimate POSITION (cumulative Y, row centers
-    // for hit-testing), it must include that chrome or the estimate undershoots the real layout.
-    // That undershoot was the actual cause of the scrollbar/preview mismatch persisting after the
-    // first fix, and of the drag range collapsing to only the first ~13 entries: effectiveTrackHeightPx
-    // (derived from this sum) came out far shorter than the real scrollable content, so dragging to
-    // the bottom of the track only ever mapped to however far that undershot total reached.
-    val rowChromeAllowancePx = with(density) { (captionAllowance + 12.dp + 6.dp).toPx() }
-    fun rowFootprintPxAt(index: Int, focus: Int): Float = rowHeightPxAt(index, focus) + rowChromeAllowancePx
-    fun cumulativeTopPx(targetIndex: Int, focus: Int): Float {
-        var y = panelPaddingPx
-        for (i in 0 until targetIndex) {
-            y += rowFootprintPxAt(i, focus) + spacingPx
-        }
-        return y
-    }
-    fun estimatedTotalHeightPx(focus: Int): Float {
-        if (entries.isEmpty()) return 0f
-        return (cumulativeTopPx(entries.size, focus) - spacingPx + panelPaddingPx).coerceAtLeast(0f)
-    }
-
-    // Resting (bulge-aware) stack height, bulge centered on the CURRENT page — the panel never
-    // reaches beyond this when the document is short, so the idle thumb / drag hit-test shouldn't
-    // be reachable past it either.
-    val restingContentHeightPx = estimatedTotalHeightPx(currentEntryIndex)
-    val effectiveTrackHeightPx = if (trackHeightPx > 0f) {
-        kotlin.math.min(trackHeightPx, restingContentHeightPx)
-    } else {
-        trackHeightPx
-    }
-
     val engineCache = remember { PdfEngineCache(maxOpen = 2) }
     DisposableEffect(engineCache) {
         onDispose { scrollbarThumbDisposalScope.launch { withContext(NonCancellable) { engineCache.closeAll() } } }
     }
 
-    LaunchedEffect(entries, defaultPdfFilename) {
+    // Idle ticks never show a bitmap, so there's no reason to decode any thumbnails until the
+    // user actually drags for the first time.
+    LaunchedEffect(entries, defaultPdfFilename, thumbnailsRequested) {
+        if (!thumbnailsRequested) return@LaunchedEffect
         for (entryIndex in centerOutLoadOrder(entries.size, currentEntryIndex)) {
             if (!isActive) break
             val rowIndex = entries[entryIndex].rowIndex
@@ -311,204 +266,141 @@ internal fun PdfLabelScrollbar(
 
     val animatedWidth by animateDpAsState(targetValue = if (isDragging) expandedWidth else idleWidth, label = "scrollbarWidth")
 
-    fun indexForExpandedWindowY(touchY: Float): Int {
-        if (rowCenterY.isEmpty()) return focusIndex
-        var closest = focusIndex
-        var closestDist = Float.MAX_VALUE
-        rowCenterY.forEach { (index, centerY) ->
-            val dist = kotlin.math.abs(centerY - touchY)
-            if (dist < closestDist) {
-                closestDist = dist
-                closest = index
-            }
-        }
-        return closest
+    // Keeps the current page's row anchored/visible whenever the user isn't actively dragging
+    // this scrollbar themselves — mirrors the isProgrammaticScroll guard already used in
+    // ContinuousReferencePdfPane.kt for the same reason (don't fight an in-progress user
+    // gesture). BUCKETED mode already sizes `entries` so idle-tick rows — far smaller than the
+    // drag-chip footprint bucketing is computed against — always fit inside trackHeightPx, so in
+    // practice this call is a no-op safety net, not the mechanism that positions the pill: the
+    // pill's real screen position always comes straight from listState.layoutInfo in the item
+    // content below, not from this scroll call.
+    LaunchedEffect(currentEntryIndex, isDragging) {
+        if (!isDragging) listState.scrollToItem(currentEntryIndex)
     }
 
-    // Inverse of the idle pill's own position math (see the idle branch below) — given a touch
-    // fraction along the idle track, find which entry's bulge-aware center lands closest to that
-    // Y. Uses currentEntryIndex as the assumed focus because that's what the idle track itself is
-    // drawn against; this is what makes tapping/starting a drag land on the page you'd expect from
-    // where the idle pill visually sits.
-    fun indexForIdleFraction(fraction: Float): Int {
-        if (entries.isEmpty()) return 0
-        val targetY = fraction.coerceIn(0f, 1f) * effectiveTrackHeightPx
-        var closest = 0
-        var closestDist = Float.MAX_VALUE
-        for (i in entries.indices) {
-            val centerY = cumulativeTopPx(i, currentEntryIndex) + rowFootprintPxAt(i, currentEntryIndex) / 2f
-            val dist = kotlin.math.abs(centerY - targetY)
-            if (dist < closestDist) {
-                closestDist = dist
-                closest = i
-            }
-        }
-        return closest
+    fun hitTest(touchY: Float): Int = indexForTouchY(
+        items = listState.layoutInfo.visibleItemsInfo.map { ItemBounds(it.index, it.offset, it.size) },
+        touchY = touchY,
+        fallback = focusIndex
+    )
+
+    val frostedTokens = LocalKKCThemeTokens.current.frosted
+    val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
+    val panelSurfaceColor = MaterialTheme.colorScheme.surface
+    val safeHazeState = hazeState
+    val hazeAvailable = safeHazeState != null && !lowEnd.blurDisabled
+    val chipColor = if (hazeAvailable) {
+        androidx.compose.ui.graphics.Color.Transparent
+    } else {
+        panelSurfaceColor.copy(alpha = frostedAlpha)
     }
+    val chipHazeModifier = if (safeHazeState != null && hazeAvailable) {
+        Modifier.hazeEffect(
+            safeHazeState,
+            style = HazeDefaults.style(
+                backgroundColor = panelSurfaceColor.copy(alpha = frostedAlpha),
+                blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
+            )
+        )
+    } else {
+        Modifier
+    }
+    val chipShadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
+    val maxThumbWidthPx = with(density) { (expandedWidth - panelPadding * 2).toPx() }
+    val maxThumbWidth = expandedWidth - panelPadding * 2
 
     Box(
         modifier = modifier
             .fillMaxHeight()
             .width(animatedWidth)
-            .onGloballyPositioned {
-                dockWindowY = it.positionInWindow().y
-                if (!isDragging) trackHeightPx = it.size.height.toFloat()
-            }
             .pointerInput(entries.size, displayMode) {
-                detectTapGestures { offset ->
-                    val fraction = if (effectiveTrackHeightPx > 0f) offset.y / effectiveTrackHeightPx else 0f
-                    val index = indexForIdleFraction(fraction)
-                    onPageSelected(entries[index].page)
-                }
+                detectTapGestures { offset -> onPageSelected(entries[hitTest(offset.y)].page) }
             }
             .pointerInput(entries.size, displayMode) {
                 detectVerticalDragGestures(
                     onDragStart = { offset ->
                         isDragging = true
-                        val fraction = if (effectiveTrackHeightPx > 0f) offset.y / effectiveTrackHeightPx else 0f
-                        val index = indexForIdleFraction(fraction)
+                        thumbnailsRequested = true
+                        val index = hitTest(offset.y)
                         dragIndex = index
                         onPageSelected(entries[index].page)
-                        // Initial scroll so the touched page starts near the finger instead of
-                        // the panel always opening scrolled to the top — estimated with the SAME
-                        // bulge math the real layout below uses (touched row becomes the new
-                        // focus), not a flat per-row guess.
-                        val estimatedCenterY = cumulativeTopPx(index, index) + rowFootprintPxAt(index, index) / 2f
-                        val estimatedY = estimatedCenterY - offset.y
-                        scrollState.dispatchRawDelta(estimatedY - scrollState.value)
                     },
                     onVerticalDrag = { change, _ ->
-                        val index = indexForExpandedWindowY(change.position.y)
+                        val index = hitTest(change.position.y)
                         dragIndex = index
                         onPageSelected(entries[index].page)
                     },
-                    onDragEnd = {
-                        // Snapshot the real measured center of wherever the drag actually
-                        // released, before rowCenterY is wiped — this is what makes the idle
-                        // pill land exactly back where the preview showed instead of an
-                        // estimate-derived guess (see realRestCenterByRowIndex above).
-                        dragIndex?.let { idx ->
-                            rowCenterY[idx]?.let { center -> realRestCenterByRowIndex[entries[idx].rowIndex] = center }
-                        }
-                        isDragging = false; dragIndex = null; rowCenterY.clear()
-                    },
-                    onDragCancel = {
-                        dragIndex?.let { idx ->
-                            rowCenterY[idx]?.let { center -> realRestCenterByRowIndex[entries[idx].rowIndex] = center }
-                        }
-                        isDragging = false; dragIndex = null; rowCenterY.clear()
-                    }
+                    onDragEnd = { isDragging = false; dragIndex = null },
+                    onDragCancel = { isDragging = false; dragIndex = null }
                 )
             }
     ) {
-        if (isDragging) {
-            // Compute every row's CURRENT animated height first — the same values drive both
-            // the panel's own sizing and the actual row sizing below, so they never drift out of
-            // sync with each other. Every entry — bucketed or not — gets a real thumbnail; only
-            // the size and the label (single page vs. "12–18" range) differ.
-            val animatedHeightsPx = entries.indices.map { index ->
-                val distance = kotlin.math.abs(index - focusIndex)
-                val scale = dockScaleForDistance(distance, radius)
-                val target = baseHeight + (maxHeight - baseHeight) * scale
-                val animated = animateDpAsState(targetValue = target, animationSpec = tween(160), label = "rowHeight$index").value
-                with(density) { animated.toPx() }
-            }
-            val paddingPx = panelPaddingPx
-            val maxThumbWidthPx = with(density) { (expandedWidth - panelPadding * 2).toPx() }
-
-            var accY = paddingPx
-            val widthsPx = ArrayList<Float>(entries.size)
-            val effectiveHeightsPx = ArrayList<Float>(entries.size)
-            for (index in entries.indices) {
-                val h = animatedHeightsPx[index]
-                val bitmap = thumbCache[entries[index].rowIndex]
-                val aspect = bitmap?.let { it.width.toFloat() / it.height.toFloat().coerceAtLeast(1f) } ?: fallbackAspect
-                // Keep the box aspect-locked to the thumbnail's real aspect even when capped by
-                // the panel width — otherwise a wide-but-height-capped box leaves the image
-                // letterboxed (ContentScale.Fit gapping top/bottom) instead of filling it.
-                val uncappedWidth = h * aspect
-                val (effectiveHeight, effectiveWidth) = if (uncappedWidth > maxThumbWidthPx) {
-                    (maxThumbWidthPx / aspect) to maxThumbWidthPx
-                } else {
-                    h to uncappedWidth
-                }
-                widthsPx += effectiveWidth
-                effectiveHeightsPx += effectiveHeight
-                accY += effectiveHeight + spacingPx
-            }
-
-            // Per-row frosted chips instead of one big panel Surface — each chip's backdrop is
-            // sized to exactly wrap ITS OWN already-correct box (widthsPx/effectiveHeightsPx
-            // above), so it always hugs the current bulge with zero risk of clipping a thumbnail's
-            // corners (a single continuous "blob" outline through per-row centers did that: the
-            // curve only matched a row's width exactly at its vertical center, so a sharply
-            // bulging row's top/bottom corners got sliced by the curve on its way to the next
-            // row's much-smaller width). Mirrors AppScaffold's frosted nav bar per chip: a Surface
-            // using its own shadowElevation param, untinted surface color, transparent when haze
-            // is actually compositing so the blur alone shows through.
-            val frostedTokens = LocalKKCThemeTokens.current.frosted
-            val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
-            val panelSurfaceColor = MaterialTheme.colorScheme.surface
-            val safeHazeState = hazeState
-            val hazeAvailable = safeHazeState != null && !lowEnd.blurDisabled
-            val chipColor = if (hazeAvailable) {
-                androidx.compose.ui.graphics.Color.Transparent
-            } else {
-                panelSurfaceColor.copy(alpha = frostedAlpha)
-            }
-            val chipHazeModifier = if (safeHazeState != null && hazeAvailable) {
-                Modifier.hazeEffect(
-                    safeHazeState,
-                    style = HazeDefaults.style(
-                        backgroundColor = panelSurfaceColor.copy(alpha = frostedAlpha),
-                        blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
-                    )
-                )
-            } else {
-                Modifier
-            }
-            val chipShadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
-
-            val trackHeightDp = with(density) { trackHeightPx.toDp() }
+        if (!isDragging) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .width(expandedWidth)
-                    // Wraps real content height (short doc → compact panel) instead of always
-                    // filling the reserved track — only caps out and scrolls once content
-                    // actually runs past the available space.
-                    .heightIn(max = trackHeightDp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .verticalScroll(scrollState)
-                        .fillMaxWidth()
-                        .padding(top = panelPadding, bottom = panelPadding),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    entries.forEachIndexed { index, entry ->
-                        val rowHeight = with(density) { effectiveHeightsPx[index].toDp() }
-                        val thumbWidth = with(density) { widthsPx[index].toDp() }
-                        val maxThumbWidth = expandedWidth - panelPadding * 2
-                        val bitmap = thumbCache[entry.rowIndex]
-                        // Same falloff driving the thumbnail's own size — once a row has shrunk
-                        // to (near enough) baseHeight, its label wouldn't be legible anyway, so it
-                        // shrinks away too, down to a bare dot instead of unreadable text.
-                        val scale = dockScaleForDistance(kotlin.math.abs(index - focusIndex), radius)
-                        val showLabel = scale > 0.15f
+                    .fillMaxHeight()
+                    .width(4.dp)
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 6.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
+            )
+        }
 
-                        androidx.compose.material3.Surface(
-                            modifier = Modifier
-                                .padding(vertical = 3.dp, horizontal = panelPadding)
-                                .onGloballyPositioned { coords ->
-                                    rowCenterY[index] = coords.positionInWindow().y + coords.size.height / 2f - dockWindowY
-                                },
-                            shape = RoundedCornerShape(10.dp),
-                            color = chipColor,
-                            shadowElevation = chipShadowElevation,
-                            tonalElevation = 0.dp
-                        ) {
-                            Box(modifier = chipHazeModifier) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.align(Alignment.TopEnd).fillMaxSize(),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(if (isDragging) rowSpacing else 0.dp),
+            contentPadding = PaddingValues(vertical = if (isDragging) panelPadding else 0.dp)
+        ) {
+            itemsIndexed(entries, key = { _, entry -> entry.rowIndex }) { index, entry ->
+                if (!isDragging) {
+                    // The current page's tick IS the pill — same list, same real layout, no
+                    // separately-positioned floating widget to drift out of sync.
+                    val isCurrent = index == currentEntryIndex
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 6.dp, top = 1.dp, bottom = 1.dp)
+                            .width(8.dp)
+                            .height(if (isCurrent) idlePillHeight else idleTickHeight)
+                            .background(
+                                if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                    )
+                } else {
+                    val distance = kotlin.math.abs(index - focusIndex)
+                    val scale = dockScaleForDistance(distance, radius)
+                    val target = baseHeight + (maxHeight - baseHeight) * scale
+                    val animatedHeight = animateDpAsState(targetValue = target, animationSpec = tween(160), label = "rowHeight$index").value
+                    val hPx = with(density) { animatedHeight.toPx() }
+                    val bitmap = thumbCache[entry.rowIndex]
+                    val aspect = bitmap?.let { it.width.toFloat() / it.height.toFloat().coerceAtLeast(1f) } ?: fallbackAspect
+                    // Keep the box aspect-locked to the thumbnail's real aspect even when capped
+                    // by the panel width — otherwise a wide-but-height-capped box leaves the
+                    // image letterboxed (ContentScale.Fit gapping top/bottom) instead of filling
+                    // it.
+                    val uncappedWidthPx = hPx * aspect
+                    val (effectiveHeightPx, effectiveWidthPx) = if (uncappedWidthPx > maxThumbWidthPx) {
+                        (maxThumbWidthPx / aspect) to maxThumbWidthPx
+                    } else {
+                        hPx to uncappedWidthPx
+                    }
+                    val rowHeight = with(density) { effectiveHeightPx.toDp() }
+                    val thumbWidth = with(density) { effectiveWidthPx.toDp() }
+                    // Same falloff driving the thumbnail's own size — once a row has shrunk to
+                    // (near enough) baseHeight, its label wouldn't be legible anyway, so it
+                    // shrinks away too, down to a bare dot instead of unreadable text.
+                    val showLabel = scale > 0.15f
+
+                    androidx.compose.material3.Surface(
+                        modifier = Modifier.padding(vertical = 3.dp, horizontal = panelPadding),
+                        shape = RoundedCornerShape(10.dp),
+                        color = chipColor,
+                        shadowElevation = chipShadowElevation,
+                        tonalElevation = 0.dp
+                    ) {
+                        Box(modifier = chipHazeModifier) {
                             Column(
                                 modifier = Modifier.padding(6.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
@@ -574,52 +466,10 @@ internal fun PdfLabelScrollbar(
                                     )
                                 }
                             }
-                            }
                         }
                     }
                 }
             }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(4.dp)
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 6.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
-            )
-            val thumbHeightDp = 64.dp
-            val thumbHeightPx = with(density) { thumbHeightDp.toPx() }
-            // realRestCenterByRowIndex holds the actually-measured center from the last drag
-            // release onto this row — use it directly (bypassing the estimate, and the
-            // estimate-clamped effectiveTrackHeightPx) whenever we have it, since it's ground
-            // truth for exactly where the preview showed this page. Falls back to the
-            // bulge-aware cumulative estimate (same model the drag-start hit-test inverts) only
-            // for a row we've never actually dragged to.
-            val realCenterPx = realRestCenterByRowIndex[entries[currentEntryIndex].rowIndex]
-            val thumbOffsetPx = if (realCenterPx != null && trackHeightPx > 0f) {
-                (realCenterPx - thumbHeightPx / 2f).coerceIn(0f, (trackHeightPx - thumbHeightPx).coerceAtLeast(0f))
-            } else {
-                val idleFraction = if (restingContentHeightPx > 0f) {
-                    val centerPx = cumulativeTopPx(currentEntryIndex, currentEntryIndex) +
-                        rowFootprintPxAt(currentEntryIndex, currentEntryIndex) / 2f
-                    (centerPx / restingContentHeightPx).coerceIn(0f, 1f)
-                } else {
-                    0f
-                }
-                val thumbTravel = (effectiveTrackHeightPx - thumbHeightPx).coerceAtLeast(0f)
-                idleFraction * thumbTravel
-            }
-            val thumbOffsetDp = with(density) { thumbOffsetPx.toDp() }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 6.dp)
-                    .offset(y = thumbOffsetDp)
-                    .width(8.dp)
-                    .height(thumbHeightDp)
-                    .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(4.dp))
-            )
         }
     }
 }
