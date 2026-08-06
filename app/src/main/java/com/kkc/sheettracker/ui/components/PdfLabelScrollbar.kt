@@ -168,11 +168,14 @@ internal fun PdfLabelScrollbar(
     onPageSelected: (Int) -> Unit,
     pdfFileForFilename: (String) -> java.io.File? = { null },
     defaultPdfFilename: String = "",
-    hazeState: HazeState? = null
+    hazeState: HazeState? = null,
+    isSplitPaneActive: Boolean = false
 ) {
     if (rows.isEmpty()) return
     val density = LocalDensity.current
     val lowEnd = LocalLowEndMode.current
+    val scrollPreviewLabelOnly = LocalScrollPreviewLabelOnly.current
+    val effectiveLabelOnly = scrollPreviewLabelOnly || isSplitPaneActive
     val listState = rememberLazyListState()
     var isDragging by remember { mutableStateOf(false) }
     var dragIndex by remember { mutableStateOf<Int?>(null) }
@@ -198,6 +201,9 @@ internal fun PdfLabelScrollbar(
     val carouselWidth = PDF_LABEL_SCROLLBAR_PANEL_WIDTH
     val rowSpacing = 5.dp
     val carouselPadding = 16.dp
+    // Asymmetric — small gap on the track side (end) so cards/the bubble sit close to the pill,
+    // generous margin on the far side (start) so they don't crowd the PDF content.
+    val carouselEndPadding = 50.dp
     // So the track never renders into AppScaffold's floating bottom nav bar.
     val bottomClearance = 150.dp
     // Rough per-row footprint at rest — used only to decide FULL vs. BUCKETED display mode
@@ -260,8 +266,8 @@ internal fun PdfLabelScrollbar(
     // Idle ticks never show a bitmap, and the carousel only ever needs the entries currently in
     // its window — no reason to decode anything until dragging, and no reason to preload the
     // whole document like the old full-dock design did.
-    LaunchedEffect(carouselSlots, defaultPdfFilename, isDragging) {
-        if (!isDragging) return@LaunchedEffect
+    LaunchedEffect(carouselSlots, defaultPdfFilename, isDragging, effectiveLabelOnly) {
+        if (!isDragging || effectiveLabelOnly) return@LaunchedEffect
         for ((_, entry) in carouselSlots) {
             if (!isActive) break
             val rowIndex = entry.rowIndex
@@ -478,6 +484,19 @@ internal fun PdfLabelScrollbar(
                 animationSpec = tween(200, easing = FastOutSlowInEasing)
             ) { fullWidth -> fullWidth } + fadeOut(tween(200))
         ) {
+          if (effectiveLabelOnly) {
+            entries.getOrNull(focusIndex)?.let { entry ->
+                ScrollLabelBubble(
+                    entry = entry,
+                    touchYPx = touchYPx,
+                    trackHeightPx = trackHeightPx,
+                    carouselWidth = carouselWidth,
+                    carouselPadding = carouselPadding,
+                    carouselEndPadding = carouselEndPadding,
+                    hazeState = hazeState
+                )
+            }
+          } else {
             // Fixed size tiers, not a continuous falloff — the carousel only ever shows exactly
             // these 5 roles (main/±1/±2), so there's no "many more neighbors fading to zero" case
             // to model the way the old whole-document dock needed to.
@@ -548,9 +567,6 @@ internal fun PdfLabelScrollbar(
                 Modifier
             }
             val chipShadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
-            // Asymmetric — small gap on the track side (end) so cards sit close to the pill,
-            // generous margin on the far side (start) so they don't crowd the PDF content.
-            val carouselEndPadding = 50.dp
             val maxThumbWidthPx = with(density) { (carouselWidth - carouselPadding - carouselEndPadding).toPx() }
             val maxThumbWidth = carouselWidth - carouselPadding - carouselEndPadding
 
@@ -659,6 +675,98 @@ internal fun PdfLabelScrollbar(
                     }
                     }
                 }
+            }
+          }
+        }
+    }
+}
+
+/**
+ * Single floating label pill shown while dragging when the label-only scroll preview mode is
+ * active (user setting, or forced by [isSplitPaneActive] on PdfLabelScrollbar) — the Contacts-
+ * style alternative to the thumbnail carousel above. Shows only [entry]'s own label/range text,
+ * no thumbnail decode, no neighbor slots.
+ */
+@Composable
+private fun ScrollLabelBubble(
+    entry: ScrollbarEntry,
+    touchYPx: Float,
+    trackHeightPx: Float,
+    carouselWidth: Dp,
+    carouselPadding: Dp,
+    carouselEndPadding: Dp,
+    hazeState: HazeState?
+) {
+    val density = LocalDensity.current
+    val lowEnd = LocalLowEndMode.current
+    val frostedTokens = LocalKKCThemeTokens.current.frosted
+    val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val hazeAvailable = hazeState != null && !lowEnd.blurDisabled
+    val pillShape = RoundedCornerShape(10.dp)
+    val pillElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
+    val maxContentWidth = carouselWidth - carouselPadding - carouselEndPadding
+
+    // Fixed height estimate (two text lines + padding), not a real measurement — matches this
+    // file's footprintForDistance convention above: a known constant avoids any real-vs-estimate
+    // drift in the position math, at the cost of the bubble not perfectly hugging taller/shorter
+    // text (acceptable; label text is capped at one line and rarely needs more than this).
+    val bubbleHeight = 64.dp
+    val bubbleHeightPx = with(density) { bubbleHeight.toPx() }
+    val bubbleTopPx = (touchYPx - bubbleHeightPx / 2f)
+        .coerceIn(0f, (trackHeightPx - bubbleHeightPx).coerceAtLeast(0f))
+
+    Box(
+        modifier = Modifier
+            .offset(y = with(density) { bubbleTopPx.toDp() })
+            .width(carouselWidth),
+        contentAlignment = Alignment.TopEnd
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(end = carouselEndPadding, start = carouselPadding)
+                .widthIn(max = maxContentWidth)
+                .shadow(pillElevation, pillShape, clip = false)
+                .clip(pillShape)
+                .then(
+                    if (hazeAvailable) {
+                        Modifier.hazeEffect(
+                            hazeState,
+                            style = HazeDefaults.style(
+                                backgroundColor = surfaceColor.copy(alpha = frostedAlpha),
+                                blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
+                            )
+                        )
+                    } else {
+                        // Fully opaque, not a semi-transparent copy — combining shadow() with a
+                        // semi-transparent fill is exactly the shadow-bleed bug documented in
+                        // CLAUDE.md's "Frosted Glass Buttons" section; this fallback (no haze
+                        // available) sidesteps it entirely rather than risking it.
+                        Modifier.background(surfaceColor)
+                    }
+                )
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = entry.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = entry.rangeLabel ?: "Sheet ${entry.page}",
+                    modifier = Modifier.padding(top = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
