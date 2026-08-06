@@ -4,11 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculateCentroid
-import androidx.compose.foundation.gestures.calculatePan
-import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -56,12 +53,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.math.max
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -256,6 +256,10 @@ internal fun ContinuousReferencePdfPane(
     var sharedZoom by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(CONTINUOUS_MIN_ZOOM) }
     var sharedCrossPan by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
     var isInteracting by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
+    var lastVelocityY by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
+    var lastVelocityX by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
+    var lastPanTimeNanos by remember(fileIdentitySeed, orientation) { mutableLongStateOf(0L) }
+    var isFlinging by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val zoomedIn = sharedZoom > 1.02f
@@ -275,8 +279,8 @@ internal fun ContinuousReferencePdfPane(
     // once input has settled — same debounce-after-settle rule the single-page viewer already
     // uses for its zoomed detail tile, so a fast pinch/scroll doesn't flood the render engine.
     var settled by remember(fileIdentitySeed, orientation) { mutableStateOf(true) }
-    LaunchedEffect(isInteracting, listState.isScrollInProgress, fileIdentitySeed, orientation) {
-        if (isInteracting || listState.isScrollInProgress) {
+    LaunchedEffect(isInteracting, listState.isScrollInProgress, isFlinging, fileIdentitySeed, orientation) {
+        if (isInteracting || listState.isScrollInProgress || isFlinging) {
             settled = false
         } else {
             delay(120)
@@ -286,7 +290,7 @@ internal fun ContinuousReferencePdfPane(
 
     LaunchedEffect(scrollToPage, totalPages) {
         // Only jump for an EXTERNAL request (initial open, scrollbar drag, resume-to-page).
-        if (totalPages <= 0 || scrollToPage !in 1..totalPages) return@LaunchedEffect
+        if (totalPages <= 0 || scrollToPage !in 1..totalPages || listState.isScrollInProgress) return@LaunchedEffect
         val current = listState.firstVisibleItemIndex + 1
         if (current == scrollToPage) return@LaunchedEffect
         // Animated, not an instant cut — external jumps (scrollbar drag, resume-to-page)
@@ -463,32 +467,25 @@ internal fun ContinuousReferencePdfPane(
             .onGloballyPositioned { paneRootCoordinates = it }
             .then(
                 if (gesturesEnabled) {
-                    // Single gesture owner for scroll AND pinch-zoom AND pan-while-zoomed.
-                    // The previous design let each page's own pinch detector compete with the
-                    // LazyColumn/LazyRow's built-in scrollable — a real pinch almost always
-                    // starts with one finger moving slightly before the second lands, which was
-                    // enough for the list to claim that pointer for scrolling before the second
-                    // finger ever arrived, breaking pinch-to-zoom. Owning everything here (the
-                    // list's userScrollEnabled is always false; see below) removes that race
-                    // entirely, the same way the single-page viewer avoids it by not being
-                    // nested inside a scrollable at all.
-                    Modifier.pointerInput(orientation) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            isInteracting = true
-                            do {
-                                val event = awaitPointerEvent()
-                                val zoomChange = event.calculateZoom()
-                                val panChange = event.calculatePan()
-                                val centroid = event.calculateCentroid(useCurrent = true)
+                                        Modifier.pointerInput(orientation) {
+                        while (true) {
+                            detectTransformGestures(panZoomLock = false) { centroid, pan, zoom, rotation ->
+                                val now = System.nanoTime()
+                                if (lastPanTimeNanos > 0L) {
+                                    val dt = ((now - lastPanTimeNanos) / 1e9f).coerceAtLeast(0.001f)
+                                    lastVelocityY = pan.y / dt
+                                    lastVelocityX = pan.x / dt
+                                }
+                                lastPanTimeNanos = now
+                                isInteracting = true
                                 val viewW = paneSize.width
                                 val viewH = paneSize.height
                                 val next = computeZoomPan(
                                     zoom = sharedZoom,
                                     panX = if (orientation == Orientation.Vertical) sharedCrossPan else 0f,
                                     panY = if (orientation == Orientation.Vertical) 0f else sharedCrossPan,
-                                    zoomChange = zoomChange,
-                                    panChange = panChange,
+                                    zoomChange = zoom,
+                                    panChange = pan,
                                     centroid = centroid,
                                     viewWidth = viewW,
                                     viewHeight = viewH,
@@ -512,12 +509,32 @@ internal fun ContinuousReferencePdfPane(
                                         }
                                     }
                                 }
-                                event.changes.forEach { it.consume() }
-                            } while (event.changes.any { it.pressed })
+                            }
                             isInteracting = false
+                            val flingVelocity = when (orientation) {
+                                Orientation.Vertical -> -lastVelocityY
+                                Orientation.Horizontal -> -lastVelocityX
+                            }
+                            if (abs(flingVelocity) > 100f) {
+                                isFlinging = true
+                                coroutineScope {
+                                    launch {
+                                        var vel = flingVelocity
+                                        while (isActive && abs(vel) > 1f) {
+                                            vel *= 0.95f
+                                            listState.scrollBy(vel / 60f)
+                                            delay(16)
+                                        }
+                                    }
+                                }
+                            }
+                            isFlinging = false
+                            lastPanTimeNanos = 0L
+                            lastVelocityY = 0f
+                            lastVelocityX = 0f
                         }
                     }
-                } else {
+} else {
                     Modifier
                 }
             )
