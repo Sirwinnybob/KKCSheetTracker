@@ -83,7 +83,7 @@ fun ReferencePdfViewerScreen(
     var showUi by rememberSaveable { mutableStateOf(true) }
     var markupEnabled by rememberSaveable { mutableStateOf(false) }
     var continuousScrollEnabled by rememberSaveable(jobFolderName, docType) { mutableStateOf(continuousScrollDefault) }
-    var tocRequestToken by rememberSaveable(jobFolderName, docType) { mutableIntStateOf(0) }
+    var tocRequestToken by remember(jobFolderName, docType) { mutableIntStateOf(0) }
     val markupToolState = rememberPdfMarkupToolState()
     // Lets the continuous-scroll scrollbar's expanded panel blur the PDF content behind it —
     // same frosted pattern used elsewhere in the app, not a plain opaque panel.
