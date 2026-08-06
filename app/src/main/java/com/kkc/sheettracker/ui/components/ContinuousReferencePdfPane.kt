@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -157,6 +158,25 @@ internal fun visiblePageFraction(
 /** Max cross-axis pan (screen px) allowed for a given zoom, matching the existing single-page clamp rule. */
 internal fun maxCrossAxisPan(viewportExtent: Float, zoom: Float): Float =
     ((viewportExtent * zoom - viewportExtent) / 2f).coerceAtLeast(0f)
+
+/**
+ * Extra scrollable space (list-space px, not screen px) needed at BOTH the start and end of the
+ * scrollable content so the first/last page's far edge can still be scrolled into view while
+ * zoomed in.
+ *
+ * The shared whole-stack zoom is a `graphicsLayer` scale pivoted at the center of the viewport
+ * (Compose's default transformOrigin), applied on top of the LazyColumn/LazyRow's own unscaled
+ * layout. At maximum scroll-up, page 1's top edge sits at list-space y=0, which the center-pivot
+ * scale maps to screen y = viewportExtent/2 * (1 - zoom) — negative (off-screen) for zoom > 1,
+ * with no further scroll available to reach it (list is already at its start boundary). The same
+ * happens in reverse for the last page's bottom edge at the end boundary. Adding this much
+ * content padding at each end gives the list room to scroll the overflow back into frame:
+ * solving screenY = 0 for the padded top-edge position yields
+ * `viewportExtent/2 * (1 - 1/zoom)`, i.e. [maxCrossAxisPan]'s screen-space overflow converted to
+ * list-space by dividing out the zoom.
+ */
+internal fun mainAxisEdgePadding(viewportExtent: Float, zoom: Float): Float =
+    maxCrossAxisPan(viewportExtent, zoom) / zoom
 
 /**
  * Keeps at most [maxOpen] [PdfRenderEngine]s open at once, keyed by absolute file path.
@@ -707,12 +727,22 @@ internal fun ContinuousReferencePdfPane(
                     }
                 }
         ) {
+            // Extra scroll room at both ends so the first/last page's far edge — pushed off
+            // the center-pivoted graphicsLayer scale above — can still be scrolled into view.
+            // See mainAxisEdgePadding's doc comment for the derivation.
+            val edgePaddingPx = mainAxisEdgePadding(
+                viewportExtent = if (orientation == Orientation.Vertical) paneSize.height.toFloat() else paneSize.width.toFloat(),
+                zoom = sharedZoom
+            )
+            val edgePaddingDp = with(LocalDensity.current) { edgePaddingPx.toDp() }
+
             if (orientation == Orientation.Vertical) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                     userScrollEnabled = false,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(vertical = edgePaddingDp)
                 ) {
                     items(count = totalPages, key = { it + 1 }) { index -> pageContent(index + 1) }
                 }
@@ -721,7 +751,8 @@ internal fun ContinuousReferencePdfPane(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                     userScrollEnabled = false,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(horizontal = edgePaddingDp)
                 ) {
                     items(count = totalPages, key = { it + 1 }) { index ->
                         Box(Modifier.fillParentMaxWidth()) { pageContent(index + 1) }

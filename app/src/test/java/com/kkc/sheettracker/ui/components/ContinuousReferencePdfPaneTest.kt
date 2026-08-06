@@ -118,6 +118,18 @@ class ContinuousReferencePdfPaneTest {
     }
 
     @Test
+    fun mainAxisEdgePadding_zoomOneNeedsNoPadding() {
+        assertEquals(0f, mainAxisEdgePadding(viewportExtent = 1000f, zoom = 1f), 0.001f)
+    }
+
+    @Test
+    fun mainAxisEdgePadding_scalesWithZoom() {
+        // At zoom 2x centered on viewport middle, first/last page edges overflow the
+        // scrollable range by viewportExtent/2 * (1 - 1/zoom) in list-space units.
+        assertEquals(250f, mainAxisEdgePadding(viewportExtent = 1000f, zoom = 2f), 0.001f)
+    }
+
+    @Test
     fun computeFlingStep_decaysVelocityAndCalculatesDelta() {
         val result = computeFlingStep(velocity = 1000f, dtSeconds = 0.016f, friction = 4.0f)
 
