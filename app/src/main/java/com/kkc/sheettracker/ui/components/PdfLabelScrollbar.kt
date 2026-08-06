@@ -347,15 +347,34 @@ internal fun PdfLabelScrollbar(
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
                 itemsIndexed(entries, key = { _, entry -> entry.rowIndex }) { index, _ ->
-                    val isCurrent = index == currentEntryIndex
+                    val isCurrent = index == focusIndex
+                    val pillShape = RoundedCornerShape(4.dp)
+                    val pillElevation = if (!lowEnd.shadowsDisabled) 3.dp else 0.dp
                     Box(
                         modifier = Modifier
                             .padding(end = 6.dp)
                             .width(tickWidth)
                             .height(if (isCurrent) idlePillHeight else idleTickHeight)
-                            .background(
-                                if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(4.dp)
+                            .then(
+                                if (isCurrent) {
+                                    Modifier
+                                        .shadow(pillElevation, pillShape, clip = false)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    lerp(MaterialTheme.colorScheme.primary, Color.White, 0.35f),
+                                                    MaterialTheme.colorScheme.primary
+                                                )
+                                            ),
+                                            shape = pillShape
+                                        )
+                                        .border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
+                                } else {
+                                    Modifier.background(
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                }
                             )
                     )
                 }
