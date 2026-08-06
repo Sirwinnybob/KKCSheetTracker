@@ -281,6 +281,29 @@ fun SettingsScreen(
                     )
                 }
 
+                var scrollPreviewLabelOnly by remember { mutableStateOf(uiPreferencesStore.getScrollPreviewLabelOnly()) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Label-only scroll preview", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Show just the sheet label while dragging the scrollbar, instead of page thumbnails.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = scrollPreviewLabelOnly,
+                        onCheckedChange = {
+                            scrollPreviewLabelOnly = it
+                            uiPreferencesStore.setScrollPreviewLabelOnly(it)
+                        }
+                    )
+                }
+
                 HorizontalDivider()
 
                 ExposedDropdownMenuBox(
