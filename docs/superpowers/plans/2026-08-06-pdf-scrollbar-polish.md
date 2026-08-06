@@ -498,6 +498,9 @@ Open a job PDF with enough pages that the track shows multiple ticks, and check 
 
 - [ ] Tap-to-jump: pill springs to the tapped row with a visible bounce; a ripple flashes and fades at the tap point.
 - [ ] Drag: pill follows the finger with no lag or bounce while dragging; springs to rest the moment you lift your finger.
+- [ ] Drag-release bounce is actually noticeable, not just technically present (the pill dips to 94% height while dragging so release has something to spring from — if it reads as too subtle/invisible, lower the multiplier in `draggingPillHeight` from `0.94f` toward `0.85f`–`0.90f`, don't retune the spring curve).
+- [ ] Touch-down on the already-current row: pill snaps down to 94% height the instant you touch it (before any drag movement) — confirm this reads as an intentional "press-in, spring-out" feel rather than a glitchy jump-cut. If it looks wrong, that's the `isDragging -> draggingPillHeight` branch in the row height logic to revisit.
+- [ ] While the release-bounce spring is playing, check whether sibling ticks visibly ripple/shift (the track's `LazyColumn` uses `Arrangement.SpaceBetween`, so one row's height animating reflows every visible row's gap, unlike the carousel's fixed-gap arrangement). If distracting, this needs a structural fix (e.g. switch to `Arrangement.spacedBy`), not a tuning tweak.
 - [ ] Rail fill grows/shrinks live as you drag, and ticks above the pill are visibly brighter than ticks below it.
 - [ ] Carousel slides + fades in from behind the track on drag start, slides + fades out on drag end (not an instant pop either direction).
 - [ ] Repeat the above in both light and dark theme (Settings → theme toggle, or system dark mode).
