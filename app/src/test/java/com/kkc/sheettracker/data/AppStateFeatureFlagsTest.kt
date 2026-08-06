@@ -65,4 +65,18 @@ class AppStateFeatureFlagsTest {
         assertTrue(flags.blurEnabled)
         assertTrue(flags.lazyLoadingEnabled)
     }
+
+    @Test
+    fun snapshot_includesScrollPreviewLabelOnly() {
+        storage["scroll_preview_label_only"] = true
+        val flags = AppStateFeatureFlags(prefs, false).snapshot()
+        assertTrue(flags.scrollPreviewLabelOnly)
+    }
+
+    @Test
+    fun snapshot_scrollPreviewLabelOnlyDefaultsFalse() {
+        storage.clear()
+        val flags = AppStateFeatureFlags(prefs, false).snapshot()
+        assertFalse(flags.scrollPreviewLabelOnly)
+    }
 }

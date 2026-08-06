@@ -15,7 +15,8 @@ data class AppStateFlagsSnapshot(
     val animationsEnabled: Boolean,
     val shadowsEnabled: Boolean,
     val blurEnabled: Boolean,
-    val lazyLoadingEnabled: Boolean
+    val lazyLoadingEnabled: Boolean,
+    val scrollPreviewLabelOnly: Boolean
 )
 
 class AppStateFeatureFlags(
@@ -26,7 +27,7 @@ class AppStateFeatureFlags(
     val snapshotFlow = _snapshot.asStateFlow()
 
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key in LOW_END_KEYS) notifyChanged()
+        if (key in WATCHED_KEYS) notifyChanged()
     }
 
     init {
@@ -45,7 +46,8 @@ class AppStateFeatureFlags(
             animationsEnabled = prefs.getBoolean(KEY_LOW_END_ANIMATIONS_ENABLED, true),
             shadowsEnabled = prefs.getBoolean(KEY_LOW_END_SHADOWS_ENABLED, true),
             blurEnabled = prefs.getBoolean(KEY_LOW_END_BLUR_ENABLED, true),
-            lazyLoadingEnabled = prefs.getBoolean(KEY_LOW_END_LAZY_LOADING_ENABLED, true)
+            lazyLoadingEnabled = prefs.getBoolean(KEY_LOW_END_LAZY_LOADING_ENABLED, true),
+            scrollPreviewLabelOnly = prefs.getBoolean(KEY_SCROLL_PREVIEW_LABEL_ONLY, false)
         )
     }
 
@@ -65,6 +67,7 @@ class AppStateFeatureFlags(
         const val KEY_LOW_END_SHADOWS_ENABLED = "low_end_shadows_enabled"
         const val KEY_LOW_END_BLUR_ENABLED = "low_end_blur_enabled"
         const val KEY_LOW_END_LAZY_LOADING_ENABLED = "low_end_lazy_loading_enabled"
+        const val KEY_SCROLL_PREVIEW_LABEL_ONLY = "scroll_preview_label_only"
 
         private val LOW_END_KEYS = setOf(
             KEY_LOW_END_MODE,
@@ -73,5 +76,7 @@ class AppStateFeatureFlags(
             KEY_LOW_END_BLUR_ENABLED,
             KEY_LOW_END_LAZY_LOADING_ENABLED
         )
+
+        private val WATCHED_KEYS = LOW_END_KEYS + KEY_SCROLL_PREVIEW_LABEL_ONLY
     }
 }
