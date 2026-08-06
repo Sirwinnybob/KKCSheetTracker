@@ -323,6 +323,12 @@ internal fun PdfLabelScrollbar(
                     )
                 }
         ) {
+            // Real measured center of the focused row, from the same layoutInfo source hitTest
+            // already trusts — never a separate position estimate, consistent with this file's
+            // established convention (see indexForTouchY above).
+            val focusedItemInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == focusIndex }
+            val fillHeightPx = focusedItemInfo?.let { it.offset + it.size / 2f } ?: 0f
+
             // Thin continuous background rail so the track reads as "a scrollbar" even where
             // ticks are sparse (BUCKETED mode, or long documents with few visible rows) — always
             // rendered, both idle and dragging, as a backdrop behind the ticks.
@@ -332,8 +338,28 @@ internal fun PdfLabelScrollbar(
                     .padding(end = 6.dp + (tickWidth - 4.dp) / 2)
                     .width(4.dp)
                     .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
-            )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .height(with(density) { fillHeightPx.toDp() })
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    lerp(MaterialTheme.colorScheme.primary, Color.White, 0.35f),
+                                    MaterialTheme.colorScheme.primary
+                                )
+                            ),
+                            shape = RoundedCornerShape(2.dp)
+                        )
+                )
+            }
 
             // The track — always the tick/pill rendering, in both idle and dragging. This is the
             // permanent position indicator; the carousel below is a separate, purely local
@@ -392,7 +418,9 @@ internal fun PdfLabelScrollbar(
                                         .border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
                                 } else {
                                     Modifier.background(
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                        MaterialTheme.colorScheme.outlineVariant.copy(
+                                            alpha = if (index <= focusIndex) 0.65f else 0.5f
+                                        ),
                                         shape = RoundedCornerShape(4.dp)
                                     )
                                 }
