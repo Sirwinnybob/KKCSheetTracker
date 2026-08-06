@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -256,10 +257,13 @@ internal fun ContinuousReferencePdfPane(
     var sharedZoom by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(CONTINUOUS_MIN_ZOOM) }
     var sharedCrossPan by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
     var isInteracting by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
-    var lastVelocityY by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
-    var lastVelocityX by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
+    val velocityRingY = remember(fileIdentitySeed, orientation) { FloatArray(4) }
+    val velocityRingX = remember(fileIdentitySeed, orientation) { FloatArray(4) }
+    var velocityRingIndex by remember(fileIdentitySeed, orientation) { mutableStateOf(0) }
     var lastPanTimeNanos by remember(fileIdentitySeed, orientation) { mutableLongStateOf(0L) }
     var isFlinging by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
+    var flingCancelled by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
+    val flingScope = rememberCoroutineScope()
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val zoomedIn = sharedZoom > 1.02f
@@ -469,12 +473,14 @@ internal fun ContinuousReferencePdfPane(
                 if (gesturesEnabled) {
                                         Modifier.pointerInput(orientation) {
                         while (true) {
+                            flingCancelled = true
                             detectTransformGestures(panZoomLock = false) { centroid, pan, zoom, rotation ->
                                 val now = System.nanoTime()
                                 if (lastPanTimeNanos > 0L) {
                                     val dt = ((now - lastPanTimeNanos) / 1e9f).coerceAtLeast(0.001f)
-                                    lastVelocityY = pan.y / dt
-                                    lastVelocityX = pan.x / dt
+                                    velocityRingY[velocityRingIndex % 4] = pan.y / dt
+                                    velocityRingX[velocityRingIndex % 4] = pan.x / dt
+                                    velocityRingIndex = velocityRingIndex + 1
                                 }
                                 lastPanTimeNanos = now
                                 isInteracting = true
@@ -511,27 +517,30 @@ internal fun ContinuousReferencePdfPane(
                                 }
                             }
                             isInteracting = false
-                            val flingVelocity = when (orientation) {
-                                Orientation.Vertical -> -lastVelocityY
-                                Orientation.Horizontal -> -lastVelocityX
+                            val samples = minOf(velocityRingIndex, 4)
+                            val avgVelocityY = if (samples > 0) (0 until samples).sumOf { velocityRingY[it % 4].toDouble() } / samples else 0.0
+                            val avgVelocityX = if (samples > 0) (0 until samples).sumOf { velocityRingX[it % 4].toDouble() } / samples else 0.0
+                            val rawFlingVelocity = when (orientation) {
+                                Orientation.Vertical -> -avgVelocityY.toFloat()
+                                Orientation.Horizontal -> -avgVelocityX.toFloat()
                             }
+                            val flingVelocity = rawFlingVelocity / sharedZoom
                             if (abs(flingVelocity) > 100f) {
                                 isFlinging = true
-                                coroutineScope {
-                                    launch {
-                                        var vel = flingVelocity
-                                        while (isActive && abs(vel) > 1f) {
-                                            vel *= 0.95f
-                                            listState.scrollBy(vel / 60f)
-                                            delay(16)
-                                        }
+                                while (scrollDeltaChannel.tryReceive().isSuccess) { /* drain */ }
+                                flingCancelled = false
+                                flingScope.launch {
+                                    var vel = flingVelocity
+                                    while (isActive && abs(vel) > 1f && !flingCancelled) {
+                                        vel *= 0.95f
+                                        listState.scrollBy(vel / 60f)
+                                        delay(16)
                                     }
                                 }
                             }
                             isFlinging = false
+                            velocityRingIndex = 0
                             lastPanTimeNanos = 0L
-                            lastVelocityY = 0f
-                            lastVelocityX = 0f
                         }
                     }
 } else {
