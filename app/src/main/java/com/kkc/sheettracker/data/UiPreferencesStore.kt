@@ -89,4 +89,16 @@ class UiPreferencesStore(context: Context) {
 
     fun setLazyLoadingEnabled(enabled: Boolean) =
         prefs.edit().putBoolean("low_end_lazy_loading_enabled", enabled).apply()
+
+    /**
+     * Independent style preference (not tied to Low-end device mode) for the PDF scrollbar's
+     * drag preview: shows only the current entry's text label instead of decoded page
+     * thumbnails. Always forced on in split view regardless of this value — see
+     * PdfLabelScrollbar's isSplitPaneActive handling.
+     */
+    fun getScrollPreviewLabelOnly(): Boolean =
+        prefs.getBoolean("scroll_preview_label_only", false)
+
+    fun setScrollPreviewLabelOnly(enabled: Boolean) =
+        prefs.edit().putBoolean("scroll_preview_label_only", enabled).apply()
 }

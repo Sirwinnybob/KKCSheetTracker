@@ -101,4 +101,17 @@ class UiPreferencesStoreTest {
         assertFalse(store.getBlurEnabled())
         assertTrue(store.getLazyLoadingEnabled())
     }
+
+    @Test
+    fun scrollPreviewLabelOnly_defaultsToFalse() {
+        val store = UiPreferencesStore(context)
+        assertFalse(store.getScrollPreviewLabelOnly())
+    }
+
+    @Test
+    fun scrollPreviewLabelOnly_persists() {
+        val store = UiPreferencesStore(context)
+        store.setScrollPreviewLabelOnly(true)
+        assertTrue(store.getScrollPreviewLabelOnly())
+    }
 }
