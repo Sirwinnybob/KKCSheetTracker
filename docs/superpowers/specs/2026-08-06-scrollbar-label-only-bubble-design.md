@@ -12,6 +12,10 @@ New preference in `uiPreferencesStore`: `getScrollPreviewLabelOnly(): Boolean` /
 
 `PdfLabelScrollbar` gains a new parameter `labelOnlyMode: Boolean = false`, read from the store by the caller and passed down the same way `hazeState` already is.
 
+### Forced in split view
+
+`UnifiedReferenceViewer` already has an `isSplitPaneActive: Boolean = false` param (used today to flip the continuous-scroll pane's orientation) that reaches `AssemblyViewerScreen`'s split-view call sites. `PdfLabelScrollbar` gains the same `isSplitPaneActive: Boolean = false` param, threaded the same way, and computes `val effectiveLabelOnly = labelOnlyMode || isSplitPaneActive`. Split view forces the bubble regardless of the Appearance setting — the narrow per-pane width can't comfortably fit the 240dp thumbnail carousel. The Appearance setting remains fully user-controlled in normal (non-split) single-pane view.
+
 ## Component
 
 New composable `ScrollLabelBubble(entry: ScrollbarEntry, touchYPx: Float, trackHeightPx: Float, hazeState: HazeState?, modifier: Modifier)` in the same file.
@@ -19,14 +23,15 @@ New composable `ScrollLabelBubble(entry: ScrollbarEntry, touchYPx: Float, trackH
 At the existing carousel call site, branch:
 
 ```kotlin
-if (labelOnlyMode) {
+val effectiveLabelOnly = labelOnlyMode || isSplitPaneActive
+if (effectiveLabelOnly) {
     ScrollLabelBubble(entries[focusIndex], touchYPx, trackHeightPx, hazeState, ...)
 } else {
     // existing carouselSlots / fittedSlots Column, unchanged
 }
 ```
 
-`carouselSlots`, `thumbCache`, `PdfEngineCache`, and the thumbnail-loading `LaunchedEffect` all stay conditional on `!labelOnlyMode` — in label mode, no PDF page decoding happens at all.
+`carouselSlots`, `thumbCache`, `PdfEngineCache`, and the thumbnail-loading `LaunchedEffect` all stay conditional on `!effectiveLabelOnly` — in label mode (from the setting, or forced by split view), no PDF page decoding happens at all.
 
 `entries[focusIndex]` (already computed for the existing carousel) supplies `label`, `rangeLabel`, and `page` directly — no new lookup path.
 
@@ -48,6 +53,7 @@ if (labelOnlyMode) {
 - **Bucketed display mode** (large jobs): `entry.rangeLabel` is already populated by the existing bucketing logic — subtitle shows the page range automatically.
 - **Setting toggled mid-session:** takes effect on the next drag gesture, no restart required (plain remembered state, same as Performance card switches).
 - **Interaction with Low-end mode:** none — orthogonal setting. Label mode incidentally does less work than the thumbnail carousel (no decode), but is not gated by or tied to low-end mode.
+- **Split view:** bubble is forced on (`isSplitPaneActive`) independent of the Appearance setting's value — even if the user has the thumbnail carousel selected for normal viewing, split view always shows the bubble. Leaving split view (closing one pane / returning to single-pane) reverts to whatever the setting says.
 
 ## Testing
 
@@ -59,3 +65,5 @@ No unit tests exist for this file today; verification is manual on-device:
 4. Drag on a large job in bucketed mode — confirm the subtitle shows the page range instead of a single page number.
 5. Toggle the setting off mid-session (without restarting) and drag again — confirm it reverts to the thumbnail carousel.
 6. Confirm the bubble's frosted background has no shadow bleed-through (the known `Surface(shadowElevation)` + alpha bug this design deliberately avoids).
+7. With the Appearance setting OFF (thumbnail carousel selected), open a split view (Assembly or Specialty job → Split View) — confirm the bubble shows anyway in both panes, not the carousel.
+8. Return from split view to single-pane — confirm the carousel comes back (since the setting is still OFF).
