@@ -3,6 +3,7 @@ package com.kkc.sheettracker.ui.components
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -128,6 +129,10 @@ private data class ScrollbarEntry(
     val rowIndex: Int
 )
 
+/** One in-flight tap ripple on the track — [progress] animates 0f (just tapped) to 1f (faded
+ * out), independent of the pill's own animation state so overlapping taps don't fight. */
+private data class RippleRing(val id: Long, val centerYPx: Float, val progress: Animatable<Float, AnimationVector1D>)
+
 private val scrollbarThumbDisposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 /** Reserved space when idle (collapsed) — just enough for a thin track + thumb. */
@@ -173,6 +178,9 @@ internal fun PdfLabelScrollbar(
     var dragIndex by remember { mutableStateOf<Int?>(null) }
     var touchYPx by remember { mutableFloatStateOf(0f) }
     val thumbCache = remember { mutableStateMapOf<Int, Bitmap?>() }
+    val ripples = remember { mutableStateListOf<RippleRing>() }
+    val rippleScope = rememberCoroutineScope()
+    var nextRippleId by remember { mutableLongStateOf(0L) }
 
     val idleTickHeight = 2.dp
     val idlePillHeight = 64.dp
@@ -301,7 +309,17 @@ internal fun PdfLabelScrollbar(
                 .fillMaxHeight()
                 .width(idleWidth)
                 .pointerInput(entries.size, displayMode) {
-                    detectTapGestures { offset -> onPageSelected(entries[hitTest(offset.y)].page) }
+                    detectTapGestures { offset ->
+                        onPageSelected(entries[hitTest(offset.y)].page)
+                        if (!lowEnd.shadowsDisabled) {
+                            val ring = RippleRing(nextRippleId++, offset.y, Animatable(0f))
+                            ripples.add(ring)
+                            rippleScope.launch {
+                                ring.progress.animateTo(1f, animationSpec = tween(350))
+                                ripples.remove(ring)
+                            }
+                        }
+                    }
                 }
                 .pointerInput(entries.size, displayMode) {
                     detectVerticalDragGestures(
@@ -365,6 +383,21 @@ internal fun PdfLabelScrollbar(
                             shape = RoundedCornerShape(2.dp)
                         )
                 )
+            }
+
+            if (ripples.isNotEmpty()) {
+                val ripplePrimary = MaterialTheme.colorScheme.primary
+                val rippleCenterX = with(density) { (tickWidth / 2).toPx() }
+                Canvas(modifier = Modifier.align(Alignment.TopEnd).fillMaxSize()) {
+                    for (ring in ripples) {
+                        val p = ring.progress.value
+                        drawCircle(
+                            color = ripplePrimary.copy(alpha = (1f - p) * 0.5f),
+                            radius = with(density) { (8.dp + 24.dp * p).toPx() },
+                            center = Offset(size.width - rippleCenterX, ring.centerYPx)
+                        )
+                    }
+                }
             }
 
             // The track — always the tick/pill rendering, in both idle and dragging. This is the
