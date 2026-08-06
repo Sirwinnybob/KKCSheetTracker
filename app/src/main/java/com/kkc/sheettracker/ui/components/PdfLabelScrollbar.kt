@@ -550,7 +550,7 @@ internal fun PdfLabelScrollbar(
             val chipShadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
             // Asymmetric — small gap on the track side (end) so cards sit close to the pill,
             // generous margin on the far side (start) so they don't crowd the PDF content.
-            val carouselEndPadding = 16.dp
+            val carouselEndPadding = 50.dp
             val maxThumbWidthPx = with(density) { (carouselWidth - carouselPadding - carouselEndPadding).toPx() }
             val maxThumbWidth = carouselWidth - carouselPadding - carouselEndPadding
 
