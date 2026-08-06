@@ -4,7 +4,11 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,12 +61,11 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlin.math.max
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -257,12 +260,12 @@ internal fun ContinuousReferencePdfPane(
     var sharedZoom by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(CONTINUOUS_MIN_ZOOM) }
     var sharedCrossPan by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
     var isInteracting by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
+    var isFlinging by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
+    var flingCancelled by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
     val velocityRingY = remember(fileIdentitySeed, orientation) { FloatArray(4) }
     val velocityRingX = remember(fileIdentitySeed, orientation) { FloatArray(4) }
     var velocityRingIndex by remember(fileIdentitySeed, orientation) { mutableStateOf(0) }
     var lastPanTimeNanos by remember(fileIdentitySeed, orientation) { mutableLongStateOf(0L) }
-    var isFlinging by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
-    var flingCancelled by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
     val flingScope = rememberCoroutineScope()
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -471,27 +474,41 @@ internal fun ContinuousReferencePdfPane(
             .onGloballyPositioned { paneRootCoordinates = it }
             .then(
                 if (gesturesEnabled) {
-                                        Modifier.pointerInput(orientation) {
-                        while (true) {
+                    // Single gesture owner for scroll AND pinch-zoom AND pan-while-zoomed.
+                    // The previous design let each page's own pinch detector compete with the
+                    // LazyColumn/LazyRow's built-in scrollable — a real pinch almost always
+                    // starts with one finger moving slightly before the second lands, which was
+                    // enough for the list to claim that pointer for scrolling before the second
+                    // finger ever arrived, breaking pinch-to-zoom. Owning everything here (the
+                    // list's userScrollEnabled is always false; see below) removes that race
+                    // entirely, the same way the single-page viewer avoids it by not being
+                    // nested inside a scrollable at all.
+                    Modifier.pointerInput(orientation) {
+                        awaitEachGesture {
                             flingCancelled = true
-                            detectTransformGestures(panZoomLock = false) { centroid, pan, zoom, rotation ->
-                                val now = System.nanoTime()
+                            awaitFirstDown(requireUnconsumed = false)
+                            isInteracting = true
+                            do {
+                                val event = awaitPointerEvent()
+                                val zoomChange = event.calculateZoom()
+                                val panChange = event.calculatePan()
+                                val panNow = System.nanoTime()
                                 if (lastPanTimeNanos > 0L) {
-                                    val dt = ((now - lastPanTimeNanos) / 1e9f).coerceAtLeast(0.001f)
-                                    velocityRingY[velocityRingIndex % 4] = pan.y / dt
-                                    velocityRingX[velocityRingIndex % 4] = pan.x / dt
+                                    val dt = ((panNow - lastPanTimeNanos) / 1e9f).coerceAtLeast(0.001f)
+                                    velocityRingY[velocityRingIndex % 4] = panChange.y / dt
+                                    velocityRingX[velocityRingIndex % 4] = panChange.x / dt
                                     velocityRingIndex = velocityRingIndex + 1
                                 }
-                                lastPanTimeNanos = now
-                                isInteracting = true
+                                lastPanTimeNanos = panNow
+                                val centroid = event.calculateCentroid(useCurrent = true)
                                 val viewW = paneSize.width
                                 val viewH = paneSize.height
                                 val next = computeZoomPan(
                                     zoom = sharedZoom,
                                     panX = if (orientation == Orientation.Vertical) sharedCrossPan else 0f,
                                     panY = if (orientation == Orientation.Vertical) 0f else sharedCrossPan,
-                                    zoomChange = zoom,
-                                    panChange = pan,
+                                    zoomChange = zoomChange,
+                                    panChange = panChange,
                                     centroid = centroid,
                                     viewWidth = viewW,
                                     viewHeight = viewH,
@@ -515,7 +532,8 @@ internal fun ContinuousReferencePdfPane(
                                         }
                                     }
                                 }
-                            }
+                                event.changes.forEach { it.consume() }
+                            } while (event.changes.any { it.pressed })
                             isInteracting = false
                             val samples = minOf(velocityRingIndex, 4)
                             val avgVelocityY = if (samples > 0) (0 until samples).sumOf { velocityRingY[it % 4].toDouble() } / samples else 0.0
@@ -543,7 +561,7 @@ internal fun ContinuousReferencePdfPane(
                             lastPanTimeNanos = 0L
                         }
                     }
-} else {
+                } else {
                     Modifier
                 }
             )
