@@ -350,11 +350,20 @@ internal fun PdfLabelScrollbar(
                     val isCurrent = index == focusIndex
                     val pillShape = RoundedCornerShape(4.dp)
                     val pillElevation = if (!lowEnd.shadowsDisabled) 3.dp else 0.dp
+                    val bounceSpring = spring<Dp>(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    )
+                    val animatedRowHeight by animateDpAsState(
+                        targetValue = if (isCurrent) idlePillHeight else idleTickHeight,
+                        animationSpec = if (isDragging) snap() else bounceSpring,
+                        label = "trackRowHeight${entries[index].rowIndex}"
+                    )
                     Box(
                         modifier = Modifier
                             .padding(end = 6.dp)
                             .width(tickWidth)
-                            .height(if (isCurrent) idlePillHeight else idleTickHeight)
+                            .height(animatedRowHeight)
                             .then(
                                 if (isCurrent) {
                                     Modifier
