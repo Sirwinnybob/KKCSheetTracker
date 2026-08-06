@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.components
 
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
@@ -47,7 +48,10 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import com.kkc.sheettracker.data.models.PdfInkStroke
+import kotlinx.coroutines.Job
 import com.kkc.sheettracker.ui.markup.PdfMarkupOverlay
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
@@ -64,6 +68,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.MutatePriority
+import androidx.compose.runtime.mutableIntStateOf
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -71,6 +78,29 @@ import kotlin.math.roundToInt
 
 private const val CONTINUOUS_MAX_ZOOM = 10f
 private const val CONTINUOUS_MIN_ZOOM = 1f
+
+internal data class FlingStepResult(
+    val nextVelocity: Float,
+    val delta: Float
+)
+
+internal fun computeFlingStep(
+    velocity: Float,
+    dtSeconds: Float,
+    friction: Float = 2.5f,
+    minVelocityThreshold: Float = 10f
+): FlingStepResult {
+    if (abs(velocity) <= minVelocityThreshold) {
+        return FlingStepResult(0f, 0f)
+    }
+    val decayFactor = kotlin.math.exp(-friction * dtSeconds)
+    val nextVelocity = velocity * decayFactor
+    val delta = velocity * (1f - decayFactor) / friction
+    return FlingStepResult(
+        nextVelocity = if (abs(nextVelocity) <= minVelocityThreshold) 0f else nextVelocity,
+        delta = delta
+    )
+}
 
 internal fun computeRenderWindow(
     firstVisiblePage: Int,
@@ -261,11 +291,7 @@ internal fun ContinuousReferencePdfPane(
     var sharedCrossPan by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
     var isInteracting by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
     var isFlinging by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
-    var flingCancelled by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
-    val velocityRingY = remember(fileIdentitySeed, orientation) { FloatArray(4) }
-    val velocityRingX = remember(fileIdentitySeed, orientation) { FloatArray(4) }
-    var velocityRingIndex by remember(fileIdentitySeed, orientation) { mutableStateOf(0) }
-    var lastPanTimeNanos by remember(fileIdentitySeed, orientation) { mutableLongStateOf(0L) }
+    var flingJob by remember(fileIdentitySeed, orientation) { mutableStateOf<Job?>(null) }
     val flingScope = rememberCoroutineScope()
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -276,11 +302,37 @@ internal fun ContinuousReferencePdfPane(
     // off through a channel instead and drain them sequentially on a plain coroutine, same
     // pattern Compose's own scrollable() uses internally for this exact restriction.
     val scrollDeltaChannel = remember(listState) { Channel<Float>(Channel.UNLIMITED) }
+    // Channel is only needed for live-drag deltas: awaitPointerEvent runs in a
+    // @RestrictsSuspension scope that cannot call arbitrary suspend fns like scrollBy().
+    // Fling deltas are NOT sent through here — flingJob calls listState.scroll() directly.
+    // A NaN sentinel causes the consumer to exit its current scroll session so the fling
+    // can immediately acquire the scroll mutex without blocking.
     LaunchedEffect(scrollDeltaChannel, listState) {
-        for (delta in scrollDeltaChannel) {
-            listState.scrollBy(delta)
+        while (isActive) {
+            val firstDelta = scrollDeltaChannel.receive()
+            if (firstDelta.isNaN()) continue  // sentinel: fling is taking over, skip
+            Log.d("PdfFlingDebug", "dragScrollSession START with firstDelta=$firstDelta")
+            var count = 1
+            listState.scroll(MutatePriority.UserInput) {
+                scrollBy(firstDelta)
+                while (isActive) {
+                    val nextDelta = withTimeoutOrNull(32) {
+                        scrollDeltaChannel.receive()
+                    }
+                    if (nextDelta != null && !nextDelta.isNaN()) {
+                        scrollBy(nextDelta)
+                        count++
+                    } else {
+                        // null = timeout (drag paused), NaN = fling sentinel: exit session
+                        break
+                    }
+                }
+            }
+            Log.d("PdfFlingDebug", "dragScrollSession END processed deltas=$count")
         }
     }
+
+    var lastReportedPage by remember(fileIdentitySeed) { mutableIntStateOf(scrollToPage) }
 
     // Rendering (in particular the expensive crop-tile re-render while zoomed) only kicks in
     // once input has settled — same debounce-after-settle rule the single-page viewer already
@@ -296,14 +348,24 @@ internal fun ContinuousReferencePdfPane(
     }
 
     LaunchedEffect(scrollToPage, totalPages) {
+        Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) triggered scrollToPage=$scrollToPage lastReported=$lastReportedPage isInteracting=$isInteracting isFlinging=$isFlinging")
         // Only jump for an EXTERNAL request (initial open, scrollbar drag, resume-to-page).
-        if (totalPages <= 0 || scrollToPage !in 1..totalPages || listState.isScrollInProgress) return@LaunchedEffect
+        if (totalPages <= 0 || scrollToPage !in 1..totalPages) return@LaunchedEffect
+        if (scrollToPage == lastReportedPage || isInteracting || isFlinging) {
+            Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) SUPPRESSED: scrollToPage=$scrollToPage")
+            lastReportedPage = scrollToPage
+            return@LaunchedEffect
+        }
         val current = listState.firstVisibleItemIndex + 1
-        if (current == scrollToPage) return@LaunchedEffect
-        // Animated, not an instant cut — external jumps (scrollbar drag, resume-to-page)
-        // should read as a smooth scroll, not a series of hard snaps.
+        if (current == scrollToPage) {
+            Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) SUPPRESSED (already at current=$current)")
+            lastReportedPage = scrollToPage
+            return@LaunchedEffect
+        }
+        Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) EXECUTING animateScrollToItem target=${scrollToPage - 1}")
         isProgrammaticScroll = true
         try {
+            lastReportedPage = scrollToPage
             listState.animateScrollToItem((scrollToPage - 1).coerceIn(0, totalPages - 1))
         } finally {
             isProgrammaticScroll = false
@@ -318,9 +380,11 @@ internal fun ContinuousReferencePdfPane(
         }
             .distinctUntilChanged()
             .collectLatest { centeredPage ->
-                // Suppress while we're the ones scrolling (see isProgrammaticScroll above) —
-                // only report positions the USER'S OWN swipe/pan produced.
-                if (centeredPage != null && !isProgrammaticScroll) currentOnCenteredPageChange(centeredPage)
+                Log.d("PdfFlingDebug", "snapshotFlow centeredPage=$centeredPage isProg=$isProgrammaticScroll")
+                if (centeredPage != null && !isProgrammaticScroll) {
+                    lastReportedPage = centeredPage
+                    currentOnCenteredPageChange(centeredPage)
+                }
             }
     }
 
@@ -485,21 +549,27 @@ internal fun ContinuousReferencePdfPane(
                     // nested inside a scrollable at all.
                     Modifier.pointerInput(orientation) {
                         awaitEachGesture {
-                            flingCancelled = true
-                            awaitFirstDown(requireUnconsumed = false)
+                            // Do NOT cancel flingJob here — the coroutine hasn't executed yet
+                            // (launch() schedules it; it won't run until this frame yields).
+                            // Cancelling here kills the fling before it processes a single frame.
+                            // Instead, the drag consumer's listState.scroll(UserInput) will
+                            // naturally pre-empt the fling's scroll session when the new drag
+                            // starts, and flingJob will be cancelled via Job cancellation at that
+                            // point.
+                            val velocityTracker = VelocityTracker()
+                            val firstDown = awaitFirstDown(requireUnconsumed = false)
+                            velocityTracker.addPosition(firstDown.uptimeMillis, firstDown.position)
+                            flingJob?.cancel()  // NOW cancel: we have a new real touch, pre-empt cleanly
                             isInteracting = true
                             do {
                                 val event = awaitPointerEvent()
                                 val zoomChange = event.calculateZoom()
                                 val panChange = event.calculatePan()
-                                val panNow = System.nanoTime()
-                                if (lastPanTimeNanos > 0L) {
-                                    val dt = ((panNow - lastPanTimeNanos) / 1e9f).coerceAtLeast(0.001f)
-                                    velocityRingY[velocityRingIndex % 4] = panChange.y / dt
-                                    velocityRingX[velocityRingIndex % 4] = panChange.x / dt
-                                    velocityRingIndex = velocityRingIndex + 1
+                                event.changes.forEach { change ->
+                                    if (change.pressed) {
+                                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                    }
                                 }
-                                lastPanTimeNanos = panNow
                                 val centroid = event.calculateCentroid(useCurrent = true)
                                 val viewW = paneSize.width
                                 val viewH = paneSize.height
@@ -535,30 +605,77 @@ internal fun ContinuousReferencePdfPane(
                                 event.changes.forEach { it.consume() }
                             } while (event.changes.any { it.pressed })
                             isInteracting = false
-                            val samples = minOf(velocityRingIndex, 4)
-                            val avgVelocityY = if (samples > 0) (0 until samples).sumOf { velocityRingY[it % 4].toDouble() } / samples else 0.0
-                            val avgVelocityX = if (samples > 0) (0 until samples).sumOf { velocityRingX[it % 4].toDouble() } / samples else 0.0
-                            val rawFlingVelocity = when (orientation) {
-                                Orientation.Vertical -> -avgVelocityY.toFloat()
-                                Orientation.Horizontal -> -avgVelocityX.toFloat()
+
+                            val trackedVelocity = velocityTracker.calculateVelocity()
+                            val rawMainVelocity = when (orientation) {
+                                Orientation.Vertical -> -trackedVelocity.y
+                                Orientation.Horizontal -> -trackedVelocity.x
                             }
-                            val flingVelocity = rawFlingVelocity / sharedZoom
-                            if (abs(flingVelocity) > 100f) {
-                                isFlinging = true
+                            val rawCrossVelocity = when (orientation) {
+                                Orientation.Vertical -> trackedVelocity.x
+                                Orientation.Horizontal -> trackedVelocity.y
+                            }
+                            val flingVelocity = rawMainVelocity / sharedZoom
+                            val crossFlingVelocity = rawCrossVelocity / sharedZoom
+                            Log.d("PdfFlingDebug", "Gesture end: tracked=$trackedVelocity main=$rawMainVelocity flingVel=$flingVelocity crossFlingVel=$crossFlingVelocity zoom=$sharedZoom")
+
+                            if (abs(flingVelocity) > 100f || abs(crossFlingVelocity) > 100f) {
+                                Log.d("PdfFlingDebug", "Launching flingJob with vel=$flingVelocity crossVel=$crossFlingVelocity")
+                                // Drain all real drag deltas, then post a NaN sentinel to force
+                                // the drag consumer to exit its listState.scroll() session.
+                                // This clears the scroll mutex before flingJob tries to acquire it.
                                 while (scrollDeltaChannel.tryReceive().isSuccess) { /* drain */ }
-                                flingCancelled = false
-                                flingScope.launch {
-                                    var vel = flingVelocity
-                                    while (isActive && abs(vel) > 1f && !flingCancelled) {
-                                        vel *= 0.95f
-                                        listState.scrollBy(vel / 60f)
-                                        delay(16)
+                                scrollDeltaChannel.trySend(Float.NaN)  // sentinel: release drag session
+                                flingJob = flingScope.launch {
+                                    Log.d("PdfFlingDebug", "flingJob ENTERED coroutine body vel=$flingVelocity")
+                                    isFlinging = true
+                                    try {
+                                        var vel = flingVelocity
+                                        var crossVel = crossFlingVelocity
+                                        // Drive the entire fling inside ONE continuous scroll
+                                        // session so LazyList never thinks scrolling stopped
+                                        // mid-flight. Using MutatePriority.UserInput so a
+                                        // subsequent touch (flingJob?.cancel() in awaitFirstDown)
+                                        // can pre-empt it cleanly.
+                                        listState.scroll(MutatePriority.UserInput) {
+                                            var lastFrameNanos = System.nanoTime()
+                                            var frameCount = 0
+                                            while (isActive && abs(vel) > 10f) {
+                                                withFrameNanos { frameTime ->
+                                                    val dt = ((frameTime - lastFrameNanos) / 1e9f).coerceIn(0.001f, 0.05f)
+                                                    lastFrameNanos = frameTime
+
+                                                    val mainStep = computeFlingStep(vel, dt)
+                                                    vel = mainStep.nextVelocity
+                                                    if (mainStep.delta != 0f) {
+                                                        scrollBy(mainStep.delta)
+                                                        frameCount++
+                                                    }
+
+                                                    if (sharedZoom > 1.02f && abs(crossVel) > 10f) {
+                                                        val crossStep = computeFlingStep(crossVel, dt)
+                                                        crossVel = crossStep.nextVelocity
+                                                        if (crossStep.delta != 0f) {
+                                                            val viewExtent = if (orientation == Orientation.Vertical) paneSize.width else paneSize.height
+                                                            val maxCross = maxCrossAxisPan(viewExtent.toFloat(), sharedZoom)
+                                                            sharedCrossPan = (sharedCrossPan + crossStep.delta).coerceIn(-maxCross, maxCross)
+                                                        }
+                                                    } else {
+                                                        crossVel = 0f
+                                                    }
+                                                }
+                                            }
+                                            Log.d("PdfFlingDebug", "flingJob scrollSession finished frames=$frameCount remainingVel=$vel")
+                                        }
+                                        Log.d("PdfFlingDebug", "flingJob finished loop cleanly")
+                                    } finally {
+                                        isFlinging = false
+                                        Log.d("PdfFlingDebug", "flingJob finally block executed")
                                     }
                                 }
+                            } else {
+                                Log.d("PdfFlingDebug", "Fling threshold NOT met (vel=$flingVelocity <= 100)")
                             }
-                            isFlinging = false
-                            velocityRingIndex = 0
-                            lastPanTimeNanos = 0L
                         }
                     }
                 } else {

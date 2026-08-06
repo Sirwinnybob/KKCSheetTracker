@@ -116,4 +116,22 @@ class ContinuousReferencePdfPaneTest {
     fun maxCrossAxisPan_scalesWithZoom() {
         assertEquals(400f, maxCrossAxisPan(viewportExtent = 800f, zoom = 2f), 0.001f)
     }
+
+    @Test
+    fun computeFlingStep_decaysVelocityAndCalculatesDelta() {
+        val result = computeFlingStep(velocity = 1000f, dtSeconds = 0.016f, friction = 4.0f)
+
+        // Exponential decay: v1 = 1000 * exp(-4.0 * 0.016) ≈ 938.0
+        assertEquals(938.0f, result.nextVelocity, 1.0f)
+        // Integrated delta: 1000 * (1 - exp(-0.064)) / 4.0 ≈ 15.5
+        assertEquals(15.5f, result.delta, 0.5f)
+    }
+
+    @Test
+    fun computeFlingStep_stopsWhenVelocityBelowThreshold() {
+        val result = computeFlingStep(velocity = 5f, dtSeconds = 0.016f, minVelocityThreshold = 10f)
+
+        assertEquals(0f, result.nextVelocity, 0.001f)
+        assertEquals(0f, result.delta, 0.001f)
+    }
 }
