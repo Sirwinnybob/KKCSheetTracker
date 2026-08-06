@@ -10,7 +10,7 @@ This is an independent style preference, not a performance fallback — it's sel
 
 New preference in `uiPreferencesStore`: `getScrollPreviewLabelOnly(): Boolean` / `setScrollPreviewLabelOnly(Boolean)`, default `false`. Exposed as a `Switch` in the **Appearance** card in [SettingsScreen.kt](../../../app/src/main/java/com/kkc/sheettracker/ui/settings/SettingsScreen.kt) ("Label-only scroll preview"), following the same `remember { mutableStateOf(...) }` pattern already used by the Performance card's switches. Existing users default to the thumbnail carousel (unchanged behavior); the new mode is opt-in.
 
-`PdfLabelScrollbar` gains a new parameter `labelOnlyMode: Boolean = false`, read from the store by the caller and passed down the same way `hazeState` already is.
+Wired via a new `LocalScrollPreviewMode` `CompositionLocal` (`ScrollPreviewModeCompositionLocal.kt`), following the exact precedent of `LocalLowEndMode` ([LowEndModeCompositionLocal.kt](../../../app/src/main/java/com/kkc/sheettracker/ui/components/LowEndModeCompositionLocal.kt)): computed once in `MainActivity` from the `UiPreferencesStore` value and provided via `CompositionLocalProvider` alongside the existing `LocalLowEndMode` provider, read directly inside `PdfLabelScrollbar` with `.current` — no explicit parameter threading through `UnifiedReferenceViewer` or any of its 6 call sites. `PdfLabelScrollbar` is the only caller of the composable that needs this value.
 
 ### Forced in split view
 

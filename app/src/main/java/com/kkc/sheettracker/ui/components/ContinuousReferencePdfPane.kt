@@ -351,7 +351,7 @@ internal fun ContinuousReferencePdfPane(
         Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) triggered scrollToPage=$scrollToPage lastReported=$lastReportedPage isInteracting=$isInteracting isFlinging=$isFlinging")
         // Only jump for an EXTERNAL request (initial open, scrollbar drag, resume-to-page).
         if (totalPages <= 0 || scrollToPage !in 1..totalPages) return@LaunchedEffect
-        if (scrollToPage == lastReportedPage || isInteracting || isFlinging) {
+        if (scrollToPage == lastReportedPage || isInteracting) {
             Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) SUPPRESSED: scrollToPage=$scrollToPage")
             lastReportedPage = scrollToPage
             return@LaunchedEffect
@@ -361,6 +361,12 @@ internal fun ContinuousReferencePdfPane(
             Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) SUPPRESSED (already at current=$current)")
             lastReportedPage = scrollToPage
             return@LaunchedEffect
+        }
+        // Scrollbar (or any external nav) while flinging: kill the fling and jump.
+        if (isFlinging) {
+            Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) INTERRUPTING fling for scrollToPage=$scrollToPage")
+            flingJob?.cancel()
+            isFlinging = false
         }
         Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) EXECUTING animateScrollToItem target=${scrollToPage - 1}")
         isProgrammaticScroll = true
@@ -558,18 +564,20 @@ internal fun ContinuousReferencePdfPane(
                             // point.
                             val velocityTracker = VelocityTracker()
                             val firstDown = awaitFirstDown(requireUnconsumed = false)
+                            val trackPointerId = firstDown.id  // only track this pointer — ignore second finger during pinch
                             velocityTracker.addPosition(firstDown.uptimeMillis, firstDown.position)
                             flingJob?.cancel()  // NOW cancel: we have a new real touch, pre-empt cleanly
                             isInteracting = true
+                            var wasMultiTouch = false
                             do {
                                 val event = awaitPointerEvent()
                                 val zoomChange = event.calculateZoom()
                                 val panChange = event.calculatePan()
-                                event.changes.forEach { change ->
-                                    if (change.pressed) {
-                                        velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                    }
-                                }
+                                if (event.changes.size > 1) wasMultiTouch = true
+                                // Only feed the original pointer into the velocity tracker.
+                                // Adding multiple pointer positions produces garbage velocity on pinch release.
+                                event.changes.firstOrNull { it.id == trackPointerId && it.pressed }
+                                    ?.let { velocityTracker.addPosition(it.uptimeMillis, it.position) }
                                 val centroid = event.calculateCentroid(useCurrent = true)
                                 val viewW = paneSize.width
                                 val viewH = paneSize.height
@@ -615,9 +623,9 @@ internal fun ContinuousReferencePdfPane(
                                 Orientation.Vertical -> trackedVelocity.x
                                 Orientation.Horizontal -> trackedVelocity.y
                             }
-                            val flingVelocity = rawMainVelocity / sharedZoom
-                            val crossFlingVelocity = rawCrossVelocity / sharedZoom
-                            Log.d("PdfFlingDebug", "Gesture end: tracked=$trackedVelocity main=$rawMainVelocity flingVel=$flingVelocity crossFlingVel=$crossFlingVelocity zoom=$sharedZoom")
+                            val flingVelocity = if (wasMultiTouch) 0f else rawMainVelocity / sharedZoom
+                            val crossFlingVelocity = if (wasMultiTouch) 0f else rawCrossVelocity / sharedZoom
+                            Log.d("PdfFlingDebug", "Gesture end: tracked=$trackedVelocity main=$rawMainVelocity flingVel=$flingVelocity crossFlingVel=$crossFlingVelocity zoom=$sharedZoom multiTouch=$wasMultiTouch")
 
                             if (abs(flingVelocity) > 100f || abs(crossFlingVelocity) > 100f) {
                                 Log.d("PdfFlingDebug", "Launching flingJob with vel=$flingVelocity crossVel=$crossFlingVelocity")
@@ -645,7 +653,11 @@ internal fun ContinuousReferencePdfPane(
                                                     val dt = ((frameTime - lastFrameNanos) / 1e9f).coerceIn(0.001f, 0.05f)
                                                     lastFrameNanos = frameTime
 
-                                                    val mainStep = computeFlingStep(vel, dt)
+                                                    // Zoomed-in fling decays ~2x faster (0.75s glide vs 1.5s at
+                                                    // rest zoom) — doubling friction exactly halves decay time
+                                                    // since t = ln(v0/threshold)/friction.
+                                                    val effectiveFriction = if (sharedZoom > 1.02f) 5f else 2.5f
+                                                    val mainStep = computeFlingStep(vel, dt, friction = effectiveFriction)
                                                     vel = mainStep.nextVelocity
                                                     if (mainStep.delta != 0f) {
                                                         scrollBy(mainStep.delta)
@@ -653,7 +665,7 @@ internal fun ContinuousReferencePdfPane(
                                                     }
 
                                                     if (sharedZoom > 1.02f && abs(crossVel) > 10f) {
-                                                        val crossStep = computeFlingStep(crossVel, dt)
+                                                        val crossStep = computeFlingStep(crossVel, dt, friction = effectiveFriction)
                                                         crossVel = crossStep.nextVelocity
                                                         if (crossStep.delta != 0f) {
                                                             val viewExtent = if (orientation == Orientation.Vertical) paneSize.width else paneSize.height
