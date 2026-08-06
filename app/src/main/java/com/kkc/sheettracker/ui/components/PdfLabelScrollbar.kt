@@ -470,7 +470,16 @@ internal fun PdfLabelScrollbar(
             }
         }
 
-        if (isDragging) {
+        AnimatedVisibility(
+            visible = isDragging,
+            modifier = Modifier.align(Alignment.TopEnd),
+            enter = slideInHorizontally(
+                animationSpec = tween(200, easing = FastOutSlowInEasing)
+            ) { fullWidth -> fullWidth } + fadeIn(tween(200)),
+            exit = slideOutHorizontally(
+                animationSpec = tween(200, easing = FastOutSlowInEasing)
+            ) { fullWidth -> fullWidth } + fadeOut(tween(200))
+        ) {
             // Fixed size tiers, not a continuous falloff — the carousel only ever shows exactly
             // these 5 roles (main/±1/±2), so there's no "many more neighbors fading to zero" case
             // to model the way the old whole-document dock needed to.
@@ -549,10 +558,6 @@ internal fun PdfLabelScrollbar(
 
             Column(
                 modifier = Modifier
-                    // Root Box is fillMaxWidth now (see the comment there) specifically so this
-                    // ordinary TopEnd alignment works correctly without needing to escape a
-                    // narrow parent — no oversized-child tricks left to get wrong.
-                    .align(Alignment.TopEnd)
                     .offset(y = with(density) { carouselTopPx.toDp() })
                     .width(carouselWidth),
                 // End, not CenterHorizontally — cards differ in width per tier (main/±1/±2), and
