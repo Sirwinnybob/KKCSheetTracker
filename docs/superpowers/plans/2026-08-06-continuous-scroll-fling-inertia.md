@@ -167,6 +167,7 @@ Modifier.pointerInput(orientation) {
         Orientation.Vertical -> -lastVelocityY
         Orientation.Horizontal -> -lastVelocityX
     }
+    isFlinging = true
     if (abs(flingVelocity) > 100f) {
         coroutineScope {
             launch {
@@ -179,6 +180,7 @@ Modifier.pointerInput(orientation) {
             }
         }
     }
+    isFlinging = false
     lastPanTimeNanos = 0L
     lastVelocityY = 0f
     lastVelocityX = 0f
@@ -196,7 +198,8 @@ Add these state variables near the existing `isInteracting` declaration (~line 2
 ```kotlin
 var lastVelocityY by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
 var lastVelocityX by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
-var lastPanTimeNanos by remember(fileIdentitySeed, orientation) { mutableLongStateOf(0L) }
+var lastPanTimeNanos by remember(fileIdentitySeed, orientation) { mutableLongStateOf(0L)
+var isFlinging by remember(fileIdentitySeed, orientation) { mutableStateOf(false) } }
 ```
 
 Note: `mutableLongStateOf` needs import `import androidx.compose.runtime.mutableLongStateOf`.
@@ -210,7 +213,21 @@ cd C:\Scripts\KKCSheetTracker
 
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 5: Manual verification on tablet**
+
+**Note on `isFlinging` and the `settled` debounce:** The existing `settled` `LaunchedEffect` at line ~273 watches `isInteracting || listState.isScrollInProgress`. Since `scrollBy()` is instantaneous and `isScrollInProgress` could flicker false between fling frames, add `isFlinging` to the effect keys and condition:
+
+```kotlin
+LaunchedEffect(isInteracting, listState.isScrollInProgress, isFlinging, fileIdentitySeed, orientation) {
+    if (isInteracting || listState.isScrollInProgress || isFlinging) {
+        settled = false
+    } else {
+        delay(120)
+        settled = true
+    }
+}
+```
+
+
 
 ```bash
 adb install -r app\build\outputs\apk\debug\app-debug.apk
@@ -229,3 +246,4 @@ Test scenarios:
 git add app/src/main/java/com/kkc/sheettracker/ui/components/ContinuousReferencePdfPane.kt
 git commit -m "feat: add fling inertia to continuous scroll gesture handler"
 ```
+
