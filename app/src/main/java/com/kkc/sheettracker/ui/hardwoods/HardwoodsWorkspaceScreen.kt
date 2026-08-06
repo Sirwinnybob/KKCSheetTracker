@@ -42,6 +42,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
@@ -352,6 +354,7 @@ fun HardwoodsWorkspaceScreen(
     jobFolderName: String,
     initialDocType: HardwoodDocType,
     initialRowId: String?,
+    continuousScrollDefault: Boolean = false,
     isDarkTheme: Boolean,
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
@@ -602,6 +605,7 @@ fun HardwoodsWorkspaceScreen(
     var lastJumpCab by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var collapsedPartSectionsByDoc by rememberSaveable(jobFolderName) { mutableStateOf(mapOf<String, Set<String>>()) }
     var showReferencePane by remember(jobFolderName) { mutableStateOf(true) }
+    var continuousScrollEnabled by rememberSaveable(jobFolderName) { mutableStateOf(continuousScrollDefault) }
     var referenceMarkupEnabled by rememberSaveable(jobFolderName) { mutableStateOf(false) }
     val sharedMarkupToolState = rememberPdfMarkupToolState()
     val skippedCabinetMap = progressBundle.skippedCabinetMap
