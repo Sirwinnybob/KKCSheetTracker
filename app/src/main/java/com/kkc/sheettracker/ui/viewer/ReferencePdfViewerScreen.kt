@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -82,6 +83,7 @@ fun ReferencePdfViewerScreen(
     var showUi by rememberSaveable { mutableStateOf(true) }
     var markupEnabled by rememberSaveable { mutableStateOf(false) }
     var continuousScrollEnabled by rememberSaveable(jobFolderName, docType) { mutableStateOf(continuousScrollDefault) }
+    var tocRequestToken by rememberSaveable(jobFolderName, docType) { mutableIntStateOf(0) }
     val markupToolState = rememberPdfMarkupToolState()
     // Lets the continuous-scroll scrollbar's expanded panel blur the PDF content behind it —
     // same frosted pattern used elsewhere in the app, not a plain opaque panel.
@@ -126,6 +128,9 @@ fun ReferencePdfViewerScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { tocRequestToken += 1 }) {
+                        Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list")
+                    }
                     IconButton(onClick = { continuousScrollEnabled = !continuousScrollEnabled }) {
                         Icon(
                             if (continuousScrollEnabled) Icons.Default.ViewDay else Icons.AutoMirrored.Filled.MenuBook,
@@ -176,6 +181,7 @@ fun ReferencePdfViewerScreen(
             continuousScrollEnabled = continuousScrollEnabled,
             isSplitPaneActive = false,
             hazeState = hazeState,
+            tocRequestToken = tocRequestToken,
             onSingleTap = {
                 showUi = !showUi
                 onUiVisibilityChanged(showUi)
