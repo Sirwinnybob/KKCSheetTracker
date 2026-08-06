@@ -1695,6 +1695,7 @@ fun HardwoodsWorkspaceScreen(
                 jobRepository = jobRepository,
                 jobFolderName = jobFolderName,
                 cabinetIndex = cabinetIndex,
+                continuousScrollEnabled = continuousScrollEnabled,
                 isDarkTheme = isDarkTheme,
                 referenceDocType = referenceDocType,
                 jumpTarget = jumpTarget,
@@ -2149,6 +2150,7 @@ private fun ReferencePane(
     onJumpTargetChange: (HardwoodsJumpTarget) -> Unit,
     currentPage: Int,
     onCurrentPageChange: (Int) -> Unit,
+    continuousScrollEnabled: Boolean,
     roomName: String?,
     serverPort: Int,
     serverError: String?,
@@ -2434,7 +2436,8 @@ private fun ReferencePane(
             markupEnabled = markupEnabled,
             onToggleMarkupEnabled = onToggleMarkupEnabled,
             markupToolState = markupToolState,
-            ownsNavBarMarkupControls = ownsNavBarMarkupControls
+            ownsNavBarMarkupControls = ownsNavBarMarkupControls,
+            continuousScrollEnabled = continuousScrollEnabled
         )
     }
 }
