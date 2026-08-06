@@ -825,7 +825,8 @@ fun UnifiedReferenceViewer(
                 onPageSelected = onDisplayPageChange,
                 pdfFileForFilename = pdfFileForFilename,
                 defaultPdfFilename = defaultPdfFilename,
-                hazeState = hazeState
+                hazeState = hazeState,
+                isSplitPaneActive = isSplitPaneActive
             )
           }
         }
