@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -40,11 +42,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
@@ -60,7 +60,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import kotlin.math.roundToInt
 
 /** Real (not estimated) bounds of one rendered scrollbar row, in the scrollbar's own local
  * coordinate space — sourced from LazyListState.layoutInfo.visibleItemsInfo. Decoupled into a
@@ -261,69 +260,85 @@ internal fun PdfLabelScrollbar(
         fallback = focusIndex
     )
 
+    // Root is fillMaxWidth, NOT clamped to idleWidth — three attempts at making the carousel
+    // escape a narrow parent (align+requiredWidth, wrapContentWidth+align, a custom layout{}
+    // with manually computed placement) all mispositioned it on-device in ways that didn't match
+    // Compose's documented behavior, confirmed via onGloballyPositioned logging each time rather
+    // than guessed. Simpler and unambiguous: give the carousel a WIDE parent to begin with, so it
+    // never needs to escape anything — ordinary Alignment.TopEnd on a normal-sized child. Touch
+    // handling stays scoped to the narrow inner track Box below; a plain Box with no pointer
+    // input modifier doesn't intercept touches in Compose, so widening the root here doesn't
+    // risk stealing touches meant for the PDF content to its left.
     Box(
         modifier = modifier
             .padding(bottom = bottomClearance)
             .fillMaxHeight()
-            .width(idleWidth)
-            .pointerInput(entries.size, displayMode) {
-                detectTapGestures { offset -> onPageSelected(entries[hitTest(offset.y)].page) }
-            }
-            .pointerInput(entries.size, displayMode) {
-                detectVerticalDragGestures(
-                    onDragStart = { offset ->
-                        isDragging = true
-                        touchYPx = offset.y
-                        val index = hitTest(offset.y)
-                        dragIndex = index
-                        onPageSelected(entries[index].page)
-                    },
-                    onVerticalDrag = { change, _ ->
-                        touchYPx = change.position.y
-                        val index = hitTest(change.position.y)
-                        dragIndex = index
-                        onPageSelected(entries[index].page)
-                    },
-                    onDragEnd = { isDragging = false; dragIndex = null },
-                    onDragCancel = { isDragging = false; dragIndex = null }
-                )
-            }
+            .fillMaxWidth()
     ) {
-        // Thin continuous background rail so the track reads as "a scrollbar" even where ticks
-        // are sparse (BUCKETED mode, or long documents with few visible rows) — always rendered,
-        // both idle and dragging, as a backdrop behind the ticks; the carousel floats to the side
-        // while dragging so it never visually conflicts with this rail.
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(end = 6.dp + (tickWidth - 4.dp) / 2)
-                .width(4.dp)
                 .fillMaxHeight()
-                .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
-        )
-
-        // The track — always the tick/pill rendering, in both idle and dragging. This is the
-        // permanent position indicator; the carousel below is a separate, purely local preview.
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.align(Alignment.TopEnd).fillMaxSize(),
-            userScrollEnabled = false,
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.SpaceBetween,
-            contentPadding = PaddingValues(vertical = 8.dp)
+                .width(idleWidth)
+                .pointerInput(entries.size, displayMode) {
+                    detectTapGestures { offset -> onPageSelected(entries[hitTest(offset.y)].page) }
+                }
+                .pointerInput(entries.size, displayMode) {
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            isDragging = true
+                            touchYPx = offset.y
+                            val index = hitTest(offset.y)
+                            dragIndex = index
+                            onPageSelected(entries[index].page)
+                        },
+                        onVerticalDrag = { change, _ ->
+                            touchYPx = change.position.y
+                            val index = hitTest(change.position.y)
+                            dragIndex = index
+                            onPageSelected(entries[index].page)
+                        },
+                        onDragEnd = { isDragging = false; dragIndex = null },
+                        onDragCancel = { isDragging = false; dragIndex = null }
+                    )
+                }
         ) {
-            itemsIndexed(entries, key = { _, entry -> entry.rowIndex }) { index, _ ->
-                val isCurrent = index == currentEntryIndex
-                Box(
-                    modifier = Modifier
-                        .padding(end = 6.dp)
-                        .width(tickWidth)
-                        .height(if (isCurrent) idlePillHeight else idleTickHeight)
-                        .background(
-                            if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(4.dp)
-                        )
-                )
+            // Thin continuous background rail so the track reads as "a scrollbar" even where
+            // ticks are sparse (BUCKETED mode, or long documents with few visible rows) — always
+            // rendered, both idle and dragging, as a backdrop behind the ticks.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 6.dp + (tickWidth - 4.dp) / 2)
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
+            )
+
+            // The track — always the tick/pill rendering, in both idle and dragging. This is the
+            // permanent position indicator; the carousel below is a separate, purely local
+            // preview.
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.align(Alignment.TopEnd).fillMaxSize(),
+                userScrollEnabled = false,
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.SpaceBetween,
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                itemsIndexed(entries, key = { _, entry -> entry.rowIndex }) { index, _ ->
+                    val isCurrent = index == currentEntryIndex
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 6.dp)
+                            .width(tickWidth)
+                            .height(if (isCurrent) idlePillHeight else idleTickHeight)
+                            .background(
+                                if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                    )
+                }
             }
         }
 
@@ -400,34 +415,17 @@ internal fun PdfLabelScrollbar(
             val chipShadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
             // Asymmetric — small gap on the track side (end) so cards sit close to the pill,
             // generous margin on the far side (start) so they don't crowd the PDF content.
-            val carouselEndPadding = 2.dp
+            val carouselEndPadding = 8.dp
             val maxThumbWidthPx = with(density) { (carouselWidth - carouselPadding - carouselEndPadding).toPx() }
             val maxThumbWidth = carouselWidth - carouselPadding - carouselEndPadding
 
             Column(
                 modifier = Modifier
-                    // Both align(TopEnd) and requiredWidth were tried and both mispositioned this
-                    // on-device (confirmed via onGloballyPositioned logging, not guessing): the
-                    // carousel kept landing flush with the TRACK's own left edge and extending
-                    // RIGHTWARD off-screen, instead of flush with the track's right edge extending
-                    // leftward onto the visible PDF content. Rather than keep guessing at Compose's
-                    // alignment-vs-oversized-child interactions, place it with an explicit custom
-                    // layout: measure the child fully unconstrained (so it's genuinely 240dp, not
-                    // coerced to the 36dp incoming max), then place it at an exact computed pixel
-                    // position — no alignment/offset ambiguity possible.
-                    .layout { measurable, constraints ->
-                        val unconstrained = Constraints(
-                            minWidth = 0,
-                            maxWidth = Constraints.Infinity,
-                            minHeight = constraints.minHeight,
-                            maxHeight = constraints.maxHeight
-                        )
-                        val placeable = measurable.measure(unconstrained)
-                        val leftPx = with(density) { idleWidth.toPx() } - placeable.width
-                        layout(placeable.width, placeable.height) {
-                            placeable.place(leftPx.roundToInt(), carouselTopPx.roundToInt())
-                        }
-                    }
+                    // Root Box is fillMaxWidth now (see the comment there) specifically so this
+                    // ordinary TopEnd alignment works correctly without needing to escape a
+                    // narrow parent — no oversized-child tricks left to get wrong.
+                    .align(Alignment.TopEnd)
+                    .offset(y = with(density) { carouselTopPx.toDp() })
                     .width(carouselWidth),
                 // End, not CenterHorizontally — cards differ in width per tier (main/±1/±2), and
                 // centering them left each narrower card's right edge staggered inward from the
