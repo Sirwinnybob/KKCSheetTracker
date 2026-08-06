@@ -311,7 +311,7 @@ internal fun PdfLabelScrollbar(
                 .pointerInput(entries.size, displayMode) {
                     detectTapGestures { offset ->
                         onPageSelected(entries[hitTest(offset.y)].page)
-                        if (!lowEnd.shadowsDisabled) {
+                        if (!lowEnd.animationsDisabled) {
                             val ring = RippleRing(nextRippleId++, offset.y, Animatable(0f))
                             ripples.add(ring)
                             rippleScope.launch {
@@ -389,12 +389,13 @@ internal fun PdfLabelScrollbar(
                 val ripplePrimary = MaterialTheme.colorScheme.primary
                 val rippleCenterX = with(density) { (tickWidth / 2).toPx() }
                 Canvas(modifier = Modifier.align(Alignment.TopEnd).fillMaxSize()) {
+                    val rippleCenterXWithOffset = size.width - with(density) { 6.dp.toPx() } - rippleCenterX
                     for (ring in ripples) {
                         val p = ring.progress.value
                         drawCircle(
                             color = ripplePrimary.copy(alpha = (1f - p) * 0.5f),
                             radius = with(density) { (8.dp + 24.dp * p).toPx() },
-                            center = Offset(size.width - rippleCenterX, ring.centerYPx)
+                            center = Offset(rippleCenterXWithOffset, ring.centerYPx)
                         )
                     }
                 }
