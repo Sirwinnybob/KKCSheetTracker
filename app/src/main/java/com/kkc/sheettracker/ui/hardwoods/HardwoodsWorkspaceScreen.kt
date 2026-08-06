@@ -1022,6 +1022,15 @@ fun HardwoodsWorkspaceScreen(
                     TextButton(onClick = { showReferencePane = !showReferencePane }) {
                         Text(if (showReferencePane) "Hide PDF" else "Show PDF")
                     }
+                    if (showReferencePane) {
+                        IconButton(onClick = { continuousScrollEnabled = !continuousScrollEnabled }) {
+                            Icon(
+                                if (continuousScrollEnabled) Icons.Default.ViewDay else Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = if (continuousScrollEnabled) "Switch to single page" else "Switch to continuous scroll",
+                                tint = if (continuousScrollEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 },
                 
                 )
