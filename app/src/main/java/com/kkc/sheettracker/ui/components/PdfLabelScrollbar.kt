@@ -181,6 +181,14 @@ internal fun PdfLabelScrollbar(
     val ripples = remember { mutableStateListOf<RippleRing>() }
     val rippleScope = rememberCoroutineScope()
     var nextRippleId by remember { mutableLongStateOf(0L) }
+    // Shared fill for the pill and the rail's progress-fill overlay — kept as one definition so
+    // the two can never visually drift apart if the gradient stops are retuned later.
+    val progressGradient = Brush.verticalGradient(
+        listOf(
+            lerp(MaterialTheme.colorScheme.primary, Color.White, 0.35f),
+            MaterialTheme.colorScheme.primary
+        )
+    )
 
     val idleTickHeight = 2.dp
     val idlePillHeight = 64.dp
@@ -374,12 +382,7 @@ internal fun PdfLabelScrollbar(
                         .fillMaxWidth()
                         .height(with(density) { fillHeightPx.toDp() })
                         .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    lerp(MaterialTheme.colorScheme.primary, Color.White, 0.35f),
-                                    MaterialTheme.colorScheme.primary
-                                )
-                            ),
+                            progressGradient,
                             shape = RoundedCornerShape(2.dp)
                         )
                 )
@@ -447,12 +450,7 @@ internal fun PdfLabelScrollbar(
                                     Modifier
                                         .shadow(pillElevation, pillShape, clip = false)
                                         .background(
-                                            Brush.verticalGradient(
-                                                listOf(
-                                                    lerp(MaterialTheme.colorScheme.primary, Color.White, 0.35f),
-                                                    MaterialTheme.colorScheme.primary
-                                                )
-                                            ),
+                                            progressGradient,
                                             shape = pillShape
                                         )
                                         .border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
