@@ -14,11 +14,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -42,9 +40,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
@@ -60,6 +60,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import kotlin.math.roundToInt
 
 /** Real (not estimated) bounds of one rendered scrollbar row, in the scrollbar's own local
  * coordinate space — sourced from LazyListState.layoutInfo.visibleItemsInfo. Decoupled into a
@@ -374,7 +375,6 @@ internal fun PdfLabelScrollbar(
             val totalContentPx = footprintsPx.values.sum() + (fittedSlots.size - 1).coerceAtLeast(0) * with(density) { rowSpacing.toPx() }
             val maxTopPx = (trackHeightPx - totalContentPx).coerceAtLeast(0f)
             val carouselTopPx = (touchYPx - mainCenterPx).coerceIn(0f, maxTopPx)
-            val carouselTopDp = with(density) { carouselTopPx.toDp() }
 
             val frostedTokens = LocalKKCThemeTokens.current.frosted
             val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
@@ -398,28 +398,42 @@ internal fun PdfLabelScrollbar(
                 Modifier
             }
             val chipShadowElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
-            val maxThumbWidthPx = with(density) { (carouselWidth - carouselPadding * 2).toPx() }
-            val maxThumbWidth = carouselWidth - carouselPadding * 2
+            // Asymmetric — small gap on the track side (end) so cards sit close to the pill,
+            // generous margin on the far side (start) so they don't crowd the PDF content.
+            val carouselEndPadding = 6.dp
+            val maxThumbWidthPx = with(density) { (carouselWidth - carouselPadding - carouselEndPadding).toPx() }
+            val maxThumbWidth = carouselWidth - carouselPadding - carouselEndPadding
 
             Column(
                 modifier = Modifier
-                    // TopEnd works correctly here as long as the child actually REPORTS its true
-                    // 240dp size to this Box — requiredWidth doesn't do that (it reports a size
-                    // COERCED to the incoming 36dp constraint and auto-centers the real content
-                    // within that reported slot internally, which is why the previous attempt
-                    // rendered centered-on-the-pill regardless of align/offset: the coercion and
-                    // centering happen inside requiredWidth, before Box's own alignment math ever
-                    // sees a real 240dp size to align against). wrapContentWidth(unbounded = true)
-                    // instead relaxes the incoming constraint to unbounded for its own child, lets
-                    // the inner .width(carouselWidth) measure at the true 240dp, and reports THAT
-                    // real size back up — so TopEnd's normal "child.width > box.width -> flush
-                    // right, extend left" math applies exactly as expected, no manual offset math
-                    // needed.
-                    .align(Alignment.TopEnd)
-                    .offset(y = carouselTopDp)
-                    .wrapContentWidth(unbounded = true, align = Alignment.Start)
+                    // Both align(TopEnd) and requiredWidth were tried and both mispositioned this
+                    // on-device (confirmed via onGloballyPositioned logging, not guessing): the
+                    // carousel kept landing flush with the TRACK's own left edge and extending
+                    // RIGHTWARD off-screen, instead of flush with the track's right edge extending
+                    // leftward onto the visible PDF content. Rather than keep guessing at Compose's
+                    // alignment-vs-oversized-child interactions, place it with an explicit custom
+                    // layout: measure the child fully unconstrained (so it's genuinely 240dp, not
+                    // coerced to the 36dp incoming max), then place it at an exact computed pixel
+                    // position — no alignment/offset ambiguity possible.
+                    .layout { measurable, constraints ->
+                        val unconstrained = Constraints(
+                            minWidth = 0,
+                            maxWidth = Constraints.Infinity,
+                            minHeight = constraints.minHeight,
+                            maxHeight = constraints.maxHeight
+                        )
+                        val placeable = measurable.measure(unconstrained)
+                        val leftPx = with(density) { idleWidth.toPx() } - placeable.width
+                        layout(placeable.width, placeable.height) {
+                            placeable.place(leftPx.roundToInt(), carouselTopPx.roundToInt())
+                        }
+                    }
                     .width(carouselWidth),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                // End, not CenterHorizontally — cards differ in width per tier (main/±1/±2), and
+                // centering them left each narrower card's right edge staggered inward from the
+                // track. Right-aligning keeps every card's right edge flush together, close to
+                // the track/pill, varying only on the left (far) side.
+                horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(rowSpacing)
             ) {
                 fittedSlots.forEach { (distance, entry) ->
@@ -448,7 +462,7 @@ internal fun PdfLabelScrollbar(
                     val showLabel = kotlin.math.abs(distance) <= 1
 
                     androidx.compose.material3.Surface(
-                        modifier = Modifier.padding(vertical = 3.dp, horizontal = carouselPadding),
+                        modifier = Modifier.padding(top = 3.dp, bottom = 3.dp, start = carouselPadding, end = carouselEndPadding),
                         shape = RoundedCornerShape(10.dp),
                         color = chipColor,
                         shadowElevation = chipShadowElevation,
