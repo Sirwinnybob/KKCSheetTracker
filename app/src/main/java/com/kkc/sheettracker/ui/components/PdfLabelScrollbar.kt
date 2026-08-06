@@ -325,9 +325,15 @@ internal fun PdfLabelScrollbar(
         ) {
             // Real measured center of the focused row, from the same layoutInfo source hitTest
             // already trusts — never a separate position estimate, consistent with this file's
-            // established convention (see indexForTouchY above).
+            // established convention (see indexForTouchY above). Falls back to the last known-good
+            // value (not 0f) when the row is transiently unmeasured — e.g. right after switching
+            // to a different PDF/job or a rotation, where focusIndex/entries have updated but the
+            // LazyColumn hasn't re-measured yet — so the fill doesn't flicker to empty.
+            var lastKnownFillHeightPx by remember { mutableFloatStateOf(0f) }
             val focusedItemInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == focusIndex }
-            val fillHeightPx = focusedItemInfo?.let { it.offset + it.size / 2f } ?: 0f
+            val fillHeightPx = focusedItemInfo?.let { it.offset + it.size / 2f }
+                ?.also { lastKnownFillHeightPx = it }
+                ?: lastKnownFillHeightPx
 
             // Thin continuous background rail so the track reads as "a scrollbar" even where
             // ticks are sparse (BUCKETED mode, or long documents with few visible rows) — always
