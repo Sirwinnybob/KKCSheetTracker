@@ -55,6 +55,7 @@ import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.ui.components.LowEndModeFlags
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
+import com.kkc.sheettracker.ui.components.LocalScrollPreviewLabelOnly
 import com.kkc.sheettracker.navigation.AppNavigation
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.onboarding.OnboardingStep
@@ -311,6 +312,7 @@ class MainActivity : ComponentActivity() {
                     lazyLoadingEnabled = !flagsSnapshot.lowEndMode || flagsSnapshot.lazyLoadingEnabled,
                 )
             }
+            val scrollPreviewLabelOnly = remember(flagsSnapshot) { flagsSnapshot.scrollPreviewLabelOnly }
 
             KKCTheme(darkTheme = isDarkTheme, themeTokens = themeCatalog.activeTheme.tokens) {
                 PersistentNavigationBarHider()
@@ -318,7 +320,10 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    androidx.compose.runtime.CompositionLocalProvider(LocalLowEndMode provides lowEndFlags) {
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        LocalLowEndMode provides lowEndFlags,
+                        LocalScrollPreviewLabelOnly provides scrollPreviewLabelOnly
+                    ) {
                         AppNavigation(
                         scanCoordinator = scanCoordinator,
                         appStateStore = appStateStore,
