@@ -10,10 +10,10 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -160,23 +160,60 @@ internal fun maxCrossAxisPan(viewportExtent: Float, zoom: Float): Float =
     ((viewportExtent * zoom - viewportExtent) / 2f).coerceAtLeast(0f)
 
 /**
- * Extra scrollable space (list-space px, not screen px) needed at BOTH the start and end of the
- * scrollable content so the first/last page's far edge can still be scrolled into view while
- * zoomed in.
+ * Max [sharedMainAxisOverscroll]-style main-axis overscroll (list-space px, not screen px)
+ * needed at the start OR end of the scrollable content so the first/last page's far edge can
+ * still be dragged into view while zoomed in.
  *
  * The shared whole-stack zoom is a `graphicsLayer` scale pivoted at the center of the viewport
  * (Compose's default transformOrigin), applied on top of the LazyColumn/LazyRow's own unscaled
  * layout. At maximum scroll-up, page 1's top edge sits at list-space y=0, which the center-pivot
  * scale maps to screen y = viewportExtent/2 * (1 - zoom) — negative (off-screen) for zoom > 1,
  * with no further scroll available to reach it (list is already at its start boundary). The same
- * happens in reverse for the last page's bottom edge at the end boundary. Adding this much
- * content padding at each end gives the list room to scroll the overflow back into frame:
- * solving screenY = 0 for the padded top-edge position yields
+ * happens in reverse for the last page's bottom edge at the end boundary. Solving screenY = 0 for
+ * how much extra (list-space) reveal is needed at that boundary yields
  * `viewportExtent/2 * (1 - 1/zoom)`, i.e. [maxCrossAxisPan]'s screen-space overflow converted to
  * list-space by dividing out the zoom.
  */
 internal fun mainAxisEdgePadding(viewportExtent: Float, zoom: Float): Float =
     maxCrossAxisPan(viewportExtent, zoom) / zoom
+
+internal data class ScrollSplitResult(val realScrollDelta: Float, val overscrollDelta: Float)
+
+/**
+ * Splits a requested main-axis scroll delta (list-space units, forward-positive — the same
+ * convention as [androidx.compose.foundation.gestures.ScrollScope.scrollBy]) between the real
+ * LazyColumn/LazyRow scroll and [sharedMainAxisOverscroll], the clamped translation that reveals
+ * the start/end boundary overflow described on [mainAxisEdgePadding].
+ *
+ * Draining (a delta pulling back toward real content) always empties existing overscroll first,
+ * so the handoff between "scrolling within the document" and "revealing the boundary overflow"
+ * is seamless in both directions — the caller applies [ScrollSplitResult.realScrollDelta] via a
+ * real `scrollBy` call and adds [ScrollSplitResult.overscrollDelta] to the running overscroll
+ * total (see call sites for how a real-scroll shortfall folds in too).
+ */
+internal fun splitScrollDelta(
+    requestedDelta: Float,
+    currentOverscroll: Float,
+    maxOverscroll: Float
+): ScrollSplitResult = when {
+    currentOverscroll > 0f && requestedDelta >= 0f -> {
+        val newOverscroll = (currentOverscroll + requestedDelta).coerceAtMost(maxOverscroll)
+        ScrollSplitResult(realScrollDelta = 0f, overscrollDelta = newOverscroll - currentOverscroll)
+    }
+    currentOverscroll > 0f -> { // requestedDelta < 0: draining back toward real content
+        val drain = min(-requestedDelta, currentOverscroll)
+        ScrollSplitResult(realScrollDelta = requestedDelta + drain, overscrollDelta = -drain)
+    }
+    currentOverscroll < 0f && requestedDelta <= 0f -> {
+        val newOverscroll = (currentOverscroll + requestedDelta).coerceAtLeast(-maxOverscroll)
+        ScrollSplitResult(realScrollDelta = 0f, overscrollDelta = newOverscroll - currentOverscroll)
+    }
+    currentOverscroll < 0f -> { // requestedDelta > 0: draining back toward real content
+        val drain = min(requestedDelta, -currentOverscroll)
+        ScrollSplitResult(realScrollDelta = requestedDelta - drain, overscrollDelta = drain)
+    }
+    else -> ScrollSplitResult(realScrollDelta = requestedDelta, overscrollDelta = 0f)
+}
 
 /**
  * Keeps at most [maxOpen] [PdfRenderEngine]s open at once, keyed by absolute file path.
@@ -309,6 +346,18 @@ internal fun ContinuousReferencePdfPane(
     // page boundaries, matching how Word/Samsung Notes continuous view behaves.
     var sharedZoom by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(CONTINUOUS_MIN_ZOOM) }
     var sharedCrossPan by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
+    // Extra reveal at the very start/end of the document — the portion of page 1's top edge
+    // (or the last page's bottom edge) that the center-pivoted graphicsLayer scale above
+    // pushes off-screen, with no real LazyColumn content left to scroll into to reach it.
+    // List-space (unscaled) units, same convention as ScrollScope.scrollBy's delta: positive
+    // means overscrolled past the END boundary, negative past the START boundary. Handled as
+    // a plain clamped translation (like sharedCrossPan) rather than LazyColumn contentPadding
+    // specifically because contentPadding changes trigger a real relayout that visibly snaps
+    // page position when the value changes while pinned at a boundary — fine for cross-axis
+    // pan (nothing else touches viewport translation) but wrong here, where real list scroll
+    // is also fighting for the same axis. See splitScrollDelta for how a raw drag/fling delta
+    // is divided between real scroll and this overscroll.
+    var sharedMainAxisOverscroll by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
     var isInteracting by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
     var isFlinging by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
     var flingJob by remember(fileIdentitySeed, orientation) { mutableStateOf<Job?>(null) }
@@ -316,6 +365,21 @@ internal fun ContinuousReferencePdfPane(
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val zoomedIn = sharedZoom > 1.02f
+
+    // Applies a main-axis scroll delta (list-space units), splitting it between real list
+    // scroll and sharedMainAxisOverscroll via splitScrollDelta. Must run inside a
+    // listState.scroll { } block, same as a plain scrollBy call, since it calls scrollBy
+    // itself for the realScrollDelta portion. Shared by the live-drag consumer and the fling
+    // loop below so both paths hit the boundary the same way.
+    val applyMainAxisScroll: ScrollScope.(Float) -> Unit = scroll@{ delta ->
+        val viewportExtent = if (orientation == Orientation.Vertical) paneSize.height.toFloat() else paneSize.width.toFloat()
+        val maxOverscroll = mainAxisEdgePadding(viewportExtent, sharedZoom)
+        val split = splitScrollDelta(delta, sharedMainAxisOverscroll, maxOverscroll)
+        val consumed = if (split.realScrollDelta != 0f) scrollBy(split.realScrollDelta) else 0f
+        val shortfall = split.realScrollDelta - consumed
+        sharedMainAxisOverscroll = (sharedMainAxisOverscroll + split.overscrollDelta + shortfall)
+            .coerceIn(-maxOverscroll, maxOverscroll)
+    }
 
     // awaitPointerEvent()'s scope is a restricted suspend scope (@RestrictsSuspension) — it
     // cannot directly call an arbitrary suspend function like listState.scrollBy(). Hand deltas
@@ -334,13 +398,13 @@ internal fun ContinuousReferencePdfPane(
             Log.d("PdfFlingDebug", "dragScrollSession START with firstDelta=$firstDelta")
             var count = 1
             listState.scroll(MutatePriority.UserInput) {
-                scrollBy(firstDelta)
+                applyMainAxisScroll(firstDelta)
                 while (isActive) {
                     val nextDelta = withTimeoutOrNull(32) {
                         scrollDeltaChannel.receive()
                     }
                     if (nextDelta != null && !nextDelta.isNaN()) {
-                        scrollBy(nextDelta)
+                        applyMainAxisScroll(nextDelta)
                         count++
                     } else {
                         // null = timeout (drag paused), NaN = fling sentinel: exit session
@@ -618,6 +682,12 @@ internal fun ContinuousReferencePdfPane(
                                     Orientation.Vertical -> {
                                         val maxCross = maxCrossAxisPan(viewW.toFloat(), next.zoom)
                                         sharedCrossPan = next.panX.coerceIn(-maxCross, maxCross)
+                                        // Zoom just changed this frame (possibly with no pan at
+                                        // all) — reclamp any existing boundary overscroll to the
+                                        // new zoom's bound so pinching back out shrinks it, same
+                                        // as sharedCrossPan's reclamp above.
+                                        val maxMainOverscroll = mainAxisEdgePadding(viewH.toFloat(), next.zoom)
+                                        sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
                                         if (viewH > 0 && next.panY != 0f) {
                                             scrollDeltaChannel.trySend(-next.panY / next.zoom)
                                         }
@@ -625,6 +695,8 @@ internal fun ContinuousReferencePdfPane(
                                     Orientation.Horizontal -> {
                                         val maxCross = maxCrossAxisPan(viewH.toFloat(), next.zoom)
                                         sharedCrossPan = next.panY.coerceIn(-maxCross, maxCross)
+                                        val maxMainOverscroll = mainAxisEdgePadding(viewW.toFloat(), next.zoom)
+                                        sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
                                         if (viewW > 0 && next.panX != 0f) {
                                             scrollDeltaChannel.trySend(-next.panX / next.zoom)
                                         }
@@ -680,7 +752,7 @@ internal fun ContinuousReferencePdfPane(
                                                     val mainStep = computeFlingStep(vel, dt, friction = effectiveFriction)
                                                     vel = mainStep.nextVelocity
                                                     if (mainStep.delta != 0f) {
-                                                        scrollBy(mainStep.delta)
+                                                        applyMainAxisScroll(mainStep.delta)
                                                         frameCount++
                                                     }
 
@@ -721,28 +793,29 @@ internal fun ContinuousReferencePdfPane(
                 .graphicsLayer {
                     scaleX = sharedZoom
                     scaleY = sharedZoom
+                    // Main-axis overscroll is stored in list-space (unscaled) units, same
+                    // convention as ScrollScope.scrollBy — re-expand to screen px by the live
+                    // zoom, matching how everything else in this whole-stack transform scales.
+                    // See sharedMainAxisOverscroll's doc comment for the sign derivation.
+                    val overscrollScreenPx = -sharedMainAxisOverscroll * sharedZoom
                     when (orientation) {
-                        Orientation.Vertical -> translationX = sharedCrossPan
-                        Orientation.Horizontal -> translationY = sharedCrossPan
+                        Orientation.Vertical -> {
+                            translationX = sharedCrossPan
+                            translationY = overscrollScreenPx
+                        }
+                        Orientation.Horizontal -> {
+                            translationY = sharedCrossPan
+                            translationX = overscrollScreenPx
+                        }
                     }
                 }
         ) {
-            // Extra scroll room at both ends so the first/last page's far edge — pushed off
-            // the center-pivoted graphicsLayer scale above — can still be scrolled into view.
-            // See mainAxisEdgePadding's doc comment for the derivation.
-            val edgePaddingPx = mainAxisEdgePadding(
-                viewportExtent = if (orientation == Orientation.Vertical) paneSize.height.toFloat() else paneSize.width.toFloat(),
-                zoom = sharedZoom
-            )
-            val edgePaddingDp = with(LocalDensity.current) { edgePaddingPx.toDp() }
-
             if (orientation == Orientation.Vertical) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                     userScrollEnabled = false,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    contentPadding = PaddingValues(vertical = edgePaddingDp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(count = totalPages, key = { it + 1 }) { index -> pageContent(index + 1) }
                 }
@@ -751,8 +824,7 @@ internal fun ContinuousReferencePdfPane(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                     userScrollEnabled = false,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    contentPadding = PaddingValues(horizontal = edgePaddingDp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(count = totalPages, key = { it + 1 }) { index ->
                         Box(Modifier.fillParentMaxWidth()) { pageContent(index + 1) }

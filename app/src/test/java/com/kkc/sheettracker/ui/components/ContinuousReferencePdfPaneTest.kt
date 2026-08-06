@@ -130,6 +130,52 @@ class ContinuousReferencePdfPaneTest {
     }
 
     @Test
+    fun splitScrollDelta_noOverscroll_allGoesToRealScroll() {
+        assertEquals(ScrollSplitResult(50f, 0f), splitScrollDelta(requestedDelta = 50f, currentOverscroll = 0f, maxOverscroll = 25f))
+        assertEquals(ScrollSplitResult(-30f, 0f), splitScrollDelta(requestedDelta = -30f, currentOverscroll = 0f, maxOverscroll = 25f))
+    }
+
+    @Test
+    fun splitScrollDelta_pushingDeeperIntoEndOverscroll_clampsToMax() {
+        val result = splitScrollDelta(requestedDelta = 10f, currentOverscroll = 20f, maxOverscroll = 25f)
+
+        assertEquals(0f, result.realScrollDelta, 0.001f)
+        assertEquals(5f, result.overscrollDelta, 0.001f) // 20 + 10 clamped to 25
+    }
+
+    @Test
+    fun splitScrollDelta_drainingEndOverscrollPartially_noRealScroll() {
+        val result = splitScrollDelta(requestedDelta = -5f, currentOverscroll = 20f, maxOverscroll = 25f)
+
+        assertEquals(0f, result.realScrollDelta, 0.001f)
+        assertEquals(-5f, result.overscrollDelta, 0.001f)
+    }
+
+    @Test
+    fun splitScrollDelta_drainingEndOverscrollFully_remainderGoesToRealScroll() {
+        val result = splitScrollDelta(requestedDelta = -30f, currentOverscroll = 20f, maxOverscroll = 25f)
+
+        assertEquals(-10f, result.realScrollDelta, 0.001f) // -30 + 20 drained
+        assertEquals(-20f, result.overscrollDelta, 0.001f) // fully drains the 20
+    }
+
+    @Test
+    fun splitScrollDelta_pushingDeeperIntoStartOverscroll_clampsToMax() {
+        val result = splitScrollDelta(requestedDelta = -20f, currentOverscroll = -15f, maxOverscroll = 25f)
+
+        assertEquals(0f, result.realScrollDelta, 0.001f)
+        assertEquals(-10f, result.overscrollDelta, 0.001f) // -15 + -20 clamped to -25
+    }
+
+    @Test
+    fun splitScrollDelta_drainingStartOverscrollFully_remainderGoesToRealScroll() {
+        val result = splitScrollDelta(requestedDelta = 25f, currentOverscroll = -15f, maxOverscroll = 25f)
+
+        assertEquals(10f, result.realScrollDelta, 0.001f) // 25 - 15 drained
+        assertEquals(15f, result.overscrollDelta, 0.001f) // fully drains the -15
+    }
+
+    @Test
     fun computeFlingStep_decaysVelocityAndCalculatesDelta() {
         val result = computeFlingStep(velocity = 1000f, dtSeconds = 0.016f, friction = 4.0f)
 
