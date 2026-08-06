@@ -350,12 +350,24 @@ internal fun PdfLabelScrollbar(
                     val isCurrent = index == focusIndex
                     val pillShape = RoundedCornerShape(4.dp)
                     val pillElevation = if (!lowEnd.shadowsDisabled) 3.dp else 0.dp
-                    val bounceSpring = spring<Dp>(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow
-                    )
+                    val bounceSpring = remember {
+                        spring<Dp>(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    }
+                    // Slightly under-height the pill while actively dragging so releasing the
+                    // finger is a real target-height change the spring can animate — otherwise
+                    // the row is already sitting at idlePillHeight by release time (kept in sync
+                    // every frame via onPageSelected during the drag) and animateDpAsState has
+                    // nothing to animate, so the "bounce settle" never visibly plays.
+                    val draggingPillHeight = idlePillHeight * 0.94f
                     val animatedRowHeight by animateDpAsState(
-                        targetValue = if (isCurrent) idlePillHeight else idleTickHeight,
+                        targetValue = when {
+                            !isCurrent -> idleTickHeight
+                            isDragging -> draggingPillHeight
+                            else -> idlePillHeight
+                        },
                         animationSpec = if (isDragging) snap() else bounceSpring,
                         label = "trackRowHeight${entries[index].rowIndex}"
                     )
