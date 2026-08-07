@@ -84,6 +84,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -425,9 +426,14 @@ fun ReferencePdfPane(
     // live Compose Image, so recycling an evicted-but-still-drawn page crashes with
     // "Canvas: trying to use a recycled bitmap". GC reclaims evicted pages safely.
     val basePageCache = remember(pdfIdentityKey) { LruCache<Int, Bitmap>(6) }
+    // Cheap low-res placeholder cache, keyed the same way as basePageCache. Shown immediately
+    // on page entry while the full-res base render is debounced (see below) — avoids firing a
+    // full PdfRenderer decode for every page landed on during a fast tap-through.
+    val thumbnailCache = remember(pdfIdentityKey) { LruCache<Int, Bitmap>(20) }
     DisposableEffect(engine) {
         onDispose {
             basePageCache.evictAll()
+            thumbnailCache.evictAll()
             val closingEngine = engine
             if (closingEngine != null) {
                 pdfRenderEngineDisposalScope.launch {
@@ -446,6 +452,7 @@ fun ReferencePdfPane(
     var renderState by remember(engine, currentPage) { mutableStateOf<PdfRenderUiState>(PdfRenderUiState.Loading) }
     val matteColorArgb = if (preferDarkMode) MaterialTheme.colorScheme.surface.toArgb() else android.graphics.Color.WHITE
     var baseBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
+    var thumbnailBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailForViewport by remember(engine, currentPage) { mutableStateOf<QuantizedViewportState?>(null) }
     // Fallback bitmap: the last successfully rendered page bitmap. Shown while the new page
@@ -514,6 +521,11 @@ fun ReferencePdfPane(
             baseBitmap = cached
             return@LaunchedEffect
         }
+        // Debounce: a rapid run of page changes cancels-and-restarts this effect (currentPage
+        // is a key), so only the page the user actually settles on survives long enough to
+        // reach the real decode below. The thumbnail effect above has no such delay, so the
+        // page is never blank during the wait.
+        delay(120)
         val renderedBase = withContext(Dispatchers.IO) {
             engine.renderBasePage(
                 pageIndex = (currentPage - 1).coerceAtLeast(0),
@@ -524,6 +536,24 @@ fun ReferencePdfPane(
         if (renderedBase != null) {
             basePageCache.put(currentPage, renderedBase)
             baseBitmap = renderedBase
+        }
+    }
+
+    // Instant low-res placeholder: no debounce, no viewSize dependency (renderThumbnail uses a
+    // fixed default width), so it can start decoding before layout even completes.
+    LaunchedEffect(engine, currentPage, totalPages) {
+        if (engine == null || totalPages <= 0) return@LaunchedEffect
+        val cachedThumb = thumbnailCache.get(currentPage)
+        if (cachedThumb != null && !cachedThumb.isRecycled) {
+            thumbnailBitmap = cachedThumb
+            return@LaunchedEffect
+        }
+        val thumb = withContext(Dispatchers.IO) {
+            engine.renderThumbnail(pageIndex = (currentPage - 1).coerceAtLeast(0))
+        }
+        if (thumb != null) {
+            thumbnailCache.put(currentPage, thumb)
+            thumbnailBitmap = thumb
         }
     }
 
@@ -671,7 +701,7 @@ fun ReferencePdfPane(
 
                         ZoomablePdfImage(
                             // Suppress fallback during slide — the slideOutBitmap layer covers it.
-                            baseBitmap = baseBitmap ?: if (!isSliding) fallbackBitmap else null,
+                            baseBitmap = baseBitmap ?: (if (!isSliding) (thumbnailBitmap ?: fallbackBitmap) else null),
                             detailBitmap = if (shouldShowDetail) detailBitmap else null,
                             detailCaptured = if (shouldShowDetail) detailForViewport else null,
                             pageKey = currentPage,
@@ -735,7 +765,7 @@ fun ReferencePdfPane(
                         // ── Page-navigation arrow buttons ────────────────────────
                         // Always visible, centred on the left and right edges.
                         if (displayTotalPages > 1) {
-                            val arrowAlpha = if ((baseBitmap ?: fallbackBitmap) != null) 0.55f else 0f
+                            val arrowAlpha = if ((baseBitmap ?: thumbnailBitmap ?: fallbackBitmap) != null) 0.55f else 0f
                             // 50% smaller when in split-pane view so they don't crowd the shared space.
                             val arrowBtnSize = if (compactArrows) 36.dp else 72.dp
                             val arrowIconSize = if (compactArrows) 18.dp else 36.dp
