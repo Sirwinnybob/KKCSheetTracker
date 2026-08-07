@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.components
 
 import android.graphics.Bitmap
 import android.util.Log
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
@@ -271,6 +272,7 @@ private val continuousPdfEngineDisposalScope = CoroutineScope(SupervisorJob() + 
 @Composable
 private fun PageBitmapLayers(
     baseBitmap: Bitmap?,
+    thumbnailBitmap: Bitmap?,
     cropBitmap: Bitmap?,
     cropFrac: UnitRect?,
     boxSize: IntSize,
@@ -280,6 +282,13 @@ private fun PageBitmapLayers(
         if (baseBitmap != null) {
             Image(
                 bitmap = baseBitmap.asImageBitmap(),
+                contentDescription = contentDescription,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        } else if (thumbnailBitmap != null) {
+            Image(
+                bitmap = thumbnailBitmap.asImageBitmap(),
                 contentDescription = contentDescription,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit
@@ -339,6 +348,14 @@ internal fun ContinuousReferencePdfPane(
     val engineCache = remember(fileIdentitySeed) { PdfEngineCache(maxOpen = 3) }
     DisposableEffect(engineCache) {
         onDispose { continuousPdfEngineDisposalScope.launch { withContext(NonCancellable) { engineCache.closeAll() } } }
+    }
+
+    // Cheap low-res placeholder cache, keyed by "filename#page" (a plain Int page number isn't
+    // enough — this pane can stream pages from multiple source PDFs). Shown immediately on page
+    // entry while the full-res base render waits for scroll/fling to settle (see settled below).
+    val thumbnailCache = remember(fileIdentitySeed) { LruCache<String, Bitmap>(30) }
+    DisposableEffect(thumbnailCache) {
+        onDispose { thumbnailCache.evictAll() }
     }
 
     val listState = rememberLazyListState()
@@ -514,6 +531,7 @@ internal fun ContinuousReferencePdfPane(
         val file = remember(resolved.pdfFilename, fileIdentitySeed, docKey) { pdfFileForFilename(resolved.pdfFilename) }
         val inWindow = displayPage in renderWindow
         var baseBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
+        var thumbnailBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
         var cropBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
         var cropFrac by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<UnitRect?>(null) }
         var aspectRatio by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Float?>(null) }
@@ -534,9 +552,11 @@ internal fun ContinuousReferencePdfPane(
 
         // Base (fit-to-box) bitmap: loaded once per page while in window, cheap + cached.
         // Doubles as the fallback shown under the sharp crop tile and as the whole picture
-        // when not zoomed.
-        LaunchedEffect(displayPage, resolved, file, inWindow, matteColorArgb, fileIdentitySeed) {
-            if (file == null || !inWindow || baseBitmap != null) return@LaunchedEffect
+        // when not zoomed. Gated on settled (same signal the crop tile below already uses) so
+        // flinging past many pages doesn't fire a full decode for each one — only the page(s)
+        // still in the window once scrolling/pinching actually stops get the full render.
+        LaunchedEffect(displayPage, resolved, file, inWindow, settled, matteColorArgb, fileIdentitySeed) {
+            if (file == null || !inWindow || !settled || baseBitmap != null) return@LaunchedEffect
             val viewSize = boxSize.takeIf { it != IntSize.Zero } ?: IntSize(1080, 1400)
             baseBitmap = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderBasePage(
@@ -544,6 +564,25 @@ internal fun ContinuousReferencePdfPane(
                     viewSize = viewSize,
                     matteColorArgb = matteColorArgb
                 )
+            }
+        }
+
+        // Instant low-res placeholder: unconditional on settled (unlike the base render below),
+        // so a page that's merely scrolled past during a fling still shows something recognizable.
+        LaunchedEffect(displayPage, resolved, file, inWindow, fileIdentitySeed) {
+            if (file == null || !inWindow) return@LaunchedEffect
+            val cacheKey = "${resolved.pdfFilename}#${resolved.sourcePage}"
+            val cachedThumb = thumbnailCache.get(cacheKey)
+            if (cachedThumb != null && !cachedThumb.isRecycled) {
+                thumbnailBitmap = cachedThumb
+                return@LaunchedEffect
+            }
+            val thumb = withContext(Dispatchers.IO) {
+                engineCache.get(file).renderThumbnail(pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0))
+            }
+            if (thumb != null) {
+                thumbnailCache.put(cacheKey, thumb)
+                thumbnailBitmap = thumb
             }
         }
 
@@ -632,6 +671,7 @@ internal fun ContinuousReferencePdfPane(
             ) {
                 PageBitmapLayers(
                     baseBitmap = baseBitmap,
+                    thumbnailBitmap = thumbnailBitmap,
                     cropBitmap = cropBitmap,
                     cropFrac = cropFrac,
                     boxSize = boxSize,
