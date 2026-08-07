@@ -79,7 +79,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-private const val CONTINUOUS_MAX_ZOOM = 10f
+private const val CONTINUOUS_MAX_ZOOM = 20f
 private const val CONTINUOUS_MIN_ZOOM = 1f
 
 internal data class FlingStepResult(

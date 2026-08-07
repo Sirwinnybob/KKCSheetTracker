@@ -185,7 +185,7 @@ class PdfRenderEngine(private val pdfFile: File) {
             val offsetY = (viewHeight - pageDisplayHeight) / 2f
             val cx = viewWidth / 2f
             val cy = viewHeight / 2f
-            val zoom = viewport.zoom.coerceIn(1f, 14f)
+            val zoom = viewport.zoom.coerceIn(1f, 20f)
 
             fun viewToPage(xView: Float, yView: Float): Pair<Float, Float> {
                 val xBase = ((xView - cx - viewport.panX) / zoom) + cx
@@ -886,7 +886,7 @@ private fun ZoomablePdfImage(
     var panX by remember(pageKey) { mutableFloatStateOf(0f) }
     var panY by remember(pageKey) { mutableFloatStateOf(0f) }
     val minZoom = 1f
-    val maxZoom = 14f
+    val maxZoom = 20f
     val tapSlopPx = LocalViewConfiguration.current.touchSlop
     val gutterPanTolerancePx = 24f
 
