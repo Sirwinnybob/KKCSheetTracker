@@ -626,7 +626,7 @@ fun ReferencePdfPane(
     val stepPage: (Int) -> Unit = { delta ->
         if (delta < 0 && displayPage > 1) {
             pageSlideDir = -1
-            slideOutBitmap = baseBitmap ?: fallbackBitmap
+            slideOutBitmap = baseBitmap ?: thumbnailBitmap ?: fallbackBitmap
             paneScope.launch {
                 slideProgress.snapTo(0f)
                 slideProgress.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing))
@@ -636,7 +636,7 @@ fun ReferencePdfPane(
             else onCurrentPageChange((currentPage - 1).coerceAtLeast(1))
         } else if (delta > 0 && displayPage < displayTotalPages) {
             pageSlideDir = 1
-            slideOutBitmap = baseBitmap ?: fallbackBitmap
+            slideOutBitmap = baseBitmap ?: thumbnailBitmap ?: fallbackBitmap
             paneScope.launch {
                 slideProgress.snapTo(0f)
                 slideProgress.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing))
