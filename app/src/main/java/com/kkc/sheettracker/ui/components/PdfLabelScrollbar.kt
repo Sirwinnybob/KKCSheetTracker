@@ -2,8 +2,6 @@ package com.kkc.sheettracker.ui.components
 
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -14,7 +12,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,18 +42,14 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -81,6 +74,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import kotlin.math.roundToInt
 
 /** Real (not estimated) bounds of one rendered scrollbar row, in the scrollbar's own local
  * coordinate space — sourced from LazyListState.layoutInfo.visibleItemsInfo. Decoupled into a
@@ -108,6 +102,32 @@ internal fun indexForTouchY(items: List<ItemBounds>, touchY: Float, fallback: In
 }
 
 /**
+ * Real page under a touch, interpolated across the touched row's own on-screen span rather than
+ * snapping to that row's [ScrollbarEntry.page] (its bucket's first page). In FULL mode every row
+ * is exactly one page so this always agrees with [indexForTouchY]'s result; in BUCKETED mode one
+ * row can represent several real pages, and without this a drag confined to a single row keeps
+ * requesting the same page on every frame — [ContinuousReferencePdfPane]'s scrollToPage effect is
+ * keyed on that value, so an unchanged request never re-fires and the PDF appears frozen until the
+ * finger crosses into the next row.
+ */
+internal fun pageForTouchY(
+    items: List<ItemBounds>,
+    entries: List<ScrollbarEntry>,
+    touchY: Float,
+    fallbackPage: Int
+): Int {
+    if (items.isEmpty() || entries.isEmpty()) return fallbackPage
+    val index = indexForTouchY(items, touchY, fallback = -1)
+    val item = items.firstOrNull { it.index == index } ?: return fallbackPage
+    val entry = entries.getOrNull(index) ?: return fallbackPage
+    val range = entry.pageRange
+    if (range.first >= range.last) return range.first
+    val fraction = if (item.size <= 0) 0f else ((touchY - item.offset) / item.size).coerceIn(0f, 1f)
+    val span = range.last - range.first
+    return (range.first + (fraction * span).roundToInt()).coerceIn(range.first, range.last)
+}
+
+/**
  * How much detail the scrollbar can afford to show, derived from available vertical space vs.
  * page count — never hardcoded to a specific count. Mirrors the degrade pattern in
  * github.com/mooalot/alphabetical-scroll-bar (which drops letters as space tightens): thumbnails
@@ -121,17 +141,13 @@ private enum class ScrollbarDisplayMode { FULL, BUCKETED }
  * contiguous page range collapsed into a single entry, previewed by its first page's thumbnail
  * and labeled with that page's REAL content label (not a bare number) — [rangeLabel] carries the
  * page-range ("12–18") as a secondary hint, non-null only when the entry spans more than one page. */
-private data class ScrollbarEntry(
+internal data class ScrollbarEntry(
     val label: String,
     val rangeLabel: String?,
     val page: Int,
     val pageRange: IntRange,
     val rowIndex: Int
 )
-
-/** One in-flight tap ripple on the track — [progress] animates 0f (just tapped) to 1f (faded
- * out), independent of the pill's own animation state so overlapping taps don't fight. */
-private data class RippleRing(val id: Long, val centerYPx: Float, val progress: Animatable<Float, AnimationVector1D>)
 
 private val scrollbarThumbDisposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -169,7 +185,8 @@ internal fun PdfLabelScrollbar(
     pdfFileForFilename: (String) -> java.io.File? = { null },
     defaultPdfFilename: String = "",
     hazeState: HazeState? = null,
-    isSplitPaneActive: Boolean = false
+    isSplitPaneActive: Boolean = false,
+    hasNavBarBelow: Boolean = true
 ) {
     if (rows.isEmpty()) return
     val density = LocalDensity.current
@@ -181,9 +198,6 @@ internal fun PdfLabelScrollbar(
     var dragIndex by remember { mutableStateOf<Int?>(null) }
     var touchYPx by remember { mutableFloatStateOf(0f) }
     val thumbCache = remember { mutableStateMapOf<Int, Bitmap?>() }
-    val ripples = remember { mutableStateListOf<RippleRing>() }
-    val rippleScope = rememberCoroutineScope()
-    var nextRippleId by remember { mutableLongStateOf(0L) }
     // Shared fill for the pill and the rail's progress-fill overlay — kept as one definition so
     // the two can never visually drift apart if the gradient stops are retuned later.
     val progressGradient = Brush.verticalGradient(
@@ -204,8 +218,10 @@ internal fun PdfLabelScrollbar(
     // Asymmetric — small gap on the track side (end) so cards/the bubble sit close to the pill,
     // generous margin on the far side (start) so they don't crowd the PDF content.
     val carouselEndPadding = 50.dp
-    // So the track never renders into AppScaffold's floating bottom nav bar.
-    val bottomClearance = 150.dp
+    // So the track never renders into AppScaffold's floating bottom nav bar — only when the
+    // pane's bottom edge is actually the nav bar and not, say, a split-pane divider above another
+    // pane (matches AssemblyViewerScreen's hasNavBarBelow/botBarPad ~112dp figure, not a guess).
+    val bottomClearance = if (hasNavBarBelow) 112.dp else 0.dp
     // Rough per-row footprint at rest — used only to decide FULL vs. BUCKETED display mode
     // (i.e. "can every page get its own draggable/previewable row"), not to position anything.
     // Idle ticks are far smaller than this, so bucketed entries always fit the track comfortably.
@@ -302,6 +318,19 @@ internal fun PdfLabelScrollbar(
         fallback = focusIndex
     )
 
+    // Real page to select for a touch — interpolated within the touched row's own span via
+    // pageForTouchY, NOT entries[hitTest(touchY)].page. In BUCKETED mode a row can represent
+    // several real pages; selecting only the row's first page means a drag confined to one row
+    // keeps requesting the same page every frame, which never re-triggers
+    // ContinuousReferencePdfPane's value-keyed scrollToPage effect — the PDF appears frozen until
+    // the finger crosses into the next row. See pageForTouchY's doc comment.
+    fun pageForTouch(touchY: Float): Int = pageForTouchY(
+        items = listState.layoutInfo.visibleItemsInfo.map { ItemBounds(it.index, it.offset, it.size) },
+        entries = entries,
+        touchY = touchY,
+        fallbackPage = entries.getOrNull(focusIndex)?.page ?: currentPage
+    )
+
     // Root is fillMaxWidth, NOT clamped to idleWidth — three attempts at making the carousel
     // escape a narrow parent (align+requiredWidth, wrapContentWidth+align, a custom layout{}
     // with manually computed placement) all mispositioned it on-device in ways that didn't match
@@ -313,7 +342,7 @@ internal fun PdfLabelScrollbar(
     // risk stealing touches meant for the PDF content to its left.
     Box(
         modifier = modifier
-            .padding(bottom = bottomClearance)
+            .padding(top = 30.dp, bottom = bottomClearance)
             .fillMaxHeight()
             .fillMaxWidth()
     ) {
@@ -324,15 +353,7 @@ internal fun PdfLabelScrollbar(
                 .width(idleWidth)
                 .pointerInput(entries.size, displayMode) {
                     detectTapGestures { offset ->
-                        onPageSelected(entries[hitTest(offset.y)].page)
-                        if (!lowEnd.animationsDisabled) {
-                            val ring = RippleRing(nextRippleId++, offset.y, Animatable(0f))
-                            ripples.add(ring)
-                            rippleScope.launch {
-                                ring.progress.animateTo(1f, animationSpec = tween(350))
-                                ripples.remove(ring)
-                            }
-                        }
+                        onPageSelected(pageForTouch(offset.y))
                     }
                 }
                 .pointerInput(entries.size, displayMode) {
@@ -340,15 +361,13 @@ internal fun PdfLabelScrollbar(
                         onDragStart = { offset ->
                             isDragging = true
                             touchYPx = offset.y
-                            val index = hitTest(offset.y)
-                            dragIndex = index
-                            onPageSelected(entries[index].page)
+                            dragIndex = hitTest(offset.y)
+                            onPageSelected(pageForTouch(offset.y))
                         },
                         onVerticalDrag = { change, _ ->
                             touchYPx = change.position.y
-                            val index = hitTest(change.position.y)
-                            dragIndex = index
-                            onPageSelected(entries[index].page)
+                            dragIndex = hitTest(change.position.y)
+                            onPageSelected(pageForTouch(change.position.y))
                         },
                         onDragEnd = { isDragging = false; dragIndex = null },
                         onDragCancel = { isDragging = false; dragIndex = null }
@@ -366,6 +385,26 @@ internal fun PdfLabelScrollbar(
             val fillHeightPx = focusedItemInfo?.let { it.offset + it.size / 2f }
                 ?.also { lastKnownFillHeightPx = it }
                 ?: lastKnownFillHeightPx
+
+            // Current-page pill is a single overlay that slides between tick positions, rather
+            // than each row growing/shrinking its own height as focus moves — the old per-item
+            // height animation caused a visible jump (SpaceBetween re-layout when a row's height
+            // changed) followed by that row expanding/compressing. A fixed-size pill that just
+            // moves is smoother and reads as one continuous indicator.
+            val pillShape = RoundedCornerShape(4.dp)
+            val pillElevation = if (!lowEnd.shadowsDisabled) 3.dp else 0.dp
+            val pillSlideSpring = remember {
+                spring<Dp>(
+                    dampingRatio = 0.92f,
+                    stiffness = 90f
+                )
+            }
+            val pillTopYPx = fillHeightPx - with(density) { idlePillHeight.toPx() } / 2f
+            val animatedPillOffsetY by animateDpAsState(
+                targetValue = with(density) { pillTopYPx.toDp() },
+                animationSpec = if (isDragging) snap() else pillSlideSpring,
+                label = "trackPillOffsetY"
+            )
 
             // Thin continuous background rail so the track reads as "a scrollbar" even where
             // ticks are sparse (BUCKETED mode, or long documents with few visible rows) — always
@@ -394,21 +433,6 @@ internal fun PdfLabelScrollbar(
                 )
             }
 
-            if (ripples.isNotEmpty()) {
-                val ripplePrimary = MaterialTheme.colorScheme.primary
-                val rippleCenterX = with(density) { (tickWidth / 2).toPx() }
-                Canvas(modifier = Modifier.align(Alignment.TopEnd).fillMaxSize()) {
-                    val rippleCenterXWithOffset = size.width - with(density) { 6.dp.toPx() } - rippleCenterX
-                    for (ring in ripples) {
-                        val p = ring.progress.value
-                        drawCircle(
-                            color = ripplePrimary.copy(alpha = (1f - p) * 0.5f),
-                            radius = with(density) { (8.dp + 24.dp * p).toPx() },
-                            center = Offset(rippleCenterXWithOffset, ring.centerYPx)
-                        )
-                    }
-                }
-            }
 
             // The track — always the tick/pill rendering, in both idle and dragging. This is the
             // permanent position indicator; the carousel below is a separate, purely local
@@ -422,56 +446,35 @@ internal fun PdfLabelScrollbar(
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
                 itemsIndexed(entries, key = { _, entry -> entry.rowIndex }) { index, _ ->
-                    val isCurrent = index == focusIndex
-                    val pillShape = RoundedCornerShape(4.dp)
-                    val pillElevation = if (!lowEnd.shadowsDisabled) 3.dp else 0.dp
-                    val bounceSpring = remember {
-                        spring<Dp>(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessLow
-                        )
-                    }
-                    // Slightly under-height the pill while actively dragging so releasing the
-                    // finger is a real target-height change the spring can animate — otherwise
-                    // the row is already sitting at idlePillHeight by release time (kept in sync
-                    // every frame via onPageSelected during the drag) and animateDpAsState has
-                    // nothing to animate, so the "bounce settle" never visibly plays.
-                    val draggingPillHeight = idlePillHeight * 0.94f
-                    val animatedRowHeight by animateDpAsState(
-                        targetValue = when {
-                            !isCurrent -> idleTickHeight
-                            isDragging -> draggingPillHeight
-                            else -> idlePillHeight
-                        },
-                        animationSpec = if (isDragging) snap() else bounceSpring,
-                        label = "trackRowHeight${entries[index].rowIndex}"
-                    )
                     Box(
                         modifier = Modifier
                             .padding(end = 6.dp)
                             .width(tickWidth)
-                            .height(animatedRowHeight)
-                            .then(
-                                if (isCurrent) {
-                                    Modifier
-                                        .shadow(pillElevation, pillShape, clip = false)
-                                        .background(
-                                            progressGradient,
-                                            shape = pillShape
-                                        )
-                                        .border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
-                                } else {
-                                    Modifier.background(
-                                        MaterialTheme.colorScheme.outlineVariant.copy(
-                                            alpha = if (index <= focusIndex) 0.65f else 0.5f
-                                        ),
-                                        shape = RoundedCornerShape(4.dp)
-                                    )
-                                }
+                            .height(idleTickHeight)
+                            .background(
+                                MaterialTheme.colorScheme.outlineVariant.copy(
+                                    alpha = if (index <= focusIndex) 0.65f else 0.5f
+                                ),
+                                shape = RoundedCornerShape(4.dp)
                             )
                     )
                 }
             }
+
+            // Drawn after (on top of) the LazyColumn ticks — the current-page indicator, sliding
+            // smoothly to the focused row's real measured position rather than being tied to a
+            // specific row's own composable.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(y = animatedPillOffsetY)
+                    .padding(end = 6.dp)
+                    .width(tickWidth)
+                    .height(idlePillHeight)
+                    .shadow(pillElevation, pillShape, clip = false)
+                    .background(progressGradient, shape = pillShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
+            )
         }
 
         AnimatedVisibility(

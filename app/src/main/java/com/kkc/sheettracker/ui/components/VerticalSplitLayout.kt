@@ -5,9 +5,14 @@ import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,7 +36,10 @@ fun VerticalSplitLayout(
     aspectRatio: Float? = null,
     fullscreen: SplitFullscreen = SplitFullscreen.NONE,
     topContent: @Composable (Modifier) -> Unit,
-    bottomContent: @Composable (Modifier) -> Unit
+    bottomContent: @Composable (Modifier) -> Unit,
+    topDividerControls: (@Composable RowScope.() -> Unit)? = null,
+    bottomDividerControls: (@Composable RowScope.() -> Unit)? = null,
+    dividerControlsVisible: Boolean = true
 ) {
     var totalHeight by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
@@ -102,14 +110,31 @@ fun VerticalSplitLayout(
     ) {
         when (fullscreen) {
             SplitFullscreen.FIRST -> {
-                topContent(Modifier.fillMaxWidth().weight(1f))
+                topContent(Modifier.fillMaxWidth().weight(1f).clipToBounds())
             }
             SplitFullscreen.SECOND -> {
-                bottomContent(Modifier.fillMaxWidth().weight(1f))
+                bottomContent(Modifier.fillMaxWidth().weight(1f).clipToBounds())
             }
             SplitFullscreen.NONE -> {
                 val topHeightDp = with(density) { topHeightPx.coerceAtLeast(minTopPx).toDp() }
-                topContent(Modifier.fillMaxWidth().height(topHeightDp))
+                topContent(Modifier.fillMaxWidth().height(topHeightDp).clipToBounds())
+
+                if (topDividerControls != null && dividerControlsVisible) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                        shape = MaterialTheme.shapes.small,
+                        shadowElevation = 2.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            topDividerControls?.invoke(this)
+                        }
+                    }
+                }
 
                 Box(
                     modifier = Modifier
@@ -161,7 +186,24 @@ fun VerticalSplitLayout(
                     )
                 }
 
-                bottomContent(Modifier.weight(1f))
+                if (bottomDividerControls != null && dividerControlsVisible) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                        shape = MaterialTheme.shapes.small,
+                        shadowElevation = 2.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            bottomDividerControls?.invoke(this)
+                        }
+                    }
+                }
+
+                bottomContent(Modifier.weight(1f).clipToBounds())
             }
         }
     }

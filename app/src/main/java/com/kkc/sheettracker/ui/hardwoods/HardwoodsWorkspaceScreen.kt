@@ -1696,6 +1696,9 @@ fun HardwoodsWorkspaceScreen(
                 jobFolderName = jobFolderName,
                 cabinetIndex = cabinetIndex,
                 continuousScrollEnabled = continuousScrollEnabled,
+                // Portrait: this pane sits above the split divider, not the nav bar. Landscape:
+                // side-by-side, this pane spans full height and the nav bar overlaps its bottom.
+                hasNavBarBelow = isLandscape,
                 isDarkTheme = isDarkTheme,
                 referenceDocType = referenceDocType,
                 jumpTarget = jumpTarget,
@@ -2151,6 +2154,7 @@ private fun ReferencePane(
     currentPage: Int,
     onCurrentPageChange: (Int) -> Unit,
     continuousScrollEnabled: Boolean,
+    hasNavBarBelow: Boolean,
     roomName: String?,
     serverPort: Int,
     serverError: String?,
@@ -2431,6 +2435,7 @@ private fun ReferencePane(
                 null
             },
             showDocControls = docControls,
+            hasNavBarBelow = hasNavBarBelow,
             pdfMarkupStore = pdfMarkupStore,
             pdfMarkupJobFolderName = jobFolderName,
             markupEnabled = markupEnabled,

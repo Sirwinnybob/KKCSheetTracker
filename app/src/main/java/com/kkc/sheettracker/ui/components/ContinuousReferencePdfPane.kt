@@ -14,10 +14,11 @@ import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -37,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -315,6 +317,14 @@ internal fun ContinuousReferencePdfPane(
     resolvePage: (Int) -> ResolvedPageSource,
     pdfFileForFilename: (String) -> java.io.File?,
     fileIdentitySeed: Long = 0L,
+    // Identifies which document set resolvePage/pdfFileForFilename currently resolve against
+    // (e.g. defaultPdfFilename + virtualMapping). resolvePage is a fresh lambda instance every
+    // recomposition, so it can't be used as a remember key by itself without recomputing on
+    // every frame — but without ANY key covering a doc-type switch, an already-composed
+    // LazyColumn item (still inside the render window) keeps resolving through its stale
+    // closure, showing the previous document's pages until that item leaves and re-enters the
+    // composition window (i.e. until the user scrolls away and back).
+    docKey: Any? = null,
     preferDarkMode: Boolean = false,
     onCenteredPageChange: (Int) -> Unit,
     scrollToPage: Int,
@@ -322,7 +332,9 @@ internal fun ContinuousReferencePdfPane(
     markupToolState: PdfMarkupToolState? = null,
     markupStrokesForPage: (sourceFilename: String, sourcePage: Int) -> List<PdfInkStroke> = { _, _ -> emptyList() },
     onMarkupStrokeAdded: ((sourceFilename: String, sourcePage: Int, PdfInkStroke) -> Unit)? = null,
-    onMarkupStrokeErased: ((sourceFilename: String, sourcePage: Int, strokeId: String) -> Unit)? = null
+    onMarkupStrokeErased: ((sourceFilename: String, sourcePage: Int, strokeId: String) -> Unit)? = null,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    onSingleTap: (() -> Unit)? = null
 ) {
     val engineCache = remember(fileIdentitySeed) { PdfEngineCache(maxOpen = 3) }
     DisposableEffect(engineCache) {
@@ -331,6 +343,8 @@ internal fun ContinuousReferencePdfPane(
 
     val listState = rememberLazyListState()
     val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
+    val currentOnSingleTap by rememberUpdatedState(onSingleTap)
+    val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
     // True only while THIS composable is driving an animateScrollToItem below (external nav
     // request — scrollbar drag, resume-to-page). Distinguishes "the list moved because we
     // told it to" from "the list moved because the user swiped/panned it" — the snapshotFlow
@@ -496,8 +510,8 @@ internal fun ContinuousReferencePdfPane(
     }
 
     val pageContent: @Composable (Int) -> Unit = { displayPage ->
-        val resolved = remember(displayPage, fileIdentitySeed) { resolvePage(displayPage) }
-        val file = remember(resolved.pdfFilename, fileIdentitySeed) { pdfFileForFilename(resolved.pdfFilename) }
+        val resolved = remember(displayPage, fileIdentitySeed, docKey) { resolvePage(displayPage) }
+        val file = remember(resolved.pdfFilename, fileIdentitySeed, docKey) { pdfFileForFilename(resolved.pdfFilename) }
         val inWindow = displayPage in renderWindow
         var baseBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
         var cropBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
@@ -578,37 +592,69 @@ internal fun ContinuousReferencePdfPane(
         // would make drawn strokes vanish the instant the pen is toggled off.
         val strokes = markupStrokesForPage(resolved.pdfFilename, resolved.sourcePage)
 
+        // Fit the page within BOTH the pane's width AND height (like ContentScale.Fit), not
+        // just width — a plain fillMaxWidth+aspectRatio box lets a portrait page in a short
+        // (landscape-shaped) pane grow taller than the viewport, so its top/bottom get sliced
+        // off by the pane's own clip bounds instead of shrinking to stay fully visible. Paged
+        // mode (ReferencePdfPane) never has this because ContentScale.Fit guarantees the whole
+        // page fits; continuous mode needs the same guarantee at rest, or a page's edges bleed
+        // under the divider controls / nav bar chrome above and below the pane.
+        val density = LocalDensity.current
+        val ratio = aspectRatio ?: (8.5f / 11f)
+        val topPadPx = with(density) { contentPadding.calculateTopPadding().roundToPx() }
+        val bottomPadPx = with(density) { contentPadding.calculateBottomPadding().roundToPx() }
+        val availW = paneSize.width
+        val availH = (paneSize.height - topPadPx - bottomPadPx).coerceAtLeast(0)
+        val (targetWPx, targetHPx) = if (availW <= 0 || availH <= 0) {
+            val fallbackW = 1080
+            fallbackW to (fallbackW / ratio).roundToInt()
+        } else {
+            val widthConstrainedH = (availW / ratio).roundToInt()
+            if (widthConstrainedH <= availH) {
+                availW to widthConstrainedH
+            } else {
+                val h = availH
+                h.let { (it * ratio).roundToInt() to it }
+            }
+        }
+        val targetWidthDp = with(density) { targetWPx.toDp() }
+        val targetHeightDp = with(density) { targetHPx.toDp() }
+
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(aspectRatio ?: (8.5f / 11f))
-                .onSizeChanged { boxSize = it }
-                .onGloballyPositioned { pageCoordinates = it }
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
-            PageBitmapLayers(
-                baseBitmap = baseBitmap,
-                cropBitmap = cropBitmap,
-                cropFrac = cropFrac,
-                boxSize = boxSize,
-                contentDescription = "Page $displayPage"
-            )
-            if (markupToolState != null && onMarkupStrokeAdded != null && onMarkupStrokeErased != null &&
-                (markupEnabled || strokes.isNotEmpty())
+            Box(
+                modifier = Modifier
+                    .size(width = targetWidthDp, height = targetHeightDp)
+                    .onSizeChanged { boxSize = it }
+                    .onGloballyPositioned { pageCoordinates = it }
             ) {
-                PdfMarkupOverlay(
-                    modifier = Modifier.fillMaxSize(),
-                    viewportState = PdfViewportState(zoom = 1f, panX = 0f, panY = 0f, viewSize = boxSize),
-                    pageAspectRatio = aspectRatio,
-                    activeStrokes = strokes,
-                    inputEnabled = markupEnabled,
-                    activeTool = markupToolState.activeTool,
-                    activeColor = markupToolState.activeColor,
-                    activeThickness = markupToolState.activeThickness,
-                    allowFingerDrawing = markupToolState.allowFingerDrawing,
-                    onStylusButtonEraserChanged = { markupToolState.isStylusButtonEraserActive = it },
-                    onStrokeAdded = { stroke -> onMarkupStrokeAdded(resolved.pdfFilename, resolved.sourcePage, stroke) },
-                    onStrokeErased = { strokeId -> onMarkupStrokeErased(resolved.pdfFilename, resolved.sourcePage, strokeId) }
+                PageBitmapLayers(
+                    baseBitmap = baseBitmap,
+                    cropBitmap = cropBitmap,
+                    cropFrac = cropFrac,
+                    boxSize = boxSize,
+                    contentDescription = "Page $displayPage"
                 )
+                if (markupToolState != null && onMarkupStrokeAdded != null && onMarkupStrokeErased != null &&
+                    (markupEnabled || strokes.isNotEmpty())
+                ) {
+                    PdfMarkupOverlay(
+                        modifier = Modifier.fillMaxSize(),
+                        viewportState = PdfViewportState(zoom = 1f, panX = 0f, panY = 0f, viewSize = boxSize),
+                        pageAspectRatio = aspectRatio,
+                        activeStrokes = strokes,
+                        inputEnabled = markupEnabled,
+                        activeTool = markupToolState.activeTool,
+                        activeColor = markupToolState.activeColor,
+                        activeThickness = markupToolState.activeThickness,
+                        allowFingerDrawing = markupToolState.allowFingerDrawing,
+                        onStylusButtonEraserChanged = { markupToolState.isStylusButtonEraserActive = it },
+                        onStrokeAdded = { stroke -> onMarkupStrokeAdded(resolved.pdfFilename, resolved.sourcePage, stroke) },
+                        onStrokeErased = { strokeId -> onMarkupStrokeErased(resolved.pdfFilename, resolved.sourcePage, strokeId) }
+                    )
+                }
             }
         }
     }
@@ -626,7 +672,21 @@ internal fun ContinuousReferencePdfPane(
         modifier = modifier
             .onSizeChanged { paneSize = it }
             .onGloballyPositioned { paneRootCoordinates = it }
-            .then(
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                // contentPadding applied BEFORE the gesture modifier (not after, like the old
+                // single padded Box below) so the gesture hit-region excludes the top/bottom
+                // chrome bands (floating pill, divider controls) — same as ReferencePdfPane
+                // (paged mode), which pads first for exactly this reason. Without this, the
+                // gesture owner's awaitFirstDown(requireUnconsumed = false) swallows taps meant
+                // for the pill's fullscreen/nav buttons that visually float on top of it, since
+                // those buttons are a separate sibling composable outside this pane's subtree —
+                // paged mode's fullscreen button works today only because its own pointerInput
+                // is already scoped past the padding; continuous mode's wasn't.
+                .padding(contentPadding)
+                .then(
                 if (gesturesEnabled) {
                     // Single gesture owner for scroll AND pinch-zoom AND pan-while-zoomed.
                     // The previous design let each page's own pinch detector compete with the
@@ -653,10 +713,12 @@ internal fun ContinuousReferencePdfPane(
                             flingJob?.cancel()  // NOW cancel: we have a new real touch, pre-empt cleanly
                             isInteracting = true
                             var wasMultiTouch = false
+                            var totalMovement = 0f
                             do {
                                 val event = awaitPointerEvent()
                                 val zoomChange = event.calculateZoom()
                                 val panChange = event.calculatePan()
+                                totalMovement += abs(panChange.x) + abs(panChange.y)
                                 if (event.changes.size > 1) wasMultiTouch = true
                                 // Only feed the original pointer into the velocity tracker.
                                 // Adding multiple pointer positions produces garbage velocity on pinch release.
@@ -705,6 +767,15 @@ internal fun ContinuousReferencePdfPane(
                                 event.changes.forEach { it.consume() }
                             } while (event.changes.any { it.pressed })
                             isInteracting = false
+
+                            // Plain tap: single pointer, negligible movement — same threshold
+                            // (touchSlop) Compose's own tap/click detectors use to distinguish a
+                            // tap from a drag. Toggles the floating pill/nav-bar chrome, matching
+                            // paged mode's ReferencePdfPane (which wires this via its own
+                            // detectTapGestures) — continuous mode never had a tap path at all.
+                            if (!wasMultiTouch && totalMovement <= touchSlop) {
+                                currentOnSingleTap?.invoke()
+                            }
 
                             val trackedVelocity = velocityTracker.calculateVelocity()
                             val rawMainVelocity = when (orientation) {
@@ -786,7 +857,7 @@ internal fun ContinuousReferencePdfPane(
                     Modifier
                 }
             )
-    ) {
+        ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -831,6 +902,7 @@ internal fun ContinuousReferencePdfPane(
                     }
                 }
             }
+        }
         }
     }
 }

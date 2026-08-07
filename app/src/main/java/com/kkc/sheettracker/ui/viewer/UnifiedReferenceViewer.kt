@@ -21,8 +21,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -520,6 +524,10 @@ fun UnifiedReferenceViewer(
     markupControlsAsSlidingTab: Boolean = false,
     continuousScrollEnabled: Boolean = false,
     isSplitPaneActive: Boolean = false,
+    // Whether this pane's bottom edge is actually AppScaffold's floating nav bar (fullscreen
+    // panes, or the bottom/right pane of a split) vs. a split-pane divider above another pane
+    // (e.g. Hardwoods' top PDF pane) — see PdfLabelScrollbar's bottomClearance.
+    hasNavBarBelow: Boolean = true,
     // Shared with the caller's own frosted chrome (e.g. AssemblyViewerScreen's nav bar) so the
     // continuous-scroll scrollbar's expanded panel can blur the same PDF content behind it
     // instead of a second, disconnected blur source. Null falls back to a solid translucent
@@ -775,8 +783,52 @@ fun UnifiedReferenceViewer(
                     persistMarkupState()
                 }
             )
+        } else if (pdfFile == null) {
+            // ReferencePdfPane shows missingText/unreadableText for these two states; continuous
+            // mode had no equivalent at all — an empty LazyColumn (0 items) just renders blank,
+            // silently, with no explanation to the user.
+            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+                Text(missingText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else if (effectiveTotalPages <= 0) {
+            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+                Text(unreadableText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         } else {
-          Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
+          Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            // Continuous mode had no equivalent of ReferencePdfPane's header row / nav-buttons
+            // cluster at all — the doc-type picker (showDocControls, e.g. Hardwoods'
+            // Assembly/Plans/3D chips), page counter, AND the "open Sheet Navigator" icon
+            // (showNavigationButtons' UnfoldMore button) simply never rendered, since only the
+            // paged branch above wired them up. Hardwoods has no OTHER way to open the Sheet
+            // Navigator (no external tocRequestToken-incrementing icon like AssemblyViewerScreen
+            // or ReferencePdfViewerScreen have) — without this, continuous mode there had zero
+            // way to reach it. Mirrors ReferencePdfPane's header Row + nav cluster content so
+            // switching modes doesn't hide any of these.
+            if (showHeaderRow || showNavigationButtons) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (showHeaderRow) {
+                        showDocControls?.invoke(this)
+                        Spacer(Modifier.weight(1f))
+                        Text("Page $clampedDisplayPage/$effectiveTotalPages", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                    if (showNavigationButtons) {
+                        IconButton(
+                            onClick = { showSheetNavigator = true },
+                            enabled = effectiveTotalPages > 0
+                        ) {
+                            Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list")
+                        }
+                    }
+                }
+            }
+          Box(modifier = Modifier.fillMaxSize().weight(1f)) {
             ContinuousReferencePdfPane(
                 // hazeSource lives here, on the actual background content, NOT on the shared
                 // outer `modifier` — PdfLabelScrollbar's hazeEffect panel is a sibling of this
@@ -786,15 +838,12 @@ fun UnifiedReferenceViewer(
                     .fillMaxSize()
                     .padding(end = com.kkc.sheettracker.ui.components.PDF_LABEL_SCROLLBAR_IDLE_WIDTH)
                     .let { m -> if (hazeState != null) m.hazeSource(hazeState) else m },
-                orientation = if (isSplitPaneActive) {
-                    androidx.compose.foundation.gestures.Orientation.Horizontal
-                } else {
-                    androidx.compose.foundation.gestures.Orientation.Vertical
-                },
+                orientation = androidx.compose.foundation.gestures.Orientation.Vertical,
                 totalPages = effectiveTotalPages,
                 resolvePage = { page -> resolvePageSource(page, virtualMapping, defaultPdfFilename) },
                 pdfFileForFilename = pdfFileForFilename,
                 fileIdentitySeed = fileIdentitySeed,
+                docKey = defaultPdfFilename to virtualMapping,
                 preferDarkMode = preferDarkMode,
                 onCenteredPageChange = onDisplayPageChange,
                 scrollToPage = clampedDisplayPage,
@@ -816,7 +865,9 @@ fun UnifiedReferenceViewer(
                         localDeletedIds.add(strokeId)
                     }
                     persistMarkupState()
-                }
+                },
+                contentPadding = contentPadding,
+                onSingleTap = onSingleTap
             )
             PdfLabelScrollbar(
                 modifier = Modifier.align(Alignment.CenterEnd),
@@ -826,8 +877,10 @@ fun UnifiedReferenceViewer(
                 pdfFileForFilename = pdfFileForFilename,
                 defaultPdfFilename = defaultPdfFilename,
                 hazeState = hazeState,
-                isSplitPaneActive = isSplitPaneActive
+                isSplitPaneActive = isSplitPaneActive,
+                hasNavBarBelow = hasNavBarBelow
             )
+          }
           }
         }
     }

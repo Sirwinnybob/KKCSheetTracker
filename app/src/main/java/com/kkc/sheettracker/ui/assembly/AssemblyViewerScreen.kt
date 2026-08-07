@@ -313,10 +313,20 @@ fun AssemblyViewerScreen(
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
     val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
     val resumePrefix = remember(jobFolderName) { "assembly_resume_v1_${jobFolderName}" }
-    var assemblyPage by rememberSaveable(startPageAssembly) {
+    // Per-pane, NOT shared — each pane tracks its own Assembly/Plans page independently so
+    // selecting the same doc type in both panes doesn't lock them together. Both panes seed
+    // from the same resume value on first load (there's only ever one saved "last position"),
+    // but diverge as soon as either pane is navigated on its own.
+    var firstPaneAssemblyPage by rememberSaveable(startPageAssembly) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_assembly_page", startPageAssembly).coerceAtLeast(1))
     }
-    var plansPage by rememberSaveable(startPagePlans) {
+    var secondPaneAssemblyPage by rememberSaveable(startPageAssembly) {
+        mutableIntStateOf(prefs.getInt("${resumePrefix}_assembly_page", startPageAssembly).coerceAtLeast(1))
+    }
+    var firstPanePlansPage by rememberSaveable(startPagePlans) {
+        mutableIntStateOf(prefs.getInt("${resumePrefix}_plans_page", startPagePlans).coerceAtLeast(1))
+    }
+    var secondPanePlansPage by rememberSaveable(startPagePlans) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_plans_page", startPagePlans).coerceAtLeast(1))
     }
     var searchText by rememberSaveable(stateSaver = androidx.compose.ui.text.input.TextFieldValue.Saver) {
@@ -388,11 +398,13 @@ fun AssemblyViewerScreen(
         }
     }
 
-    LaunchedEffect(assemblyPage, plansPage, firstPaneSource, secondPaneSource, fullscreenPane) {
+    LaunchedEffect(firstPaneAssemblyPage, firstPanePlansPage, firstPaneSource, secondPaneSource, fullscreenPane) {
     if (enteredVia3D) return@LaunchedEffect
+    // Resume only remembers one position per doc type — the first pane's, since that's the
+    // primary/default pane. The second pane always reseeds from this same value on next open.
     prefs.edit()
-            .putInt("${resumePrefix}_assembly_page", assemblyPage)
-            .putInt("${resumePrefix}_plans_page", plansPage)
+            .putInt("${resumePrefix}_assembly_page", firstPaneAssemblyPage)
+            .putInt("${resumePrefix}_plans_page", firstPanePlansPage)
             .putString("${resumePrefix}_first_source", firstPaneSource.name)
             .putString("${resumePrefix}_second_source", secondPaneSource.name)
             .putString("${resumePrefix}_fullscreen", fullscreenPane.name)
@@ -490,13 +502,21 @@ fun AssemblyViewerScreen(
         val normalized = cab.trim()
         if (normalized.isBlank()) return
         val (assemblyTarget, plansTarget) = assemblyStateStore.getCabinetJumpPages(jobFolderName, normalized)
-        if (assemblyTarget != null) assemblyPage = assemblyTarget
-        if (plansTarget != null) plansPage = plansTarget
+        // Explicit jump moves BOTH panes to the searched cabinet — a deliberate navigation
+        // action, unlike passive page-turning/scrolling which stays decoupled per pane.
+        if (assemblyTarget != null) {
+            firstPaneAssemblyPage = assemblyTarget
+            secondPaneAssemblyPage = assemblyTarget
+        }
+        if (plansTarget != null) {
+            firstPanePlansPage = plansTarget
+            secondPanePlansPage = plansTarget
+        }
 
         lastSearchedCabinet = normalized
         contextLine = assemblyStateStore.getCabinetContext(jobFolderName, normalized)
 
-        detectedRoom = roomForAssemblyPage(assemblyTarget ?: assemblyPage)
+        detectedRoom = roomForAssemblyPage(assemblyTarget ?: firstPaneAssemblyPage)
 
         if (assemblyTarget == null && plansTarget == null) {
             scope.launch {
@@ -516,9 +536,16 @@ fun AssemblyViewerScreen(
         }
     }
 
-    LaunchedEffect(assemblyPage, firstPaneSource, secondPaneSource) {
-        if (firstPaneSource == PaneSource.THREE_D || secondPaneSource == PaneSource.THREE_D) {
-            roomForAssemblyPage(assemblyPage)?.let { detectedRoom = it }
+    LaunchedEffect(firstPaneAssemblyPage, secondPaneAssemblyPage, firstPaneSource, secondPaneSource) {
+        // 3D room sync needs a single "current" Assembly page — use whichever pane is actually
+        // showing Assembly (the other pane is the one showing 3D).
+        val assemblyPageForRoomSync = when {
+            firstPaneSource == PaneSource.ASSEMBLY -> firstPaneAssemblyPage
+            secondPaneSource == PaneSource.ASSEMBLY -> secondPaneAssemblyPage
+            else -> null
+        }
+        if (assemblyPageForRoomSync != null && (firstPaneSource == PaneSource.THREE_D || secondPaneSource == PaneSource.THREE_D)) {
+            roomForAssemblyPage(assemblyPageForRoomSync)?.let { detectedRoom = it }
         }
     }
 
@@ -536,7 +563,8 @@ fun AssemblyViewerScreen(
             val fallback = firstAlphabeticalRoomFromIndex()
             if (fallback != null) {
                 detectedRoom = fallback.first
-                assemblyPage = fallback.second
+                firstPaneAssemblyPage = fallback.second
+                secondPaneAssemblyPage = fallback.second
             }
         }
     }
@@ -559,23 +587,30 @@ fun AssemblyViewerScreen(
         PaneSource.CHECKLIST -> null
     }
 
-    fun sourcePage(source: PaneSource, otherPage: Int, deliveryPage: Int): Int = when (source) {
-        PaneSource.PLANS -> plansPage
-        PaneSource.ASSEMBLY -> assemblyPage
+    fun sourcePage(source: PaneSource, assemblyPageVal: Int, plansPageVal: Int, otherPage: Int, deliveryPage: Int): Int = when (source) {
+        PaneSource.PLANS -> plansPageVal
+        PaneSource.ASSEMBLY -> assemblyPageVal
         PaneSource.DELIVERY -> deliveryPage
         PaneSource.OTHER -> otherPage
         PaneSource.THREE_D -> 1
         PaneSource.CHECKLIST -> 1
     }
 
-    fun setSourcePage(source: PaneSource, nextPage: Int, setOther: (Int) -> Unit, setDelivery: (Int) -> Unit) {
+    fun setSourcePage(
+        source: PaneSource,
+        nextPage: Int,
+        setPlans: (Int) -> Unit,
+        setAssembly: (Int) -> Unit,
+        setOther: (Int) -> Unit,
+        setDelivery: (Int) -> Unit
+    ) {
         when (source) {
-            PaneSource.PLANS -> plansPage = nextPage
+            PaneSource.PLANS -> setPlans(nextPage)
             PaneSource.ASSEMBLY -> {
                 if (hasVirtualAssembly) {
-                    assemblyPage = nextPage.coerceIn(1, assemblyVirtualTotalPages.coerceAtLeast(1))
+                    setAssembly(nextPage.coerceIn(1, assemblyVirtualTotalPages.coerceAtLeast(1)))
                 } else {
-                    assemblyPage = nextPage.coerceAtLeast(1)
+                    setAssembly(nextPage.coerceAtLeast(1))
                 }
             }
             PaneSource.DELIVERY -> setDelivery(nextPage)
@@ -693,6 +728,7 @@ fun AssemblyViewerScreen(
     ) { padding ->
         val containerSize = LocalWindowInfo.current.containerSize
         val isLandscape = containerSize.width > containerSize.height
+        val portraitSplit = !isLandscape && fullscreenPane == FullscreenPane.NONE
         val animatedTopPad by animateDpAsState(
             targetValue = if (showUi) padding.calculateTopPadding() else 0.dp,
             animationSpec = tween(220),
@@ -707,7 +743,7 @@ fun AssemblyViewerScreen(
         ) {
             AdaptiveSplitLayout(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                initialFirstWeight = if (isLandscape) 0.5f else 0.47f,
+                initialFirstWeight = if (isLandscape) 0.5f else 0.40f,
                 fullscreen = when (fullscreenPane) {
                     FullscreenPane.FIRST -> SplitFullscreen.FIRST
                     FullscreenPane.SECOND -> SplitFullscreen.SECOND
@@ -724,16 +760,14 @@ fun AssemblyViewerScreen(
                         continuousScrollEnabled = continuousScrollEnabled,
                         isSplitPaneActive = (fullscreenPane == FullscreenPane.NONE),
                         pdfFilename = firstSourceFilename,
-                        currentPage = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                            assemblyPage
-                        } else {
-                            sourcePage(firstPaneSource, firstPaneOtherPage, firstPaneDeliveryPage)
-                        },
+                        currentPage = sourcePage(firstPaneSource, firstPaneAssemblyPage, firstPanePlansPage, firstPaneOtherPage, firstPaneDeliveryPage),
                         totalPages = firstPaneTotalPages,
                         onCurrentPageChange = { nextPage ->
                             setSourcePage(
                                 source = firstPaneSource,
                                 nextPage = nextPage,
+                                setPlans = { firstPanePlansPage = it },
+                                setAssembly = { firstPaneAssemblyPage = it },
                                 setOther = { firstPaneOtherPage = it },
                                 setDelivery = { firstPaneDeliveryPage = it }
                             )
@@ -773,14 +807,16 @@ fun AssemblyViewerScreen(
                         },
                         missingText = firstMissingText,
                         unreadableText = firstUnreadableText,
-                        sourceControlsInline = {
-                            PaneSourceControlsInline(
-                                selectedSource = firstPaneSource,
-                                selectedOtherFilename = firstPaneOtherFilename,
-                                hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
-                                onSelectSource = { firstPaneSource = it },
-                                onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
-                            )
+                        sourceControlsInline = if (portraitSplit) null else {
+                            {
+                                PaneSourceControlsInline(
+                                    selectedSource = firstPaneSource,
+                                    selectedOtherFilename = firstPaneOtherFilename,
+                                    hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                    onSelectSource = { firstPaneSource = it },
+                                    onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
+                                )
+                            }
                         },
                         onToggleFullscreen = {
                             fullscreenPane = if (fullscreenPane == FullscreenPane.FIRST) FullscreenPane.NONE else FullscreenPane.FIRST
@@ -816,7 +852,8 @@ fun AssemblyViewerScreen(
                                     headerSlot = {}
                                 )
                             }
-                        } else null
+                        } else null,
+                    hideFloatingBar = portraitSplit
                     )
                 },
                 secondContent = { paneModifier ->
@@ -830,16 +867,14 @@ fun AssemblyViewerScreen(
                         continuousScrollEnabled = continuousScrollEnabled,
                         isSplitPaneActive = (fullscreenPane == FullscreenPane.NONE),
                         pdfFilename = secondSourceFilename,
-                        currentPage = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
-                            assemblyPage
-                        } else {
-                            sourcePage(secondPaneSource, secondPaneOtherPage, secondPaneDeliveryPage)
-                        },
+                        currentPage = sourcePage(secondPaneSource, secondPaneAssemblyPage, secondPanePlansPage, secondPaneOtherPage, secondPaneDeliveryPage),
                         totalPages = secondPaneTotalPages,
                         onCurrentPageChange = { nextPage ->
                             setSourcePage(
                                 source = secondPaneSource,
                                 nextPage = nextPage,
+                                setPlans = { secondPanePlansPage = it },
+                                setAssembly = { secondPaneAssemblyPage = it },
                                 setOther = { secondPaneOtherPage = it },
                                 setDelivery = { secondPaneDeliveryPage = it }
                             )
@@ -879,14 +914,16 @@ fun AssemblyViewerScreen(
                         },
                         missingText = secondMissingText,
                         unreadableText = secondUnreadableText,
-                        sourceControlsInline = {
-                            PaneSourceControlsInline(
-                                selectedSource = secondPaneSource,
-                                selectedOtherFilename = secondPaneOtherFilename,
-                                hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
-                                onSelectSource = { secondPaneSource = it },
-                                onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
-                            )
+                        sourceControlsInline = if (portraitSplit) null else {
+                            {
+                                PaneSourceControlsInline(
+                                    selectedSource = secondPaneSource,
+                                    selectedOtherFilename = secondPaneOtherFilename,
+                                    hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                    onSelectSource = { secondPaneSource = it },
+                                    onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
+                                )
+                            }
                         },
                         onToggleFullscreen = {
                             fullscreenPane = if (fullscreenPane == FullscreenPane.SECOND) FullscreenPane.NONE else FullscreenPane.SECOND
@@ -921,9 +958,83 @@ fun AssemblyViewerScreen(
                                     headerSlot = {}
                                 )
                             }
-                        } else null
+                        } else null,
+                    hideFloatingBar = portraitSplit
                     )
-                }
+                },
+                topDividerControls = if (portraitSplit) {
+                    {
+                        PaneSourceControlsInline(
+                            selectedSource = firstPaneSource,
+                            selectedOtherFilename = firstPaneOtherFilename,
+                            hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                            onSelectSource = { firstPaneSource = it },
+                            onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
+                        )
+                        if (firstPaneSource != PaneSource.CHECKLIST && firstPaneSource != PaneSource.THREE_D) {
+                            IconButton(
+                                onClick = { firstPaneTocRequestToken++ },
+                                enabled = firstPaneTotalPages > 0,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
+                            }
+                            Text(
+                                text = "${sourcePage(firstPaneSource, firstPaneAssemblyPage, firstPanePlansPage, firstPaneOtherPage, firstPaneDeliveryPage)}/${firstPaneTotalPages.coerceAtLeast(0)}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                fullscreenPane = if (fullscreenPane == FullscreenPane.FIRST) FullscreenPane.NONE else FullscreenPane.FIRST
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (fullscreenPane == FullscreenPane.FIRST) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = if (fullscreenPane == FullscreenPane.FIRST) "Exit fullscreen" else "Fullscreen",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                } else null,
+                bottomDividerControls = if (portraitSplit) {
+                    {
+                        PaneSourceControlsInline(
+                            selectedSource = secondPaneSource,
+                            selectedOtherFilename = secondPaneOtherFilename,
+                            hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                            onSelectSource = { secondPaneSource = it },
+                            onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
+                        )
+                        if (secondPaneSource != PaneSource.CHECKLIST && secondPaneSource != PaneSource.THREE_D) {
+                            IconButton(
+                                onClick = { secondPaneTocRequestToken++ },
+                                enabled = secondPaneTotalPages > 0,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
+                            }
+                            Text(
+                                text = "${sourcePage(secondPaneSource, secondPaneAssemblyPage, secondPanePlansPage, secondPaneOtherPage, secondPaneDeliveryPage)}/${secondPaneTotalPages.coerceAtLeast(0)}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                fullscreenPane = if (fullscreenPane == FullscreenPane.SECOND) FullscreenPane.NONE else FullscreenPane.SECOND
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (fullscreenPane == FullscreenPane.SECOND) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = if (fullscreenPane == FullscreenPane.SECOND) "Exit fullscreen" else "Fullscreen",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                } else null,
+                dividerControlsVisible = showUi
             )
 
             // Search bar lives inside the floating nav bar pill (see NavBarDecoration.kt).
@@ -1050,7 +1161,8 @@ private fun PdfPaneWithFloatingControls(
     // false for the top pane in portrait split (bottom edge is the divider, not the nav bar)
     hasNavBarBelow: Boolean = true,
     continuousScrollEnabled: Boolean = false,
-    isSplitPaneActive: Boolean = false
+    isSplitPaneActive: Boolean = false,
+    hideFloatingBar: Boolean = false
 ) {
     // Two truly independent inset layers:
     //
@@ -1068,7 +1180,7 @@ private fun PdfPaneWithFloatingControls(
         label = "canvasPad"
     )
     val topBarPad by animateDpAsState(
-        targetValue = if (showControls) 58.dp else 0.dp,
+        targetValue = if (showControls && !hideFloatingBar) 58.dp else 0.dp,
         animationSpec = tween(220),
         label = "topBarPad"
     )
@@ -1142,17 +1254,26 @@ private fun PdfPaneWithFloatingControls(
                 markupControlsAsSlidingTab = true,
                 continuousScrollEnabled = continuousScrollEnabled,
                 isSplitPaneActive = isSplitPaneActive,
+                hasNavBarBelow = hasNavBarBelow,
                 hazeState = scrollbarHazeState
             )
         }
 
         // Control pill: expands/collapses from centre like a CRT powering on/off
+        if (!hideFloatingBar) {
         AnimatedVisibility(
             visible = showControls,
             enter = expandVertically(animationSpec = tween(220), expandFrom = Alignment.CenterVertically),
             exit = shrinkVertically(animationSpec = tween(180), shrinkTowards = Alignment.CenterVertically) +
                    fadeOut(animationSpec = tween(160))
         ) {
+            // end padding must clear PdfLabelScrollbar's reserved idle width (36.dp) when
+            // continuous scroll is on, or the pill's fullscreen icon overlaps the scrollbar.
+            val pillEndPad = if (continuousScrollEnabled) {
+                24.dp + com.kkc.sheettracker.ui.components.PDF_LABEL_SCROLLBAR_IDLE_WIDTH
+            } else {
+                24.dp
+            }
             Surface(
                 color = Color.Transparent,
                 shadowElevation = 4.dp,
@@ -1160,7 +1281,7 @@ private fun PdfPaneWithFloatingControls(
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = 4.dp)
+                    .padding(start = 24.dp, top = 16.dp, end = pillEndPad, bottom = 4.dp)
             ) {
                 Box(
                     modifier = Modifier.hazeEffect(
@@ -1213,6 +1334,7 @@ private fun PdfPaneWithFloatingControls(
                 }
             }
         } // end AnimatedVisibility
+        } // end if (!hideFloatingBar)
     }
 }
 

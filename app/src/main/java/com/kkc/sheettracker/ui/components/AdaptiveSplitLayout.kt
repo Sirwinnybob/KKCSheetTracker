@@ -3,10 +3,12 @@ package com.kkc.sheettracker.ui.components
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -40,7 +42,10 @@ fun AdaptiveSplitLayout(
     initialFirstWeight: Float = DEFAULT_FIRST_WEIGHT,
     fullscreen: SplitFullscreen = SplitFullscreen.NONE,
     firstContent: @Composable (Modifier) -> Unit,
-    secondContent: @Composable (Modifier) -> Unit
+    secondContent: @Composable (Modifier) -> Unit,
+    topDividerControls: (@Composable RowScope.() -> Unit)? = null,
+    bottomDividerControls: (@Composable RowScope.() -> Unit)? = null,
+    dividerControlsVisible: Boolean = true
 ) {
     val containerSize = LocalWindowInfo.current.containerSize
     val isLandscape = containerSize.width > containerSize.height
@@ -58,7 +63,10 @@ fun AdaptiveSplitLayout(
             initialTopWeight = initialFirstWeight,
             fullscreen = fullscreen,
             topContent = firstContent,
-            bottomContent = secondContent
+            bottomContent = secondContent,
+            topDividerControls = topDividerControls,
+            bottomDividerControls = bottomDividerControls,
+            dividerControlsVisible = dividerControlsVisible
         )
     }
 }
@@ -95,14 +103,14 @@ private fun HorizontalSplitLayout(
     ) {
         when (fullscreen) {
             SplitFullscreen.FIRST -> {
-                leftContent(Modifier.fillMaxHeight().weight(1f))
+                leftContent(Modifier.fillMaxHeight().weight(1f).clipToBounds())
             }
             SplitFullscreen.SECOND -> {
-                rightContent(Modifier.fillMaxHeight().weight(1f))
+                rightContent(Modifier.fillMaxHeight().weight(1f).clipToBounds())
             }
             SplitFullscreen.NONE -> {
                 val leftDp = with(density) { leftWidthPx.coerceAtLeast(minLeftPx).toDp() }
-                leftContent(Modifier.fillMaxHeight().width(leftDp))
+                leftContent(Modifier.fillMaxHeight().width(leftDp).clipToBounds())
 
                 Box(
                     modifier = Modifier
@@ -142,7 +150,7 @@ private fun HorizontalSplitLayout(
                     )
                 }
 
-                rightContent(Modifier.weight(1f))
+                rightContent(Modifier.weight(1f).clipToBounds())
             }
         }
     }
