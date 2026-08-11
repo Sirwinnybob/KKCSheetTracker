@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class SyncthingServiceStatus {
     CHECKING,
@@ -61,6 +62,7 @@ class SyncthingSupervisor(
     private var idlePhaseSource: StateFlow<IdlePhase>? = null
     private var observedIdlePhase: IdlePhase? = null
     private val appIsForeground = AtomicBoolean(false)
+    private val closeStarted = AtomicBoolean(false)
     private var idlePauseDesired = false
     private var idlePauseActual: Boolean? = null
 
@@ -220,9 +222,36 @@ class SyncthingSupervisor(
     }
 
     fun close() {
+        if (!closeStarted.compareAndSet(false, true)) return
+        appIsForeground.set(false)
         stopMonitoring()
         idlePhaseObserverJob?.cancel()
         scope.cancel()
+
+        val currentApiKey = _apiKey.value.trim()
+        val cleanupScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+        cleanupScope.launch {
+            try {
+                withTimeoutOrNull(CLOSE_RESUME_TIMEOUT_MS) {
+                    val resumed = idleReconcileMutex.withLock {
+                        idlePauseDesired = false
+                        if (currentApiKey.isBlank() || idlePauseActual != true) {
+                            return@withLock false
+                        }
+                        val succeeded = managerFactory(currentApiKey).resumeSync()
+                        if (succeeded) {
+                            idlePauseActual = false
+                        }
+                        succeeded
+                    }
+                    if (resumed && _status.value.status == SyncthingServiceStatus.PAUSED) {
+                        _status.value = _status.value.copy(status = SyncthingServiceStatus.RUNNING)
+                    }
+                }
+            } finally {
+                cleanupScope.cancel()
+            }
+        }
     }
 
     private fun launchWatchdog(apiKey: String): Job = scope.launch {
@@ -355,7 +384,8 @@ class SyncthingSupervisor(
         controller: SyncController = managerFactory(apiKey)
     ) {
         idleReconcileMutex.withLock {
-            val phase = observedIdlePhase ?: return@withLock
+            val phase = idlePhaseSource?.value ?: observedIdlePhase ?: return@withLock
+            observedIdlePhase = phase
             val shouldPause = appIsForeground.get() && phase == IdlePhase.SYNC_PAUSED
             idlePauseDesired = shouldPause
             val actual = idlePauseActual
@@ -393,5 +423,9 @@ class SyncthingSupervisor(
         } else {
             SyncthingServiceStatus.RUNNING
         }
+    }
+
+    private companion object {
+        const val CLOSE_RESUME_TIMEOUT_MS = 2_000L
     }
 }

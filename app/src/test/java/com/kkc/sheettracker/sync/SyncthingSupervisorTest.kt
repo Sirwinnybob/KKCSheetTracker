@@ -1,6 +1,8 @@
 package com.kkc.sheettracker.sync
 
 import com.kkc.sheettracker.data.IdlePhase
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -119,9 +121,10 @@ class SyncthingSupervisorTest {
         delay(50L)
         assertEquals(1, controller.pauseCalls)
 
+        val resumeCallsBeforeActive = controller.resumeCalls
         phase.value = IdlePhase.ACTIVE
-        waitUntil(2_000L) { controller.resumeCalls == 1 }
-        assertEquals(1, controller.resumeCalls)
+        waitUntil(2_000L) { controller.resumeCalls == resumeCallsBeforeActive + 1 }
+        assertEquals(resumeCallsBeforeActive + 1, controller.resumeCalls)
 
         supervisor.close()
     }
@@ -293,6 +296,7 @@ class SyncthingSupervisorTest {
 
         supervisor.setAppForeground(false)
         waitUntil(2_000L) { controller.resumeCalls == 1 }
+        waitUntil(2_000L) { supervisor.status.value.status == SyncthingServiceStatus.RUNNING }
 
         assertEquals(SyncthingServiceStatus.RUNNING, supervisor.status.value.status)
         supervisor.close()
@@ -320,17 +324,132 @@ class SyncthingSupervisorTest {
         assertEquals(1, controller.pauseCalls)
         supervisor.close()
     }
+
+    @Test
+    fun `close drains a pending background resume`() = runBlocking {
+        val controller = FakeSyncController(running = true)
+        val phase = MutableStateFlow(IdlePhase.SYNC_PAUSED)
+        val dispatcher = PausingCoroutineDispatcher()
+        val supervisor = foregroundTestSupervisor(
+            controller = controller,
+            scope = CoroutineScope(SupervisorJob() + dispatcher)
+        )
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(true)
+        supervisor.observeIdlePhase(phase)
+        waitUntil(2_000L) { controller.pauseCalls == 1 }
+
+        dispatcher.pause()
+        supervisor.setAppForeground(false)
+        supervisor.close()
+        dispatcher.resumeNewestFirst()
+
+        waitUntil(2_000L) { controller.resumeCalls == 1 }
+    }
+
+    @Test
+    fun `foreground check reconciles the current idle phase`() = runBlocking {
+        val controller = FakeSyncController(running = true)
+        val phase = MutableStateFlow(IdlePhase.SYNC_PAUSED)
+        val dispatcher = PausingCoroutineDispatcher()
+        val supervisor = foregroundTestSupervisor(
+            controller = controller,
+            scope = CoroutineScope(SupervisorJob() + dispatcher)
+        )
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(true)
+        supervisor.observeIdlePhase(phase)
+        waitUntil(2_000L) { controller.pauseCalls == 1 }
+        supervisor.setAppForeground(false)
+        waitUntil(2_000L) { controller.resumeCalls == 1 }
+        waitUntil(2_000L) { supervisor.status.value.status == SyncthingServiceStatus.RUNNING }
+
+        try {
+            dispatcher.pause()
+            phase.value = IdlePhase.ACTIVE
+            waitUntil(2_000L) { dispatcher.queuedCount() == 1 }
+            supervisor.setAppForeground(true)
+            supervisor.checkNow()
+
+            dispatcher.runNewest()
+            waitUntil(2_000L) { dispatcher.queuedCount() == 3 }
+            dispatcher.runNewest()
+
+            assertEquals(1, controller.pauseCalls)
+        } finally {
+            dispatcher.resumeNewestFirst()
+            supervisor.close()
+        }
+    }
 }
 
-private fun foregroundTestSupervisor(controller: FakeSyncController) = SyncthingSupervisor(
+private fun foregroundTestSupervisor(
+    controller: FakeSyncController,
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+) = SyncthingSupervisor(
     context = null,
     runtimeConfig = SyncthingRuntimeConfig(
         watchdog = SyncthingWatchdogConfig(intervalMs = 10_000L, autoStartOnFailure = false)
     ),
     preferencesStore = FakeSyncthingPreferencesStore("api-key"),
-    scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    scope = scope,
     managerFactory = { controller }
 )
+
+private class PausingCoroutineDispatcher(
+    private val delegate: CoroutineDispatcher = Dispatchers.Default
+) : CoroutineDispatcher() {
+    private val lock = Any()
+    private val queued = ArrayDeque<Pair<CoroutineContext, Runnable>>()
+    private var paused = false
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        val dispatchImmediately = synchronized(lock) {
+            if (paused) {
+                queued.addLast(context to block)
+                false
+            } else {
+                true
+            }
+        }
+        if (dispatchImmediately) {
+            delegate.dispatch(context, block)
+        }
+    }
+
+    fun pause() {
+        synchronized(lock) {
+            paused = true
+        }
+    }
+
+    fun queuedCount(): Int = synchronized(lock) { queued.size }
+
+    fun runNewest() {
+        val task = synchronized(lock) {
+            queued.removeLastOrNull()
+        } ?: error("No queued coroutine task")
+        task.second.run()
+    }
+
+    fun resumeNewestFirst() {
+        val pending = synchronized(lock) {
+            paused = false
+            buildList {
+                while (queued.isNotEmpty()) {
+                    add(queued.removeLast())
+                }
+            }
+        }
+        pending.forEach { (context, block) ->
+            delegate.dispatch(context, block)
+        }
+    }
+}
 
 private class FakeSyncthingPreferencesStore(
     initialApiKey: String
