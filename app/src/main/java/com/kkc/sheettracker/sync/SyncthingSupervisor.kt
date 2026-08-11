@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.sync
 
 import android.content.Context
+import com.kkc.sheettracker.data.IdlePhase
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +53,8 @@ class SyncthingSupervisor(
     private val checkMutex = Mutex()
     private var settingsObserverJob: Job? = null
     private var watchdogJob: Job? = null
+    private var idlePhaseObserverJob: Job? = null
+    private var pausedForIdle = false
 
     private val _apiKey = MutableStateFlow("")
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
@@ -159,12 +162,30 @@ class SyncthingSupervisor(
         }
     }
 
+    fun observeIdlePhase(phase: StateFlow<IdlePhase>) {
+        idlePhaseObserverJob?.cancel()
+        idlePhaseObserverJob = scope.launch {
+            phase.collect { p ->
+                val currentApiKey = _apiKey.value.trim()
+                if (currentApiKey.isBlank()) return@collect
+                if (p == IdlePhase.SYNC_PAUSED && !pausedForIdle) {
+                    pausedForIdle = true
+                    managerFactory(currentApiKey).pauseSync()
+                } else if (p != IdlePhase.SYNC_PAUSED && pausedForIdle) {
+                    pausedForIdle = false
+                    managerFactory(currentApiKey).resumeSync()
+                }
+            }
+        }
+    }
+
     suspend fun saveApiKey(apiKey: String) {
         preferencesStore.saveApiKey(apiKey)
     }
 
     fun close() {
         stopMonitoring()
+        idlePhaseObserverJob?.cancel()
         scope.cancel()
     }
 

@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.sync
 
+import com.kkc.sheettracker.data.IdlePhase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -89,6 +90,40 @@ class SyncthingSupervisorTest {
 
         supervisor.close()
     }
+
+    @Test
+    fun `idle phase pause and resume call syncthing once per transition`() = runBlocking {
+        val store = FakeSyncthingPreferencesStore("api-key")
+        val controller = FakeSyncController(running = true)
+        val phase = MutableStateFlow(IdlePhase.ACTIVE)
+        val supervisor = SyncthingSupervisor(
+            context = null,
+            runtimeConfig = SyncthingRuntimeConfig(
+                watchdog = SyncthingWatchdogConfig(intervalMs = 10_000L, autoStartOnFailure = false)
+            ),
+            preferencesStore = store,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            managerFactory = { controller }
+        )
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.observeIdlePhase(phase)
+
+        phase.value = IdlePhase.SYNC_PAUSED
+        waitUntil(2_000L) { controller.pauseCalls == 1 }
+        assertEquals(1, controller.pauseCalls)
+
+        phase.value = IdlePhase.SYNC_PAUSED // repeat, already paused — must not double-fire
+        delay(50L)
+        assertEquals(1, controller.pauseCalls)
+
+        phase.value = IdlePhase.ACTIVE
+        waitUntil(2_000L) { controller.resumeCalls == 1 }
+        assertEquals(1, controller.resumeCalls)
+
+        supervisor.close()
+    }
 }
 
 private class FakeSyncthingPreferencesStore(
@@ -108,6 +143,8 @@ private class FakeSyncController(
 ) : SyncController {
     var checkCalls: Int = 0
     var startCalls: Int = 0
+    var pauseCalls: Int = 0
+    var resumeCalls: Int = 0
 
     override suspend fun isServiceRunning(): Boolean {
         checkCalls++
@@ -120,9 +157,15 @@ private class FakeSyncController(
 
     override fun stopService() = Unit
 
-    override suspend fun pauseSync(): Boolean = true
+    override suspend fun pauseSync(): Boolean {
+        pauseCalls++
+        return true
+    }
 
-    override suspend fun resumeSync(): Boolean = true
+    override suspend fun resumeSync(): Boolean {
+        resumeCalls++
+        return true
+    }
 }
 
 private suspend fun waitUntil(
