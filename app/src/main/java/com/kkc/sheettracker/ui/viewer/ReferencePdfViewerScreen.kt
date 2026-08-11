@@ -176,7 +176,7 @@ fun ReferencePdfViewerScreen(
             // source directly from ContinuousReferencePdfPane — see UnifiedReferenceViewer.
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .then(if (continuousScrollEnabled) Modifier else Modifier.padding(padding)),
             displayPage = currentPage,
             onDisplayPageChange = { currentPage = it },
             defaultPdfFilename = referenceData.defaultPdfFilename,
