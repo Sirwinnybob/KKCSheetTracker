@@ -16,16 +16,28 @@ class ContinuousReferencePdfPaneTest {
 
     @Test
     fun continuousPdfMotionRevision_incrementsOnlyWhenVisiblePositionChanges() {
-        val start = ContinuousPdfVisualPosition(4, 120, 0f, 0f)
+        val start = ContinuousPdfVisualPosition(4, 120, 0f, 0f, 1f)
         val unchanged = nextContinuousPdfMotionRevision(start, start, revision = 8L)
         val moved = nextContinuousPdfMotionRevision(
             previous = start,
-            current = ContinuousPdfVisualPosition(4, 120, 18f, 0f),
+            current = ContinuousPdfVisualPosition(4, 120, 18f, 0f, 1f),
             revision = unchanged
         )
 
         assertEquals(8L, unchanged)
         assertEquals(9L, moved)
+    }
+
+    @Test
+    fun continuousPdfMotionRevision_incrementsWhenZoomChanges() {
+        val start = ContinuousPdfVisualPosition(4, 120, 0f, 0f, 1f)
+        val zoomed = nextContinuousPdfMotionRevision(
+            previous = start,
+            current = ContinuousPdfVisualPosition(4, 120, 0f, 0f, 2f),
+            revision = 8L
+        )
+
+        assertEquals(9L, zoomed)
     }
 
     @Test

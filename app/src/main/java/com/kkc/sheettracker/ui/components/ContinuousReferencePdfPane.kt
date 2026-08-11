@@ -152,7 +152,8 @@ internal data class ContinuousPdfVisualPosition(
     val itemIndex: Int,
     val itemScrollOffset: Int,
     val mainAxisOverscroll: Float,
-    val crossAxisPan: Float
+    val crossAxisPan: Float,
+    val zoom: Float
 )
 
 internal fun nextContinuousPdfMotionRevision(
@@ -643,7 +644,8 @@ internal fun ContinuousReferencePdfPane(
                 itemIndex = listState.firstVisibleItemIndex,
                 itemScrollOffset = listState.firstVisibleItemScrollOffset,
                 mainAxisOverscroll = sharedMainAxisOverscroll,
-                crossAxisPan = sharedCrossPan
+                crossAxisPan = sharedCrossPan,
+                zoom = sharedZoom
             )
         }.collect { currentVisualPosition ->
             renderMotionRevision = nextContinuousPdfMotionRevision(
