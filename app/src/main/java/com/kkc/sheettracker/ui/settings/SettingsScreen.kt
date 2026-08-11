@@ -127,6 +127,16 @@ fun SettingsScreen(
     var syncthingPauseTimeoutSecondsText by remember(idlePowerSaveConfig.syncthingPauseTimeoutSeconds) {
         mutableStateOf(idlePowerSaveConfig.syncthingPauseTimeoutSeconds.toString())
     }
+    LaunchedEffect(idleTimeoutSecondsText) {
+        val seconds = idleTimeoutSecondsText.toIntOrNull() ?: return@LaunchedEffect
+        delay(500L)
+        idlePowerSaveStore.setIdleTimeoutSeconds(seconds)
+    }
+    LaunchedEffect(syncthingPauseTimeoutSecondsText) {
+        val seconds = syncthingPauseTimeoutSecondsText.toIntOrNull() ?: return@LaunchedEffect
+        delay(500L)
+        idlePowerSaveStore.setSyncthingPauseTimeoutSeconds(seconds)
+    }
 
     LaunchedEffect(tabletSaved) {
         if (tabletSaved) {
@@ -536,12 +546,7 @@ fun SettingsScreen(
                 if (idlePowerSaveConfig.enabled) {
                     OutlinedTextField(
                         value = idleTimeoutSecondsText,
-                        onValueChange = { text ->
-                            idleTimeoutSecondsText = text
-                            text.toIntOrNull()?.let { seconds ->
-                                idlePowerSaveScope.launch { idlePowerSaveStore.setIdleTimeoutSeconds(seconds) }
-                            }
-                        },
+                        onValueChange = { text -> idleTimeoutSecondsText = text },
                         label = { Text("Dim after (seconds)") },
                         supportingText = { Text("Lower values (e.g. 5) are useful for testing. Default 300 (5 min).") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -552,12 +557,7 @@ fun SettingsScreen(
 
                     OutlinedTextField(
                         value = syncthingPauseTimeoutSecondsText,
-                        onValueChange = { text ->
-                            syncthingPauseTimeoutSecondsText = text
-                            text.toIntOrNull()?.let { seconds ->
-                                idlePowerSaveScope.launch { idlePowerSaveStore.setSyncthingPauseTimeoutSeconds(seconds) }
-                            }
-                        },
+                        onValueChange = { text -> syncthingPauseTimeoutSecondsText = text },
                         label = { Text("Pause Syncthing after (seconds)") },
                         supportingText = { Text("Default 1800 (30 min).") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
