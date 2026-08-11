@@ -876,6 +876,7 @@ fun UnifiedReferenceViewer(
                 onPageSelected = onDisplayPageChange,
                 pdfFileForFilename = pdfFileForFilename,
                 defaultPdfFilename = defaultPdfFilename,
+                preferDarkMode = preferDarkMode,
                 hazeState = hazeState,
                 isSplitPaneActive = isSplitPaneActive,
                 hasNavBarBelow = hasNavBarBelow

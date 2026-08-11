@@ -761,7 +761,10 @@ internal fun ContinuousReferencePdfPane(
                 return@LaunchedEffect
             }
             val thumb = withContext(Dispatchers.IO) {
-                engineCache.get(file).renderThumbnail(pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0))
+                engineCache.get(file).renderThumbnail(
+                    pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
+                    matteColorArgb = matteColorArgb
+                )
             }
             if (thumb != null) {
                 thumbnailCache.put(cacheKey, thumb)

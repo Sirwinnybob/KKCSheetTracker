@@ -184,6 +184,7 @@ internal fun PdfLabelScrollbar(
     onPageSelected: (Int) -> Unit,
     pdfFileForFilename: (String) -> java.io.File? = { null },
     defaultPdfFilename: String = "",
+    preferDarkMode: Boolean = false,
     hazeState: HazeState? = null,
     isSplitPaneActive: Boolean = false,
     hasNavBarBelow: Boolean = true
@@ -197,7 +198,7 @@ internal fun PdfLabelScrollbar(
     var isDragging by remember { mutableStateOf(false) }
     var dragIndex by remember { mutableStateOf<Int?>(null) }
     var touchYPx by remember { mutableFloatStateOf(0f) }
-    val thumbCache = remember { mutableStateMapOf<Int, Bitmap?>() }
+    val thumbCache = remember(preferDarkMode) { mutableStateMapOf<Int, Bitmap?>() }
     // Shared fill for the pill and the rail's progress-fill overlay — kept as one definition so
     // the two can never visually drift apart if the gradient stops are retuned later.
     val progressGradient = Brush.verticalGradient(
@@ -282,7 +283,7 @@ internal fun PdfLabelScrollbar(
     // Idle ticks never show a bitmap, and the carousel only ever needs the entries currently in
     // its window — no reason to decode anything until dragging, and no reason to preload the
     // whole document like the old full-dock design did.
-    LaunchedEffect(carouselSlots, defaultPdfFilename, isDragging, effectiveLabelOnly) {
+    LaunchedEffect(carouselSlots, defaultPdfFilename, isDragging, effectiveLabelOnly, preferDarkMode) {
         if (!isDragging || effectiveLabelOnly) return@LaunchedEffect
         for ((_, entry) in carouselSlots) {
             if (!isActive) break
@@ -293,7 +294,13 @@ internal fun PdfLabelScrollbar(
             val sourcePage = row.source?.page?.takeIf { it > 0 } ?: row.page
             val file = filename.takeIf { it.isNotBlank() }?.let(pdfFileForFilename)
             val bitmap = if (file != null) {
-                withContext(Dispatchers.IO) { engineCache.get(file).renderThumbnail(sourcePage - 1, maxWidth = 200) }
+                withContext(Dispatchers.IO) {
+                    engineCache.get(file).renderThumbnail(
+                        sourcePage - 1,
+                        maxWidth = 200,
+                        matteColorArgb = referencePdfThumbnailMatteColorArgb(preferDarkMode)
+                    )
+                }
             } else {
                 null
             }

@@ -117,6 +117,9 @@ internal fun referencePdfMatteColorArgb(
     lightMatteColorArgb: Int
 ): Int = if (preferDarkMode) android.graphics.Color.BLACK else lightMatteColorArgb
 
+internal fun referencePdfThumbnailMatteColorArgb(preferDarkMode: Boolean): Int =
+    referencePdfMatteColorArgb(preferDarkMode, android.graphics.Color.WHITE)
+
 internal enum class SideGutterTapRegion {
     LEFT,
     RIGHT,
@@ -353,7 +356,11 @@ class PdfRenderEngine(private val pdfFile: File) {
         }
     }
 
-    suspend fun renderThumbnail(pageIndex: Int, maxWidth: Int = 340): Bitmap? = mutex.withLock {
+    suspend fun renderThumbnail(
+        pageIndex: Int,
+        maxWidth: Int = 340,
+        matteColorArgb: Int = android.graphics.Color.WHITE
+    ): Bitmap? = mutex.withLock {
         if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
         if (!pdfFile.exists()) return null
         val localRenderer = ensureRendererLocked()
@@ -367,7 +374,7 @@ class PdfRenderEngine(private val pdfFile: File) {
             val width = (activePage.width * scale).toInt().coerceAtLeast(1)
             val height = (activePage.height * scale).toInt().coerceAtLeast(1)
             val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            bmp.eraseColor(android.graphics.Color.WHITE)
+            bmp.eraseColor(matteColorArgb)
             if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
                 bmp.recycle()
                 return@withLock null
@@ -432,6 +439,10 @@ fun ReferencePdfPane(
         else -> "${pdfFile.absolutePath}|${pdfFile.length()}|${pdfFile.lastModified()}"
     }
     val engine = remember(pdfIdentityKey) { pdfFile?.takeIf { it.exists() }?.let { PdfRenderEngine(it) } }
+    val matteColorArgb = referencePdfMatteColorArgb(
+        preferDarkMode = preferDarkMode,
+        lightMatteColorArgb = android.graphics.Color.WHITE
+    )
     // Plain size-bounded cache. Do NOT recycle on eviction: asImageBitmap() shares the buffer with a
     // live Compose Image, so recycling an evicted-but-still-drawn page crashes with
     // "Canvas: trying to use a recycled bitmap". GC reclaims evicted pages safely.
@@ -439,7 +450,7 @@ fun ReferencePdfPane(
     // Cheap low-res placeholder cache, keyed the same way as basePageCache. Shown immediately
     // on page entry while the full-res base render is debounced (see below) — avoids firing a
     // full PdfRenderer decode for every page landed on during a fast tap-through.
-    val thumbnailCache = remember(pdfIdentityKey) { LruCache<Int, Bitmap>(20) }
+    val thumbnailCache = remember(pdfIdentityKey, matteColorArgb) { LruCache<Int, Bitmap>(20) }
     DisposableEffect(engine) {
         onDispose {
             basePageCache.evictAll()
@@ -460,16 +471,12 @@ fun ReferencePdfPane(
     var isInteracting by remember(engine) { mutableStateOf(false) }
     var pageAspectRatio by remember(engine, currentPage) { mutableStateOf<Float?>(null) }
     var renderState by remember(engine, currentPage) { mutableStateOf<PdfRenderUiState>(PdfRenderUiState.Loading) }
-    val matteColorArgb = referencePdfMatteColorArgb(
-        preferDarkMode = preferDarkMode,
-        lightMatteColorArgb = android.graphics.Color.WHITE
-    )
     val emptyCanvasColor = referencePdfCanvasColor(
         preferDarkMode = preferDarkMode,
         lightCanvasColor = MaterialTheme.colorScheme.surface
     )
     var baseBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
-    var thumbnailBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
+    var thumbnailBitmap by remember(engine, currentPage, matteColorArgb) { mutableStateOf<Bitmap?>(null) }
     var detailBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailForViewport by remember(engine, currentPage) { mutableStateOf<QuantizedViewportState?>(null) }
     // Fallback bitmap: the last successfully rendered page bitmap. Shown while the new page
@@ -481,8 +488,8 @@ fun ReferencePdfPane(
     val slideProgress = remember { Animatable(1f) }
     val paneScope = rememberCoroutineScope()
     var showToc by remember { mutableStateOf(false) }
-    val tocThumbCache = remember(engine) { mutableStateMapOf<Int, Bitmap?>() }
-    val tocLruOrder = remember(engine) { mutableListOf<Int>() }
+    val tocThumbCache = remember(engine, matteColorArgb) { mutableStateMapOf<Int, Bitmap?>() }
+    val tocLruOrder = remember(engine, matteColorArgb) { mutableListOf<Int>() }
     val tocLoadedCount by remember { derivedStateOf { tocThumbCache.count { it.value != null } } }
 
     LaunchedEffect(engine) {
@@ -558,7 +565,7 @@ fun ReferencePdfPane(
 
     // Instant low-res placeholder: no debounce, no viewSize dependency (renderThumbnail uses a
     // fixed default width), so it can start decoding before layout even completes.
-    LaunchedEffect(engine, currentPage, totalPages) {
+    LaunchedEffect(engine, currentPage, totalPages, matteColorArgb) {
         if (engine == null || totalPages <= 0) return@LaunchedEffect
         val cachedThumb = thumbnailCache.get(currentPage)
         if (cachedThumb != null && !cachedThumb.isRecycled) {
@@ -566,7 +573,10 @@ fun ReferencePdfPane(
             return@LaunchedEffect
         }
         val thumb = withContext(Dispatchers.IO) {
-            engine.renderThumbnail(pageIndex = (currentPage - 1).coerceAtLeast(0))
+            engine.renderThumbnail(
+                pageIndex = (currentPage - 1).coerceAtLeast(0),
+                matteColorArgb = matteColorArgb
+            )
         }
         if (thumb != null) {
             thumbnailCache.put(currentPage, thumb)
@@ -622,12 +632,14 @@ fun ReferencePdfPane(
             onDismiss = { showToc = false }
         )
 
-        LaunchedEffect(showToc, totalPages, currentPage, engine) {
+        LaunchedEffect(showToc, totalPages, currentPage, engine, matteColorArgb) {
             if (!showToc || totalPages <= 0 || engine == null) return@LaunchedEffect
             for (page in buildReferenceTocLoadOrder(totalPages, currentPage)) {
                 if (!isActive) break
                 if (!tocThumbCache.containsKey(page)) {
-                    val thumb = withContext(Dispatchers.IO) { engine.renderThumbnail(page - 1) }
+                    val thumb = withContext(Dispatchers.IO) {
+                        engine.renderThumbnail(page - 1, matteColorArgb = matteColorArgb)
+                    }
                     tocThumbCache[page] = thumb
                     tocLruOrder.remove(page)
                     tocLruOrder.add(page)

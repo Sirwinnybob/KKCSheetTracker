@@ -42,6 +42,18 @@ class ReferencePdfPaneZoomPanTest {
         )
     }
 
+    @Test
+    fun referencePdfThumbnailMatteColor_preferDarkModeUsesPureBlack() {
+        assertEquals(
+            android.graphics.Color.BLACK,
+            referencePdfThumbnailMatteColorArgb(preferDarkMode = true)
+        )
+        assertEquals(
+            android.graphics.Color.WHITE,
+            referencePdfThumbnailMatteColorArgb(preferDarkMode = false)
+        )
+    }
+
     private val minZoom = 1f
     private val maxZoom = 14f
 
