@@ -10,6 +10,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Polls each job's lightweight list inputs: `.metadata/cache_index.json` and
@@ -22,7 +24,8 @@ import java.util.concurrent.ConcurrentHashMap
 class StaticCachePoller(
     baseDir: File,
     private val onJobCacheUpdated: (folderName: String) -> Unit,
-    private val pollIntervalMs: Long = POLL_INTERVAL_MS
+    private val pollIntervalMs: Long = POLL_INTERVAL_MS,
+    private val intervalOverrideMs: StateFlow<Long?> = MutableStateFlow(null)
 ) {
     @Volatile private var baseDir: File = baseDir
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -49,7 +52,7 @@ class StaticCachePoller(
                 checkForChanges()
             }
             while (isActive) {
-                delay(pollIntervalMs)
+                delay(intervalOverrideMs.value ?: pollIntervalMs)
                 checkForChanges()
             }
         }
