@@ -63,8 +63,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -106,6 +106,16 @@ data class PdfViewportState(
     val panY: Float = 0f,
     val viewSize: IntSize = IntSize.Zero
 )
+
+internal fun referencePdfCanvasColor(
+    preferDarkMode: Boolean,
+    lightCanvasColor: Color
+): Color = if (preferDarkMode) Color.Black else lightCanvasColor
+
+internal fun referencePdfMatteColorArgb(
+    preferDarkMode: Boolean,
+    lightMatteColorArgb: Int
+): Int = if (preferDarkMode) android.graphics.Color.BLACK else lightMatteColorArgb
 
 internal enum class SideGutterTapRegion {
     LEFT,
@@ -450,7 +460,14 @@ fun ReferencePdfPane(
     var isInteracting by remember(engine) { mutableStateOf(false) }
     var pageAspectRatio by remember(engine, currentPage) { mutableStateOf<Float?>(null) }
     var renderState by remember(engine, currentPage) { mutableStateOf<PdfRenderUiState>(PdfRenderUiState.Loading) }
-    val matteColorArgb = if (preferDarkMode) MaterialTheme.colorScheme.surface.toArgb() else android.graphics.Color.WHITE
+    val matteColorArgb = referencePdfMatteColorArgb(
+        preferDarkMode = preferDarkMode,
+        lightMatteColorArgb = android.graphics.Color.WHITE
+    )
+    val emptyCanvasColor = referencePdfCanvasColor(
+        preferDarkMode = preferDarkMode,
+        lightCanvasColor = MaterialTheme.colorScheme.surface
+    )
     var baseBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var thumbnailBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
     var detailBitmap by remember(engine, currentPage) { mutableStateOf<Bitmap?>(null) }
@@ -708,6 +725,7 @@ fun ReferencePdfPane(
                             onViewportStateChanged = { viewportState = it },
                             onInteractionChanged = { isInteracting = it },
                             pageAspectRatio = pageAspectRatio,
+                            emptyCanvasColor = emptyCanvasColor,
                             onGutterTapStep = null, // replaced by overlay arrow buttons
                             onSingleTap = onSingleTap,
                             allowStylusGestures = !markupEnabled,
@@ -905,6 +923,7 @@ private fun ZoomablePdfImage(
     onViewportStateChanged: (PdfViewportState) -> Unit,
     onInteractionChanged: (Boolean) -> Unit,
     pageAspectRatio: Float?,
+    emptyCanvasColor: Color,
     onGutterTapStep: ((Int) -> Unit)?,
     modifier: Modifier = Modifier,
     onSingleTap: (() -> Unit)? = null,
@@ -1091,7 +1110,13 @@ private fun ZoomablePdfImage(
                 )
             }
         } else {
-            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface))
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        emptyCanvasColor
+                    )
+            )
         }
     }
 }

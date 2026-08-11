@@ -75,6 +75,8 @@ import kotlinx.coroutines.withContext
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -146,6 +148,51 @@ internal fun continuousMainAxisScrollDelta(
     null
 } else {
     -panDelta / zoom
+}
+
+internal fun coalesceMainAxisDelta(pending: Float, incoming: Float): Float = pending + incoming
+
+/**
+ * Delivers drag deltas through one bounded pending slot. Producers coalesce into that slot so no
+ * movement is dropped, while a conflated wake-up prevents a high-frequency pointer stream from
+ * building an unbounded queue behind the LazyList consumer.
+ */
+internal class CoalescingMainAxisDeltaChannel {
+    private val pendingBits = AtomicInteger(0)
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+    private val flingHandoff = AtomicBoolean(false)
+
+    fun trySend(delta: Float) {
+        if (delta.isNaN()) {
+            pendingBits.set(0)
+            flingHandoff.set(true)
+        } else if (delta.isFinite() && delta != 0f) {
+            addPending(delta)
+        }
+        wake.trySend(Unit)
+    }
+
+    suspend fun receive(): Float {
+        while (true) {
+            if (wake.receiveCatching().isClosed) return Float.NaN
+            if (flingHandoff.getAndSet(false)) return Float.NaN
+            val delta = Float.fromBits(pendingBits.getAndSet(0))
+            if (delta != 0f) return delta
+        }
+    }
+
+    fun clearPending() {
+        pendingBits.set(0)
+    }
+
+    private fun addPending(incoming: Float) {
+        while (true) {
+            val currentBits = pendingBits.get()
+            val current = Float.fromBits(currentBits)
+            val next = coalesceMainAxisDelta(current, incoming)
+            if (pendingBits.compareAndSet(currentBits, next.toBits())) return
+        }
+    }
 }
 
 /**
@@ -521,7 +568,7 @@ internal fun ContinuousReferencePdfPane(
     // cannot directly call an arbitrary suspend function like listState.scrollBy(). Hand deltas
     // off through a channel instead and drain them sequentially on a plain coroutine, same
     // pattern Compose's own scrollable() uses internally for this exact restriction.
-    val scrollDeltaChannel = remember(listState) { Channel<Float>(Channel.UNLIMITED) }
+    val scrollDeltaChannel = remember(listState) { CoalescingMainAxisDeltaChannel() }
     // Channel is only needed for live-drag deltas: awaitPointerEvent runs in a
     // @RestrictsSuspension scope that cannot call arbitrary suspend fns like scrollBy().
     // Fling deltas are NOT sent through here — flingJob calls listState.scroll() directly.
@@ -972,7 +1019,7 @@ internal fun ContinuousReferencePdfPane(
                                 // Drain all real drag deltas, then post a NaN sentinel to force
                                 // the drag consumer to exit its listState.scroll() session.
                                 // This clears the scroll mutex before flingJob tries to acquire it.
-                                while (scrollDeltaChannel.tryReceive().isSuccess) { /* drain */ }
+                                scrollDeltaChannel.clearPending()
                                 scrollDeltaChannel.trySend(Float.NaN)  // sentinel: release drag session
                                 flingJob = flingScope.launch {
                                     Log.d("PdfFlingDebug", "flingJob ENTERED coroutine body vel=$flingVelocity")

@@ -11,6 +11,16 @@ import org.junit.Test
 class ContinuousReferencePdfPaneTest {
 
     @Test
+    fun coalesceMainAxisDelta_preservesTotalMovementInOnePendingSlot() {
+        var pending = 0f
+        pending = coalesceMainAxisDelta(pending, 3f)
+        pending = coalesceMainAxisDelta(pending, -1f)
+        pending = coalesceMainAxisDelta(pending, 5f)
+
+        assertEquals(7f, pending, 0.001f)
+    }
+
+    @Test
     fun continuousPdfColors_preferDarkModeUsesPureBlack() {
         assertEquals(
             Color.Black,

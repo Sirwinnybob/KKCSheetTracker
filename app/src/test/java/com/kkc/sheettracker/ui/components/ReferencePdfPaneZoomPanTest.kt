@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -7,6 +8,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReferencePdfPaneZoomPanTest {
+
+    @Test
+    fun referencePdfColors_preferDarkModeUsesPureBlack() {
+        assertEquals(
+            Color.Black,
+            referencePdfCanvasColor(preferDarkMode = true, lightCanvasColor = Color(0xFF123456))
+        )
+        assertEquals(
+            android.graphics.Color.BLACK,
+            referencePdfMatteColorArgb(
+                preferDarkMode = true,
+                lightMatteColorArgb = android.graphics.Color.WHITE
+            )
+        )
+    }
+
+    @Test
+    fun referencePdfColors_lightModeRetainsExistingLightValues() {
+        val lightCanvas = Color(0xFF123456)
+        val lightMatte = 0xFFABCDEF.toInt()
+
+        assertEquals(
+            lightCanvas,
+            referencePdfCanvasColor(preferDarkMode = false, lightCanvasColor = lightCanvas)
+        )
+        assertEquals(
+            lightMatte,
+            referencePdfMatteColorArgb(
+                preferDarkMode = false,
+                lightMatteColorArgb = lightMatte
+            )
+        )
+    }
 
     private val minZoom = 1f
     private val maxZoom = 14f
