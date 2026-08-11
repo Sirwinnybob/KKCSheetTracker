@@ -8,6 +8,7 @@ import java.io.File
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,35 +16,14 @@ import org.junit.Test
 class ContinuousReferencePdfPaneTest {
 
     @Test
-    fun continuousPdfMotionRevision_incrementsOnlyWhenVisiblePositionChanges() {
-        val start = ContinuousPdfVisualPosition(4, 120, 0f, 0f, 1f)
-        val unchanged = nextContinuousPdfMotionRevision(start, start, revision = 8L)
-        val moved = nextContinuousPdfMotionRevision(
-            previous = start,
-            current = ContinuousPdfVisualPosition(4, 120, 18f, 0f, 1f),
-            revision = unchanged
-        )
-
-        assertEquals(8L, unchanged)
-        assertEquals(9L, moved)
+    fun continuousPdfPageRenderDwell_requiresFull300Milliseconds() {
+        assertFalse(hasContinuousPdfPageRenderDwelled(visibleSinceMillis = 1_000L, nowMillis = 1_299L))
+        assertTrue(hasContinuousPdfPageRenderDwelled(visibleSinceMillis = 1_000L, nowMillis = 1_300L))
     }
 
     @Test
-    fun continuousPdfMotionRevision_incrementsWhenZoomChanges() {
-        val start = ContinuousPdfVisualPosition(4, 120, 0f, 0f, 1f)
-        val zoomed = nextContinuousPdfMotionRevision(
-            previous = start,
-            current = ContinuousPdfVisualPosition(4, 120, 0f, 0f, 2f),
-            revision = 8L
-        )
-
-        assertEquals(9L, zoomed)
-    }
-
-    @Test
-    fun continuousPdfRenderSettleDelay_waitsLongerForStationaryFling() {
-        assertEquals(300L, continuousPdfRenderSettleDelayMillis(isFlinging = true))
-        assertEquals(120L, continuousPdfRenderSettleDelayMillis(isFlinging = false))
+    fun continuousPdfPageRenderDwell_isIneligibleWithoutVisibleStartTime() {
+        assertFalse(hasContinuousPdfPageRenderDwelled(visibleSinceMillis = null, nowMillis = 2_000L))
     }
 
     @Test

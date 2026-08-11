@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.components
 
 import android.graphics.Bitmap
+import android.os.SystemClock
 import android.util.Log
 import android.util.LruCache
 import androidx.compose.foundation.Image
@@ -32,7 +33,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
@@ -65,7 +65,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -148,22 +147,10 @@ internal fun continuousMainAxisScrollDelta(
     -panDelta / zoom
 }
 
-internal data class ContinuousPdfVisualPosition(
-    val itemIndex: Int,
-    val itemScrollOffset: Int,
-    val mainAxisOverscroll: Float,
-    val crossAxisPan: Float,
-    val zoom: Float
-)
-
-internal fun nextContinuousPdfMotionRevision(
-    previous: ContinuousPdfVisualPosition?,
-    current: ContinuousPdfVisualPosition,
-    revision: Long
-): Long = if (previous == current) revision else revision + 1
-
-internal fun continuousPdfRenderSettleDelayMillis(isFlinging: Boolean): Long =
-    if (isFlinging) 300L else 120L
+internal fun hasContinuousPdfPageRenderDwelled(
+    visibleSinceMillis: Long?,
+    nowMillis: Long
+): Boolean = visibleSinceMillis != null && nowMillis - visibleSinceMillis >= 300L
 
 internal fun coalesceMainAxisDelta(pending: Float, incoming: Float): Float = pending + incoming
 
@@ -536,7 +523,7 @@ internal fun ContinuousReferencePdfPane(
 
     // Cheap low-res placeholder cache, keyed by "filename#page" (a plain Int page number isn't
     // enough — this pane can stream pages from multiple source PDFs). Shown immediately on page
-    // entry while the full-res base render waits for scroll/fling to settle (see settled below).
+    // entry while the full-res base render waits for a page-local visibility dwell.
     val thumbnailCache = remember(fileIdentitySeed) { LruCache<String, Bitmap>(30) }
     DisposableEffect(thumbnailCache) {
         onDispose { thumbnailCache.evictAll() }
@@ -633,35 +620,17 @@ internal fun ContinuousReferencePdfPane(
 
     var lastReportedPage by remember(fileIdentitySeed) { mutableIntStateOf(scrollToPage) }
 
-    // Rendering (in particular the expensive crop-tile re-render while zoomed) only kicks in
-    // once input has settled — same debounce-after-settle rule the single-page viewer already
-    // uses for its zoomed detail tile, so a fast pinch/scroll doesn't flood the render engine.
-    var renderMotionRevision by remember(fileIdentitySeed, orientation) { mutableLongStateOf(0L) }
-    LaunchedEffect(listState, fileIdentitySeed, orientation) {
-        var previousVisualPosition: ContinuousPdfVisualPosition? = null
-        snapshotFlow {
-            ContinuousPdfVisualPosition(
-                itemIndex = listState.firstVisibleItemIndex,
-                itemScrollOffset = listState.firstVisibleItemScrollOffset,
-                mainAxisOverscroll = sharedMainAxisOverscroll,
-                crossAxisPan = sharedCrossPan,
-                zoom = sharedZoom
-            )
-        }.collect { currentVisualPosition ->
-            renderMotionRevision = nextContinuousPdfMotionRevision(
-                previous = previousVisualPosition,
-                current = currentVisualPosition,
-                revision = renderMotionRevision
-            )
-            previousVisualPosition = currentVisualPosition
-        }
-    }
-
+    // Crop-tile rendering (in particular the expensive zoomed re-render) only kicks in once
+    // input has settled — same debounce-after-settle rule the single-page viewer already uses
+    // for its zoomed detail tile, so a fast pinch/scroll doesn't flood the render engine.
     var settled by remember(fileIdentitySeed, orientation) { mutableStateOf(true) }
-    LaunchedEffect(renderMotionRevision, isFlinging) {
-        settled = false
-        delay(continuousPdfRenderSettleDelayMillis(isFlinging))
-        settled = true
+    LaunchedEffect(isInteracting, listState.isScrollInProgress, isFlinging, fileIdentitySeed, orientation) {
+        if (isInteracting || listState.isScrollInProgress || isFlinging) {
+            settled = false
+        } else {
+            delay(120)
+            settled = true
+        }
     }
 
     LaunchedEffect(scrollToPage, totalPages) {
@@ -727,6 +696,13 @@ internal fun ContinuousReferencePdfPane(
             }
         }
     }
+    val visiblePages by remember(totalPages) {
+        derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo
+                .map { it.index + 1 }
+                .toSet()
+        }
+    }
 
     val pageContent: @Composable (Int) -> Unit = { displayPage ->
         val resolved = remember(displayPage, fileIdentitySeed, docKey, preferDarkMode) { resolvePage(displayPage) }
@@ -740,11 +716,14 @@ internal fun ContinuousReferencePdfPane(
             preferDarkMode = preferDarkMode
         )
         val inWindow = displayPage in renderWindow
+        val pageIsVisible = displayPage in visiblePages
         var baseBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
         var thumbnailBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
         var cropBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
         var cropFrac by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<UnitRect?>(null) }
         var aspectRatio by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Float?>(null) }
+        var baseRenderEligible by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf(false) }
+        var visibleSinceMillis by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Long?>(null) }
         // Real box size, needed so PdfMarkupOverlay's page transform is valid — with
         // viewSize left at IntSize.Zero, currentTransform() returns null and the overlay's
         // pointerInteropFilter bails out before ever registering a stroke. Also drives crop
@@ -768,13 +747,31 @@ internal fun ContinuousReferencePdfPane(
             }
         }
 
+        LaunchedEffect(renderIdentity, pageIsVisible, fileIdentitySeed, docKey) {
+            if (!pageIsVisible) {
+                visibleSinceMillis = null
+                baseRenderEligible = false
+                return@LaunchedEffect
+            }
+            val dwellStartMillis = SystemClock.uptimeMillis()
+            visibleSinceMillis = dwellStartMillis
+            baseRenderEligible = false
+            delay(300L)
+            if (pageIsVisible && hasContinuousPdfPageRenderDwelled(
+                    visibleSinceMillis = visibleSinceMillis,
+                    nowMillis = SystemClock.uptimeMillis()
+                )
+            ) {
+                baseRenderEligible = true
+            }
+        }
+
         // Base (fit-to-box) bitmap: loaded once per page while in window, cheap + cached.
         // Doubles as the fallback shown under the sharp crop tile and as the whole picture
-        // when not zoomed. Gated on settled (same signal the crop tile below already uses) so
-        // flinging past many pages doesn't fire a full decode for each one — only the page(s)
-        // still in the window once scrolling/pinching actually stops get the full render.
-        LaunchedEffect(renderIdentity, inWindow, settled, matteColorArgb, fileIdentitySeed, docKey) {
-            if (file == null || !inWindow || !settled || baseBitmap != null) return@LaunchedEffect
+        // when not zoomed. A page must remain actually visible for the full dwell before this
+        // expensive decode starts; buffered pages still receive immediate thumbnails below.
+        LaunchedEffect(renderIdentity, inWindow, baseRenderEligible, matteColorArgb, fileIdentitySeed, docKey) {
+            if (file == null || !inWindow || !baseRenderEligible || baseBitmap != null) return@LaunchedEffect
             val viewSize = boxSize.takeIf { it != IntSize.Zero } ?: IntSize(1080, 1400)
             baseBitmap = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderBasePage(
