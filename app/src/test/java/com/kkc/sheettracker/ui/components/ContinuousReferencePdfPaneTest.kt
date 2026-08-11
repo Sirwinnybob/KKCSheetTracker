@@ -36,6 +36,16 @@ class ContinuousReferencePdfPaneTest {
     }
 
     @Test
+    fun coalescingChannel_deliversPendingDeltaBeforeFlingSentinel() = runBlocking {
+        val channel = CoalescingMainAxisDeltaChannel()
+        channel.trySend(5f)
+        channel.trySend(Float.NaN)
+
+        assertEquals(5f, channel.receive(), 0.001f)
+        assertTrue(channel.receive().isNaN())
+    }
+
+    @Test
     fun continuousPdfColors_preferDarkModeUsesPureBlack() {
         assertEquals(
             Color.Black,

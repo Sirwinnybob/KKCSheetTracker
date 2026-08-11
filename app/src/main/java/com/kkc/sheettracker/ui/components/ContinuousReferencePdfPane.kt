@@ -75,8 +75,6 @@ import kotlinx.coroutines.withContext
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -158,16 +156,24 @@ internal fun coalesceMainAxisDelta(pending: Float, incoming: Float): Float = pen
  * building an unbounded queue behind the LazyList consumer.
  */
 internal class CoalescingMainAxisDeltaChannel {
-    private val pendingBits = AtomicInteger(0)
+    private val stateLock = Any()
+    private var pendingBeforeHandoff = 0f
+    private var pendingAfterHandoff = 0f
+    private var handoffRequested = false
+    private var handoffDelivered = false
     private val wake = Channel<Unit>(Channel.CONFLATED)
-    private val flingHandoff = AtomicBoolean(false)
 
     fun trySend(delta: Float) {
-        if (delta.isNaN()) {
-            pendingBits.set(0)
-            flingHandoff.set(true)
-        } else if (delta.isFinite() && delta != 0f) {
-            addPending(delta)
+        synchronized(stateLock) {
+            if (delta.isNaN()) {
+                handoffRequested = true
+            } else if (delta.isFinite() && delta != 0f) {
+                if (handoffRequested || handoffDelivered || pendingAfterHandoff != 0f) {
+                    pendingAfterHandoff = coalesceMainAxisDelta(pendingAfterHandoff, delta)
+                } else {
+                    pendingBeforeHandoff = coalesceMainAxisDelta(pendingBeforeHandoff, delta)
+                }
+            }
         }
         wake.trySend(Unit)
     }
@@ -175,27 +181,31 @@ internal class CoalescingMainAxisDeltaChannel {
     suspend fun receive(): Float {
         while (true) {
             if (wake.receiveCatching().isClosed) return Float.NaN
-            if (flingHandoff.getAndSet(false)) {
-                // A real delta can arrive after the handoff's conflated wake was queued. Re-wake
-                // the consumer whenever one is pending so the sentinel cannot strand movement.
-                if (pendingBits.get() != 0) wake.trySend(Unit)
-                return Float.NaN
+            val delivery = synchronized(stateLock) {
+                when {
+                    pendingBeforeHandoff != 0f -> {
+                        val delta = pendingBeforeHandoff
+                        pendingBeforeHandoff = 0f
+                        delta to (handoffRequested || pendingAfterHandoff != 0f)
+                    }
+                    handoffRequested -> {
+                        handoffRequested = false
+                        handoffDelivered = true
+                        Float.NaN to (pendingAfterHandoff != 0f)
+                    }
+                    pendingAfterHandoff != 0f -> {
+                        val delta = pendingAfterHandoff
+                        pendingAfterHandoff = 0f
+                        handoffDelivered = false
+                        delta to false
+                    }
+                    else -> null
+                }
             }
-            val delta = Float.fromBits(pendingBits.getAndSet(0))
-            if (delta != 0f) return delta
-        }
-    }
-
-    fun clearPending() {
-        pendingBits.set(0)
-    }
-
-    private fun addPending(incoming: Float) {
-        while (true) {
-            val currentBits = pendingBits.get()
-            val current = Float.fromBits(currentBits)
-            val next = coalesceMainAxisDelta(current, incoming)
-            if (pendingBits.compareAndSet(currentBits, next.toBits())) return
+            if (delivery != null) {
+                if (delivery.second) wake.trySend(Unit)
+                return delivery.first
+            }
         }
     }
 }
@@ -1021,10 +1031,10 @@ internal fun ContinuousReferencePdfPane(
 
                             if (abs(flingVelocity) > 100f || abs(crossFlingVelocity) > 100f) {
                                 Log.d("PdfFlingDebug", "Launching flingJob with vel=$flingVelocity crossVel=$crossFlingVelocity")
-                                // Drain all real drag deltas, then post a NaN sentinel to force
-                                // the drag consumer to exit its listState.scroll() session.
-                                // This clears the scroll mutex before flingJob tries to acquire it.
-                                scrollDeltaChannel.clearPending()
+                                // Post a NaN sentinel to force the drag consumer to exit its
+                                // listState.scroll() session.
+                                // The coalescer delivers any final pending drag movement before
+                                // this sentinel so no active gesture distance is lost at handoff.
                                 scrollDeltaChannel.trySend(Float.NaN)  // sentinel: release drag session
                                 flingJob = flingScope.launch {
                                     Log.d("PdfFlingDebug", "flingJob ENTERED coroutine body vel=$flingVelocity")
