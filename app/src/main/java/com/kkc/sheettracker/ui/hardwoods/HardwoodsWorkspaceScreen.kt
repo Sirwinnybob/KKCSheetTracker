@@ -53,7 +53,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -1069,54 +1069,38 @@ fun HardwoodsWorkspaceScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
-                        ScrollableTabRow(
+                        SecondaryScrollableTabRow(
                             selectedTabIndex = selectedIndex,
                             edgePadding = 4.dp,
                             containerColor = Color.Transparent,
                             contentColor = MaterialTheme.colorScheme.onSurface,
                             divider = {},
-                            indicator = { tabPositions ->
-                                if (selectedIndex in tabPositions.indices) {
-                                    val currentTab = tabPositions[selectedIndex]
-                                    val slideSpec = tween<androidx.compose.ui.unit.Dp>(durationMillis = 420, easing = FastOutSlowInEasing)
-                                    val animatedLeft by animateDpAsState(
-                                        targetValue = currentTab.left,
-                                        animationSpec = slideSpec,
-                                        label = "tabIndicatorLeft"
-                                    )
-                                    val animatedWidth by animateDpAsState(
-                                        targetValue = currentTab.width,
-                                        animationSpec = slideSpec,
-                                        label = "tabIndicatorWidth"
-                                    )
-                                    val isChangedSelected = !showRipCutList && showChangedOnly
-                                    val pillColor = if (isChangedSelected) {
-                                        MaterialTheme.colorScheme.tertiaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.secondaryContainer
-                                    }
-                                    val pillBorderColor = if (isChangedSelected) {
-                                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)
-                                    } else {
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                    }
-                                    Box(
-                                        Modifier
-                                            .wrapContentSize(Alignment.CenterStart)
-                                            .offset(x = animatedLeft)
-                                            .width(animatedWidth)
-                                            .height(32.dp)
-                                            .background(
-                                                color = pillColor,
-                                                shape = RoundedCornerShape(6.dp)
-                                            )
-                                            .border(
-                                                1.dp,
-                                                pillBorderColor,
-                                                RoundedCornerShape(6.dp)
-                                            )
-                                    )
+                            indicator = {
+                                val isChangedSelected = !showRipCutList && showChangedOnly
+                                val pillColor = if (isChangedSelected) {
+                                    MaterialTheme.colorScheme.tertiaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.secondaryContainer
                                 }
+                                val pillBorderColor = if (isChangedSelected) {
+                                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                }
+                                Box(
+                                    Modifier
+                                        .tabIndicatorOffset(selectedIndex, matchContentSize = false)
+                                        .height(32.dp)
+                                        .background(
+                                            color = pillColor,
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            pillBorderColor,
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                )
                             },
                             modifier = Modifier
                                 .weight(1f)
@@ -1323,43 +1307,27 @@ fun HardwoodsWorkspaceScreen(
                 ) {
                     val categoryList = remember { listOf<BoardStockSource?>(null) + BoardStockSource.entries }
                     val selectedSourceIndex = categoryList.indexOf(selectedRipSource).coerceAtLeast(0)
-                    ScrollableTabRow(
+                    SecondaryScrollableTabRow(
                             selectedTabIndex = selectedSourceIndex,
                             edgePadding = 4.dp,
                             containerColor = Color.Transparent,
                             contentColor = MaterialTheme.colorScheme.onSurface,
                             divider = {},
-                            indicator = { tabPositions ->
-                                if (selectedSourceIndex in tabPositions.indices) {
-                                    val currentTab = tabPositions[selectedSourceIndex]
-                                    val slideSpec = tween<Dp>(durationMillis = 420, easing = FastOutSlowInEasing)
-                                    val animatedLeft by animateDpAsState(
-                                        targetValue = currentTab.left,
-                                        animationSpec = slideSpec,
-                                        label = "sourcePillLeft"
-                                    )
-                                    val animatedWidth by animateDpAsState(
-                                        targetValue = currentTab.width,
-                                        animationSpec = slideSpec,
-                                        label = "sourcePillWidth"
-                                    )
-                                    Box(
-                                        Modifier
-                                            .wrapContentSize(Alignment.CenterStart)
-                                            .offset(x = animatedLeft)
-                                            .width(animatedWidth)
-                                            .height(32.dp)
-                                            .background(
-                                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                                shape = RoundedCornerShape(6.dp)
-                                            )
-                                            .border(
-                                                1.dp,
-                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                                RoundedCornerShape(6.dp)
-                                            )
-                                    )
-                                }
+                            indicator = {
+                                Box(
+                                    Modifier
+                                        .tabIndicatorOffset(selectedSourceIndex, matchContentSize = false)
+                                        .height(32.dp)
+                                        .background(
+                                            color = MaterialTheme.colorScheme.secondaryContainer,
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                )
                             },
                             modifier = Modifier.fillMaxWidth().height(40.dp)
                         ) {

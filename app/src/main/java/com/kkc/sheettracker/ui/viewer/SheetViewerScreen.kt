@@ -44,7 +44,7 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Warning
@@ -1504,7 +1504,7 @@ fun SheetViewerScreen(
                                                 maxLines = 1
                                             )
                                             Icon(
-                                                imageVector = Icons.Default.OpenInNew,
+                                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                                                 contentDescription = null,
                                                 modifier = Modifier.size(16.dp),
                                                 tint = if (isPopupSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
