@@ -201,6 +201,7 @@ fun ReferencePdfViewerScreen(
             onToggleMarkupEnabled = { markupEnabled = !markupEnabled },
             markupToolState = markupToolState,
             continuousScrollEnabled = continuousScrollEnabled,
+            continuousChromeTopPadding = padding.calculateTopPadding(),
             isSplitPaneActive = false,
             hazeState = hazeState,
             tocRequestToken = tocRequestToken,

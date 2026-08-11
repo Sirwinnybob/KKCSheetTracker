@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.models.PdfInkStroke
@@ -524,6 +525,7 @@ fun UnifiedReferenceViewer(
     // minimized nav bar instead of swapping the whole bar to the full extendedControls layout.
     markupControlsAsSlidingTab: Boolean = false,
     continuousScrollEnabled: Boolean = false,
+    continuousChromeTopPadding: Dp = 0.dp,
     isSplitPaneActive: Boolean = false,
     // Whether this pane's bottom edge is actually AppScaffold's floating nav bar (fullscreen
     // panes, or the bottom/right pane of a split) vs. a split-pane divider above another pane
@@ -841,6 +843,7 @@ fun UnifiedReferenceViewer(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .fillMaxWidth()
+                            .padding(top = continuousChromeTopPadding)
                             .padding(horizontal = 8.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -863,7 +866,9 @@ fun UnifiedReferenceViewer(
                     }
                 }
                 PdfLabelScrollbar(
-                    modifier = Modifier.align(Alignment.CenterEnd),
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(top = continuousChromeTopPadding),
                     rows = rowModels,
                     currentPage = clampedDisplayPage,
                     onPageSelected = onDisplayPageChange,
