@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntSize
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
@@ -79,27 +80,48 @@ class ContinuousReferencePdfPaneTest {
     }
 
     @Test
-    fun continuousMainAxisScrollDelta_multiTouchReturnsNull() {
-        assertEquals(
-            null,
-            continuousMainAxisScrollDelta(
-                isMultiTouch = true,
-                panDelta = 100f,
-                zoom = 2f,
-                viewportExtent = 1752
-            )
-        )
-    }
-
-    @Test
     fun continuousMainAxisScrollDelta_oneFingerRetainsExistingCalculation() {
         assertEquals(
             -50f,
             continuousMainAxisScrollDelta(
-                isMultiTouch = false,
                 panDelta = 100f,
                 zoom = 2f,
                 viewportExtent = 1752
+            )!!,
+            0.001f
+        )
+    }
+
+    @Test
+    fun continuousMainAxisScrollDelta_verticalOffCenterZoomCompensatesLazyList() {
+        val transform = computeZoomPan(
+            zoom = 1f, panX = 0f, panY = 0f,
+            zoomChange = 2f, panChange = Offset.Zero,
+            centroid = Offset(500f, 250f),
+            viewWidth = 1000, viewHeight = 1000,
+            minZoom = 1f, maxZoom = 20f
+        )
+
+        assertEquals(250f, transform.panY, 0.001f)
+        assertEquals(
+            -125f,
+            continuousMainAxisScrollDelta(
+                panDelta = transform.panY,
+                zoom = transform.zoom,
+                viewportExtent = 1000
+            )!!,
+            0.001f
+        )
+    }
+
+    @Test
+    fun continuousMainAxisScrollDelta_twoFingerPanIsNotDropped() {
+        assertEquals(
+            -30f,
+            continuousMainAxisScrollDelta(
+                panDelta = 60f,
+                zoom = 2f,
+                viewportExtent = 1000
             )!!,
             0.001f
         )
