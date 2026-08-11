@@ -4,41 +4,37 @@
 
 ## Goal
 
-In continuous PDF mode, render the visible pages at full quality after they have stayed visually stationary for 300 ms, even if the custom fling coroutine is still decaying at a document edge.
+In continuous PDF mode, render each page at full quality after it has remained in the visible render window for 300 ms, even while a slow scroll or custom fling continues.
 
 ## Root Cause
 
-`ContinuousReferencePdfPane` currently defines its render-settled state as the absence of interaction, LazyList scrolling, and fling activity. At a document boundary, a fling can continue to decay after list movement and edge overscroll have both reached their clamps. Because `isFlinging` remains true, full base-page and zoom crop rendering remains suppressed until the velocity finally falls below its threshold.
+`ContinuousReferencePdfPane` currently gates every full base-page and zoom crop render on one shared `settled` state. Its first attempted replacement made that state depend on global visual motion, which still postpones rendering during a slow scroll because every frame restarts the delay. Rendering eligibility must instead belong to each visible page.
 
 ## Design
 
-### Visible-motion debounce
+### Per-page visibility dwell
 
-Keep the existing protection against rendering while the content is moving. Add a render-settled state driven by actual visual-position changes rather than fling lifetime alone. A change to the LazyList position, main-axis edge overscroll, or cross-axis pan restarts a 300 ms debounce. When none of those values changes for 300 ms, set the state to render-ready even if `isFlinging` is still true.
+Each page in `renderWindow` starts a 300 ms eligibility timer when it enters that window. If it remains there when the timer completes, its full base-page render may start even if the document is moving. If it exits the window before the timer completes, the timer is cancelled; no full decode is started for that page.
 
-This preserves the existing behavior during a real fling: each animation frame that moves the visible PDF restarts the timer. It also removes the edge case: once the page is pinned at the start/end edge and every further animation frame is visually inert, the timer completes and visible page rendering begins.
+This supports both reported cases: edge-pinned momentum does not block the page already on screen, and pages held on screen during a slow scroll become sharp after their own 300 ms dwell. Fast scrolling still avoids work for pages that leave before the dwell expires.
 
-### Idle behavior
+### Render consumers
 
-When there is no gesture, list scroll, or fling, retain the current 120 ms idle delay. The 300 ms path applies only while a fling is technically active but produces no visible content movement. A new touch or visible movement invalidates the settled state immediately.
-
-### Rendering consumers
-
-Continue using the shared `settled` state as the gate for full base-page and zoom crop rendering. Thumbnail behavior remains immediate and unchanged. No PDF-engine, cache, scroll physics, or scrollbar changes are needed.
+Replace the shared `settled` condition in the base-page effect with page-local visibility eligibility. Keep thumbnails immediate. The crop effect continues to react to zoom and geometry as it does today; no PDF-engine, cache, scroll physics, or scrollbar changes are needed.
 
 ## Test Coverage
 
-Extract or add a small pure helper that determines whether the render delay is 300 ms for a visually stationary active fling versus 120 ms for a fully idle pane. Add JVM tests proving:
+Extract or add a small pure helper that represents page-dwell eligibility. Add JVM tests proving:
 
-- An active fling with no visible movement chooses the 300 ms render debounce.
-- Visible movement keeps rendering blocked and restarts the timer.
-- A fully idle pane retains the 120 ms delay.
+- A page entering the render window receives a 300 ms dwell deadline.
+- A page leaving before that deadline is not eligible.
+- A page remaining in the window through that deadline becomes eligible regardless of scroll/fling state.
 
 ## Acceptance Criteria
 
-- At either PDF edge, full-quality visible-page rendering begins after approximately 300 ms of no visible content movement while fling momentum continues.
-- While pages, overscroll, or zoom pan are visibly moving, full rendering remains deferred.
-- After the fling actually ends, the existing short idle settle behavior is retained.
+- A visible page becomes eligible for full-quality rendering after approximately 300 ms in the render window during slow scrolling or continued fling momentum.
+- A page that leaves the render window before 300 ms does not start a full base decode.
+- Edge-pinned momentum does not delay the visible page's 300 ms timer.
 - Immediate thumbnail placeholders and all existing fling/navigation behavior remain unchanged.
 
 ## Scope
