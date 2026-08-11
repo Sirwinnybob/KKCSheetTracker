@@ -36,6 +36,20 @@ class HardwoodsRowHelpersTest {
     }
 
     @Test
+    fun hardwoodsBoardStockRowBackgroundTint_usesFaintSkipWashForSkippedRows() {
+        assertEquals(
+            LightStatusColors.skipBg.copy(alpha = 0.08f),
+            hardwoodsBoardStockRowBackgroundTint(
+                materialSkipped = false,
+                isNoneItem = false,
+                rowSkipped = true,
+                surfaceVariant = Color(0xFF123456),
+                status = LightStatusColors
+            )
+        )
+    }
+
+    @Test
     fun cutlistDimensionDisplay_omitsWidthSeparatorForLengthOnlyRows() {
         assertEquals(
             "36",

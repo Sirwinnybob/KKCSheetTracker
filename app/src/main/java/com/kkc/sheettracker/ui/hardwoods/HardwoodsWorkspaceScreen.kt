@@ -165,6 +165,7 @@ import com.kkc.sheettracker.ui.components.RevisionBadge
 import com.kkc.sheettracker.ui.components.SectionProgressHeader
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.theme.KKCStatusColors
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
@@ -2482,6 +2483,19 @@ private fun TallyStepButton(
     }
 }
 
+fun hardwoodsBoardStockRowBackgroundTint(
+    materialSkipped: Boolean,
+    isNoneItem: Boolean,
+    rowSkipped: Boolean,
+    surfaceVariant: Color,
+    status: KKCStatusColors
+): Color = when {
+    materialSkipped -> surfaceVariant.copy(alpha = 0.72f)
+    isNoneItem -> surfaceVariant.copy(alpha = 0.38f)
+    rowSkipped -> status.skipBg.copy(alpha = 0.08f)
+    else -> surfaceVariant.copy(alpha = 0.46f)
+}
+
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun HardwoodsBoardStockList(
@@ -2707,12 +2721,13 @@ private fun HardwoodsBoardStockList(
                                     Surface(
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).heightIn(min = 36.dp),
                                         shape = RoundedCornerShape(6.dp),
-                                        color = when {
-                                            materialSkipApplied -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-                                            isNoneItem  -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                                            itemSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
-                                            else        -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
-                                        },
+                                        color = hardwoodsBoardStockRowBackgroundTint(
+                                            materialSkipped = materialSkipApplied,
+                                            isNoneItem = isNoneItem,
+                                            rowSkipped = itemSkipped,
+                                            surfaceVariant = MaterialTheme.colorScheme.surfaceVariant,
+                                            status = statusColors
+                                        ),
                                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                                         tonalElevation = 0.5.dp
                                     ) {
@@ -2953,11 +2968,13 @@ private fun HardwoodsBoardStockList(
                                     Surface(
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).heightIn(min = 36.dp),
                                         shape = RoundedCornerShape(6.dp),
-                                        color = when {
-                                            materialSkipped -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-                                            lineSkipped -> statusColors.completeBgRow.copy(alpha = 0.96f)
-                                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
-                                        },
+                                        color = hardwoodsBoardStockRowBackgroundTint(
+                                            materialSkipped = materialSkipped,
+                                            isNoneItem = false,
+                                            rowSkipped = lineSkipped,
+                                            surfaceVariant = MaterialTheme.colorScheme.surfaceVariant,
+                                            status = statusColors
+                                        ),
                                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                                         tonalElevation = 0.5.dp
                                     ) {
