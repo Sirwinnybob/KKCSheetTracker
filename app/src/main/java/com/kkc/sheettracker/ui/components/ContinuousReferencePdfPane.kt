@@ -154,6 +154,28 @@ internal fun continuousPageRenderIdentity(
 )
 
 /**
+ * Identity for layout geometry that should survive a source-variant swap. The page's measured
+ * bounds and coordinates remain valid while light/dark render bitmaps are being replaced.
+ */
+internal data class ContinuousPageGeometryIdentity(
+    val displayPage: Int,
+    val resolved: ResolvedPageSource,
+    val fileIdentitySeed: Long,
+    val docKey: Any?
+)
+
+internal fun continuousPageGeometryIdentity(
+    renderIdentity: ContinuousPageRenderIdentity,
+    fileIdentitySeed: Long,
+    docKey: Any?
+): ContinuousPageGeometryIdentity = ContinuousPageGeometryIdentity(
+    displayPage = renderIdentity.displayPage,
+    resolved = renderIdentity.resolved,
+    fileIdentitySeed = fileIdentitySeed,
+    docKey = docKey
+)
+
+/**
  * Given where a page is currently drawn on screen (already reflecting the shared whole-stack
  * zoom + pan) and the pane's own visible viewport, returns which fraction of that PAGE (local to
  * its own bounds, 0..1 each axis) is actually on screen right now. Null if there's no overlap.
@@ -573,8 +595,9 @@ internal fun ContinuousReferencePdfPane(
         // viewSize left at IntSize.Zero, currentTransform() returns null and the overlay's
         // pointerInteropFilter bails out before ever registering a stroke. Also drives crop
         // tile placement (below) and the fallback render size before first layout.
-        var boxSize by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf(IntSize.Zero) }
-        var pageCoordinates by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<LayoutCoordinates?>(null) }
+        val geometryIdentity = continuousPageGeometryIdentity(renderIdentity, fileIdentitySeed, docKey)
+        var boxSize by remember(geometryIdentity) { mutableStateOf(IntSize.Zero) }
+        var pageCoordinates by remember(geometryIdentity) { mutableStateOf<LayoutCoordinates?>(null) }
         val matteColorArgb = if (preferDarkMode) MaterialTheme.colorScheme.surface.toArgb() else android.graphics.Color.WHITE
 
         LaunchedEffect(renderIdentity, fileIdentitySeed, docKey) {

@@ -30,6 +30,19 @@ class ContinuousReferencePdfPaneTest {
     }
 
     @Test
+    fun continuousPageGeometryIdentity_staysStableAcrossDarkModeChanges() {
+        val resolved = ResolvedPageSource(pdfFilename = "plans.pdf", sourcePage = 3)
+        val file = File("plans.pdf")
+        val light = continuousPageRenderIdentity(5, resolved, file, preferDarkMode = false)
+        val dark = continuousPageRenderIdentity(5, resolved, file, preferDarkMode = true)
+
+        assertEquals(
+            continuousPageGeometryIdentity(light, fileIdentitySeed = 17L, docKey = "plans"),
+            continuousPageGeometryIdentity(dark, fileIdentitySeed = 17L, docKey = "plans")
+        )
+    }
+
+    @Test
     fun computeRenderWindow_addsOnePageBufferOnEachSide() {
         val window = computeRenderWindow(firstVisiblePage = 5, lastVisiblePage = 6, totalPages = 20, buffer = 1)
 
