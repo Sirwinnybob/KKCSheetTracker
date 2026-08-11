@@ -14,7 +14,7 @@ Make continuous PDF mode keep the document point under the pinch centroid in bot
 
 `ContinuousReferencePdfPane` applies the document's shared zoom with a center-pivoted `graphicsLayer`. Its transform helper produces the main-axis compensation needed to preserve an off-center pinch, but continuous mode retains only the cross-axis pan. It also intentionally suppresses main-axis list scrolling while more than one pointer is down. Consequently, vertical pinch zoom uses the pane center and cannot simultaneously pan the `LazyColumn`.
 
-The continuous viewer's `Column` lays out its header above a reduced-size PDF pane, and the pane reserves permanent right padding for the scrollbar. The PDF therefore cannot render under either chrome element, and header visibility changes the usable PDF viewport.
+`ReferencePdfViewerScreen` applies `Scaffold`'s top-app-bar inset to `UnifiedReferenceViewer` even when the app bar is transparent. The continuous viewer also lays out its document-controls row above a reduced-size PDF pane and the pane reserves permanent right padding for the scrollbar. The PDF therefore cannot render under the hideable top app bar, the in-pane controls, or the scrollbar.
 
 ## Design
 
@@ -26,7 +26,7 @@ The resulting transform preserves the document coordinate under the current cent
 
 ### Stable viewport and overlay chrome
 
-Make the continuous branch use a full-size `Box` as its viewport. `ContinuousReferencePdfPane` fills that box with no permanent scrollbar-end padding. The header row and `PdfLabelScrollbar` are overlay siblings above the PDF. The header remains interactive when visible, and its visibility changes only the overlay, not the PDF layout size.
+For continuous mode, do not apply the screen `Scaffold` top-app-bar inset to `UnifiedReferenceViewer`; the transparent/fading app bar then overlays the full document instead of reserving an empty band. Keep the inset for paged mode. Inside the continuous branch, use a full-size `Box` as the PDF viewport. `ContinuousReferencePdfPane` fills that box with no permanent scrollbar-end padding. The document-controls row and `PdfLabelScrollbar` are overlay siblings above the PDF. Chrome remains interactive when visible, and changing its visibility changes only overlays, not the PDF layout size.
 
 The scrollbar continues to reserve only its interaction footprint through its own layout and remains rendered above the document. Existing haze-source wiring stays on the PDF layer so the scrollbar can blur live document content beneath its expanded panel.
 
@@ -45,5 +45,5 @@ Use a small pure helper for the main-axis delta if needed, keeping Compose gestu
 - In vertical continuous mode, pinching near the top or bottom zooms around the fingers rather than the screen center.
 - Two fingers can move vertically while pinching, and the document follows without a jump when the gesture ends.
 - Cross-axis panning remains available and bounded while zoomed.
-- The PDF stays full-viewport behind the visible header and right scrollbar; hiding or showing the header does not resize the PDF viewport.
+- In continuous mode, the PDF stays full-viewport behind the screen top app bar, document controls, and right scrollbar; hiding or showing the app bar does not resize the PDF viewport.
 - Existing continuous-mode scroll, page tracking, scrollbar navigation, markup-mode gesture exclusion, and no-multi-touch-fling behaviors remain intact.
