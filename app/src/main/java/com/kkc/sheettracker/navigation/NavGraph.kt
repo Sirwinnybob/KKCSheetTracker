@@ -124,6 +124,10 @@ import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
 import com.kkc.sheettracker.ui.components.ClockInOverlay
 import com.kkc.sheettracker.ui.components.NavDestination
 import com.kkc.sheettracker.ui.components.rememberCalculatorOverlayState
+import com.kkc.sheettracker.ui.components.LocalIdlePollIntervalOverrideMs
+import com.kkc.sheettracker.ui.components.LocalIdleReset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardScreen
 import com.kkc.sheettracker.ui.dashboard.UnifiedModeDashboardSpec
 import com.kkc.sheettracker.ui.detail.JobDetailScreen
@@ -207,6 +211,7 @@ fun AppNavigation(
     val watcherRefreshEpoch by watcherRefreshSignal.collectAsState()
     val activeJobFolderName = remember { MutableStateFlow<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val idlePollIntervalOverrideMs = LocalIdlePollIntervalOverrideMs.current
     val trackerChangeMonitor = remember(
         basePath,
         progressStore,
@@ -223,6 +228,7 @@ fun AppNavigation(
             hardwoodsProgressStore = sharedHardwoodsProgressStore,
             specialtyProgressStore = sharedSpecialtyProgressStore,
             activeJobFolderName = activeJobFolderName,
+            intervalOverrideMs = idlePollIntervalOverrideMs,
             onWatcherRefreshRequested = {
                 watcherRefreshSignal.value = System.currentTimeMillis()
             },
@@ -253,6 +259,7 @@ fun AppNavigation(
     val staticCachePoller = remember(basePath, watcherRefreshSignal) {
         StaticCachePoller(
             baseDir = File(basePath),
+            intervalOverrideMs = idlePollIntervalOverrideMs,
             onJobCacheUpdated = { _ ->
                 watcherRefreshSignal.value = System.currentTimeMillis()
             }
@@ -670,8 +677,20 @@ private fun MultiBackStackNavigation(
         }
     }
 
+    val onIdleReset = LocalIdleReset.current
     CompositionLocalProvider(LocalOnOpenSettings provides remember(coordinator) { { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) } }) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(onIdleReset) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        onIdleReset()
+                    }
+                }
+            }
+    ) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
             contentWindowInsets = WindowInsets.statusBars
@@ -2215,8 +2234,20 @@ private fun LegacySingleStackNavigation(
         if (!isInViewer) navBarDeco.extendedControls = null
     }
 
+    val onIdleReset = LocalIdleReset.current
     CompositionLocalProvider(LocalOnOpenSettings provides remember(navController) { { navController.navigate("settings") { launchSingleTop = true } } }) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(onIdleReset) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        onIdleReset()
+                    }
+                }
+            }
+    ) {
         CompositionLocalProvider(LocalNavBarDecoration provides navBarDeco) {
         Scaffold(
             contentWindowInsets = WindowInsets.statusBars
