@@ -175,6 +175,23 @@ internal fun continuousPageGeometryIdentity(
     docKey = docKey
 )
 
+private const val CONTINUOUS_MAX_CROP_PIXELS = 8_000_000L
+
+/**
+ * Keeps crop tiles pixel-matched to their on-screen bounds when they fit a sane memory budget.
+ * Oversized requests are skipped rather than downscaled, because [PageBitmapLayers] stretches a
+ * crop tile to those same bounds and downscaling would leave a visibly blurry border.
+ */
+internal fun resolveCropRenderSize(
+    requestedSize: IntSize,
+    maxPixels: Long = CONTINUOUS_MAX_CROP_PIXELS
+): IntSize? {
+    val width = requestedSize.width.coerceAtLeast(1)
+    val height = requestedSize.height.coerceAtLeast(1)
+    if (maxPixels <= 0L || width.toLong() > maxPixels / height.toLong()) return null
+    return IntSize(width, height)
+}
+
 /**
  * Given where a page is currently drawn on screen (already reflecting the shared whole-stack
  * zoom + pan) and the pane's own visible viewport, returns which fraction of that PAGE (local to
@@ -664,8 +681,18 @@ internal fun ContinuousReferencePdfPane(
                 viewportWidth = paneSize.width.toFloat(),
                 viewportHeight = paneSize.height.toFloat()
             ) ?: return@LaunchedEffect
-            val outW = (rect.right - rect.left).roundToInt().coerceIn(1, 2200)
-            val outH = (rect.bottom - rect.top).roundToInt().coerceIn(1, 2200)
+            val outputSize = resolveCropRenderSize(
+                requestedSize = IntSize(
+                    width = (rect.right - rect.left).roundToInt(),
+                    height = (rect.bottom - rect.top).roundToInt()
+                )
+            )
+            if (outputSize == null) {
+                // Do not retain a smaller tile and stretch it over an oversized viewport crop.
+                cropBitmap = null
+                cropFrac = null
+                return@LaunchedEffect
+            }
             val tile = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderCropFraction(
                     pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
@@ -673,7 +700,7 @@ internal fun ContinuousReferencePdfPane(
                     cropTop = frac.top,
                     cropRight = frac.right,
                     cropBottom = frac.bottom,
-                    outputSize = IntSize(outW, outH),
+                    outputSize = outputSize,
                     matteColorArgb = matteColorArgb
                 )
             }

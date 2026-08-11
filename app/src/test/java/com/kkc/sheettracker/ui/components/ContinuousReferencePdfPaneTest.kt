@@ -1,10 +1,11 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.ui.unit.IntSize
+import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
-import java.io.File
-import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
 
 class ContinuousReferencePdfPaneTest {
 
@@ -40,6 +41,23 @@ class ContinuousReferencePdfPaneTest {
             continuousPageGeometryIdentity(light, fileIdentitySeed = 17L, docKey = "plans"),
             continuousPageGeometryIdentity(dark, fileIdentitySeed = 17L, docKey = "plans")
         )
+    }
+
+    @Test
+    fun resolveCropRenderSize_preservesFullViewportDimensionsWithinPixelBudget() {
+        val viewportCrop = IntSize(width = 1752, height = 2800)
+
+        assertEquals(
+            viewportCrop,
+            resolveCropRenderSize(viewportCrop, maxPixels = 5_000_000L)
+        )
+    }
+
+    @Test
+    fun resolveCropRenderSize_skipsOversizedTileInsteadOfDownscaling() {
+        val viewportCrop = IntSize(width = 1752, height = 2800)
+
+        assertEquals(null, resolveCropRenderSize(viewportCrop, maxPixels = 1_000_000L))
     }
 
     @Test
