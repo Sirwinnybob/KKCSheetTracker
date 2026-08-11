@@ -193,6 +193,24 @@ internal fun resolveCropRenderSize(
 }
 
 /**
+ * Resolves the output size for the visible slice of a transformed page. The full page can be far
+ * larger than the viewport at high zoom; only the fraction actually shown on screen belongs in
+ * the crop tile's pixel budget.
+ */
+internal fun resolveVisibleCropRenderSize(
+    pageWidthPx: Float,
+    pageHeightPx: Float,
+    cropFrac: UnitRect,
+    maxPixels: Long = CONTINUOUS_MAX_CROP_PIXELS
+): IntSize? = resolveCropRenderSize(
+    requestedSize = IntSize(
+        width = ((cropFrac.right - cropFrac.left).coerceAtLeast(0f) * pageWidthPx).roundToInt(),
+        height = ((cropFrac.bottom - cropFrac.top).coerceAtLeast(0f) * pageHeightPx).roundToInt()
+    ),
+    maxPixels = maxPixels
+)
+
+/**
  * Given where a page is currently drawn on screen (already reflecting the shared whole-stack
  * zoom + pan) and the pane's own visible viewport, returns which fraction of that PAGE (local to
  * its own bounds, 0..1 each axis) is actually on screen right now. Null if there's no overlap.
@@ -681,11 +699,10 @@ internal fun ContinuousReferencePdfPane(
                 viewportWidth = paneSize.width.toFloat(),
                 viewportHeight = paneSize.height.toFloat()
             ) ?: return@LaunchedEffect
-            val outputSize = resolveCropRenderSize(
-                requestedSize = IntSize(
-                    width = (rect.right - rect.left).roundToInt(),
-                    height = (rect.bottom - rect.top).roundToInt()
-                )
+            val outputSize = resolveVisibleCropRenderSize(
+                pageWidthPx = rect.right - rect.left,
+                pageHeightPx = rect.bottom - rect.top,
+                cropFrac = frac
             )
             if (outputSize == null) {
                 // Do not retain a smaller tile and stretch it over an oversized viewport crop.

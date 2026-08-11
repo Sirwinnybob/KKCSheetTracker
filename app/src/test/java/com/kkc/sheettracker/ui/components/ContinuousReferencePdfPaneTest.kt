@@ -61,6 +61,28 @@ class ContinuousReferencePdfPaneTest {
     }
 
     @Test
+    fun resolveVisibleCropRenderSize_usesVisibleFractionInsteadOfFullPageBounds() {
+        val fraction = visiblePageFraction(
+            pageLeft = 0f,
+            pageTop = 0f,
+            pageRight = 8760f,
+            pageBottom = 14000f,
+            viewportWidth = 1752f,
+            viewportHeight = 2800f
+        )!!
+
+        assertEquals(
+            IntSize(width = 1752, height = 2800),
+            resolveVisibleCropRenderSize(
+                pageWidthPx = 8760f,
+                pageHeightPx = 14000f,
+                cropFrac = fraction,
+                maxPixels = 8_000_000L
+            )
+        )
+    }
+
+    @Test
     fun computeRenderWindow_addsOnePageBufferOnEachSide() {
         val window = computeRenderWindow(firstVisiblePage = 5, lastVisiblePage = 6, totalPages = 20, buffer = 1)
 
