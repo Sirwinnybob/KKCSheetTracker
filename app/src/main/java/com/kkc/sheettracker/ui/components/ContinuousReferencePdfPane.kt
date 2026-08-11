@@ -770,8 +770,8 @@ internal fun ContinuousReferencePdfPane(
         // Doubles as the fallback shown under the sharp crop tile and as the whole picture
         // when not zoomed. A page must remain actually visible for the full dwell before this
         // expensive decode starts; buffered pages still receive immediate thumbnails below.
-        LaunchedEffect(renderIdentity, inWindow, baseRenderEligible, matteColorArgb, fileIdentitySeed, docKey) {
-            if (file == null || !inWindow || !baseRenderEligible || baseBitmap != null) return@LaunchedEffect
+        LaunchedEffect(renderIdentity, inWindow, pageIsVisible, baseRenderEligible, matteColorArgb, fileIdentitySeed, docKey) {
+            if (file == null || !inWindow || !pageIsVisible || !baseRenderEligible || baseBitmap != null) return@LaunchedEffect
             val viewSize = boxSize.takeIf { it != IntSize.Zero } ?: IntSize(1080, 1400)
             baseBitmap = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderBasePage(
