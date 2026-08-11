@@ -23,6 +23,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,13 +38,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.IdlePhase
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
+import com.kkc.sheettracker.ui.components.LocalIdlePhase
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import dev.chrisbanes.haze.HazeState
 import java.io.File
+
+internal data class FullscreenTapResult(
+    val showUi: Boolean,
+    val wakePending: Boolean
+)
+
+internal fun applyFullscreenSingleTap(showUi: Boolean, wakePending: Boolean): FullscreenTapResult =
+    if (wakePending) {
+        FullscreenTapResult(showUi = true, wakePending = false)
+    } else {
+        FullscreenTapResult(showUi = !showUi, wakePending = false)
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +96,13 @@ fun ReferencePdfViewerScreen(
     ImmersiveSystemBars()
     // Tap-to-show/hide overlay UI.
     var showUi by rememberSaveable { mutableStateOf(true) }
+    val idlePhase by LocalIdlePhase.current.collectAsState()
+    var fullscreenWakePending by remember { mutableStateOf(false) }
+    LaunchedEffect(idlePhase) {
+        if (idlePhase != IdlePhase.ACTIVE) {
+            fullscreenWakePending = true
+        }
+    }
     var markupEnabled by rememberSaveable { mutableStateOf(false) }
     var continuousScrollEnabled by rememberSaveable(jobFolderName, docType) { mutableStateOf(continuousScrollDefault) }
     var tocRequestToken by remember(jobFolderName, docType) { mutableIntStateOf(0) }
@@ -183,7 +205,9 @@ fun ReferencePdfViewerScreen(
             hazeState = hazeState,
             tocRequestToken = tocRequestToken,
             onSingleTap = {
-                showUi = !showUi
+                val tapResult = applyFullscreenSingleTap(showUi, fullscreenWakePending)
+                showUi = tapResult.showUi
+                fullscreenWakePending = tapResult.wakePending
                 onUiVisibilityChanged(showUi)
             }
         )
