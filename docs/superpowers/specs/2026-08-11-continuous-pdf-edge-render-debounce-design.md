@@ -4,7 +4,7 @@
 
 ## Goal
 
-In continuous PDF mode, render each page at full quality after it has remained in the visible render window for 300 ms, even while a slow scroll or custom fling continues.
+In continuous PDF mode, render each page at full quality after it has remained actually on screen for 300 ms, even while a slow scroll or custom fling continues.
 
 ## Root Cause
 
@@ -14,7 +14,7 @@ In continuous PDF mode, render each page at full quality after it has remained i
 
 ### Per-page visibility dwell
 
-Each page in `renderWindow` starts a 300 ms eligibility timer when it enters that window. If it remains there when the timer completes, its full base-page render may start even if the document is moving. If it exits the window before the timer completes, the timer is cancelled; no full decode is started for that page.
+Each page starts a 300 ms eligibility timer when it enters the unbuffered visible range. If it remains there when the timer completes, its full base-page render may start even if the document is moving. If it exits that range before the timer completes, the timer is cancelled; no full decode is started for that page.
 
 This supports both reported cases: edge-pinned momentum does not block the page already on screen, and pages held on screen during a slow scroll become sharp after their own 300 ms dwell. Fast scrolling still avoids work for pages that leave before the dwell expires.
 
