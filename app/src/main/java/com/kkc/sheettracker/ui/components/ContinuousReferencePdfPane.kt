@@ -138,11 +138,10 @@ internal fun continuousPdfMatteColorArgb(
 ): Int = if (preferDarkMode) android.graphics.Color.BLACK else lightMatteColorArgb
 
 internal fun continuousMainAxisScrollDelta(
-    isMultiTouch: Boolean,
     panDelta: Float,
     zoom: Float,
     viewportExtent: Int
-): Float? = if (isMultiTouch || viewportExtent <= 0 || panDelta == 0f) {
+): Float? = if (viewportExtent <= 0 || panDelta == 0f) {
     null
 } else {
     -panDelta / zoom
@@ -987,7 +986,6 @@ internal fun ContinuousReferencePdfPane(
                                         val maxMainOverscroll = mainAxisEdgePadding(viewH.toFloat(), next.zoom)
                                         sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
                                         continuousMainAxisScrollDelta(
-                                            isMultiTouch = wasMultiTouch,
                                             panDelta = next.panY,
                                             zoom = next.zoom,
                                             viewportExtent = viewH
@@ -999,7 +997,6 @@ internal fun ContinuousReferencePdfPane(
                                         val maxMainOverscroll = mainAxisEdgePadding(viewW.toFloat(), next.zoom)
                                         sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
                                         continuousMainAxisScrollDelta(
-                                            isMultiTouch = wasMultiTouch,
                                             panDelta = next.panX,
                                             zoom = next.zoom,
                                             viewportExtent = viewW

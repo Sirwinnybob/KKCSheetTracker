@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.models.PdfInkStroke
@@ -524,6 +525,7 @@ fun UnifiedReferenceViewer(
     // minimized nav bar instead of swapping the whole bar to the full extendedControls layout.
     markupControlsAsSlidingTab: Boolean = false,
     continuousScrollEnabled: Boolean = false,
+    continuousChromeTopPadding: Dp = 0.dp,
     isSplitPaneActive: Boolean = false,
     // Whether this pane's bottom edge is actually AppScaffold's floating nav bar (fullscreen
     // panes, or the bottom/right pane of a split) vs. a split-pane divider above another pane
@@ -796,94 +798,88 @@ fun UnifiedReferenceViewer(
                 Text(unreadableText, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-          Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            // Continuous mode had no equivalent of ReferencePdfPane's header row / nav-buttons
-            // cluster at all — the doc-type picker (showDocControls, e.g. Hardwoods'
-            // Assembly/Plans/3D chips), page counter, AND the "open Sheet Navigator" icon
-            // (showNavigationButtons' UnfoldMore button) simply never rendered, since only the
-            // paged branch above wired them up. Hardwoods has no OTHER way to open the Sheet
-            // Navigator (no external tocRequestToken-incrementing icon like AssemblyViewerScreen
-            // or ReferencePdfViewerScreen have) — without this, continuous mode there had zero
-            // way to reach it. Mirrors ReferencePdfPane's header Row + nav cluster content so
-            // switching modes doesn't hide any of these.
-            if (showHeaderRow || showNavigationButtons) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (showHeaderRow) {
-                        showDocControls?.invoke(this)
-                        Spacer(Modifier.weight(1f))
-                        Text("Page $clampedDisplayPage/$effectiveTotalPages", style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        Spacer(Modifier.weight(1f))
-                    }
-                    if (showNavigationButtons) {
-                        IconButton(
-                            onClick = { showSheetNavigator = true },
-                            enabled = effectiveTotalPages > 0
-                        ) {
-                            Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list")
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                ContinuousReferencePdfPane(
+                    // hazeSource lives here, on the actual background content, NOT on the shared
+                    // outer `modifier` — PdfLabelScrollbar's hazeEffect panel is a sibling of this
+                    // pane, and a hazeEffect consumer can't be nested inside its own source (that's
+                    // a self-referential capture and silently produces no visible blur).
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .let { source -> if (hazeState != null) source.hazeSource(hazeState) else source },
+                    orientation = androidx.compose.foundation.gestures.Orientation.Vertical,
+                    totalPages = effectiveTotalPages,
+                    resolvePage = { page -> resolvePageSource(page, virtualMapping, defaultPdfFilename) },
+                    pdfFileForFilename = pdfFileForFilename,
+                    fileIdentitySeed = fileIdentitySeed,
+                    docKey = defaultPdfFilename to virtualMapping,
+                    preferDarkMode = preferDarkMode,
+                    onCenteredPageChange = onDisplayPageChange,
+                    scrollToPage = clampedDisplayPage,
+                    markupEnabled = markupEnabled,
+                    markupToolState = markupToolState,
+                    markupStrokesForPage = { filename, page ->
+                        if (markupStrokesVisible && filename == resolvedPdfFilename && page == sourcePage) {
+                            visibleMarkupStrokes
+                        } else {
+                            emptyList()
+                        }
+                    },
+                    onMarkupStrokeAdded = { _, _, stroke ->
+                        localMarkupStrokes.add(stroke)
+                        persistMarkupState()
+                    },
+                    onMarkupStrokeErased = { _, _, strokeId ->
+                        if (strokeId !in localDeletedIds) {
+                            localDeletedIds.add(strokeId)
+                        }
+                        persistMarkupState()
+                    },
+                    contentPadding = contentPadding,
+                    onSingleTap = onSingleTap
+                )
+                if (showHeaderRow || showNavigationButtons) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .padding(top = continuousChromeTopPadding)
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (showHeaderRow) {
+                            showDocControls?.invoke(this)
+                            Spacer(Modifier.weight(1f))
+                            Text("Page $clampedDisplayPage/$effectiveTotalPages", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
+                        if (showNavigationButtons) {
+                            IconButton(
+                                onClick = { showSheetNavigator = true },
+                                enabled = effectiveTotalPages > 0
+                            ) {
+                                Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list")
+                            }
                         }
                     }
                 }
+                PdfLabelScrollbar(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(top = continuousChromeTopPadding),
+                    rows = rowModels,
+                    currentPage = clampedDisplayPage,
+                    onPageSelected = onDisplayPageChange,
+                    pdfFileForFilename = pdfFileForFilename,
+                    defaultPdfFilename = defaultPdfFilename,
+                    preferDarkMode = preferDarkMode,
+                    hazeState = hazeState,
+                    isSplitPaneActive = isSplitPaneActive,
+                    hasNavBarBelow = hasNavBarBelow
+                )
             }
-          Box(modifier = Modifier.fillMaxSize().weight(1f)) {
-            ContinuousReferencePdfPane(
-                // hazeSource lives here, on the actual background content, NOT on the shared
-                // outer `modifier` — PdfLabelScrollbar's hazeEffect panel is a sibling of this
-                // pane, and a hazeEffect consumer can't be nested inside its own source (that's
-                // a self-referential capture and silently produces no visible blur).
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(end = com.kkc.sheettracker.ui.components.PDF_LABEL_SCROLLBAR_IDLE_WIDTH)
-                    .let { m -> if (hazeState != null) m.hazeSource(hazeState) else m },
-                orientation = androidx.compose.foundation.gestures.Orientation.Vertical,
-                totalPages = effectiveTotalPages,
-                resolvePage = { page -> resolvePageSource(page, virtualMapping, defaultPdfFilename) },
-                pdfFileForFilename = pdfFileForFilename,
-                fileIdentitySeed = fileIdentitySeed,
-                docKey = defaultPdfFilename to virtualMapping,
-                preferDarkMode = preferDarkMode,
-                onCenteredPageChange = onDisplayPageChange,
-                scrollToPage = clampedDisplayPage,
-                markupEnabled = markupEnabled,
-                markupToolState = markupToolState,
-                markupStrokesForPage = { filename, page ->
-                    if (markupStrokesVisible && filename == resolvedPdfFilename && page == sourcePage) {
-                        visibleMarkupStrokes
-                    } else {
-                        emptyList()
-                    }
-                },
-                onMarkupStrokeAdded = { _, _, stroke ->
-                    localMarkupStrokes.add(stroke)
-                    persistMarkupState()
-                },
-                onMarkupStrokeErased = { _, _, strokeId ->
-                    if (strokeId !in localDeletedIds) {
-                        localDeletedIds.add(strokeId)
-                    }
-                    persistMarkupState()
-                },
-                contentPadding = contentPadding,
-                onSingleTap = onSingleTap
-            )
-            PdfLabelScrollbar(
-                modifier = Modifier.align(Alignment.CenterEnd),
-                rows = rowModels,
-                currentPage = clampedDisplayPage,
-                onPageSelected = onDisplayPageChange,
-                pdfFileForFilename = pdfFileForFilename,
-                defaultPdfFilename = defaultPdfFilename,
-                preferDarkMode = preferDarkMode,
-                hazeState = hazeState,
-                isSplitPaneActive = isSplitPaneActive,
-                hasNavBarBelow = hasNavBarBelow
-            )
-          }
-          }
         }
     }
 
