@@ -1,16 +1,40 @@
 package com.kkc.sheettracker.ui.hardwoods
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.data.models.BoardStockSource
+import com.kkc.sheettracker.ui.theme.LightStatusColors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import androidx.compose.ui.unit.dp
 
 class HardwoodsRowHelpersTest {
+    @Test
+    fun hardwoodsRowBackgroundTint_usesVeryFaintSkipWashForSkippedStates() {
+        val expected = LightStatusColors.skipBg.copy(alpha = 0.08f)
+
+        assertEquals(
+            expected,
+            hardwoodsRowBackgroundTint(
+                state = HardwoodsRowState.SKIPPED,
+                widthBand = Color.Red,
+                status = LightStatusColors
+            )
+        )
+        assertEquals(
+            expected,
+            hardwoodsRowBackgroundTint(
+                state = HardwoodsRowState.PARTIAL_SKIP,
+                widthBand = Color.Red,
+                status = LightStatusColors
+            )
+        )
+    }
+
     @Test
     fun cutlistDimensionDisplay_omitsWidthSeparatorForLengthOnlyRows() {
         assertEquals(

@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
+import com.kkc.sheettracker.ui.theme.KKCStatusColors
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 
 enum class HardwoodsRowState {
@@ -70,13 +71,7 @@ fun hardwoodsRowVisualStyle(
         HardwoodsRowState.SKIPPED -> status.skipBorder
         HardwoodsRowState.PARTIAL_SKIP -> status.skipBorder
     }
-    val backgroundTint = when (state) {
-        HardwoodsRowState.COMPLETE -> Color.Transparent
-        HardwoodsRowState.SKIPPED -> status.skipBgRow.copy(alpha = 0.32f)
-        HardwoodsRowState.PARTIAL_SKIP -> status.skipBgRow.copy(alpha = 0.30f)
-        HardwoodsRowState.IN_PROGRESS -> status.inProgressBorder.copy(alpha = 0.22f)
-        HardwoodsRowState.NOT_STARTED -> widthBand.copy(alpha = 0.11f)
-    }
+    val backgroundTint = hardwoodsRowBackgroundTint(state, widthBand, status)
     val progressFill = when (state) {
         HardwoodsRowState.COMPLETE -> status.completeBorder
         HardwoodsRowState.SKIPPED, HardwoodsRowState.PARTIAL_SKIP -> status.skipBorder
@@ -93,4 +88,16 @@ fun hardwoodsRowVisualStyle(
         progressTrackColor = status.notStarted.copy(alpha = 0.28f),
         skipOn = state == HardwoodsRowState.SKIPPED || state == HardwoodsRowState.PARTIAL_SKIP
     )
+}
+
+fun hardwoodsRowBackgroundTint(
+    state: HardwoodsRowState,
+    widthBand: Color,
+    status: KKCStatusColors
+): Color = when (state) {
+    HardwoodsRowState.COMPLETE -> Color.Transparent
+    HardwoodsRowState.SKIPPED,
+    HardwoodsRowState.PARTIAL_SKIP -> status.skipBg.copy(alpha = 0.08f)
+    HardwoodsRowState.IN_PROGRESS -> status.inProgressBorder.copy(alpha = 0.22f)
+    HardwoodsRowState.NOT_STARTED -> widthBand.copy(alpha = 0.11f)
 }

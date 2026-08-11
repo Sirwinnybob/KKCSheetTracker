@@ -1045,7 +1045,7 @@ fun HardwoodsWorkspaceScreen(
             ) {
                 Surface(
                     shape = RoundedCornerShape(9.dp),
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.surface,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)),
                     shadowElevation = 3.5.dp,
                     tonalElevation = 2.dp,
@@ -1223,7 +1223,7 @@ fun HardwoodsWorkspaceScreen(
                         Box(modifier = Modifier.padding(end = 2.dp)) {
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = if (isClassicView) MaterialTheme.colorScheme.secondaryContainer else Color.White,
+                                color = if (isClassicView) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                                 modifier = Modifier
                                     .height(32.dp)
@@ -1251,7 +1251,7 @@ fun HardwoodsWorkspaceScreen(
                             DropdownMenu(
                                 expanded = showModeMenu,
                                 onDismissRequest = { showModeMenu = false },
-                                containerColor = Color.White
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("List View") },
@@ -2317,7 +2317,7 @@ private fun ReferencePane(
 
         Surface(
             shape = RoundedCornerShape(9.dp),
-            color = Color.White,
+            color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)),
             shadowElevation = 3.5.dp,
             tonalElevation = 2.dp,
