@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.data
 
 import android.os.SystemClock
+import kotlin.jvm.Volatile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,7 +36,7 @@ class IdleActivityTracker(
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val tickMs: Long = 1_000L
 ) {
-    private var lastInteractionAtMs = nowMs()
+    @Volatile private var lastInteractionAtMs = nowMs()
     private var tickJob: Job? = null
 
     private val _phase = MutableStateFlow(IdlePhase.ACTIVE)
