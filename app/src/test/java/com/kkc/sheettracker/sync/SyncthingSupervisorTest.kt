@@ -214,6 +214,48 @@ class SyncthingSupervisorTest {
         assertEquals(SyncthingServiceStatus.RUNNING, supervisor.status.value.status)
         supervisor.close()
     }
+
+    @Test
+    fun `failed active resume keeps paused status until a retry succeeds`() = runBlocking {
+        val store = FakeSyncthingPreferencesStore("api-key")
+        val controller = FakeSyncController(
+            running = true,
+            resumeResults = ArrayDeque(listOf(false, false, true))
+        )
+        val phase = MutableStateFlow(IdlePhase.SYNC_PAUSED)
+        val supervisor = SyncthingSupervisor(
+            context = null,
+            runtimeConfig = SyncthingRuntimeConfig(
+                watchdog = SyncthingWatchdogConfig(
+                    intervalMs = 10_000L,
+                    autoStartOnFailure = false
+                )
+            ),
+            preferencesStore = store,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            managerFactory = { controller }
+        )
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.observeIdlePhase(phase)
+        waitUntil(2_000L) { controller.pauseCalls == 1 }
+        waitUntil(2_000L) { supervisor.status.value.status == SyncthingServiceStatus.PAUSED }
+
+        phase.value = IdlePhase.ACTIVE
+        waitUntil(2_000L) { controller.resumeCalls == 1 }
+
+        supervisor.checkNow()
+        waitUntil(2_000L) { controller.resumeCalls == 2 }
+        waitUntil(2_000L) { supervisor.status.value.lastCheckedAtMs != null }
+        assertEquals(SyncthingServiceStatus.PAUSED, supervisor.status.value.status)
+
+        supervisor.checkNow()
+        waitUntil(2_000L) { controller.resumeCalls == 3 }
+        waitUntil(2_000L) { supervisor.status.value.status == SyncthingServiceStatus.RUNNING }
+
+        supervisor.close()
+    }
 }
 
 private class FakeSyncthingPreferencesStore(
@@ -230,7 +272,8 @@ private class FakeSyncthingPreferencesStore(
 
 private class FakeSyncController(
     private val running: Boolean,
-    private val pauseResults: ArrayDeque<Boolean> = ArrayDeque()
+    private val pauseResults: ArrayDeque<Boolean> = ArrayDeque(),
+    private val resumeResults: ArrayDeque<Boolean> = ArrayDeque()
 ) : SyncController {
     var checkCalls: Int = 0
     var startCalls: Int = 0
@@ -255,7 +298,7 @@ private class FakeSyncController(
 
     override suspend fun resumeSync(): Boolean {
         resumeCalls++
-        return true
+        return resumeResults.removeFirstOrNull() ?: true
     }
 }
 

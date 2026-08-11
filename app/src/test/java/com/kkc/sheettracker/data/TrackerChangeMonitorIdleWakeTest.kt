@@ -32,7 +32,11 @@ class TrackerChangeMonitorIdleWakeTest {
         try {
             Thread.sleep(1_700L)
             reported.clear()
-            trackerFile.writeText("{\"actions\":[{\"file\":\"a.pdf\"}]}")
+            val previousMtime = trackerFile.lastModified()
+            assertTrue(
+                "expected test fixture mtime update to succeed",
+                trackerFile.setLastModified(previousMtime + 1_000L)
+            )
             override.value = null
 
             waitUntil(1_500L) { reported.any { "1234 - Test Job" in it } }

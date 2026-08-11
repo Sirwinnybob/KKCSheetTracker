@@ -366,10 +366,8 @@ class SyncthingSupervisor(
 
     private suspend fun statusForService(isRunning: Boolean): SyncthingServiceStatus {
         if (!isRunning) return SyncthingServiceStatus.NOT_RUNNING
-        val (desired, actual) = idleReconcileMutex.withLock {
-            idlePauseDesired to idlePauseActual
-        }
-        return if (desired && actual == true) {
+        val actual = idleReconcileMutex.withLock { idlePauseActual }
+        return if (actual == true) {
             SyncthingServiceStatus.PAUSED
         } else {
             SyncthingServiceStatus.RUNNING

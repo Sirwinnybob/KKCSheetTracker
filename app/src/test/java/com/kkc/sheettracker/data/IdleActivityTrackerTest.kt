@@ -1,7 +1,12 @@
 package com.kkc.sheettracker.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class IdleActivityTrackerTest {
 
@@ -49,5 +54,39 @@ class IdleActivityTrackerTest {
 
         assertEquals(5, sanitized.idleTimeoutSeconds)
         assertEquals(5, sanitized.syncthingPauseTimeoutSeconds)
+    }
+
+    @Test
+    fun `reset remains active while a concurrent tick recomputes stale idle state`() {
+        val clockMs = AtomicLong(0L)
+        val tracker = IdleActivityTracker(
+            config = kotlinx.coroutines.flow.MutableStateFlow(config),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            nowMs = { clockMs.get() },
+            tickMs = 0L
+        )
+
+        tracker.start()
+        try {
+            clockMs.set(31_000L)
+            waitUntil(2_000L) { tracker.phase.value == IdlePhase.SYNC_PAUSED }
+
+            repeat(250) {
+                tracker.reset()
+                assertEquals(IdlePhase.ACTIVE, tracker.phase.value)
+            }
+            assertTrue(tracker.phase.value == IdlePhase.ACTIVE)
+        } finally {
+            tracker.stop()
+        }
+    }
+
+    private fun waitUntil(timeoutMs: Long, condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) return
+            Thread.sleep(10L)
+        }
+        throw AssertionError("Timed out waiting for condition")
     }
 }
