@@ -9,7 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.isSystemInDarkTheme
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -182,7 +182,7 @@ fun SpecialtyJobDetailScreen(
     }
     var previewMoldingItem by remember(jobFolderName) { mutableStateOf<AdminBoardStockItem?>(null) }
     val moldingSvgImageLoader = rememberSvgImageLoader()
-    val isDarkTheme = isSystemInDarkTheme()
+    val isDarkTheme = LocalKKCIsDarkTheme.current
 
     // Show current content immediately, then verify this job in the background.
     LaunchedEffect(jobFolderName) {
@@ -378,7 +378,7 @@ fun SpecialtyJobDetailScreen(
                         exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
                         modifier = Modifier.flushWithHeader()
                     ) {
-                        val isDark = isSystemInDarkTheme()
+                        val isDark = LocalKKCIsDarkTheme.current
                         val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                         Surface(
                             shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
@@ -516,7 +516,7 @@ fun SpecialtyJobDetailScreen(
                             exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
                             modifier = Modifier.flushWithHeader()
                         ) {
-                            val isDark = isSystemInDarkTheme()
+                            val isDark = LocalKKCIsDarkTheme.current
                             val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                             Surface(
                                 shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),

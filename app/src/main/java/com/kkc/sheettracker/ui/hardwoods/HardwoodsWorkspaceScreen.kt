@@ -1,7 +1,7 @@
 package com.kkc.sheettracker.ui.hardwoods
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.isSystemInDarkTheme
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -1885,7 +1885,7 @@ private fun HardwoodsPartRow(
         Color.Transparent
     }
     val rowColor = completionTint.compositeOver(changedTint.compositeOver(baseRowColor))
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalKKCIsDarkTheme.current
     val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
     val opaqueRowColor = rowColor.compositeOver(backdropColor)
     val gradientTopColor = visuals.leftBorderColor.copy(alpha = 1f)
@@ -2689,7 +2689,7 @@ private fun HardwoodsBoardStockList(
                         exit = shrinkVertically() + fadeOut()
                     ) {
                         val item = entry.item
-                        val isDark = isSystemInDarkTheme()
+                        val isDark = LocalKKCIsDarkTheme.current
                         val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                         Surface(
                             shape = if (entry.isLast) {
@@ -2953,7 +2953,7 @@ private fun HardwoodsBoardStockList(
                         exit = shrinkVertically() + fadeOut()
                     ) {
                         val line = entry.row
-                        val isDark = isSystemInDarkTheme()
+                        val isDark = LocalKKCIsDarkTheme.current
                         val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                         Surface(
                             shape = if (entry.isLast) {
