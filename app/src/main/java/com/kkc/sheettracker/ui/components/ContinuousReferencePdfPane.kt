@@ -41,9 +41,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -126,6 +126,27 @@ internal fun <T> lruEvictionCandidates(order: List<T>, maxOpen: Int): List<T> =
 
 /** A sub-rectangle of a page, expressed as fractions (0..1) of that page's own width/height. */
 internal data class UnitRect(val left: Float, val top: Float, val right: Float, val bottom: Float)
+
+internal fun continuousPdfCanvasColor(
+    preferDarkMode: Boolean,
+    lightCanvasColor: Color
+): Color = if (preferDarkMode) Color.Black else lightCanvasColor
+
+internal fun continuousPdfMatteColorArgb(
+    preferDarkMode: Boolean,
+    lightMatteColorArgb: Int
+): Int = if (preferDarkMode) android.graphics.Color.BLACK else lightMatteColorArgb
+
+internal fun continuousMainAxisScrollDelta(
+    isMultiTouch: Boolean,
+    panDelta: Float,
+    zoom: Float,
+    viewportExtent: Int
+): Float? = if (isMultiTouch || viewportExtent <= 0 || panDelta == 0f) {
+    null
+} else {
+    -panDelta / zoom
+}
 
 /**
  * Identity for the source and render variant currently backing one continuous-mode page.
@@ -359,6 +380,7 @@ private fun PageBitmapLayers(
     cropBitmap: Bitmap?,
     cropFrac: UnitRect?,
     boxSize: IntSize,
+    emptyCanvasColor: Color,
     contentDescription: String
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -377,7 +399,7 @@ private fun PageBitmapLayers(
                 contentScale = ContentScale.Fit
             )
         } else {
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
+            Box(Modifier.fillMaxSize().background(emptyCanvasColor))
         }
         // Sharp crop tile of just the on-screen slice, positioned at its true sub-rect within
         // this page's box so it lines up with the (softer, whole-page) base bitmap beneath it.
@@ -633,7 +655,14 @@ internal fun ContinuousReferencePdfPane(
         val geometryIdentity = continuousPageGeometryIdentity(renderIdentity, fileIdentitySeed, docKey)
         var boxSize by remember(geometryIdentity) { mutableStateOf(IntSize.Zero) }
         var pageCoordinates by remember(geometryIdentity) { mutableStateOf<LayoutCoordinates?>(null) }
-        val matteColorArgb = if (preferDarkMode) MaterialTheme.colorScheme.surface.toArgb() else android.graphics.Color.WHITE
+        val matteColorArgb = continuousPdfMatteColorArgb(
+            preferDarkMode = preferDarkMode,
+            lightMatteColorArgb = android.graphics.Color.WHITE
+        )
+        val emptyCanvasColor = continuousPdfCanvasColor(
+            preferDarkMode = preferDarkMode,
+            lightCanvasColor = MaterialTheme.colorScheme.surfaceVariant
+        )
 
         LaunchedEffect(renderIdentity, fileIdentitySeed, docKey) {
             if (file == null) return@LaunchedEffect
@@ -776,6 +805,7 @@ internal fun ContinuousReferencePdfPane(
                     cropBitmap = cropBitmap,
                     cropFrac = cropFrac,
                     boxSize = boxSize,
+                    emptyCanvasColor = emptyCanvasColor,
                     contentDescription = "Page $displayPage"
                 )
                 if (markupToolState != null && onMarkupStrokeAdded != null && onMarkupStrokeErased != null &&
@@ -891,18 +921,24 @@ internal fun ContinuousReferencePdfPane(
                                         // as sharedCrossPan's reclamp above.
                                         val maxMainOverscroll = mainAxisEdgePadding(viewH.toFloat(), next.zoom)
                                         sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
-                                        if (viewH > 0 && next.panY != 0f) {
-                                            scrollDeltaChannel.trySend(-next.panY / next.zoom)
-                                        }
+                                        continuousMainAxisScrollDelta(
+                                            isMultiTouch = wasMultiTouch,
+                                            panDelta = next.panY,
+                                            zoom = next.zoom,
+                                            viewportExtent = viewH
+                                        )?.let { scrollDeltaChannel.trySend(it) }
                                     }
                                     Orientation.Horizontal -> {
                                         val maxCross = maxCrossAxisPan(viewH.toFloat(), next.zoom)
                                         sharedCrossPan = next.panY.coerceIn(-maxCross, maxCross)
                                         val maxMainOverscroll = mainAxisEdgePadding(viewW.toFloat(), next.zoom)
                                         sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
-                                        if (viewW > 0 && next.panX != 0f) {
-                                            scrollDeltaChannel.trySend(-next.panX / next.zoom)
-                                        }
+                                        continuousMainAxisScrollDelta(
+                                            isMultiTouch = wasMultiTouch,
+                                            panDelta = next.panX,
+                                            zoom = next.zoom,
+                                            viewportExtent = viewW
+                                        )?.let { scrollDeltaChannel.trySend(it) }
                                     }
                                 }
                                 event.changes.forEach { it.consume() }

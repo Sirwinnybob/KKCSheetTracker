@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntSize
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
 import java.io.File
@@ -8,6 +9,66 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class ContinuousReferencePdfPaneTest {
+
+    @Test
+    fun continuousPdfColors_preferDarkModeUsesPureBlack() {
+        assertEquals(
+            Color.Black,
+            continuousPdfCanvasColor(preferDarkMode = true, lightCanvasColor = Color(0xFF123456))
+        )
+        assertEquals(
+            android.graphics.Color.BLACK,
+            continuousPdfMatteColorArgb(
+                preferDarkMode = true,
+                lightMatteColorArgb = android.graphics.Color.WHITE
+            )
+        )
+    }
+
+    @Test
+    fun continuousPdfColors_lightModeRetainsExistingLightValues() {
+        val lightCanvas = Color(0xFF123456)
+        val lightMatte = 0xFFABCDEF.toInt()
+
+        assertEquals(
+            lightCanvas,
+            continuousPdfCanvasColor(preferDarkMode = false, lightCanvasColor = lightCanvas)
+        )
+        assertEquals(
+            lightMatte,
+            continuousPdfMatteColorArgb(
+                preferDarkMode = false,
+                lightMatteColorArgb = lightMatte
+            )
+        )
+    }
+
+    @Test
+    fun continuousMainAxisScrollDelta_multiTouchReturnsNull() {
+        assertEquals(
+            null,
+            continuousMainAxisScrollDelta(
+                isMultiTouch = true,
+                panDelta = 100f,
+                zoom = 2f,
+                viewportExtent = 1752
+            )
+        )
+    }
+
+    @Test
+    fun continuousMainAxisScrollDelta_oneFingerRetainsExistingCalculation() {
+        assertEquals(
+            -50f,
+            continuousMainAxisScrollDelta(
+                isMultiTouch = false,
+                panDelta = 100f,
+                zoom = 2f,
+                viewportExtent = 1752
+            )!!,
+            0.001f
+        )
+    }
 
     @Test
     fun continuousPageRenderIdentity_changesWhenDarkModeChanges() {
