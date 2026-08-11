@@ -1,9 +1,33 @@
 package com.kkc.sheettracker.ui.components
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
+import java.io.File
+import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
 
 class ContinuousReferencePdfPaneTest {
+
+    @Test
+    fun continuousPageRenderIdentity_changesWhenDarkModeChanges() {
+        val resolved = ResolvedPageSource(pdfFilename = "plans.pdf", sourcePage = 3)
+        val file = File("plans.pdf")
+
+        val light = continuousPageRenderIdentity(
+            displayPage = 5,
+            resolved = resolved,
+            file = file,
+            preferDarkMode = false
+        )
+        val dark = continuousPageRenderIdentity(
+            displayPage = 5,
+            resolved = resolved,
+            file = file,
+            preferDarkMode = true
+        )
+
+        assertNotEquals(light, dark)
+    }
 
     @Test
     fun computeRenderWindow_addsOnePageBufferOnEachSide() {

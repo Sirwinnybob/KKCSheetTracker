@@ -128,6 +128,32 @@ internal fun <T> lruEvictionCandidates(order: List<T>, maxOpen: Int): List<T> =
 internal data class UnitRect(val left: Float, val top: Float, val right: Float, val bottom: Float)
 
 /**
+ * Identity for the source and render variant currently backing one continuous-mode page.
+ *
+ * The resolved filename and page can stay the same while [preferDarkMode] switches the backing
+ * file (for example, to the corresponding file under DARK MODE). Keeping the variant in this
+ * identity lets Compose discard page render state instead of retaining the previous bitmap.
+ */
+internal data class ContinuousPageRenderIdentity(
+    val displayPage: Int,
+    val resolved: ResolvedPageSource,
+    val filePath: String?,
+    val preferDarkMode: Boolean
+)
+
+internal fun continuousPageRenderIdentity(
+    displayPage: Int,
+    resolved: ResolvedPageSource,
+    file: java.io.File?,
+    preferDarkMode: Boolean
+): ContinuousPageRenderIdentity = ContinuousPageRenderIdentity(
+    displayPage = displayPage,
+    resolved = resolved,
+    filePath = file?.absolutePath,
+    preferDarkMode = preferDarkMode
+)
+
+/**
  * Given where a page is currently drawn on screen (already reflecting the shared whole-stack
  * zoom + pan) and the pane's own visible viewport, returns which fraction of that PAGE (local to
  * its own bounds, 0..1 each axis) is actually on screen right now. Null if there's no overlap.
@@ -527,23 +553,31 @@ internal fun ContinuousReferencePdfPane(
     }
 
     val pageContent: @Composable (Int) -> Unit = { displayPage ->
-        val resolved = remember(displayPage, fileIdentitySeed, docKey) { resolvePage(displayPage) }
-        val file = remember(resolved.pdfFilename, fileIdentitySeed, docKey) { pdfFileForFilename(resolved.pdfFilename) }
+        val resolved = remember(displayPage, fileIdentitySeed, docKey, preferDarkMode) { resolvePage(displayPage) }
+        val file = remember(resolved.pdfFilename, fileIdentitySeed, docKey, preferDarkMode) {
+            pdfFileForFilename(resolved.pdfFilename)
+        }
+        val renderIdentity = continuousPageRenderIdentity(
+            displayPage = displayPage,
+            resolved = resolved,
+            file = file,
+            preferDarkMode = preferDarkMode
+        )
         val inWindow = displayPage in renderWindow
-        var baseBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
-        var thumbnailBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
-        var cropBitmap by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Bitmap?>(null) }
-        var cropFrac by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<UnitRect?>(null) }
-        var aspectRatio by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<Float?>(null) }
+        var baseBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
+        var thumbnailBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
+        var cropBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
+        var cropFrac by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<UnitRect?>(null) }
+        var aspectRatio by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Float?>(null) }
         // Real box size, needed so PdfMarkupOverlay's page transform is valid — with
         // viewSize left at IntSize.Zero, currentTransform() returns null and the overlay's
         // pointerInteropFilter bails out before ever registering a stroke. Also drives crop
         // tile placement (below) and the fallback render size before first layout.
-        var boxSize by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf(IntSize.Zero) }
-        var pageCoordinates by remember(displayPage, resolved, fileIdentitySeed) { mutableStateOf<LayoutCoordinates?>(null) }
+        var boxSize by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf(IntSize.Zero) }
+        var pageCoordinates by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<LayoutCoordinates?>(null) }
         val matteColorArgb = if (preferDarkMode) MaterialTheme.colorScheme.surface.toArgb() else android.graphics.Color.WHITE
 
-        LaunchedEffect(displayPage, resolved, file, fileIdentitySeed) {
+        LaunchedEffect(renderIdentity, fileIdentitySeed, docKey) {
             if (file == null) return@LaunchedEffect
             aspectRatio = withContext(Dispatchers.IO) {
                 engineCache.get(file).pageAspectRatio((resolved.sourcePage - 1).coerceAtLeast(0))
@@ -555,7 +589,7 @@ internal fun ContinuousReferencePdfPane(
         // when not zoomed. Gated on settled (same signal the crop tile below already uses) so
         // flinging past many pages doesn't fire a full decode for each one — only the page(s)
         // still in the window once scrolling/pinching actually stops get the full render.
-        LaunchedEffect(displayPage, resolved, file, inWindow, settled, matteColorArgb, fileIdentitySeed) {
+        LaunchedEffect(renderIdentity, inWindow, settled, matteColorArgb, fileIdentitySeed, docKey) {
             if (file == null || !inWindow || !settled || baseBitmap != null) return@LaunchedEffect
             val viewSize = boxSize.takeIf { it != IntSize.Zero } ?: IntSize(1080, 1400)
             baseBitmap = withContext(Dispatchers.IO) {
@@ -569,9 +603,9 @@ internal fun ContinuousReferencePdfPane(
 
         // Instant low-res placeholder: unconditional on settled (unlike the base render below),
         // so a page that's merely scrolled past during a fling still shows something recognizable.
-        LaunchedEffect(displayPage, resolved, file, inWindow, fileIdentitySeed) {
+        LaunchedEffect(renderIdentity, inWindow, fileIdentitySeed, docKey) {
             if (file == null || !inWindow) return@LaunchedEffect
-            val cacheKey = "${resolved.pdfFilename}#${resolved.sourcePage}"
+            val cacheKey = "${renderIdentity.filePath ?: resolved.pdfFilename}#${resolved.sourcePage}#dark=${renderIdentity.preferDarkMode}"
             val cachedThumb = thumbnailCache.get(cacheKey)
             if (cachedThumb != null && !cachedThumb.isRecycled) {
                 thumbnailBitmap = cachedThumb
@@ -589,7 +623,7 @@ internal fun ContinuousReferencePdfPane(
         // Sharp crop of just the on-screen slice of this page — only while zoomed in and only
         // once the gesture/scroll has settled, so scrolling fast past a page never queues up a
         // render that immediately gets thrown away.
-        LaunchedEffect(displayPage, resolved, file, inWindow, zoomedIn, settled, matteColorArgb, fileIdentitySeed) {
+        LaunchedEffect(renderIdentity, inWindow, zoomedIn, settled, matteColorArgb, fileIdentitySeed, docKey) {
             if (!zoomedIn) {
                 cropBitmap = null
                 cropFrac = null
