@@ -15,6 +15,26 @@ import org.junit.Test
 class ContinuousReferencePdfPaneTest {
 
     @Test
+    fun continuousPdfMotionRevision_incrementsOnlyWhenVisiblePositionChanges() {
+        val start = ContinuousPdfVisualPosition(4, 120, 0f, 0f)
+        val unchanged = nextContinuousPdfMotionRevision(start, start, revision = 8L)
+        val moved = nextContinuousPdfMotionRevision(
+            previous = start,
+            current = ContinuousPdfVisualPosition(4, 120, 18f, 0f),
+            revision = unchanged
+        )
+
+        assertEquals(8L, unchanged)
+        assertEquals(9L, moved)
+    }
+
+    @Test
+    fun continuousPdfRenderSettleDelay_waitsLongerForStationaryFling() {
+        assertEquals(300L, continuousPdfRenderSettleDelayMillis(isFlinging = true))
+        assertEquals(120L, continuousPdfRenderSettleDelayMillis(isFlinging = false))
+    }
+
+    @Test
     fun coalesceMainAxisDelta_preservesTotalMovementInOnePendingSlot() {
         var pending = 0f
         pending = coalesceMainAxisDelta(pending, 3f)

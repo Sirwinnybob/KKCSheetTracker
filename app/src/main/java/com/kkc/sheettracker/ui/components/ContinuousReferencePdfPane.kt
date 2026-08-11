@@ -65,6 +65,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -146,6 +147,22 @@ internal fun continuousMainAxisScrollDelta(
 } else {
     -panDelta / zoom
 }
+
+internal data class ContinuousPdfVisualPosition(
+    val itemIndex: Int,
+    val itemScrollOffset: Int,
+    val mainAxisOverscroll: Float,
+    val crossAxisPan: Float
+)
+
+internal fun nextContinuousPdfMotionRevision(
+    previous: ContinuousPdfVisualPosition?,
+    current: ContinuousPdfVisualPosition,
+    revision: Long
+): Long = if (previous == current) revision else revision + 1
+
+internal fun continuousPdfRenderSettleDelayMillis(isFlinging: Boolean): Long =
+    if (isFlinging) 300L else 120L
 
 internal fun coalesceMainAxisDelta(pending: Float, incoming: Float): Float = pending + incoming
 
@@ -618,14 +635,31 @@ internal fun ContinuousReferencePdfPane(
     // Rendering (in particular the expensive crop-tile re-render while zoomed) only kicks in
     // once input has settled — same debounce-after-settle rule the single-page viewer already
     // uses for its zoomed detail tile, so a fast pinch/scroll doesn't flood the render engine.
-    var settled by remember(fileIdentitySeed, orientation) { mutableStateOf(true) }
-    LaunchedEffect(isInteracting, listState.isScrollInProgress, isFlinging, fileIdentitySeed, orientation) {
-        if (isInteracting || listState.isScrollInProgress || isFlinging) {
-            settled = false
-        } else {
-            delay(120)
-            settled = true
+    var renderMotionRevision by remember(fileIdentitySeed, orientation) { mutableLongStateOf(0L) }
+    LaunchedEffect(listState, fileIdentitySeed, orientation) {
+        var previousVisualPosition: ContinuousPdfVisualPosition? = null
+        snapshotFlow {
+            ContinuousPdfVisualPosition(
+                itemIndex = listState.firstVisibleItemIndex,
+                itemScrollOffset = listState.firstVisibleItemScrollOffset,
+                mainAxisOverscroll = sharedMainAxisOverscroll,
+                crossAxisPan = sharedCrossPan
+            )
+        }.collect { currentVisualPosition ->
+            renderMotionRevision = nextContinuousPdfMotionRevision(
+                previous = previousVisualPosition,
+                current = currentVisualPosition,
+                revision = renderMotionRevision
+            )
+            previousVisualPosition = currentVisualPosition
         }
+    }
+
+    var settled by remember(fileIdentitySeed, orientation) { mutableStateOf(true) }
+    LaunchedEffect(renderMotionRevision, isFlinging) {
+        settled = false
+        delay(continuousPdfRenderSettleDelayMillis(isFlinging))
+        settled = true
     }
 
     LaunchedEffect(scrollToPage, totalPages) {
