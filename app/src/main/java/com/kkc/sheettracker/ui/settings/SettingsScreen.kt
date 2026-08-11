@@ -27,6 +27,8 @@ import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.EmployeeDirectory
 import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.data.UiPreferencesStore
+import com.kkc.sheettracker.data.IdlePowerSaveConfig
+import com.kkc.sheettracker.data.IdlePowerSaveStore
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
@@ -78,6 +80,7 @@ fun SettingsScreen(
     onOpenAssemblyViewerDefaults: () -> Unit = {},
     onOpenSpecialtyViewerDefaults: () -> Unit = {},
     uiPreferencesStore: UiPreferencesStore,
+    idlePowerSaveStore: IdlePowerSaveStore,
 ) {
     val adminMode by AdminModeController.enabled.collectAsState()
     var showAdminDialog by remember { mutableStateOf(false) }
@@ -116,6 +119,14 @@ fun SettingsScreen(
 
     var themeDropdownExpanded by remember { mutableStateOf(false) }
     val timecardScope = rememberCoroutineScope()
+    val idlePowerSaveConfig by idlePowerSaveStore.configFlow.collectAsState(initial = IdlePowerSaveConfig())
+    val idlePowerSaveScope = rememberCoroutineScope()
+    var idleTimeoutSecondsText by remember(idlePowerSaveConfig.idleTimeoutSeconds) {
+        mutableStateOf(idlePowerSaveConfig.idleTimeoutSeconds.toString())
+    }
+    var syncthingPauseTimeoutSecondsText by remember(idlePowerSaveConfig.syncthingPauseTimeoutSeconds) {
+        mutableStateOf(idlePowerSaveConfig.syncthingPauseTimeoutSeconds.toString())
+    }
 
     LaunchedEffect(tabletSaved) {
         if (tabletSaved) {
@@ -508,6 +519,52 @@ fun SettingsScreen(
                             subtitle = "Paginate job/supply lists, defer heavy loads"
                         )
                     }
+                }
+            }
+
+            // ── Idle Power Saving ───────────────────────────────────────────
+            SettingsCard(title = "Idle Power Saving") {
+                ToggleRow(
+                    label = "Enable Idle Power Saving",
+                    checked = idlePowerSaveConfig.enabled,
+                    onCheckedChange = { enabled ->
+                        idlePowerSaveScope.launch { idlePowerSaveStore.setEnabled(enabled) }
+                    },
+                    subtitle = "Switches to dark sheets + black background to save battery on tablets left on but idle. Reverts instantly on touch."
+                )
+
+                if (idlePowerSaveConfig.enabled) {
+                    OutlinedTextField(
+                        value = idleTimeoutSecondsText,
+                        onValueChange = { text ->
+                            idleTimeoutSecondsText = text
+                            text.toIntOrNull()?.let { seconds ->
+                                idlePowerSaveScope.launch { idlePowerSaveStore.setIdleTimeoutSeconds(seconds) }
+                            }
+                        },
+                        label = { Text("Dim after (seconds)") },
+                        supportingText = { Text("Lower values (e.g. 5) are useful for testing. Default 300 (5 min).") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = filledFieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = syncthingPauseTimeoutSecondsText,
+                        onValueChange = { text ->
+                            syncthingPauseTimeoutSecondsText = text
+                            text.toIntOrNull()?.let { seconds ->
+                                idlePowerSaveScope.launch { idlePowerSaveStore.setSyncthingPauseTimeoutSeconds(seconds) }
+                            }
+                        },
+                        label = { Text("Pause Syncthing after (seconds)") },
+                        supportingText = { Text("Default 1800 (30 min).") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = filledFieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
                 }
             }
 

@@ -108,6 +108,7 @@ import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.TimeclockMessagesRepository
 import com.kkc.sheettracker.data.UiPreferencesStore
+import com.kkc.sheettracker.data.IdlePowerSaveStore
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
 import com.kkc.sheettracker.ui.timecard.TimecardScreen
 import com.kkc.sheettracker.ui.timecard.TimecardStore
@@ -1892,6 +1893,7 @@ onOpenSpecialtyViewerDefaults = {
                         }
                     },
                     uiPreferencesStore = UiPreferencesStore(LocalContext.current),
+                    idlePowerSaveStore = IdlePowerSaveStore(LocalContext.current),
                 )
         }
         composable("settings/assemblyViewerDefaults") {
@@ -3063,6 +3065,7 @@ private fun LegacySingleStackNavigation(
                             }
                         },
                         uiPreferencesStore = UiPreferencesStore(LocalContext.current),
+                        idlePowerSaveStore = IdlePowerSaveStore(LocalContext.current),
                     )
                 }
 
