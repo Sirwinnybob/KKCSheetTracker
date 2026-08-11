@@ -3,16 +3,23 @@ package com.kkc.sheettracker.data
 import android.os.FileObserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
 import java.io.File
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TrackerChangeMonitor(
     private val baseDir: File,
     private val progressStore: ProgressStore,
@@ -55,6 +62,8 @@ class TrackerChangeMonitor(
     private var flushJob: Job? = null
     private var refreshDispatchJob: Job? = null
     private var interactionJob: Job? = null
+    private var intervalObserverJob: Job? = null
+    private val intervalWake = Channel<Unit>(Channel.CONFLATED)
     private var startupWarmupUntilMs = 0L
 
     fun start() {
@@ -73,19 +82,21 @@ class TrackerChangeMonitor(
                 }
             }
         }
+        intervalObserverJob = scope.launch {
+            intervalOverrideMs.drop(1).collect {
+                intervalWake.trySend(Unit)
+            }
+        }
         pollJob = scope.launch {
             while (isActive) {
-                delay(intervalOverrideMs.value ?: pollingIntervalMs)
+                val interrupted = select {
+                    onTimeout(intervalOverrideMs.value ?: pollingIntervalMs) { false }
+                    intervalWake.onReceive { true }
+                }
                 if (viewerInteraction.value) {
                     continue // Skip polling during active 3D viewer interaction
                 }
-                val invalidations = synchronized(lock) {
-                    if (!started) emptyList() else {
-                        val refreshInvalidations = refreshTrackedDirsLocked()
-                        refreshInvalidations + pollSignaturesLocked()
-                    }
-                }
-                queueInvalidations(invalidations)
+                pollOnce()
             }
         }
     }
@@ -97,6 +108,8 @@ class TrackerChangeMonitor(
             pollJob = null
             val interaction = interactionJob
             interactionJob = null
+            val intervalObserver = intervalObserverJob
+            intervalObserverJob = null
             val flush = flushJob
             flushJob = null
             val refreshDispatch = refreshDispatchJob
@@ -106,7 +119,7 @@ class TrackerChangeMonitor(
             lastInvalidationAtByKey.clear()
             pendingByKey.clear()
             val observers = observersByPath.values.toList().also { observersByPath.clear() }
-            listOf(poll, interaction, flush, refreshDispatch) to observers
+            listOf(poll, interaction, intervalObserver, flush, refreshDispatch) to observers
         }
         jobsToStop.first.forEach { it?.cancel() }
         jobsToStop.second.forEach { stopWatchingSafely(it) }
@@ -146,6 +159,16 @@ class TrackerChangeMonitor(
         }
 
         return invalidations
+    }
+
+    private fun pollOnce() {
+        val invalidations = synchronized(lock) {
+            if (!started) emptyList() else {
+                val refreshInvalidations = refreshTrackedDirsLocked()
+                refreshInvalidations + pollSignaturesLocked()
+            }
+        }
+        queueInvalidations(invalidations)
     }
 
     private fun pollSignaturesLocked(): List<Invalidation> {

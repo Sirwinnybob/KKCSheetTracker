@@ -1073,6 +1073,7 @@ private fun SettingsStatusBadge(status: SyncthingServiceStatus) {
     val (bgColor, text) = when (status) {
         SyncthingServiceStatus.CHECKING -> MaterialTheme.colorScheme.tertiaryContainer to "Checking"
         SyncthingServiceStatus.RUNNING -> MaterialTheme.colorScheme.primaryContainer to "Running"
+        SyncthingServiceStatus.PAUSED -> MaterialTheme.colorScheme.secondaryContainer to "Paused"
         SyncthingServiceStatus.NOT_RUNNING -> MaterialTheme.colorScheme.errorContainer to "Not running"
         SyncthingServiceStatus.START_FAILED -> MaterialTheme.colorScheme.errorContainer to "Start failed"
         SyncthingServiceStatus.API_KEY_REQUIRED -> MaterialTheme.colorScheme.tertiaryContainer to "API key required"
@@ -1080,6 +1081,7 @@ private fun SettingsStatusBadge(status: SyncthingServiceStatus) {
     val textColor = when (status) {
         SyncthingServiceStatus.CHECKING -> MaterialTheme.colorScheme.onTertiaryContainer
         SyncthingServiceStatus.RUNNING -> MaterialTheme.colorScheme.onPrimaryContainer
+        SyncthingServiceStatus.PAUSED -> MaterialTheme.colorScheme.onSecondaryContainer
         SyncthingServiceStatus.NOT_RUNNING -> MaterialTheme.colorScheme.onErrorContainer
         SyncthingServiceStatus.START_FAILED -> MaterialTheme.colorScheme.onErrorContainer
         SyncthingServiceStatus.API_KEY_REQUIRED -> MaterialTheme.colorScheme.onTertiaryContainer

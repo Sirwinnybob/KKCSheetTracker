@@ -36,4 +36,18 @@ class IdleActivityTrackerTest {
         val disabled = config.copy(enabled = false)
         assertEquals(IdlePhase.ACTIVE, computeIdlePhase(elapsedMs = 999_999L, config = disabled))
     }
+
+    @Test
+    fun `persisted idle timeouts are clamped to the safe minimum`() {
+        val sanitized = sanitizeIdlePowerSaveConfig(
+            IdlePowerSaveConfig(
+                enabled = true,
+                idleTimeoutSeconds = 0,
+                syncthingPauseTimeoutSeconds = -1
+            )
+        )
+
+        assertEquals(5, sanitized.idleTimeoutSeconds)
+        assertEquals(5, sanitized.syncthingPauseTimeoutSeconds)
+    }
 }

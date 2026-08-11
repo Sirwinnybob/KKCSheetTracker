@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 enum class SyncthingServiceStatus {
     CHECKING,
     RUNNING,
+    PAUSED,
     NOT_RUNNING,
     START_FAILED,
     API_KEY_REQUIRED
@@ -54,7 +55,10 @@ class SyncthingSupervisor(
     private var settingsObserverJob: Job? = null
     private var watchdogJob: Job? = null
     private var idlePhaseObserverJob: Job? = null
-    private var pausedForIdle = false
+    private val idleReconcileMutex = Mutex()
+    private var observedIdlePhase: IdlePhase? = null
+    private var idlePauseDesired = false
+    private var idlePauseActual: Boolean? = null
 
     private val _apiKey = MutableStateFlow("")
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
@@ -78,6 +82,9 @@ class SyncthingSupervisor(
                 _apiKey.value = normalizedApiKey
 
                 if (normalizedApiKey.isBlank()) {
+                    idleReconcileMutex.withLock {
+                        idlePauseActual = null
+                    }
                     watchdogJob?.cancel()
                     watchdogJob = null
                     _status.value = _status.value.copy(
@@ -93,6 +100,12 @@ class SyncthingSupervisor(
                     isMonitoring = true,
                     hasApiKey = true
                 )
+
+                if (previousKey != normalizedApiKey) {
+                    idleReconcileMutex.withLock {
+                        idlePauseActual = null
+                    }
+                }
 
                 if (previousKey != normalizedApiKey || watchdogJob?.isActive != true) {
                     watchdogJob?.cancel()
@@ -152,8 +165,11 @@ class SyncthingSupervisor(
             val isRunning = withContext(ioDispatcher) {
                 controller.isServiceRunning()
             }
+            if (isRunning) {
+                reconcileIdleSync(currentApiKey, controller)
+            }
             _status.value = _status.value.copy(
-                status = if (isRunning) SyncthingServiceStatus.RUNNING else SyncthingServiceStatus.START_FAILED,
+                status = statusForService(isRunning),
                 hasApiKey = true,
                 isMonitoring = true,
                 lastCheckedAtMs = System.currentTimeMillis(),
@@ -166,15 +182,14 @@ class SyncthingSupervisor(
         idlePhaseObserverJob?.cancel()
         idlePhaseObserverJob = scope.launch {
             phase.collect { p ->
+                idleReconcileMutex.withLock {
+                    observedIdlePhase = p
+                    idlePauseDesired = p == IdlePhase.SYNC_PAUSED
+                }
                 val currentApiKey = _apiKey.value.trim()
                 if (currentApiKey.isBlank()) return@collect
-                if (p == IdlePhase.SYNC_PAUSED && !pausedForIdle) {
-                    pausedForIdle = true
-                    managerFactory(currentApiKey).pauseSync()
-                } else if (p != IdlePhase.SYNC_PAUSED && pausedForIdle) {
-                    pausedForIdle = false
-                    managerFactory(currentApiKey).resumeSync()
-                }
+                reconcileIdleSync(currentApiKey)
+                publishIdleStatusIfKnown()
             }
         }
     }
@@ -226,11 +241,14 @@ class SyncthingSupervisor(
             val isRunning = withContext(ioDispatcher) {
                 controller.isServiceRunning()
             }
+            if (isRunning) {
+                reconcileIdleSync(apiKey, controller)
+            }
             val checkedAt = System.currentTimeMillis()
 
             if (isRunning) {
                 _status.value = _status.value.copy(
-                    status = SyncthingServiceStatus.RUNNING,
+                    status = statusForService(isRunning),
                     lastCheckedAtMs = checkedAt,
                     hasApiKey = true,
                     isMonitoring = true
@@ -246,8 +264,9 @@ class SyncthingSupervisor(
                     controller.isServiceRunning()
                 }
                 if (isRunningAfterStart) {
+                    reconcileIdleSync(apiKey, controller)
                     _status.value = _status.value.copy(
-                        status = SyncthingServiceStatus.RUNNING,
+                        status = statusForService(isRunningAfterStart),
                         lastCheckedAtMs = System.currentTimeMillis(),
                         lastStartAttemptAtMs = attemptedAt,
                         hasApiKey = true,
@@ -294,19 +313,66 @@ class SyncthingSupervisor(
             val recovered = withContext(ioDispatcher) {
                 controller.isServiceRunning()
             }
+            if (recovered) {
+                reconcileIdleSync(apiKey, controller)
+            }
+            val recoveredStatus = statusForService(recovered)
             checkMutex.withLock {
                 _status.value = _status.value.copy(
-                    status = if (recovered) {
-                        SyncthingServiceStatus.RUNNING
-                    } else {
-                        pendingFailure.status
-                    },
+                    status = if (recovered) recoveredStatus else pendingFailure.status,
                     lastCheckedAtMs = System.currentTimeMillis(),
                     lastStartAttemptAtMs = pendingFailure.attemptedAt,
                     hasApiKey = true,
                     isMonitoring = true
                 )
             }
+        }
+    }
+
+    private suspend fun reconcileIdleSync(
+        apiKey: String,
+        controller: SyncController = managerFactory(apiKey)
+    ) {
+        idleReconcileMutex.withLock {
+            val phase = observedIdlePhase ?: return@withLock
+            val shouldPause = phase == IdlePhase.SYNC_PAUSED
+            idlePauseDesired = shouldPause
+            val actual = idlePauseActual
+            if ((shouldPause && actual == true) || (!shouldPause && actual == false)) {
+                return@withLock
+            }
+
+            val succeeded = if (shouldPause) {
+                controller.pauseSync()
+            } else {
+                controller.resumeSync()
+            }
+            if (succeeded) {
+                idlePauseActual = shouldPause
+            }
+        }
+    }
+
+    private suspend fun publishIdleStatusIfKnown() {
+        val (desired, actual) = idleReconcileMutex.withLock {
+            idlePauseDesired to idlePauseActual
+        }
+        if (desired && actual == true) {
+            _status.value = _status.value.copy(status = SyncthingServiceStatus.PAUSED)
+        } else if (!desired && actual == false && _status.value.status == SyncthingServiceStatus.PAUSED) {
+            _status.value = _status.value.copy(status = SyncthingServiceStatus.RUNNING)
+        }
+    }
+
+    private suspend fun statusForService(isRunning: Boolean): SyncthingServiceStatus {
+        if (!isRunning) return SyncthingServiceStatus.NOT_RUNNING
+        val (desired, actual) = idleReconcileMutex.withLock {
+            idlePauseDesired to idlePauseActual
+        }
+        return if (desired && actual == true) {
+            SyncthingServiceStatus.PAUSED
+        } else {
+            SyncthingServiceStatus.RUNNING
         }
     }
 }

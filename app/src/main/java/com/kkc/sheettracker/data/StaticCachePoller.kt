@@ -5,9 +5,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
  * Mirrors the lifecycle pattern of [TrackerChangeMonitor]: call [start] on ON_START
  * and [stop] on ON_STOP.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class StaticCachePoller(
     baseDir: File,
     private val onJobCacheUpdated: (folderName: String) -> Unit,
@@ -32,6 +38,8 @@ class StaticCachePoller(
     // Combined index+gate mtime per job (see [combinedMtime]); flips on either list input.
     private val mtimeSnapshot = ConcurrentHashMap<String, Long>()
     private var pollJob: Job? = null
+    private var intervalObserverJob: Job? = null
+    private val intervalWake = Channel<Unit>(Channel.CONFLATED)
 
     companion object {
         private const val TAG = "StaticCachePoller"
@@ -41,6 +49,11 @@ class StaticCachePoller(
     fun start() {
         if (pollJob?.isActive == true) return
         val isFirstStart = mtimeSnapshot.isEmpty()
+        intervalObserverJob = scope.launch {
+            intervalOverrideMs.drop(1).collect {
+                intervalWake.trySend(Unit)
+            }
+        }
         pollJob = scope.launch {
             if (isFirstStart) {
                 // First start: snapshot current mtimes so the first poll only fires on actual changes.
@@ -52,7 +65,14 @@ class StaticCachePoller(
                 checkForChanges()
             }
             while (isActive) {
-                delay(intervalOverrideMs.value ?: pollIntervalMs)
+                val interrupted = select {
+                    onTimeout(intervalOverrideMs.value ?: pollIntervalMs) { false }
+                    intervalWake.onReceive { true }
+                }
+                if (interrupted) {
+                    checkForChanges()
+                    continue
+                }
                 checkForChanges()
             }
         }
@@ -62,6 +82,8 @@ class StaticCachePoller(
     fun stop() {
         pollJob?.cancel()
         pollJob = null
+        intervalObserverJob?.cancel()
+        intervalObserverJob = null
         Log.d(TAG, "Stopped")
     }
 

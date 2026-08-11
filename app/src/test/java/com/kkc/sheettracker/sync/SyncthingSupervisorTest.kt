@@ -124,6 +124,96 @@ class SyncthingSupervisorTest {
 
         supervisor.close()
     }
+
+    @Test
+    fun `successful idle pause is exposed as paused and watchdog preserves it`() = runBlocking {
+        val store = FakeSyncthingPreferencesStore("api-key")
+        val controller = FakeSyncController(running = true)
+        val phase = MutableStateFlow(IdlePhase.SYNC_PAUSED)
+        val supervisor = SyncthingSupervisor(
+            context = null,
+            runtimeConfig = SyncthingRuntimeConfig(
+                watchdog = SyncthingWatchdogConfig(
+                    intervalMs = 40L,
+                    autoStartOnFailure = false
+                )
+            ),
+            preferencesStore = store,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            managerFactory = { controller }
+        )
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.observeIdlePhase(phase)
+
+        waitUntil(2_000L) { controller.pauseCalls == 1 }
+        waitUntil(2_000L) { supervisor.status.value.status == SyncthingServiceStatus.PAUSED }
+        delay(150L)
+
+        assertEquals(SyncthingServiceStatus.PAUSED, supervisor.status.value.status)
+        assertEquals(1, controller.pauseCalls)
+        supervisor.close()
+    }
+
+    @Test
+    fun `failed idle pause remains desired and retries on the next health check`() = runBlocking {
+        val store = FakeSyncthingPreferencesStore("api-key")
+        val controller = FakeSyncController(running = true, pauseResults = ArrayDeque(listOf(false, true)))
+        val phase = MutableStateFlow(IdlePhase.SYNC_PAUSED)
+        val supervisor = SyncthingSupervisor(
+            context = null,
+            runtimeConfig = SyncthingRuntimeConfig(
+                watchdog = SyncthingWatchdogConfig(
+                    intervalMs = 40L,
+                    autoStartOnFailure = false
+                )
+            ),
+            preferencesStore = store,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            managerFactory = { controller }
+        )
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.observeIdlePhase(phase)
+
+        waitUntil(2_000L) { controller.pauseCalls >= 2 }
+        waitUntil(2_000L) { supervisor.status.value.status == SyncthingServiceStatus.PAUSED }
+        assertEquals(2, controller.pauseCalls)
+        supervisor.close()
+    }
+
+    @Test
+    fun `active phase reconciles a previously idle-paused service and check now reports running`() = runBlocking {
+        val store = FakeSyncthingPreferencesStore("api-key")
+        val controller = FakeSyncController(running = true)
+        val phase = MutableStateFlow(IdlePhase.ACTIVE)
+        val supervisor = SyncthingSupervisor(
+            context = null,
+            runtimeConfig = SyncthingRuntimeConfig(
+                watchdog = SyncthingWatchdogConfig(
+                    intervalMs = 10_000L,
+                    autoStartOnFailure = false
+                )
+            ),
+            preferencesStore = store,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            managerFactory = { controller }
+        )
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.observeIdlePhase(phase)
+        waitUntil(2_000L) { controller.resumeCalls == 1 }
+
+        supervisor.checkNow()
+        waitUntil(2_000L) { supervisor.status.value.status == SyncthingServiceStatus.RUNNING }
+
+        assertEquals(1, controller.resumeCalls)
+        assertEquals(SyncthingServiceStatus.RUNNING, supervisor.status.value.status)
+        supervisor.close()
+    }
 }
 
 private class FakeSyncthingPreferencesStore(
@@ -139,7 +229,8 @@ private class FakeSyncthingPreferencesStore(
 }
 
 private class FakeSyncController(
-    private val running: Boolean
+    private val running: Boolean,
+    private val pauseResults: ArrayDeque<Boolean> = ArrayDeque()
 ) : SyncController {
     var checkCalls: Int = 0
     var startCalls: Int = 0
@@ -159,7 +250,7 @@ private class FakeSyncController(
 
     override suspend fun pauseSync(): Boolean {
         pauseCalls++
-        return true
+        return pauseResults.removeFirstOrNull() ?: true
     }
 
     override suspend fun resumeSync(): Boolean {

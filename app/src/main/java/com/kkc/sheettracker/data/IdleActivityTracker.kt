@@ -36,7 +36,8 @@ class IdleActivityTracker(
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val tickMs: Long = 1_000L
 ) {
-    @Volatile private var lastInteractionAtMs = nowMs()
+    private val stateLock = Any()
+    private var lastInteractionAtMs = nowMs()
     private var tickJob: Job? = null
 
     private val _phase = MutableStateFlow(IdlePhase.ACTIVE)
@@ -46,8 +47,10 @@ class IdleActivityTracker(
     val pollIntervalOverrideMs: StateFlow<Long?> = _pollIntervalOverrideMs.asStateFlow()
 
     fun reset() {
-        lastInteractionAtMs = nowMs()
-        recompute()
+        synchronized(stateLock) {
+            lastInteractionAtMs = nowMs()
+            recomputeLocked()
+        }
     }
 
     fun start() {
@@ -66,6 +69,12 @@ class IdleActivityTracker(
     }
 
     private fun recompute() {
+        synchronized(stateLock) {
+            recomputeLocked()
+        }
+    }
+
+    private fun recomputeLocked() {
         val currentConfig = config.value
         val newPhase = computeIdlePhase(nowMs() - lastInteractionAtMs, currentConfig)
         _phase.value = newPhase
