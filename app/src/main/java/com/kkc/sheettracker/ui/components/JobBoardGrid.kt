@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.models.JobLabel
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -59,6 +60,9 @@ import android.util.LruCache
 // ---------------------------------------------------------------------------
 
 private val cardStateCache = LruCache<String, CardState>(120)
+
+private fun boardCardCacheKey(folderName: String, preferDarkMode: Boolean): String =
+    "$folderName|dark=$preferDarkMode"
 
 fun clearBoardCardCache() {
     cardStateCache.evictAll()
@@ -105,6 +109,7 @@ fun JobBoardGrid(
     }
 
     var expandedItem by remember { mutableStateOf<JobBoardItem?>(null) }
+    val preferDarkMode = LocalKKCIsDarkTheme.current
     val navBarDeco = LocalNavBarDecoration.current
     val listBottomPadding = if (navBarDeco.searchDecoration != null) 172.dp else 112.dp
 
@@ -130,7 +135,8 @@ fun JobBoardGrid(
                         onClick = { onItemClick(item) },
                         onLongClick = { expandedItem = item },
                         sharedTransitionScope = this@SharedTransitionLayout,
-                        expandedFolderName = expandedItem?.folderName
+                        expandedFolderName = expandedItem?.folderName,
+                        preferDarkMode = preferDarkMode
                     )
                 }
                 // Pending Delivery section
@@ -145,7 +151,8 @@ fun JobBoardGrid(
                             onClick = { onItemClick(item) },
                             onLongClick = { expandedItem = item },
                             sharedTransitionScope = this@SharedTransitionLayout,
-                            expandedFolderName = expandedItem?.folderName
+                            expandedFolderName = expandedItem?.folderName,
+                            preferDarkMode = preferDarkMode
                         )
                     }
                 }
@@ -158,8 +165,8 @@ fun JobBoardGrid(
                 modifier = Modifier.fillMaxSize()
             ) {
                 expandedItem?.let { item ->
-                    val cachedThumbnail = remember(item.folderName) {
-                        cardStateCache.get(item.folderName)?.thumbnail
+                    val cachedThumbnail = remember(item.folderName, preferDarkMode) {
+                        cardStateCache.get(boardCardCacheKey(item.folderName, preferDarkMode))?.thumbnail
                     }
                     CoverPageOverlay(
                         item = item,
@@ -167,6 +174,7 @@ fun JobBoardGrid(
                         jobRepository = jobRepository,
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = this@AnimatedVisibility,
+                        preferDarkMode = preferDarkMode,
                         onDismiss = { expandedItem = null }
                     )
                 }
@@ -216,13 +224,15 @@ private fun JobBoardCard(
     onLongClick: () -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     expandedFolderName: String?,
+    preferDarkMode: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val cachedState = remember(item.folderName) { cardStateCache.get(item.folderName) }
-    var isLoading by remember(item.folderName) { mutableStateOf(cachedState == null) }
+    val cacheKey = boardCardCacheKey(item.folderName, preferDarkMode)
+    val cachedState = remember(item.folderName, preferDarkMode) { cardStateCache.get(cacheKey) }
+    var isLoading by remember(item.folderName, preferDarkMode) { mutableStateOf(cachedState == null) }
 
     // Load thumbnail + construction type together in one background pass
-    val cardState by produceState<CardState?>(initialValue = cachedState, key1 = item.folderName) {
+    val cardState by produceState<CardState?>(initialValue = cachedState, key1 = item.folderName, key2 = preferDarkMode) {
         if (cachedState != null) {
             isLoading = false
             return@produceState
@@ -233,10 +243,16 @@ private fun JobBoardCard(
                 .deliverySheet?.pdfFilename
             val thumbnail: Bitmap? = if (filename.isNullOrBlank()) null else {
                 val file = jobRepository.getJobRootPdfFile(
-                    item.folderName, filename, preferDarkMode = false
+                    item.folderName, filename, preferDarkMode = preferDarkMode
                 ) ?: return@withContext CardState(null, resolveConstructionType(jobRepository, item.folderName))
                 val engine = PdfRenderEngine(file)
-                try { engine.renderThumbnail(pageIndex = 0, maxWidth = 600) }
+                try {
+                    engine.renderThumbnail(
+                        pageIndex = 0,
+                        maxWidth = 600,
+                        matteColorArgb = referencePdfThumbnailMatteColorArgb(preferDarkMode)
+                    )
+                }
                 finally { engine.close() }
             }
 
@@ -244,7 +260,7 @@ private fun JobBoardCard(
             val type = resolveConstructionType(jobRepository, item.folderName)
 
             val state = CardState(thumbnail, type)
-            cardStateCache.put(item.folderName, state)
+            cardStateCache.put(cacheKey, state)
             state
         }
         isLoading = false

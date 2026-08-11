@@ -60,6 +60,7 @@ import com.kkc.sheettracker.ui.components.NavBarPenDecoration
 import com.kkc.sheettracker.ui.components.PdfLabelScrollbar
 import com.kkc.sheettracker.ui.components.PdfViewportState
 import com.kkc.sheettracker.ui.components.ReferencePdfPane
+import com.kkc.sheettracker.ui.components.referencePdfThumbnailMatteColorArgb
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolbar
 import dev.chrisbanes.haze.hazeSource
@@ -615,8 +616,8 @@ fun UnifiedReferenceViewer(
 
     var showSheetNavigator by remember(virtualMapping, defaultPdfFilename) { mutableStateOf(false) }
     var searchQuery by remember(virtualMapping, defaultPdfFilename) { mutableStateOf("") }
-    val tocThumbCache = remember(virtualMapping, defaultPdfFilename) { mutableStateMapOf<Int, Bitmap?>() }
-    val tocLruOrder = remember(virtualMapping, defaultPdfFilename) { mutableListOf<Int>() }
+    val tocThumbCache = remember(virtualMapping, defaultPdfFilename, preferDarkMode) { mutableStateMapOf<Int, Bitmap?>() }
+    val tocLruOrder = remember(virtualMapping, defaultPdfFilename, preferDarkMode) { mutableListOf<Int>() }
     val tocLoadedCount by remember { derivedStateOf { tocThumbCache.count { it.value != null } } }
 
     LaunchedEffect(navigatorWarningMessage) {
@@ -926,7 +927,7 @@ fun UnifiedReferenceViewer(
     }
 
     if (showSheetNavigator) {
-        LaunchedEffect(showSheetNavigator, virtualMapping, clampedDisplayPage, effectiveTotalPages, resolvedPdfFilename) {
+        LaunchedEffect(showSheetNavigator, virtualMapping, clampedDisplayPage, effectiveTotalPages, resolvedPdfFilename, preferDarkMode) {
             if (!showSheetNavigator || effectiveTotalPages <= 0) return@LaunchedEffect
             for (page in buildVirtualTocLoadOrder(effectiveTotalPages, clampedDisplayPage)) {
                 if (!isActive) break
@@ -934,7 +935,11 @@ fun UnifiedReferenceViewer(
                     val request = thumbnailRequestForPage(page)
                     val thumb = if (request != null) {
                         withContext(Dispatchers.IO) {
-                            renderVirtualThumbnail(request.file, request.pageIndex)
+                            renderVirtualThumbnail(
+                                request.file,
+                                request.pageIndex,
+                                matteColorArgb = referencePdfThumbnailMatteColorArgb(preferDarkMode)
+                            )
                         }
                     } else {
                         null
@@ -1124,7 +1129,11 @@ private fun trimVirtualTocCache(
     }
 }
 
-private fun renderVirtualThumbnail(pdfFile: File, pageIndex: Int): Bitmap? {
+private fun renderVirtualThumbnail(
+    pdfFile: File,
+    pageIndex: Int,
+    matteColorArgb: Int = Color.WHITE
+): Bitmap? {
     if (!pdfFile.exists()) return null
     var fd: ParcelFileDescriptor? = null
     var renderer: PdfRenderer? = null
@@ -1139,7 +1148,7 @@ private fun renderVirtualThumbnail(pdfFile: File, pageIndex: Int): Bitmap? {
         val width = (page.width * scale).toInt().coerceAtLeast(1)
         val height = (page.height * scale).toInt().coerceAtLeast(1)
         Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bmp ->
-            bmp.eraseColor(Color.WHITE)
+            bmp.eraseColor(matteColorArgb)
             page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
         }
     } catch (_: Exception) {

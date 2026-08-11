@@ -65,15 +65,16 @@ fun CoverPageOverlay(
     jobRepository: JobRepository,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    preferDarkMode: Boolean,
     onDismiss: () -> Unit
 ) {
-    var highResBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var isLoadingHighRes by remember { mutableStateOf(false) }
+    var highResBitmap by remember(preferDarkMode) { mutableStateOf<Bitmap?>(null) }
+    var isLoadingHighRes by remember(preferDarkMode) { mutableStateOf(false) }
 
     val windowSize = LocalWindowInfo.current.containerSize
     val screenWidthPx = remember(windowSize) { windowSize.width }
 
-    LaunchedEffect(item.folderName) {
+    LaunchedEffect(item.folderName, preferDarkMode) {
         val filename = withContext(Dispatchers.IO) {
             jobRepository.getJobPdfCatalog(item.folderName).deliverySheet?.pdfFilename
         }
@@ -81,11 +82,15 @@ fun CoverPageOverlay(
             isLoadingHighRes = true
             val bitmap = withContext(Dispatchers.IO) {
                 val file = jobRepository.getJobRootPdfFile(
-                    item.folderName, filename, preferDarkMode = false
+                    item.folderName, filename, preferDarkMode = preferDarkMode
                 ) ?: return@withContext null
                 val engine = PdfRenderEngine(file)
                 try {
-                    engine.renderThumbnail(pageIndex = 0, maxWidth = screenWidthPx)
+                    engine.renderThumbnail(
+                        pageIndex = 0,
+                        maxWidth = screenWidthPx,
+                        matteColorArgb = referencePdfThumbnailMatteColorArgb(preferDarkMode)
+                    )
                 } catch (e: Exception) {
                     null
                 } finally {
