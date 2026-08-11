@@ -22,7 +22,8 @@ class TrackerChangeMonitor(
     private val activeJobFolderName: StateFlow<String?> = MutableStateFlow(null),
     private val onWatcherRefreshRequested: (() -> Unit)? = null,
     private val onCncJobsChanged: ((Set<String>) -> Unit)? = null,
-    private val pollingIntervalMs: Long = POLLING_INTERVAL_MS
+    private val pollingIntervalMs: Long = POLLING_INTERVAL_MS,
+    private val intervalOverrideMs: StateFlow<Long?> = MutableStateFlow(null)
 ) {
     private enum class TrackerKind { CNC, HARDWOODS, SPECIALTY, ORDER }
 
@@ -74,7 +75,7 @@ class TrackerChangeMonitor(
         }
         pollJob = scope.launch {
             while (isActive) {
-                delay(pollingIntervalMs)
+                delay(intervalOverrideMs.value ?: pollingIntervalMs)
                 if (viewerInteraction.value) {
                     continue // Skip polling during active 3D viewer interaction
                 }
