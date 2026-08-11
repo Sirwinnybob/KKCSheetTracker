@@ -2,6 +2,7 @@ package com.kkc.sheettracker.sync
 
 import android.content.Context
 import com.kkc.sheettracker.data.IdlePhase
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,7 +57,10 @@ class SyncthingSupervisor(
     private var watchdogJob: Job? = null
     private var idlePhaseObserverJob: Job? = null
     private val idleReconcileMutex = Mutex()
+    @Volatile
+    private var idlePhaseSource: StateFlow<IdlePhase>? = null
     private var observedIdlePhase: IdlePhase? = null
+    private val appIsForeground = AtomicBoolean(false)
     private var idlePauseDesired = false
     private var idlePauseActual: Boolean? = null
 
@@ -179,18 +183,35 @@ class SyncthingSupervisor(
     }
 
     fun observeIdlePhase(phase: StateFlow<IdlePhase>) {
+        idlePhaseSource = phase
         idlePhaseObserverJob?.cancel()
         idlePhaseObserverJob = scope.launch {
             phase.collect { p ->
                 idleReconcileMutex.withLock {
                     observedIdlePhase = p
-                    idlePauseDesired = p == IdlePhase.SYNC_PAUSED
+                    idlePauseDesired = appIsForeground.get() && p == IdlePhase.SYNC_PAUSED
                 }
                 val currentApiKey = _apiKey.value.trim()
                 if (currentApiKey.isBlank()) return@collect
                 reconcileIdleSync(currentApiKey)
                 publishIdleStatusIfKnown()
             }
+        }
+    }
+
+    fun setAppForeground(isForeground: Boolean) {
+        appIsForeground.set(isForeground)
+        scope.launch {
+            idleReconcileMutex.withLock {
+                idlePhaseSource?.value?.let { currentPhase ->
+                    observedIdlePhase = currentPhase
+                }
+                idlePauseDesired = appIsForeground.get() && observedIdlePhase == IdlePhase.SYNC_PAUSED
+            }
+            val currentApiKey = _apiKey.value.trim()
+            if (currentApiKey.isBlank()) return@launch
+            reconcileIdleSync(currentApiKey)
+            publishIdleStatusIfKnown()
         }
     }
 
@@ -335,7 +356,7 @@ class SyncthingSupervisor(
     ) {
         idleReconcileMutex.withLock {
             val phase = observedIdlePhase ?: return@withLock
-            val shouldPause = phase == IdlePhase.SYNC_PAUSED
+            val shouldPause = appIsForeground.get() && phase == IdlePhase.SYNC_PAUSED
             idlePauseDesired = shouldPause
             val actual = idlePauseActual
             if ((shouldPause && actual == true) || (!shouldPause && actual == false)) {

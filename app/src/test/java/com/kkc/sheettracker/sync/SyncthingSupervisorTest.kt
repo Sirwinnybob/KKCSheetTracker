@@ -108,6 +108,7 @@ class SyncthingSupervisorTest {
 
         supervisor.startMonitoring()
         waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(true)
         supervisor.observeIdlePhase(phase)
 
         phase.value = IdlePhase.SYNC_PAUSED
@@ -145,6 +146,7 @@ class SyncthingSupervisorTest {
 
         supervisor.startMonitoring()
         waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(true)
         supervisor.observeIdlePhase(phase)
 
         waitUntil(2_000L) { controller.pauseCalls == 1 }
@@ -176,6 +178,7 @@ class SyncthingSupervisorTest {
 
         supervisor.startMonitoring()
         waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(true)
         supervisor.observeIdlePhase(phase)
 
         waitUntil(2_000L) { controller.pauseCalls >= 2 }
@@ -204,6 +207,7 @@ class SyncthingSupervisorTest {
 
         supervisor.startMonitoring()
         waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(true)
         supervisor.observeIdlePhase(phase)
         waitUntil(2_000L) { controller.resumeCalls == 1 }
 
@@ -238,6 +242,7 @@ class SyncthingSupervisorTest {
 
         supervisor.startMonitoring()
         waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(true)
         supervisor.observeIdlePhase(phase)
         waitUntil(2_000L) { controller.pauseCalls == 1 }
         waitUntil(2_000L) { supervisor.status.value.status == SyncthingServiceStatus.PAUSED }
@@ -256,7 +261,76 @@ class SyncthingSupervisorTest {
 
         supervisor.close()
     }
+
+    @Test
+    fun `background idle phase does not pause syncthing`() = runBlocking {
+        val controller = FakeSyncController(running = true)
+        val phase = MutableStateFlow(IdlePhase.ACTIVE)
+        val supervisor = foregroundTestSupervisor(controller)
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(false)
+        supervisor.observeIdlePhase(phase)
+        phase.value = IdlePhase.SYNC_PAUSED
+        delay(100L)
+
+        assertEquals(0, controller.pauseCalls)
+        supervisor.close()
+    }
+
+    @Test
+    fun `background resumes an idle-paused syncthing service`() = runBlocking {
+        val controller = FakeSyncController(running = true)
+        val phase = MutableStateFlow(IdlePhase.SYNC_PAUSED)
+        val supervisor = foregroundTestSupervisor(controller)
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(true)
+        supervisor.observeIdlePhase(phase)
+        waitUntil(2_000L) { controller.pauseCalls == 1 }
+
+        supervisor.setAppForeground(false)
+        waitUntil(2_000L) { controller.resumeCalls == 1 }
+
+        assertEquals(SyncthingServiceStatus.RUNNING, supervisor.status.value.status)
+        supervisor.close()
+    }
+
+    @Test
+    fun `foreground reentry pauses only when current phase remains idle`() = runBlocking {
+        val controller = FakeSyncController(running = true)
+        val phase = MutableStateFlow(IdlePhase.SYNC_PAUSED)
+        val supervisor = foregroundTestSupervisor(controller)
+
+        supervisor.startMonitoring()
+        waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
+        supervisor.setAppForeground(false)
+        supervisor.observeIdlePhase(phase)
+        supervisor.setAppForeground(true)
+        waitUntil(2_000L) { controller.pauseCalls == 1 }
+
+        supervisor.setAppForeground(false)
+        waitUntil(2_000L) { controller.resumeCalls == 1 }
+        phase.value = IdlePhase.ACTIVE
+        supervisor.setAppForeground(true)
+        delay(100L)
+
+        assertEquals(1, controller.pauseCalls)
+        supervisor.close()
+    }
 }
+
+private fun foregroundTestSupervisor(controller: FakeSyncController) = SyncthingSupervisor(
+    context = null,
+    runtimeConfig = SyncthingRuntimeConfig(
+        watchdog = SyncthingWatchdogConfig(intervalMs = 10_000L, autoStartOnFailure = false)
+    ),
+    preferencesStore = FakeSyncthingPreferencesStore("api-key"),
+    scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    managerFactory = { controller }
+)
 
 private class FakeSyncthingPreferencesStore(
     initialApiKey: String

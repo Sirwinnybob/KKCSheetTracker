@@ -648,6 +648,7 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         refreshOnboardingStep()
         if (::syncthingSupervisor.isInitialized) {
+            syncthingSupervisor.setAppForeground(true)
             syncthingSupervisor.checkNow()
         }
         if (::scanCoordinator.isInitialized) {
@@ -656,6 +657,13 @@ class MainActivity : ComponentActivity() {
         if (::updateManager.isInitialized) {
             updateManager.checkForUpdates(checkSelf = true)
         }
+    }
+
+    override fun onStop() {
+        if (::syncthingSupervisor.isInitialized) {
+            syncthingSupervisor.setAppForeground(false)
+        }
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {
