@@ -675,6 +675,7 @@ fun ReferencePdfPane(
 
         Surface(
             modifier = Modifier.fillMaxSize(),
+            color = emptyCanvasColor,
             shape = MaterialTheme.shapes.medium,
             tonalElevation = 0.dp  // 0 so the container colour matches the PDF matte exactly
         ) {

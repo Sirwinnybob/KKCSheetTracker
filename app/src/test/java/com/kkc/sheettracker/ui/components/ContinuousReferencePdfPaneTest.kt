@@ -4,8 +4,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntSize
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
 import java.io.File
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ContinuousReferencePdfPaneTest {
@@ -18,6 +21,18 @@ class ContinuousReferencePdfPaneTest {
         pending = coalesceMainAxisDelta(pending, 5f)
 
         assertEquals(7f, pending, 0.001f)
+    }
+
+    @Test
+    fun coalescingChannel_rewakesDeltaAfterFlingSentinel() = runBlocking {
+        val channel = CoalescingMainAxisDeltaChannel()
+        channel.trySend(Float.NaN)
+        channel.trySend(7f)
+
+        assertTrue(channel.receive().isNaN())
+        val delta = withTimeout(250) { channel.receive() }
+
+        assertEquals(7f, delta, 0.001f)
     }
 
     @Test

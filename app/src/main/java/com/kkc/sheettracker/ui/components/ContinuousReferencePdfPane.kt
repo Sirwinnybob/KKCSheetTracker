@@ -175,7 +175,12 @@ internal class CoalescingMainAxisDeltaChannel {
     suspend fun receive(): Float {
         while (true) {
             if (wake.receiveCatching().isClosed) return Float.NaN
-            if (flingHandoff.getAndSet(false)) return Float.NaN
+            if (flingHandoff.getAndSet(false)) {
+                // A real delta can arrive after the handoff's conflated wake was queued. Re-wake
+                // the consumer whenever one is pending so the sentinel cannot strand movement.
+                if (pendingBits.get() != 0) wake.trySend(Unit)
+                return Float.NaN
+            }
             val delta = Float.fromBits(pendingBits.getAndSet(0))
             if (delta != 0f) return delta
         }
