@@ -53,9 +53,16 @@ import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.TrackerLamportClock
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.data.IdleActivityTracker
+import com.kkc.sheettracker.data.IdlePhase
+import com.kkc.sheettracker.data.IdlePowerSaveConfig
+import com.kkc.sheettracker.data.IdlePowerSaveStore
 import com.kkc.sheettracker.ui.components.LowEndModeFlags
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.LocalScrollPreviewLabelOnly
+import com.kkc.sheettracker.ui.components.LocalIdlePhase
+import com.kkc.sheettracker.ui.components.LocalIdlePollIntervalOverrideMs
+import com.kkc.sheettracker.ui.components.LocalIdleReset
 import com.kkc.sheettracker.navigation.AppNavigation
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.onboarding.OnboardingStep
@@ -80,6 +87,8 @@ import com.kkc.sheettracker.update.UpdateManager
 import com.kkc.sheettracker.update.ExternalAppUpdate
 import java.io.File
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 
 class MainActivity : ComponentActivity() {
     private lateinit var updateManager: UpdateManager
@@ -88,6 +97,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var syncthingSupervisor: SyncthingSupervisor
     private lateinit var clockInState: ClockInState
     private lateinit var supplySubscriptionManager: SupplySubscriptionManager
+    private lateinit var idleActivityTracker: IdleActivityTracker
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -249,6 +259,14 @@ class MainActivity : ComponentActivity() {
         )
         syncthingSupervisor.startMonitoring()
 
+        val idlePowerSaveStore = IdlePowerSaveStore(applicationContext)
+        val idlePowerSaveConfig = idlePowerSaveStore.configFlow.stateIn(
+            lifecycleScope, SharingStarted.Eagerly, IdlePowerSaveConfig()
+        )
+        idleActivityTracker = IdleActivityTracker(config = idlePowerSaveConfig)
+        idleActivityTracker.start()
+        syncthingSupervisor.observeIdlePhase(idleActivityTracker.phase)
+
         val baseDir = File(basePath)
         val jobRepository = JobRepository(baseDir, isDebugBuild = BuildConfig.DEBUG)
         TrackerLamportClock.init(File(filesDir, "state"))
@@ -273,9 +291,16 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val idlePhase by idleActivityTracker.phase.collectAsState()
             var followSystemTheme by remember { mutableStateOf(prefs.getBoolean("follow_system_theme", true)) }
             var darkThemeOverride by remember { mutableStateOf(prefs.getBoolean("dark_theme", false)) }
-            val isDarkTheme = if (followSystemTheme) systemDark else darkThemeOverride
+            val isDarkTheme = if (idlePhase != IdlePhase.ACTIVE) {
+                true
+            } else if (followSystemTheme) {
+                systemDark
+            } else {
+                darkThemeOverride
+            }
             var useStandardSheets by remember { mutableStateOf(prefs.getBoolean("use_standard_sheets", false)) }
             var continuousScrollDefault by remember { mutableStateOf(prefs.getBoolean("continuous_scroll_default", false)) }
             var employeeName by rememberSaveable { mutableStateOf(prefs.getString("employee_name", "") ?: "") }
@@ -322,7 +347,10 @@ class MainActivity : ComponentActivity() {
                 ) {
                     androidx.compose.runtime.CompositionLocalProvider(
                         LocalLowEndMode provides lowEndFlags,
-                        LocalScrollPreviewLabelOnly provides scrollPreviewLabelOnly
+                        LocalScrollPreviewLabelOnly provides scrollPreviewLabelOnly,
+                        LocalIdlePhase provides idleActivityTracker.phase,
+                        LocalIdlePollIntervalOverrideMs provides idleActivityTracker.pollIntervalOverrideMs,
+                        LocalIdleReset provides idleActivityTracker::reset
                     ) {
                         AppNavigation(
                         scanCoordinator = scanCoordinator,
@@ -337,7 +365,7 @@ class MainActivity : ComponentActivity() {
                         isDarkTheme = isDarkTheme,
                         followSystemTheme = followSystemTheme,
                         darkThemeOverride = darkThemeOverride,
-                        useStandardSheets = useStandardSheets,
+                        useStandardSheets = if (idlePhase != IdlePhase.ACTIVE) false else useStandardSheets,
                         continuousScrollDefault = continuousScrollDefault,
                         workMode = workMode,
                         employeeName = employeeName,
@@ -609,6 +637,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        if (::idleActivityTracker.isInitialized) {
+            idleActivityTracker.reset()
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         refreshOnboardingStep()
@@ -644,6 +679,9 @@ class MainActivity : ComponentActivity() {
         }
         if (::supplySubscriptionManager.isInitialized) {
             supplySubscriptionManager.close()
+        }
+        if (::idleActivityTracker.isInitialized) {
+            idleActivityTracker.stop()
         }
         super.onDestroy()
     }
