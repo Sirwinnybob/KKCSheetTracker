@@ -118,6 +118,48 @@ class SyncthingManagerTest {
         assertTrue(manager.isServiceRunning())
         assertEquals("redirect-key", httpsConnection.requestedApiKey)
     }
+
+    @Test
+    fun `pauseSync returns true on 200`() = runBlocking {
+        val manager = SyncthingManager(
+            context = null,
+            config = SyncthingRuntimeConfig(apiKey = "abc123"),
+            connectionFactory = SyncthingConnectionFactory {
+                FakeHttpURLConnection(it, HttpURLConnection.HTTP_OK)
+            },
+            commandSender = NoOpCommandSender()
+        )
+
+        assertTrue(manager.pauseSync())
+    }
+
+    @Test
+    fun `resumeSync returns false on non-200`() = runBlocking {
+        val manager = SyncthingManager(
+            context = null,
+            config = SyncthingRuntimeConfig(),
+            connectionFactory = SyncthingConnectionFactory {
+                FakeHttpURLConnection(it, HttpURLConnection.HTTP_INTERNAL_ERROR)
+            },
+            commandSender = NoOpCommandSender()
+        )
+
+        assertFalse(manager.resumeSync())
+    }
+
+    @Test
+    fun `pauseSync returns false when connection fails`() = runBlocking {
+        val manager = SyncthingManager(
+            context = null,
+            config = SyncthingRuntimeConfig(),
+            connectionFactory = SyncthingConnectionFactory {
+                throw ConnectException("refused")
+            },
+            commandSender = NoOpCommandSender()
+        )
+
+        assertFalse(manager.pauseSync())
+    }
 }
 
 private class NoOpCommandSender : SyncthingCommandSender {

@@ -119,6 +119,10 @@ private class FakeSyncController(
     }
 
     override fun stopService() = Unit
+
+    override suspend fun pauseSync(): Boolean = true
+
+    override suspend fun resumeSync(): Boolean = true
 }
 
 private suspend fun waitUntil(

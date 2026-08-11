@@ -18,6 +18,8 @@ interface SyncController {
     suspend fun isServiceRunning(): Boolean
     fun startService()
     fun stopService()
+    suspend fun pauseSync(): Boolean
+    suspend fun resumeSync(): Boolean
 }
 
 data class SyncthingIntentConfig(
@@ -29,7 +31,9 @@ data class SyncthingIntentConfig(
 
 data class SyncthingEndpointConfig(
     val baseUrl: String = "http://127.0.0.1:8384",
-    val pingPath: String = "/rest/system/ping"
+    val pingPath: String = "/rest/system/ping",
+    val pausePath: String = "/rest/system/pause",
+    val resumePath: String = "/rest/system/resume"
 )
 
 data class SyncthingNetworkConfig(
@@ -128,10 +132,67 @@ class SyncthingManager(
         commandSender.sendCommand(config.intents.stopAction, config.intents)
     }
 
-    private fun buildPingUrl(): URL {
+    override suspend fun pauseSync(): Boolean = postCommand(config.endpoint.pausePath)
+
+    override suspend fun resumeSync(): Boolean = postCommand(config.endpoint.resumePath)
+
+    private suspend fun postCommand(path: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val connection = connectionFactory.open(buildCommandUrl(path))
+            try {
+                connection.requestMethod = "POST"
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = config.network.timeoutMs
+                connection.readTimeout = config.network.timeoutMs
+                val apiKey = config.apiKey.trim()
+                if (apiKey.isNotEmpty()) {
+                    connection.setRequestProperty("X-API-Key", apiKey)
+                }
+                val responseCode = connection.responseCode
+                when {
+                    responseCode == HttpURLConnection.HTTP_OK -> true
+                    isLocalTlsRedirect(responseCode, connection) -> {
+                        postViaLocalTls(
+                            location = connection.getHeaderField("Location"),
+                            apiKey = apiKey
+                        )
+                    }
+                    else -> false
+                }
+            } finally {
+                connection.disconnect()
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun postViaLocalTls(location: String?, apiKey: String): Boolean {
+        if (!config.network.allowInsecureLocalTls || location.isNullOrBlank()) return false
+        val httpsUrl = URL(location)
+        val connection = connectionFactory.open(httpsUrl)
+        return try {
+            if (connection is HttpsURLConnection) {
+                configureInsecureLoopbackTls(connection)
+            }
+            connection.requestMethod = "POST"
+            connection.connectTimeout = config.network.timeoutMs
+            connection.readTimeout = config.network.timeoutMs
+            if (apiKey.isNotEmpty()) {
+                connection.setRequestProperty("X-API-Key", apiKey)
+            }
+            connection.responseCode == HttpURLConnection.HTTP_OK
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun buildPingUrl(): URL = buildCommandUrl(config.endpoint.pingPath)
+
+    private fun buildCommandUrl(path: String): URL {
         val base = config.endpoint.baseUrl.trimEnd('/')
-        val path = config.endpoint.pingPath.trimStart('/')
-        return URL("$base/$path")
+        val trimmedPath = path.trimStart('/')
+        return URL("$base/$trimmedPath")
     }
 
     private fun isLocalTlsRedirect(
