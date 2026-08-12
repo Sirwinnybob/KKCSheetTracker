@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
 import android.util.LruCache
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,7 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -52,6 +54,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -83,6 +86,7 @@ import kotlin.math.roundToInt
 
 private const val CONTINUOUS_MAX_ZOOM = 20f
 private const val CONTINUOUS_MIN_ZOOM = 1f
+private const val CONTINUOUS_PDF_RENDER_TRACE_TAG = "PdfRenderTrace"
 
 internal data class FlingStepResult(
     val nextVelocity: Float,
@@ -128,7 +132,7 @@ internal fun <T> lruEvictionCandidates(order: List<T>, maxOpen: Int): List<T> =
 /** A sub-rectangle of a page, expressed as fractions (0..1) of that page's own width/height. */
 internal data class UnitRect(val left: Float, val top: Float, val right: Float, val bottom: Float)
 
-/** Bounds of a sharp crop in the pane's untransformed, screen-space coordinate system. */
+/** Bounds of a sharp crop in the padded content host's coordinate space. */
 internal data class ContinuousCropOverlayBounds(
     val leftPx: Float,
     val topPx: Float,
@@ -137,28 +141,23 @@ internal data class ContinuousCropOverlayBounds(
 )
 
 /**
- * Clips a page's already-transformed bounds to the pane viewport. The result is used to draw a
- * sharp crop as a sibling of the transformed document, so Compose never magnifies that crop a
- * second time.
+ * Maps a previously rendered PDF-relative crop back through the page's current transformed
+ * bounds. The caller clips the resulting full-size rectangle; it must never edge-resize it.
  */
 internal fun resolveContinuousCropOverlayBounds(
     pageLeftPx: Float,
     pageTopPx: Float,
     pageRightPx: Float,
     pageBottomPx: Float,
-    viewportWidthPx: Float,
-    viewportHeightPx: Float
-): ContinuousCropOverlayBounds? {
-    val left = max(0f, pageLeftPx)
-    val top = max(0f, pageTopPx)
-    val right = min(viewportWidthPx, pageRightPx)
-    val bottom = min(viewportHeightPx, pageBottomPx)
-    if (right <= left || bottom <= top) return null
+    cropFrac: UnitRect
+): ContinuousCropOverlayBounds {
+    val pageWidth = pageRightPx - pageLeftPx
+    val pageHeight = pageBottomPx - pageTopPx
     return ContinuousCropOverlayBounds(
-        leftPx = left,
-        topPx = top,
-        widthPx = right - left,
-        heightPx = bottom - top
+        leftPx = pageLeftPx + cropFrac.left * pageWidth,
+        topPx = pageTopPx + cropFrac.top * pageHeight,
+        widthPx = (cropFrac.right - cropFrac.left) * pageWidth,
+        heightPx = (cropFrac.bottom - cropFrac.top) * pageHeight
     )
 }
 
@@ -196,8 +195,9 @@ internal fun shouldRenderContinuousPdfCrop(
     inWindow: Boolean,
     zoomedIn: Boolean,
     settled: Boolean,
-    sourceVariantChanged: Boolean
-): Boolean = inWindow && zoomedIn && (settled || sourceVariantChanged)
+    sourceVariantChanged: Boolean,
+    sourceGeometryReady: Boolean = true
+): Boolean = sourceGeometryReady && inWindow && zoomedIn && (settled || sourceVariantChanged)
 
 internal fun coalesceMainAxisDelta(pending: Float, incoming: Float): Float = pending + incoming
 
@@ -489,7 +489,7 @@ private val continuousPdfEngineDisposalScope = CoroutineScope(SupervisorJob() + 
 private data class ContinuousCropOverlay(
     val renderIdentity: ContinuousPageRenderIdentity,
     val bitmap: Bitmap,
-    val bounds: ContinuousCropOverlayBounds
+    val cropFrac: UnitRect
 )
 
 @Composable
@@ -564,6 +564,9 @@ internal fun ContinuousReferencePdfPane(
     val cropOverlays = remember(fileIdentitySeed, docKey, preferDarkMode) {
         mutableStateMapOf<Int, ContinuousCropOverlay>()
     }
+    val pageCoordinatesByDisplayPage = remember(fileIdentitySeed, docKey) {
+        mutableStateMapOf<Int, LayoutCoordinates>()
+    }
     val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
     val currentOnSingleTap by rememberUpdatedState(onSingleTap)
     val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
@@ -600,6 +603,8 @@ internal fun ContinuousReferencePdfPane(
     val flingScope = rememberCoroutineScope()
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var contentSize by remember { mutableStateOf(IntSize.Zero) }
+    var contentCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val zoomedIn = sharedZoom > 1.02f
 
     LaunchedEffect(zoomedIn) {
@@ -758,6 +763,7 @@ internal fun ContinuousReferencePdfPane(
         var baseBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
         var thumbnailBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
         var aspectRatio by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Float?>(null) }
+        var sourceGeometryReady by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf(false) }
         var baseRenderEligible by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf(false) }
         var visibleSinceMillis by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Long?>(null) }
         // Keep this across the render-identity swap: when the timeout toggles the light/dark
@@ -784,10 +790,24 @@ internal fun ContinuousReferencePdfPane(
         )
 
         LaunchedEffect(renderIdentity, fileIdentitySeed, docKey) {
+            Log.d(
+                CONTINUOUS_PDF_RENDER_TRACE_TAG,
+                "source page=$displayPage sourcePage=${resolved.sourcePage} dark=$preferDarkMode " +
+                    "file=${file?.absolutePath} zoom=$sharedZoom visible=$pageIsVisible inWindow=$inWindow"
+            )
             if (file == null) return@LaunchedEffect
             aspectRatio = withContext(Dispatchers.IO) {
                 engineCache.get(file).pageAspectRatio((resolved.sourcePage - 1).coerceAtLeast(0))
             }
+        }
+
+        // A source swap (light <-> dark PDF) can change the page aspect ratio. Do not crop from
+        // the outgoing page bounds; wait through the layout frame that applies the new ratio.
+        LaunchedEffect(renderIdentity, aspectRatio) {
+            if (aspectRatio == null) return@LaunchedEffect
+            withFrameNanos { }
+            sourceGeometryReady = true
+            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop geometry ready page=$displayPage dark=$preferDarkMode ratio=$aspectRatio")
         }
 
         LaunchedEffect(renderIdentity, pageIsVisible, fileIdentitySeed, docKey) {
@@ -857,10 +877,11 @@ internal fun ContinuousReferencePdfPane(
             zoomedIn,
             settled,
             sourceVariantChanged,
+            sourceGeometryReady,
             matteColorArgb,
             pageCoordinates,
-            paneRootCoordinates,
-            paneSize,
+            contentCoordinates,
+            contentSize,
             fileIdentitySeed,
             docKey
         ) {
@@ -868,22 +889,30 @@ internal fun ContinuousReferencePdfPane(
                     inWindow = inWindow,
                     zoomedIn = zoomedIn,
                     settled = settled,
-                    sourceVariantChanged = sourceVariantChanged
-                )
+                    sourceVariantChanged = sourceVariantChanged,
+                    sourceGeometryReady = sourceGeometryReady
+            )
+            Log.d(
+                CONTINUOUS_PDF_RENDER_TRACE_TAG,
+                "crop decision page=$displayPage dark=$preferDarkMode zoom=$sharedZoom inWindow=$inWindow " +
+                    "visible=$pageIsVisible settled=$settled variantChanged=$sourceVariantChanged " +
+                    "geometryReady=$sourceGeometryReady shouldRender=$shouldRenderCrop"
+            )
             if (file == null || !shouldRenderCrop) return@LaunchedEffect
             val pc = pageCoordinates
-            val root = paneRootCoordinates
-            if (pc == null || root == null || !pc.isAttached || paneSize == IntSize.Zero) {
+            val host = contentCoordinates
+            if (pc == null || host == null || !pc.isAttached || contentSize == IntSize.Zero) {
+                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop deferred page=$displayPage: geometry unavailable")
                 return@LaunchedEffect
             }
-            val rect = root.localBoundingBoxOf(pc, clipBounds = false)
+            val rect = host.localBoundingBoxOf(pc, clipBounds = false)
             val frac = visiblePageFraction(
                 pageLeft = rect.left,
                 pageTop = rect.top,
                 pageRight = rect.right,
                 pageBottom = rect.bottom,
-                viewportWidth = paneSize.width.toFloat(),
-                viewportHeight = paneSize.height.toFloat()
+                viewportWidth = contentSize.width.toFloat(),
+                viewportHeight = contentSize.height.toFloat()
             ) ?: return@LaunchedEffect
             val outputSize = resolveVisibleCropRenderSize(
                 pageWidthPx = rect.right - rect.left,
@@ -891,20 +920,14 @@ internal fun ContinuousReferencePdfPane(
                 cropFrac = frac
             )
             if (outputSize == null) {
+                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop skipped page=$displayPage: pixel budget exceeded frac=$frac")
                 cropOverlays.remove(displayPage)
                 return@LaunchedEffect
             }
-            val overlayBounds = resolveContinuousCropOverlayBounds(
-                pageLeftPx = rect.left,
-                pageTopPx = rect.top,
-                pageRightPx = rect.right,
-                pageBottomPx = rect.bottom,
-                viewportWidthPx = paneSize.width.toFloat(),
-                viewportHeightPx = paneSize.height.toFloat()
-            ) ?: run {
-                cropOverlays.remove(displayPage)
-                return@LaunchedEffect
-            }
+            Log.d(
+                CONTINUOUS_PDF_RENDER_TRACE_TAG,
+                "crop start page=$displayPage dark=$preferDarkMode pageRect=$rect output=$outputSize fraction=$frac"
+            )
             val tile = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderCropFraction(
                     pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
@@ -920,10 +943,15 @@ internal fun ContinuousReferencePdfPane(
                 cropOverlays[displayPage] = ContinuousCropOverlay(
                     renderIdentity = renderIdentity,
                     bitmap = tile,
-                    bounds = overlayBounds
+                    cropFrac = frac
                 )
                 lastRenderedCropVariant = preferDarkMode
             }
+            Log.d(
+                CONTINUOUS_PDF_RENDER_TRACE_TAG,
+                "crop complete page=$displayPage dark=$preferDarkMode rendered=${tile != null} " +
+                    "size=${tile?.width}x${tile?.height}"
+            )
         }
 
         // markupStrokesForPage already scopes visibility (markupStrokesVisible + centered
@@ -967,7 +995,10 @@ internal fun ContinuousReferencePdfPane(
                 modifier = Modifier
                     .size(width = targetWidthDp, height = targetHeightDp)
                     .onSizeChanged { boxSize = it }
-                    .onGloballyPositioned { pageCoordinates = it }
+                    .onGloballyPositioned {
+                        pageCoordinates = it
+                        pageCoordinatesByDisplayPage[displayPage] = it
+                    }
             ) {
                 PageBitmapLayers(
                     baseBitmap = baseBitmap,
@@ -1203,7 +1234,14 @@ internal fun ContinuousReferencePdfPane(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
+                .clipToBounds()
+                .onSizeChanged { contentSize = it }
+                .onGloballyPositioned { contentCoordinates = it }
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
                     scaleX = sharedZoom
                     scaleY = sharedZoom
                     // Main-axis overscroll is stored in list-space (unscaled) units, same
@@ -1222,42 +1260,71 @@ internal fun ContinuousReferencePdfPane(
                         }
                     }
                 }
-        ) {
-            if (orientation == Orientation.Vertical) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    state = listState,
-                    userScrollEnabled = false,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(count = totalPages, key = { it + 1 }) { index -> pageContent(index + 1) }
+            ) {
+                if (orientation == Orientation.Vertical) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        state = listState,
+                        userScrollEnabled = false,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(count = totalPages, key = { it + 1 }) { index -> pageContent(index + 1) }
+                    }
+                } else {
+                    LazyRow(
+                        modifier = Modifier.fillMaxSize(),
+                        state = listState,
+                        userScrollEnabled = false,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(count = totalPages, key = { it + 1 }) { index ->
+                            Box(Modifier.fillParentMaxWidth()) { pageContent(index + 1) }
+                        }
+                    }
                 }
-            } else {
-                LazyRow(
-                    modifier = Modifier.fillMaxSize(),
-                    state = listState,
-                    userScrollEnabled = false,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(count = totalPages, key = { it + 1 }) { index ->
-                        Box(Modifier.fillParentMaxWidth()) { pageContent(index + 1) }
+            }
+            // The overlay is outside the graphicsLayer, so it must observe every state input to
+            // that layer (and LazyList's live position) to map its retained PDF fraction again
+            // on every pan/zoom frame.
+            val overlayMotionFrame = sharedZoom + sharedCrossPan + sharedMainAxisOverscroll +
+                listState.firstVisibleItemIndex + listState.firstVisibleItemScrollOffset
+            Canvas(Modifier.fillMaxSize()) {
+                cropOverlays.values.forEach { overlay ->
+                    val pageCoordinates = pageCoordinatesByDisplayPage[overlay.renderIdentity.displayPage]
+                    val host = contentCoordinates
+                    if (overlayMotionFrame.isFinite() && zoomedIn &&
+                        overlay.renderIdentity.preferDarkMode == preferDarkMode &&
+                        pageCoordinates != null && host != null && pageCoordinates.isAttached
+                    ) {
+                        val pageBounds = host.localBoundingBoxOf(pageCoordinates, clipBounds = false)
+                        val bounds = resolveContinuousCropOverlayBounds(
+                            pageLeftPx = pageBounds.left,
+                            pageTopPx = pageBounds.top,
+                            pageRightPx = pageBounds.right,
+                            pageBottomPx = pageBounds.bottom,
+                            cropFrac = overlay.cropFrac
+                        )
+                        Log.d(
+                            CONTINUOUS_PDF_RENDER_TRACE_TAG,
+                            "canvas draw page=${overlay.renderIdentity.displayPage} dark=${overlay.renderIdentity.preferDarkMode} " +
+                                "bitmap=${overlay.bitmap.width}x${overlay.bitmap.height} pageRect=$pageBounds " +
+                                "fraction=${overlay.cropFrac} dest=$bounds canvas=${size.width}x${size.height}"
+                        )
+                        drawImage(
+                            image = overlay.bitmap.asImageBitmap(),
+                            srcOffset = IntOffset.Zero,
+                            srcSize = IntSize(overlay.bitmap.width, overlay.bitmap.height),
+                            dstOffset = IntOffset(bounds.leftPx.roundToInt(), bounds.topPx.roundToInt()),
+                            dstSize = IntSize(
+                                bounds.widthPx.roundToInt().coerceAtLeast(1),
+                                bounds.heightPx.roundToInt().coerceAtLeast(1)
+                            ),
+                            filterQuality = FilterQuality.None
+                        )
                     }
                 }
             }
         }
-        }
-        val density = LocalDensity.current
-        cropOverlays.values.forEach { overlay ->
-            with(density) {
-                Image(
-                    bitmap = overlay.bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .offset(x = overlay.bounds.leftPx.toDp(), y = overlay.bounds.topPx.toDp())
-                        .size(width = overlay.bounds.widthPx.toDp(), height = overlay.bounds.heightPx.toDp()),
-                    contentScale = ContentScale.FillBounds
-                )
-            }
         }
     }
 }

@@ -16,18 +16,32 @@ import org.junit.Test
 class ContinuousReferencePdfPaneTest {
 
     @Test
-    fun continuousCropOverlayBounds_clipsZoomedPageToPaneViewport() {
+    fun continuousCropOverlayBounds_tracksTheStoredPdfFraction() {
         assertEquals(
-            ContinuousCropOverlayBounds(leftPx = 0f, topPx = 0f, widthPx = 1718f, heightPx = 2766f),
+            ContinuousCropOverlayBounds(leftPx = 200f, topPx = 260f, widthPx = 300f, heightPx = 200f),
             resolveContinuousCropOverlayBounds(
-                pageLeftPx = -2_000f,
-                pageTopPx = -500f,
-                pageRightPx = 4_000f,
-                pageBottomPx = 4_000f,
-                viewportWidthPx = 1_718f,
-                viewportHeightPx = 2_766f
+                pageLeftPx = -100f,
+                pageTopPx = 60f,
+                pageRightPx = 900f,
+                pageBottomPx = 1_060f,
+                cropFrac = UnitRect(left = 0.3f, top = 0.2f, right = 0.6f, bottom = 0.4f)
             )
         )
+    }
+
+    @Test
+    fun continuousCropOverlayBounds_followsTheCurrentPageBounds() {
+        val bounds = resolveContinuousCropOverlayBounds(
+            pageLeftPx = -460f,
+            pageTopPx = -540f,
+            pageRightPx = 3_540f,
+            pageBottomPx = 4_460f,
+            cropFrac = UnitRect(left = 0.3f, top = 0.2f, right = 0.45f, bottom = 0.28f)
+        )
+        assertEquals(740f, bounds.leftPx, 0.001f)
+        assertEquals(460f, bounds.topPx, 0.001f)
+        assertEquals(600f, bounds.widthPx, 0.001f)
+        assertEquals(400f, bounds.heightPx, 0.001f)
     }
 
     @Test
@@ -38,6 +52,19 @@ class ContinuousReferencePdfPaneTest {
                 zoomedIn = true,
                 settled = false,
                 sourceVariantChanged = true
+            )
+        )
+    }
+
+    @Test
+    fun continuousPdfCropRender_waitsForTheNewSourceGeometry() {
+        assertFalse(
+            shouldRenderContinuousPdfCrop(
+                inWindow = true,
+                zoomedIn = true,
+                settled = true,
+                sourceVariantChanged = true,
+                sourceGeometryReady = false
             )
         )
     }
