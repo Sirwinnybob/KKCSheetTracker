@@ -3,6 +3,7 @@ package com.kkc.sheettracker.ui.viewer
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
+import com.kkc.sheettracker.data.IdlePhase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -15,6 +16,15 @@ import java.io.File
 import kotlin.math.abs
 
 class SheetViewerScreenTest {
+
+    @Test
+    fun shouldInvertCncSheetBitmap_matchesTimeoutAndDarkSheetRules() {
+        assertTrue(shouldInvertCncSheetBitmap(IdlePhase.DIMMED, false, true))
+        assertTrue(shouldInvertCncSheetBitmap(IdlePhase.SYNC_PAUSED, false, true))
+        assertTrue(shouldInvertCncSheetBitmap(IdlePhase.ACTIVE, true, false))
+        assertFalse(shouldInvertCncSheetBitmap(IdlePhase.ACTIVE, true, true))
+        assertFalse(shouldInvertCncSheetBitmap(IdlePhase.ACTIVE, false, false))
+    }
 
     @Test
     fun sheetRenderQuality_usesHalfScaleForAdjacentAndFullScaleForCurrent() {

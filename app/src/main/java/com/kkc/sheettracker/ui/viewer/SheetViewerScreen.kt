@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.data.IdlePhase
 import com.kkc.sheettracker.ui.components.ClockInButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
@@ -66,6 +67,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
@@ -117,6 +120,7 @@ import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SheetStatusKey
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
+import com.kkc.sheettracker.ui.components.LocalIdlePhase
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarCncDecoration
 import com.kkc.sheettracker.ui.components.PdfViewportState
@@ -157,6 +161,14 @@ private const val VIEWER_PARITY_TAG = "KKC_APP_STATE_PARITY_VIEWER"
 private const val VIEWER_PREPARED_TAG = "KKC_PREPARED_STATE"
 private const val RENDER_CACHE_MAX_PAGES = 6
 private const val RENDER_PREWARM_RADIUS = 2
+private val SHEET_BITMAP_INVERSION_COLOR_MATRIX = ColorMatrix(
+    floatArrayOf(
+        -1f, 0f, 0f, 0f, 255f,
+        0f, -1f, 0f, 0f, 255f,
+        0f, 0f, -1f, 0f, 255f,
+        0f, 0f, 0f, 1f, 0f
+    )
+)
 
 private data class RenderedSheetPage(
     val pageBitmap: Bitmap?,
@@ -227,6 +239,12 @@ internal fun shouldShowPenMarkupOverlay(
     penModeEnabled: Boolean
 ): Boolean = penModeEnabled
 
+internal fun shouldInvertCncSheetBitmap(
+    idlePhase: IdlePhase,
+    isDarkTheme: Boolean,
+    useStandardSheets: Boolean
+): Boolean = idlePhase != IdlePhase.ACTIVE || (isDarkTheme && !useStandardSheets)
+
 /** Compose may retain a displayed bitmap in a recorded display list after state changes. */
 internal fun shouldRecycleRenderedPageBitmap(bitmap: Bitmap?, wasDisplayed: Boolean): Boolean {
     return bitmap != null && !wasDisplayed && !bitmap.isRecycled
@@ -270,6 +288,7 @@ fun SheetViewerScreen(
     pdfFilename: String,
     startPage: Int,
     isDarkTheme: Boolean,
+    useStandardSheets: Boolean,
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
@@ -279,6 +298,12 @@ fun SheetViewerScreen(
     onUiVisibilityChanged: (Boolean) -> Unit = {},
     clockInState: ClockInState? = null
 ) {
+    val idlePhase by LocalIdlePhase.current.collectAsState()
+    val invertSheetBitmap = shouldInvertCncSheetBitmap(
+        idlePhase = idlePhase,
+        isDarkTheme = isDarkTheme,
+        useStandardSheets = useStandardSheets
+    )
     val scanState by scanCoordinator.state.collectAsState()
     val unifiedEngine = remember(scanState.snapshot.basePath) { UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), BuildConfig.DEBUG) }
     val progressVersion by progressStore.progressVersion.collectAsState()
@@ -1635,6 +1660,7 @@ fun SheetViewerScreen(
                             if (showFullPdfPage || markupEnabled) {
                                 MarkupPdfPageView(
                                     bitmap = activeBitmap,
+                                    invertSheetBitmap = invertSheetBitmap,
                                     resetZoomTrigger = resetZoomTrigger,
                                     inputEnabled = markupEnabled,
                                     modifier = topModifier
@@ -1657,6 +1683,7 @@ fun SheetViewerScreen(
                             } else {
                                 DiagramView(
                                     bitmap = activeBitmap,
+                                    invertSheetBitmap = invertSheetBitmap,
                                     parts = parts,
                                     selectedPartNumber = selectedPartNumber,
                                     diagramBboxes = diagramBboxes,
@@ -2616,6 +2643,7 @@ internal fun computeAnchoredZoomPan(
 @Composable
 private fun MarkupPdfPageView(
     bitmap: Bitmap,
+    invertSheetBitmap: Boolean,
     resetZoomTrigger: Int,
     markupStrokes: List<PdfInkStroke>,
     inputEnabled: Boolean,
@@ -2713,6 +2741,7 @@ private fun MarkupPdfPageView(
                 },
             contentScale = ContentScale.Fit,
             alignment = Alignment.Center,
+            colorFilter = if (invertSheetBitmap) ColorFilter.colorMatrix(SHEET_BITMAP_INVERSION_COLOR_MATRIX) else null,
             filterQuality = FilterQuality.None
         )
 
@@ -2738,6 +2767,7 @@ private fun MarkupPdfPageView(
 @Composable
 internal fun DiagramView(
     bitmap: Bitmap,
+    invertSheetBitmap: Boolean = false,
     parts: List<Part>,
     selectedPartNumber: Int?,
     diagramBboxes: Map<Int, List<Rect>>,
@@ -2863,6 +2893,7 @@ internal fun DiagramView(
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
                 alignment = UiAlignment.Center,
+                colorFilter = if (invertSheetBitmap) ColorFilter.colorMatrix(SHEET_BITMAP_INVERSION_COLOR_MATRIX) else null,
                 filterQuality = FilterQuality.None
             )
 
