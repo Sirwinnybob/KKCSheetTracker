@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
@@ -82,7 +83,6 @@ import kotlin.math.roundToInt
 
 private const val CONTINUOUS_MAX_ZOOM = 20f
 private const val CONTINUOUS_MIN_ZOOM = 1f
-private const val CONTINUOUS_PDF_RENDER_TRACE_TAG = "PdfRenderTrace"
 
 internal data class FlingStepResult(
     val nextVelocity: Float,
@@ -127,6 +127,40 @@ internal fun <T> lruEvictionCandidates(order: List<T>, maxOpen: Int): List<T> =
 
 /** A sub-rectangle of a page, expressed as fractions (0..1) of that page's own width/height. */
 internal data class UnitRect(val left: Float, val top: Float, val right: Float, val bottom: Float)
+
+/** Bounds of a sharp crop in the pane's untransformed, screen-space coordinate system. */
+internal data class ContinuousCropOverlayBounds(
+    val leftPx: Float,
+    val topPx: Float,
+    val widthPx: Float,
+    val heightPx: Float
+)
+
+/**
+ * Clips a page's already-transformed bounds to the pane viewport. The result is used to draw a
+ * sharp crop as a sibling of the transformed document, so Compose never magnifies that crop a
+ * second time.
+ */
+internal fun resolveContinuousCropOverlayBounds(
+    pageLeftPx: Float,
+    pageTopPx: Float,
+    pageRightPx: Float,
+    pageBottomPx: Float,
+    viewportWidthPx: Float,
+    viewportHeightPx: Float
+): ContinuousCropOverlayBounds? {
+    val left = max(0f, pageLeftPx)
+    val top = max(0f, pageTopPx)
+    val right = min(viewportWidthPx, pageRightPx)
+    val bottom = min(viewportHeightPx, pageBottomPx)
+    if (right <= left || bottom <= top) return null
+    return ContinuousCropOverlayBounds(
+        leftPx = left,
+        topPx = top,
+        widthPx = right - left,
+        heightPx = bottom - top
+    )
+}
 
 internal fun continuousPdfCanvasColor(
     preferDarkMode: Boolean,
@@ -452,13 +486,16 @@ internal class PdfEngineCache(
 // which in Kotlin is file-private (not package-private) and therefore not visible here.
 private val continuousPdfEngineDisposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+private data class ContinuousCropOverlay(
+    val renderIdentity: ContinuousPageRenderIdentity,
+    val bitmap: Bitmap,
+    val bounds: ContinuousCropOverlayBounds
+)
+
 @Composable
 private fun PageBitmapLayers(
     baseBitmap: Bitmap?,
     thumbnailBitmap: Bitmap?,
-    cropBitmap: Bitmap?,
-    cropFrac: UnitRect?,
-    boxSize: IntSize,
     emptyCanvasColor: Color,
     contentDescription: String
 ) {
@@ -479,25 +516,6 @@ private fun PageBitmapLayers(
             )
         } else {
             Box(Modifier.fillMaxSize().background(emptyCanvasColor))
-        }
-        // Sharp crop tile of just the on-screen slice, positioned at its true sub-rect within
-        // this page's box so it lines up with the (softer, whole-page) base bitmap beneath it.
-        if (cropBitmap != null && cropFrac != null && boxSize != IntSize.Zero) {
-            val density = LocalDensity.current
-            val leftPx = cropFrac.left * boxSize.width
-            val topPx = cropFrac.top * boxSize.height
-            val wPx = ((cropFrac.right - cropFrac.left) * boxSize.width).coerceAtLeast(1f)
-            val hPx = ((cropFrac.bottom - cropFrac.top) * boxSize.height).coerceAtLeast(1f)
-            with(density) {
-                Image(
-                    bitmap = cropBitmap.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .offset(x = leftPx.toDp(), y = topPx.toDp())
-                        .size(width = wPx.toDp(), height = hPx.toDp()),
-                    contentScale = ContentScale.FillBounds
-                )
-            }
         }
     }
 }
@@ -543,6 +561,9 @@ internal fun ContinuousReferencePdfPane(
     }
 
     val listState = rememberLazyListState()
+    val cropOverlays = remember(fileIdentitySeed, docKey, preferDarkMode) {
+        mutableStateMapOf<Int, ContinuousCropOverlay>()
+    }
     val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
     val currentOnSingleTap by rememberUpdatedState(onSingleTap)
     val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
@@ -580,6 +601,10 @@ internal fun ContinuousReferencePdfPane(
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val zoomedIn = sharedZoom > 1.02f
+
+    LaunchedEffect(zoomedIn) {
+        if (!zoomedIn) cropOverlays.clear()
+    }
 
     // Applies a main-axis scroll delta (list-space units), splitting it between real list
     // scroll and sharedMainAxisOverscroll via splitScrollDelta. Must run inside a
@@ -732,8 +757,6 @@ internal fun ContinuousReferencePdfPane(
         val pageIsVisible = displayPage in visiblePages
         var baseBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
         var thumbnailBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
-        var cropBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
-        var cropFrac by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<UnitRect?>(null) }
         var aspectRatio by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Float?>(null) }
         var baseRenderEligible by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf(false) }
         var visibleSinceMillis by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Long?>(null) }
@@ -761,11 +784,6 @@ internal fun ContinuousReferencePdfPane(
         )
 
         LaunchedEffect(renderIdentity, fileIdentitySeed, docKey) {
-            Log.d(
-                CONTINUOUS_PDF_RENDER_TRACE_TAG,
-                "source page=$displayPage sourcePage=${resolved.sourcePage} dark=$preferDarkMode " +
-                    "file=${file?.absolutePath} zoom=$sharedZoom visible=$pageIsVisible inWindow=$inWindow"
-            )
             if (file == null) return@LaunchedEffect
             aspectRatio = withContext(Dispatchers.IO) {
                 engineCache.get(file).pageAspectRatio((resolved.sourcePage - 1).coerceAtLeast(0))
@@ -776,6 +794,7 @@ internal fun ContinuousReferencePdfPane(
             if (!pageIsVisible) {
                 visibleSinceMillis = null
                 baseRenderEligible = false
+                cropOverlays.remove(displayPage)
                 return@LaunchedEffect
             }
             val dwellStartMillis = SystemClock.uptimeMillis()
@@ -798,7 +817,6 @@ internal fun ContinuousReferencePdfPane(
         LaunchedEffect(renderIdentity, inWindow, pageIsVisible, baseRenderEligible, matteColorArgb, fileIdentitySeed, docKey) {
             if (file == null || !inWindow || !pageIsVisible || !baseRenderEligible || baseBitmap != null) return@LaunchedEffect
             val viewSize = boxSize.takeIf { it != IntSize.Zero } ?: IntSize(1080, 1400)
-            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "base start page=$displayPage dark=$preferDarkMode size=$viewSize zoom=$sharedZoom")
             baseBitmap = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderBasePage(
                     pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
@@ -806,7 +824,6 @@ internal fun ContinuousReferencePdfPane(
                     matteColorArgb = matteColorArgb
                 )
             }
-            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "base complete page=$displayPage dark=$preferDarkMode rendered=${baseBitmap != null}")
         }
 
         // Instant low-res placeholder: unconditional on settled (unlike the base render below),
@@ -847,26 +864,16 @@ internal fun ContinuousReferencePdfPane(
             fileIdentitySeed,
             docKey
         ) {
-            if (!zoomedIn) {
-                cropBitmap = null
-                cropFrac = null
-            }
             val shouldRenderCrop = shouldRenderContinuousPdfCrop(
                     inWindow = inWindow,
                     zoomedIn = zoomedIn,
                     settled = settled,
                     sourceVariantChanged = sourceVariantChanged
                 )
-            Log.d(
-                CONTINUOUS_PDF_RENDER_TRACE_TAG,
-                "crop decision page=$displayPage dark=$preferDarkMode zoom=$sharedZoom inWindow=$inWindow " +
-                    "visible=$pageIsVisible settled=$settled variantChanged=$sourceVariantChanged shouldRender=$shouldRenderCrop"
-            )
             if (file == null || !shouldRenderCrop) return@LaunchedEffect
             val pc = pageCoordinates
             val root = paneRootCoordinates
             if (pc == null || root == null || !pc.isAttached || paneSize == IntSize.Zero) {
-                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop deferred page=$displayPage: geometry unavailable")
                 return@LaunchedEffect
             }
             val rect = root.localBoundingBoxOf(pc, clipBounds = false)
@@ -877,23 +884,27 @@ internal fun ContinuousReferencePdfPane(
                 pageBottom = rect.bottom,
                 viewportWidth = paneSize.width.toFloat(),
                 viewportHeight = paneSize.height.toFloat()
-            ) ?: run {
-                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop skipped page=$displayPage: outside viewport")
-                return@LaunchedEffect
-            }
+            ) ?: return@LaunchedEffect
             val outputSize = resolveVisibleCropRenderSize(
                 pageWidthPx = rect.right - rect.left,
                 pageHeightPx = rect.bottom - rect.top,
                 cropFrac = frac
             )
             if (outputSize == null) {
-                // Do not retain a smaller tile and stretch it over an oversized viewport crop.
-                cropBitmap = null
-                cropFrac = null
-                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop skipped page=$displayPage: pixel budget exceeded")
+                cropOverlays.remove(displayPage)
                 return@LaunchedEffect
             }
-            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop start page=$displayPage dark=$preferDarkMode output=$outputSize fraction=$frac")
+            val overlayBounds = resolveContinuousCropOverlayBounds(
+                pageLeftPx = rect.left,
+                pageTopPx = rect.top,
+                pageRightPx = rect.right,
+                pageBottomPx = rect.bottom,
+                viewportWidthPx = paneSize.width.toFloat(),
+                viewportHeightPx = paneSize.height.toFloat()
+            ) ?: run {
+                cropOverlays.remove(displayPage)
+                return@LaunchedEffect
+            }
             val tile = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderCropFraction(
                     pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
@@ -906,11 +917,13 @@ internal fun ContinuousReferencePdfPane(
                 )
             }
             if (tile != null) {
-                cropBitmap = tile
-                cropFrac = frac
+                cropOverlays[displayPage] = ContinuousCropOverlay(
+                    renderIdentity = renderIdentity,
+                    bitmap = tile,
+                    bounds = overlayBounds
+                )
                 lastRenderedCropVariant = preferDarkMode
             }
-            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop complete page=$displayPage dark=$preferDarkMode rendered=${tile != null}")
         }
 
         // markupStrokesForPage already scopes visibility (markupStrokesVisible + centered
@@ -959,9 +972,6 @@ internal fun ContinuousReferencePdfPane(
                 PageBitmapLayers(
                     baseBitmap = baseBitmap,
                     thumbnailBitmap = thumbnailBitmap,
-                    cropBitmap = cropBitmap,
-                    cropFrac = cropFrac,
-                    boxSize = boxSize,
                     emptyCanvasColor = emptyCanvasColor,
                     contentDescription = "Page $displayPage"
                 )
@@ -1235,6 +1245,19 @@ internal fun ContinuousReferencePdfPane(
                 }
             }
         }
+        }
+        val density = LocalDensity.current
+        cropOverlays.values.forEach { overlay ->
+            with(density) {
+                Image(
+                    bitmap = overlay.bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .offset(x = overlay.bounds.leftPx.toDp(), y = overlay.bounds.topPx.toDp())
+                        .size(width = overlay.bounds.widthPx.toDp(), height = overlay.bounds.heightPx.toDp()),
+                    contentScale = ContentScale.FillBounds
+                )
+            }
         }
     }
 }

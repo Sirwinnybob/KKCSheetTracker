@@ -16,6 +16,21 @@ import org.junit.Test
 class ContinuousReferencePdfPaneTest {
 
     @Test
+    fun continuousCropOverlayBounds_clipsZoomedPageToPaneViewport() {
+        assertEquals(
+            ContinuousCropOverlayBounds(leftPx = 0f, topPx = 0f, widthPx = 1718f, heightPx = 2766f),
+            resolveContinuousCropOverlayBounds(
+                pageLeftPx = -2_000f,
+                pageTopPx = -500f,
+                pageRightPx = 4_000f,
+                pageBottomPx = 4_000f,
+                viewportWidthPx = 1_718f,
+                viewportHeightPx = 2_766f
+            )
+        )
+    }
+
+    @Test
     fun continuousPdfCropRender_bypassesMotionDebounceForNewDarkVariant() {
         assertTrue(
             shouldRenderContinuousPdfCrop(
