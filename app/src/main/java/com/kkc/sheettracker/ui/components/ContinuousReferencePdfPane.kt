@@ -82,6 +82,7 @@ import kotlin.math.roundToInt
 
 private const val CONTINUOUS_MAX_ZOOM = 20f
 private const val CONTINUOUS_MIN_ZOOM = 1f
+private const val CONTINUOUS_PDF_RENDER_TRACE_TAG = "PdfRenderTrace"
 
 internal data class FlingStepResult(
     val nextVelocity: Float,
@@ -151,6 +152,18 @@ internal fun hasContinuousPdfPageRenderDwelled(
     visibleSinceMillis: Long?,
     nowMillis: Long
 ): Boolean = visibleSinceMillis != null && nowMillis - visibleSinceMillis >= 300L
+
+/**
+ * A light/dark source swap invalidates the only sharp bitmap while the page remains zoomed.
+ * That replacement must not wait for a possibly stale scroll-settle signal; ordinary gesture
+ * and scroll updates still retain the debounce.
+ */
+internal fun shouldRenderContinuousPdfCrop(
+    inWindow: Boolean,
+    zoomedIn: Boolean,
+    settled: Boolean,
+    sourceVariantChanged: Boolean
+): Boolean = inWindow && zoomedIn && (settled || sourceVariantChanged)
 
 internal fun coalesceMainAxisDelta(pending: Float, incoming: Float): Float = pending + incoming
 
@@ -724,6 +737,13 @@ internal fun ContinuousReferencePdfPane(
         var aspectRatio by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Float?>(null) }
         var baseRenderEligible by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf(false) }
         var visibleSinceMillis by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Long?>(null) }
+        // Keep this across the render-identity swap: when the timeout toggles the light/dark
+        // source while a page is zoomed, the new source needs one immediate sharp crop even when
+        // the continuous list has not yet reported that it settled.
+        var lastRenderedCropVariant by remember(displayPage, fileIdentitySeed, docKey) {
+            mutableStateOf(preferDarkMode)
+        }
+        val sourceVariantChanged = lastRenderedCropVariant != preferDarkMode
         // Real box size, needed so PdfMarkupOverlay's page transform is valid — with
         // viewSize left at IntSize.Zero, currentTransform() returns null and the overlay's
         // pointerInteropFilter bails out before ever registering a stroke. Also drives crop
@@ -741,6 +761,11 @@ internal fun ContinuousReferencePdfPane(
         )
 
         LaunchedEffect(renderIdentity, fileIdentitySeed, docKey) {
+            Log.d(
+                CONTINUOUS_PDF_RENDER_TRACE_TAG,
+                "source page=$displayPage sourcePage=${resolved.sourcePage} dark=$preferDarkMode " +
+                    "file=${file?.absolutePath} zoom=$sharedZoom visible=$pageIsVisible inWindow=$inWindow"
+            )
             if (file == null) return@LaunchedEffect
             aspectRatio = withContext(Dispatchers.IO) {
                 engineCache.get(file).pageAspectRatio((resolved.sourcePage - 1).coerceAtLeast(0))
@@ -773,6 +798,7 @@ internal fun ContinuousReferencePdfPane(
         LaunchedEffect(renderIdentity, inWindow, pageIsVisible, baseRenderEligible, matteColorArgb, fileIdentitySeed, docKey) {
             if (file == null || !inWindow || !pageIsVisible || !baseRenderEligible || baseBitmap != null) return@LaunchedEffect
             val viewSize = boxSize.takeIf { it != IntSize.Zero } ?: IntSize(1080, 1400)
+            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "base start page=$displayPage dark=$preferDarkMode size=$viewSize zoom=$sharedZoom")
             baseBitmap = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderBasePage(
                     pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
@@ -780,6 +806,7 @@ internal fun ContinuousReferencePdfPane(
                     matteColorArgb = matteColorArgb
                 )
             }
+            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "base complete page=$displayPage dark=$preferDarkMode rendered=${baseBitmap != null}")
         }
 
         // Instant low-res placeholder: unconditional on settled (unlike the base render below),
@@ -807,15 +834,41 @@ internal fun ContinuousReferencePdfPane(
         // Sharp crop of just the on-screen slice of this page — only while zoomed in and only
         // once the gesture/scroll has settled, so scrolling fast past a page never queues up a
         // render that immediately gets thrown away.
-        LaunchedEffect(renderIdentity, inWindow, zoomedIn, settled, matteColorArgb, fileIdentitySeed, docKey) {
+        LaunchedEffect(
+            renderIdentity,
+            inWindow,
+            zoomedIn,
+            settled,
+            sourceVariantChanged,
+            matteColorArgb,
+            pageCoordinates,
+            paneRootCoordinates,
+            paneSize,
+            fileIdentitySeed,
+            docKey
+        ) {
             if (!zoomedIn) {
                 cropBitmap = null
                 cropFrac = null
             }
-            if (file == null || !inWindow || !zoomedIn || !settled) return@LaunchedEffect
+            val shouldRenderCrop = shouldRenderContinuousPdfCrop(
+                    inWindow = inWindow,
+                    zoomedIn = zoomedIn,
+                    settled = settled,
+                    sourceVariantChanged = sourceVariantChanged
+                )
+            Log.d(
+                CONTINUOUS_PDF_RENDER_TRACE_TAG,
+                "crop decision page=$displayPage dark=$preferDarkMode zoom=$sharedZoom inWindow=$inWindow " +
+                    "visible=$pageIsVisible settled=$settled variantChanged=$sourceVariantChanged shouldRender=$shouldRenderCrop"
+            )
+            if (file == null || !shouldRenderCrop) return@LaunchedEffect
             val pc = pageCoordinates
             val root = paneRootCoordinates
-            if (pc == null || root == null || !pc.isAttached || paneSize == IntSize.Zero) return@LaunchedEffect
+            if (pc == null || root == null || !pc.isAttached || paneSize == IntSize.Zero) {
+                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop deferred page=$displayPage: geometry unavailable")
+                return@LaunchedEffect
+            }
             val rect = root.localBoundingBoxOf(pc, clipBounds = false)
             val frac = visiblePageFraction(
                 pageLeft = rect.left,
@@ -824,7 +877,10 @@ internal fun ContinuousReferencePdfPane(
                 pageBottom = rect.bottom,
                 viewportWidth = paneSize.width.toFloat(),
                 viewportHeight = paneSize.height.toFloat()
-            ) ?: return@LaunchedEffect
+            ) ?: run {
+                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop skipped page=$displayPage: outside viewport")
+                return@LaunchedEffect
+            }
             val outputSize = resolveVisibleCropRenderSize(
                 pageWidthPx = rect.right - rect.left,
                 pageHeightPx = rect.bottom - rect.top,
@@ -834,8 +890,10 @@ internal fun ContinuousReferencePdfPane(
                 // Do not retain a smaller tile and stretch it over an oversized viewport crop.
                 cropBitmap = null
                 cropFrac = null
+                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop skipped page=$displayPage: pixel budget exceeded")
                 return@LaunchedEffect
             }
+            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop start page=$displayPage dark=$preferDarkMode output=$outputSize fraction=$frac")
             val tile = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderCropFraction(
                     pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
@@ -850,7 +908,9 @@ internal fun ContinuousReferencePdfPane(
             if (tile != null) {
                 cropBitmap = tile
                 cropFrac = frac
+                lastRenderedCropVariant = preferDarkMode
             }
+            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop complete page=$displayPage dark=$preferDarkMode rendered=${tile != null}")
         }
 
         // markupStrokesForPage already scopes visibility (markupStrokesVisible + centered

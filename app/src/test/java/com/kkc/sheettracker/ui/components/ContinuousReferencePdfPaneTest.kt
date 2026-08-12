@@ -16,6 +16,30 @@ import org.junit.Test
 class ContinuousReferencePdfPaneTest {
 
     @Test
+    fun continuousPdfCropRender_bypassesMotionDebounceForNewDarkVariant() {
+        assertTrue(
+            shouldRenderContinuousPdfCrop(
+                inWindow = true,
+                zoomedIn = true,
+                settled = false,
+                sourceVariantChanged = true
+            )
+        )
+    }
+
+    @Test
+    fun continuousPdfCropRender_keepsMotionDebounceForUnchangedVariant() {
+        assertFalse(
+            shouldRenderContinuousPdfCrop(
+                inWindow = true,
+                zoomedIn = true,
+                settled = false,
+                sourceVariantChanged = false
+            )
+        )
+    }
+
+    @Test
     fun continuousPdfPageRenderDwell_requiresFull300Milliseconds() {
         assertFalse(hasContinuousPdfPageRenderDwelled(visibleSinceMillis = 1_000L, nowMillis = 1_299L))
         assertTrue(hasContinuousPdfPageRenderDwelled(visibleSinceMillis = 1_000L, nowMillis = 1_300L))
