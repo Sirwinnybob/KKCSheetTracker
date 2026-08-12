@@ -64,6 +64,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLocale
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -139,6 +142,7 @@ fun SupplyDashboardScreen(
     active: Boolean = true
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val repository = remember(basePath) { SupplyRepository(basePath) }
     val scope = rememberCoroutineScope()
 
@@ -340,9 +344,25 @@ fun SupplyDashboardScreen(
     }
 
     val lowEndMode = LocalLowEndMode.current
-    LaunchedEffect(basePath) {
+    var hasObservedSupplyActivation by remember(basePath) { mutableStateOf(false) }
+    var wasSupplyActive by remember(basePath) { mutableStateOf(false) }
+    LaunchedEffect(basePath, active) {
+        val shouldLoad = !hasObservedSupplyActivation ||
+            shouldReloadSupplyOnActivation(wasSupplyActive, active)
+        hasObservedSupplyActivation = true
+        wasSupplyActive = active
+        if (!active || !shouldLoad) return@LaunchedEffect
         if (lowEndMode.lazyLoadingActive) delay(500)
         loadData()
+    }
+    DisposableEffect(lifecycleOwner, active) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && active) {
+                scope.launch { loadData(showLoading = false) }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(items, subscriptionData) { reloadUpdates() }
 
@@ -1026,6 +1046,14 @@ internal suspend fun performSupplyStatusChange(
         onItemsReloaded(reloaded)
     }
 }
+
+/**
+ * Returns true only for the inactive-to-active transition that occurs when the persistent
+ * top-level Supply tab is shown again. The dashboard keeps its Compose state while another tab
+ * is visible, so this transition is the opportunity to re-read files Syncthing changed in place.
+ */
+internal fun shouldReloadSupplyOnActivation(wasActive: Boolean, isActive: Boolean): Boolean =
+    !wasActive && isActive
 
 @Composable
 private fun CategoryAddHeader(
