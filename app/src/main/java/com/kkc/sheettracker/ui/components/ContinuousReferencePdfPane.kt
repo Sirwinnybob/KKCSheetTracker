@@ -262,6 +262,38 @@ internal class CoalescingMainAxisDeltaChannel {
 }
 
 /**
+ * Tracks whether a programmatic (list-driven) scroll is in flight, immune to the out-of-order
+ * cleanup that happens when a new `scrollToPage` value cancels a still-running
+ * `animateScrollToItem` before the request that superseded it has claimed the guard.
+ *
+ * A plain boolean is not enough here: when `scrollToPage` changes, Compose cancels the previous
+ * `LaunchedEffect(scrollToPage, totalPages)` invocation and launches a new one, but the old
+ * invocation's `finally` block and the new invocation's first line are two separate coroutines
+ * racing on the same dispatcher -- their relative order is not guaranteed. If the old `finally`
+ * clears the guard AFTER the new invocation has already started, the centered-page listener
+ * observes the list's transient, uncontrolled position (wherever the cancelled animation was
+ * mid-flight) as if it were a fresh external nav request, feeding it back as a new `scrollToPage`
+ * and ratcheting the list further away from any position either side actually asked for -- this
+ * is the mechanism behind sheets rendering out of order after scrolling around for a while.
+ *
+ * Each call to [begin] claims a new generation; [release] only clears the guard if no newer
+ * generation has since claimed it, so a stale/cancelled request's cleanup can never release a
+ * guard that a newer, still-in-flight request is holding.
+ */
+internal class ProgrammaticScrollGuard {
+    private var activeGeneration = 0
+    private var settledGeneration = 0
+
+    val isActive: Boolean get() = activeGeneration != settledGeneration
+
+    fun begin(): Int = ++activeGeneration
+
+    fun release(token: Int) {
+        settledGeneration = token
+    }
+}
+
+/**
  * Identity for the source and render variant currently backing one continuous-mode page.
  *
  * The resolved filename and page can stay the same while [preferDarkMode] switches the backing
@@ -577,8 +609,9 @@ internal fun ContinuousReferencePdfPane(
     // through re-fires onCenteredPageChange -> scrollToPage -> cancels-and-restarts itself
     // mid-flight (this was the scrollbar-drag-vs-actual-drop-page mismatch: the animation kept
     // self-interrupting toward whatever intermediate page it last reported, not the page
-    // actually requested).
-    var isProgrammaticScroll by remember { mutableStateOf(false) }
+    // actually requested). A plain boolean is not safe here -- see ProgrammaticScrollGuard's doc
+    // comment for why a new scrollToPage's request can race the previous one's cleanup.
+    val programmaticScrollGuard = remember(fileIdentitySeed) { ProgrammaticScrollGuard() }
 
     // Shared whole-stack zoom: one zoom/pan transform applied over the entire scrollable
     // content, not per page. Lets the user pinch in and keep scrolling/panning freely across
@@ -698,12 +731,12 @@ internal fun ContinuousReferencePdfPane(
             isFlinging = false
         }
         Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) EXECUTING animateScrollToItem target=${scrollToPage - 1}")
-        isProgrammaticScroll = true
+        val scrollToken = programmaticScrollGuard.begin()
         try {
             lastReportedPage = scrollToPage
             listState.animateScrollToItem((scrollToPage - 1).coerceIn(0, totalPages - 1))
         } finally {
-            isProgrammaticScroll = false
+            programmaticScrollGuard.release(scrollToken)
         }
     }
 
@@ -715,8 +748,8 @@ internal fun ContinuousReferencePdfPane(
         }
             .distinctUntilChanged()
             .collectLatest { centeredPage ->
-                Log.d("PdfFlingDebug", "snapshotFlow centeredPage=$centeredPage isProg=$isProgrammaticScroll")
-                if (centeredPage != null && !isProgrammaticScroll) {
+                Log.d("PdfFlingDebug", "snapshotFlow centeredPage=$centeredPage isProg=${programmaticScrollGuard.isActive}")
+                if (centeredPage != null && !programmaticScrollGuard.isActive) {
                     lastReportedPage = centeredPage
                     currentOnCenteredPageChange(centeredPage)
                 }

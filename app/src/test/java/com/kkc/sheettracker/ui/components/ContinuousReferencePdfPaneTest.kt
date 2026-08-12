@@ -125,6 +125,38 @@ class ContinuousReferencePdfPaneTest {
     }
 
     @Test
+    fun programmaticScrollGuard_isActiveFromBeginUntilItsOwnRelease() {
+        val guard = ProgrammaticScrollGuard()
+        assertFalse(guard.isActive)
+        val token = guard.begin()
+        assertTrue(guard.isActive)
+        guard.release(token)
+        assertFalse(guard.isActive)
+    }
+
+    /**
+     * Reproduces the continuous-scroll "pages render out of order" bug: a new scrollToPage value
+     * cancels the in-flight animateScrollToItem for the previous one. That cancelled call's
+     * `finally` still runs and must NOT clear the guard while a newer programmatic scroll (the one
+     * that superseded it) is still in flight -- otherwise the centered-page listener treats the
+     * list's transient, uncontrolled position as a fresh external nav request, and the two sides
+     * ratchet the list further away from any position either one actually asked for.
+     */
+    @Test
+    fun programmaticScrollGuard_staysActiveWhenASupersededGenerationReleasesLate() {
+        val guard = ProgrammaticScrollGuard()
+        val firstToken = guard.begin()
+        val secondToken = guard.begin() // a new scrollToPage arrived, cancelling the first
+        assertTrue(guard.isActive)
+
+        guard.release(firstToken) // the cancelled first call's `finally` running late
+        assertTrue("guard must stay active: a newer scroll is still in flight", guard.isActive)
+
+        guard.release(secondToken) // the current scroll actually finishes
+        assertFalse(guard.isActive)
+    }
+
+    @Test
     fun continuousPdfColors_preferDarkModeUsesPureBlack() {
         assertEquals(
             Color.Black,
