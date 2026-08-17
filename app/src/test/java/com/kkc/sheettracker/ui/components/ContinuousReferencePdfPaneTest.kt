@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntSize
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
 import java.io.File
+import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -256,6 +257,67 @@ class ContinuousReferencePdfPaneTest {
         )
 
         assertNotEquals(light, dark)
+    }
+
+    @Test
+    fun continuousDocumentIdentity_isStableAcrossUnrelatedRecomputation() {
+        val dir = Files.createTempDirectory("continuous-pdf-identity").toFile()
+        val pdf = File(dir, "assembly.pdf").apply {
+            writeBytes(byteArrayOf(1, 2, 3))
+            setLastModified(1_700_000_000_000L)
+        }
+        val resolve = { page: Int -> ResolvedPageSource("assembly.pdf", page) }
+        val files = { _: String -> pdf }
+
+        val before = resolveContinuousPdfDocumentIdentity(2, resolve, files)
+        val afterUnrelatedRefresh = resolveContinuousPdfDocumentIdentity(2, resolve, files)
+
+        assertEquals(before, afterUnrelatedRefresh)
+    }
+
+    @Test
+    fun continuousDocumentIdentity_changesWhenMappingChanges() {
+        val pdf = File(Files.createTempDirectory("continuous-pdf-map").toFile(), "assembly.pdf")
+            .apply { writeBytes(byteArrayOf(1)) }
+        val files = { _: String -> pdf }
+        val first = resolveContinuousPdfDocumentIdentity(
+            totalPages = 2,
+            resolvePage = { page -> ResolvedPageSource("assembly.pdf", page) },
+            pdfFileForFilename = files
+        )
+        val remapped = resolveContinuousPdfDocumentIdentity(
+            totalPages = 2,
+            resolvePage = { page -> ResolvedPageSource("assembly.pdf", 3 - page) },
+            pdfFileForFilename = files
+        )
+
+        assertNotEquals(first, remapped)
+    }
+
+    @Test
+    fun continuousDocumentIdentity_changesWhenSourceFileChanges() {
+        val pdf = File(Files.createTempDirectory("continuous-pdf-file").toFile(), "assembly.pdf")
+            .apply { writeBytes(byteArrayOf(1)) }
+        val resolve = { page: Int -> ResolvedPageSource("assembly.pdf", page) }
+        val before = resolveContinuousPdfDocumentIdentity(1, resolve) { pdf }
+
+        pdf.appendBytes(byteArrayOf(2))
+        pdf.setLastModified(pdf.lastModified() + 1_000L)
+        val after = resolveContinuousPdfDocumentIdentity(1, resolve) { pdf }
+
+        assertNotEquals(before, after)
+    }
+
+    @Test
+    fun continuousDocumentIdentity_recordsMissingSource() {
+        val identity = resolveContinuousPdfDocumentIdentity(
+            totalPages = 1,
+            resolvePage = { ResolvedPageSource("missing.pdf", 1) },
+            pdfFileForFilename = { null }
+        )
+
+        assertEquals(false, identity.sources.single().exists)
+        assertEquals("missing.pdf", identity.sources.single().pdfFilename)
     }
 
     @Test
