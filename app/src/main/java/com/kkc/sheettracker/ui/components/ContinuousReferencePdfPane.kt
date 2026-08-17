@@ -2,7 +2,6 @@ package com.kkc.sheettracker.ui.components
 
 import android.graphics.Bitmap
 import android.os.SystemClock
-import android.util.Log
 import android.util.LruCache
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -86,7 +85,6 @@ import kotlin.math.roundToInt
 
 private const val CONTINUOUS_MAX_ZOOM = 20f
 private const val CONTINUOUS_MIN_ZOOM = 1f
-private const val CONTINUOUS_PDF_RENDER_TRACE_TAG = "PdfRenderTrace"
 
 internal data class FlingStepResult(
     val nextVelocity: Float,
@@ -326,18 +324,18 @@ internal fun continuousPageRenderIdentity(
 internal data class ContinuousPageGeometryIdentity(
     val displayPage: Int,
     val resolved: ResolvedPageSource,
-    val fileIdentitySeed: Long,
+    val documentIdentity: ContinuousPdfDocumentIdentity,
     val docKey: Any?
 )
 
 internal fun continuousPageGeometryIdentity(
     renderIdentity: ContinuousPageRenderIdentity,
-    fileIdentitySeed: Long,
+    documentIdentity: ContinuousPdfDocumentIdentity,
     docKey: Any?
 ): ContinuousPageGeometryIdentity = ContinuousPageGeometryIdentity(
     displayPage = renderIdentity.displayPage,
     resolved = renderIdentity.resolved,
-    fileIdentitySeed = fileIdentitySeed,
+    documentIdentity = documentIdentity,
     docKey = docKey
 )
 
@@ -579,7 +577,10 @@ internal fun ContinuousReferencePdfPane(
     contentPadding: PaddingValues = PaddingValues(0.dp),
     onSingleTap: (() -> Unit)? = null
 ) {
-    val engineCache = remember(fileIdentitySeed) { PdfEngineCache(maxOpen = 3) }
+    val documentIdentity = remember(fileIdentitySeed, totalPages, docKey, preferDarkMode) {
+        resolveContinuousPdfDocumentIdentity(totalPages, resolvePage, pdfFileForFilename)
+    }
+    val engineCache = remember(documentIdentity) { PdfEngineCache(maxOpen = 3) }
     DisposableEffect(engineCache) {
         onDispose { continuousPdfEngineDisposalScope.launch { withContext(NonCancellable) { engineCache.closeAll() } } }
     }
@@ -587,16 +588,16 @@ internal fun ContinuousReferencePdfPane(
     // Cheap low-res placeholder cache, keyed by "filename#page" (a plain Int page number isn't
     // enough — this pane can stream pages from multiple source PDFs). Shown immediately on page
     // entry while the full-res base render waits for a page-local visibility dwell.
-    val thumbnailCache = remember(fileIdentitySeed) { LruCache<String, Bitmap>(30) }
+    val thumbnailCache = remember(documentIdentity) { LruCache<String, Bitmap>(30) }
     DisposableEffect(thumbnailCache) {
         onDispose { thumbnailCache.evictAll() }
     }
 
     val listState = rememberLazyListState()
-    val cropOverlays = remember(fileIdentitySeed, docKey, preferDarkMode) {
+    val cropOverlays = remember(documentIdentity, docKey, preferDarkMode) {
         mutableStateMapOf<Int, ContinuousCropOverlay>()
     }
-    val pageCoordinatesByDisplayPage = remember(fileIdentitySeed, docKey) {
+    val pageCoordinatesByDisplayPage = remember(documentIdentity, docKey) {
         mutableStateMapOf<Int, LayoutCoordinates>()
     }
     val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
@@ -611,13 +612,13 @@ internal fun ContinuousReferencePdfPane(
     // self-interrupting toward whatever intermediate page it last reported, not the page
     // actually requested). A plain boolean is not safe here -- see ProgrammaticScrollGuard's doc
     // comment for why a new scrollToPage's request can race the previous one's cleanup.
-    val programmaticScrollGuard = remember(fileIdentitySeed) { ProgrammaticScrollGuard() }
+    val programmaticScrollGuard = remember(documentIdentity) { ProgrammaticScrollGuard() }
 
     // Shared whole-stack zoom: one zoom/pan transform applied over the entire scrollable
     // content, not per page. Lets the user pinch in and keep scrolling/panning freely across
     // page boundaries, matching how Word/Samsung Notes continuous view behaves.
-    var sharedZoom by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(CONTINUOUS_MIN_ZOOM) }
-    var sharedCrossPan by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
+    var sharedZoom by remember(documentIdentity, orientation) { mutableFloatStateOf(CONTINUOUS_MIN_ZOOM) }
+    var sharedCrossPan by remember(documentIdentity, orientation) { mutableFloatStateOf(0f) }
     // Extra reveal at the very start/end of the document — the portion of page 1's top edge
     // (or the last page's bottom edge) that the center-pivoted graphicsLayer scale above
     // pushes off-screen, with no real LazyColumn content left to scroll into to reach it.
@@ -629,10 +630,10 @@ internal fun ContinuousReferencePdfPane(
     // pan (nothing else touches viewport translation) but wrong here, where real list scroll
     // is also fighting for the same axis. See splitScrollDelta for how a raw drag/fling delta
     // is divided between real scroll and this overscroll.
-    var sharedMainAxisOverscroll by remember(fileIdentitySeed, orientation) { mutableFloatStateOf(0f) }
-    var isInteracting by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
-    var isFlinging by remember(fileIdentitySeed, orientation) { mutableStateOf(false) }
-    var flingJob by remember(fileIdentitySeed, orientation) { mutableStateOf<Job?>(null) }
+    var sharedMainAxisOverscroll by remember(documentIdentity, orientation) { mutableFloatStateOf(0f) }
+    var isInteracting by remember(documentIdentity, orientation) { mutableStateOf(false) }
+    var isFlinging by remember(documentIdentity, orientation) { mutableStateOf(false) }
+    var flingJob by remember(documentIdentity, orientation) { mutableStateOf<Job?>(null) }
     val flingScope = rememberCoroutineScope()
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -663,7 +664,7 @@ internal fun ContinuousReferencePdfPane(
     // cannot directly call an arbitrary suspend function like listState.scrollBy(). Hand deltas
     // off through a channel instead and drain them sequentially on a plain coroutine, same
     // pattern Compose's own scrollable() uses internally for this exact restriction.
-    val scrollDeltaChannel = remember(listState) { CoalescingMainAxisDeltaChannel() }
+    val scrollDeltaChannel = remember(listState, documentIdentity) { CoalescingMainAxisDeltaChannel() }
     // Channel is only needed for live-drag deltas: awaitPointerEvent runs in a
     // @RestrictsSuspension scope that cannot call arbitrary suspend fns like scrollBy().
     // Fling deltas are NOT sent through here — flingJob calls listState.scroll() directly.
@@ -673,8 +674,6 @@ internal fun ContinuousReferencePdfPane(
         while (isActive) {
             val firstDelta = scrollDeltaChannel.receive()
             if (firstDelta.isNaN()) continue  // sentinel: fling is taking over, skip
-            Log.d("PdfFlingDebug", "dragScrollSession START with firstDelta=$firstDelta")
-            var count = 1
             listState.scroll(MutatePriority.UserInput) {
                 applyMainAxisScroll(firstDelta)
                 while (isActive) {
@@ -683,24 +682,22 @@ internal fun ContinuousReferencePdfPane(
                     }
                     if (nextDelta != null && !nextDelta.isNaN()) {
                         applyMainAxisScroll(nextDelta)
-                        count++
                     } else {
                         // null = timeout (drag paused), NaN = fling sentinel: exit session
                         break
                     }
                 }
             }
-            Log.d("PdfFlingDebug", "dragScrollSession END processed deltas=$count")
         }
     }
 
-    var lastReportedPage by remember(fileIdentitySeed) { mutableIntStateOf(scrollToPage) }
+    var lastReportedPage by remember(documentIdentity) { mutableIntStateOf(scrollToPage) }
 
     // Crop-tile rendering (in particular the expensive zoomed re-render) only kicks in once
     // input has settled — same debounce-after-settle rule the single-page viewer already uses
     // for its zoomed detail tile, so a fast pinch/scroll doesn't flood the render engine.
-    var settled by remember(fileIdentitySeed, orientation) { mutableStateOf(true) }
-    LaunchedEffect(isInteracting, listState.isScrollInProgress, isFlinging, fileIdentitySeed, orientation) {
+    var settled by remember(documentIdentity, orientation) { mutableStateOf(true) }
+    LaunchedEffect(isInteracting, listState.isScrollInProgress, isFlinging, documentIdentity, orientation) {
         if (isInteracting || listState.isScrollInProgress || isFlinging) {
             settled = false
         } else {
@@ -710,27 +707,22 @@ internal fun ContinuousReferencePdfPane(
     }
 
     LaunchedEffect(scrollToPage, totalPages) {
-        Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) triggered scrollToPage=$scrollToPage lastReported=$lastReportedPage isInteracting=$isInteracting isFlinging=$isFlinging")
         // Only jump for an EXTERNAL request (initial open, scrollbar drag, resume-to-page).
         if (totalPages <= 0 || scrollToPage !in 1..totalPages) return@LaunchedEffect
         if (scrollToPage == lastReportedPage || isInteracting) {
-            Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) SUPPRESSED: scrollToPage=$scrollToPage")
             lastReportedPage = scrollToPage
             return@LaunchedEffect
         }
         val current = listState.firstVisibleItemIndex + 1
         if (current == scrollToPage) {
-            Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) SUPPRESSED (already at current=$current)")
             lastReportedPage = scrollToPage
             return@LaunchedEffect
         }
         // Scrollbar (or any external nav) while flinging: kill the fling and jump.
         if (isFlinging) {
-            Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) INTERRUPTING fling for scrollToPage=$scrollToPage")
             flingJob?.cancel()
             isFlinging = false
         }
-        Log.d("PdfFlingDebug", "LaunchedEffect(scrollToPage) EXECUTING animateScrollToItem target=${scrollToPage - 1}")
         val scrollToken = programmaticScrollGuard.begin()
         try {
             lastReportedPage = scrollToPage
@@ -748,7 +740,6 @@ internal fun ContinuousReferencePdfPane(
         }
             .distinctUntilChanged()
             .collectLatest { centeredPage ->
-                Log.d("PdfFlingDebug", "snapshotFlow centeredPage=$centeredPage isProg=${programmaticScrollGuard.isActive}")
                 if (centeredPage != null && !programmaticScrollGuard.isActive) {
                     lastReportedPage = centeredPage
                     currentOnCenteredPageChange(centeredPage)
@@ -781,8 +772,8 @@ internal fun ContinuousReferencePdfPane(
     }
 
     val pageContent: @Composable (Int) -> Unit = { displayPage ->
-        val resolved = remember(displayPage, fileIdentitySeed, docKey, preferDarkMode) { resolvePage(displayPage) }
-        val file = remember(resolved.pdfFilename, fileIdentitySeed, docKey, preferDarkMode) {
+        val resolved = remember(displayPage, documentIdentity, docKey, preferDarkMode) { resolvePage(displayPage) }
+        val file = remember(resolved.pdfFilename, documentIdentity, docKey, preferDarkMode) {
             pdfFileForFilename(resolved.pdfFilename)
         }
         val renderIdentity = continuousPageRenderIdentity(
@@ -793,16 +784,16 @@ internal fun ContinuousReferencePdfPane(
         )
         val inWindow = displayPage in renderWindow
         val pageIsVisible = displayPage in visiblePages
-        var baseBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
-        var thumbnailBitmap by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Bitmap?>(null) }
-        var aspectRatio by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Float?>(null) }
-        var sourceGeometryReady by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf(false) }
-        var baseRenderEligible by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf(false) }
-        var visibleSinceMillis by remember(renderIdentity, fileIdentitySeed, docKey) { mutableStateOf<Long?>(null) }
+        var baseBitmap by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf<Bitmap?>(null) }
+        var thumbnailBitmap by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf<Bitmap?>(null) }
+        var aspectRatio by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf<Float?>(null) }
+        var sourceGeometryReady by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf(false) }
+        var baseRenderEligible by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf(false) }
+        var visibleSinceMillis by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf<Long?>(null) }
         // Keep this across the render-identity swap: when the timeout toggles the light/dark
         // source while a page is zoomed, the new source needs one immediate sharp crop even when
         // the continuous list has not yet reported that it settled.
-        var lastRenderedCropVariant by remember(displayPage, fileIdentitySeed, docKey) {
+        var lastRenderedCropVariant by remember(displayPage, documentIdentity, docKey) {
             mutableStateOf(preferDarkMode)
         }
         val sourceVariantChanged = lastRenderedCropVariant != preferDarkMode
@@ -810,9 +801,15 @@ internal fun ContinuousReferencePdfPane(
         // viewSize left at IntSize.Zero, currentTransform() returns null and the overlay's
         // pointerInteropFilter bails out before ever registering a stroke. Also drives crop
         // tile placement (below) and the fallback render size before first layout.
-        val geometryIdentity = continuousPageGeometryIdentity(renderIdentity, fileIdentitySeed, docKey)
+        val geometryIdentity = continuousPageGeometryIdentity(renderIdentity, documentIdentity, docKey)
         var boxSize by remember(geometryIdentity) { mutableStateOf(IntSize.Zero) }
         var pageCoordinates by remember(geometryIdentity) { mutableStateOf<LayoutCoordinates?>(null) }
+        DisposableEffect(displayPage, documentIdentity) {
+            onDispose {
+                pageCoordinatesByDisplayPage.remove(displayPage)
+                cropOverlays.remove(displayPage)
+            }
+        }
         val matteColorArgb = continuousPdfMatteColorArgb(
             preferDarkMode = preferDarkMode,
             lightMatteColorArgb = android.graphics.Color.WHITE
@@ -822,12 +819,7 @@ internal fun ContinuousReferencePdfPane(
             lightCanvasColor = MaterialTheme.colorScheme.surfaceVariant
         )
 
-        LaunchedEffect(renderIdentity, fileIdentitySeed, docKey) {
-            Log.d(
-                CONTINUOUS_PDF_RENDER_TRACE_TAG,
-                "source page=$displayPage sourcePage=${resolved.sourcePage} dark=$preferDarkMode " +
-                    "file=${file?.absolutePath} zoom=$sharedZoom visible=$pageIsVisible inWindow=$inWindow"
-            )
+        LaunchedEffect(renderIdentity, documentIdentity, docKey) {
             if (file == null) return@LaunchedEffect
             aspectRatio = withContext(Dispatchers.IO) {
                 engineCache.get(file).pageAspectRatio((resolved.sourcePage - 1).coerceAtLeast(0))
@@ -840,10 +832,9 @@ internal fun ContinuousReferencePdfPane(
             if (aspectRatio == null) return@LaunchedEffect
             withFrameNanos { }
             sourceGeometryReady = true
-            Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop geometry ready page=$displayPage dark=$preferDarkMode ratio=$aspectRatio")
         }
 
-        LaunchedEffect(renderIdentity, pageIsVisible, fileIdentitySeed, docKey) {
+        LaunchedEffect(renderIdentity, pageIsVisible, documentIdentity, docKey) {
             if (!pageIsVisible) {
                 visibleSinceMillis = null
                 baseRenderEligible = false
@@ -867,7 +858,7 @@ internal fun ContinuousReferencePdfPane(
         // Doubles as the fallback shown under the sharp crop tile and as the whole picture
         // when not zoomed. A page must remain actually visible for the full dwell before this
         // expensive decode starts; buffered pages still receive immediate thumbnails below.
-        LaunchedEffect(renderIdentity, inWindow, pageIsVisible, baseRenderEligible, matteColorArgb, fileIdentitySeed, docKey) {
+        LaunchedEffect(renderIdentity, inWindow, pageIsVisible, baseRenderEligible, matteColorArgb, documentIdentity, docKey) {
             if (file == null || !inWindow || !pageIsVisible || !baseRenderEligible || baseBitmap != null) return@LaunchedEffect
             val viewSize = boxSize.takeIf { it != IntSize.Zero } ?: IntSize(1080, 1400)
             baseBitmap = withContext(Dispatchers.IO) {
@@ -881,7 +872,7 @@ internal fun ContinuousReferencePdfPane(
 
         // Instant low-res placeholder: unconditional on settled (unlike the base render below),
         // so a page that's merely scrolled past during a fling still shows something recognizable.
-        LaunchedEffect(renderIdentity, inWindow, fileIdentitySeed, docKey) {
+        LaunchedEffect(renderIdentity, inWindow, documentIdentity, docKey) {
             if (file == null || !inWindow) return@LaunchedEffect
             val cacheKey = "${renderIdentity.filePath ?: resolved.pdfFilename}#${resolved.sourcePage}#dark=${renderIdentity.preferDarkMode}"
             val cachedThumb = thumbnailCache.get(cacheKey)
@@ -915,7 +906,7 @@ internal fun ContinuousReferencePdfPane(
             pageCoordinates,
             contentCoordinates,
             contentSize,
-            fileIdentitySeed,
+            documentIdentity,
             docKey
         ) {
             val shouldRenderCrop = shouldRenderContinuousPdfCrop(
@@ -925,17 +916,10 @@ internal fun ContinuousReferencePdfPane(
                     sourceVariantChanged = sourceVariantChanged,
                     sourceGeometryReady = sourceGeometryReady
             )
-            Log.d(
-                CONTINUOUS_PDF_RENDER_TRACE_TAG,
-                "crop decision page=$displayPage dark=$preferDarkMode zoom=$sharedZoom inWindow=$inWindow " +
-                    "visible=$pageIsVisible settled=$settled variantChanged=$sourceVariantChanged " +
-                    "geometryReady=$sourceGeometryReady shouldRender=$shouldRenderCrop"
-            )
             if (file == null || !shouldRenderCrop) return@LaunchedEffect
             val pc = pageCoordinates
             val host = contentCoordinates
             if (pc == null || host == null || !pc.isAttached || contentSize == IntSize.Zero) {
-                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop deferred page=$displayPage: geometry unavailable")
                 return@LaunchedEffect
             }
             val rect = host.localBoundingBoxOf(pc, clipBounds = false)
@@ -953,14 +937,9 @@ internal fun ContinuousReferencePdfPane(
                 cropFrac = frac
             )
             if (outputSize == null) {
-                Log.d(CONTINUOUS_PDF_RENDER_TRACE_TAG, "crop skipped page=$displayPage: pixel budget exceeded frac=$frac")
                 cropOverlays.remove(displayPage)
                 return@LaunchedEffect
             }
-            Log.d(
-                CONTINUOUS_PDF_RENDER_TRACE_TAG,
-                "crop start page=$displayPage dark=$preferDarkMode pageRect=$rect output=$outputSize fraction=$frac"
-            )
             val tile = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderCropFraction(
                     pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
@@ -980,11 +959,6 @@ internal fun ContinuousReferencePdfPane(
                 )
                 lastRenderedCropVariant = preferDarkMode
             }
-            Log.d(
-                CONTINUOUS_PDF_RENDER_TRACE_TAG,
-                "crop complete page=$displayPage dark=$preferDarkMode rendered=${tile != null} " +
-                    "size=${tile?.width}x${tile?.height}"
-            )
         }
 
         // markupStrokesForPage already scopes visibility (markupStrokesVisible + centered
@@ -1099,7 +1073,7 @@ internal fun ContinuousReferencePdfPane(
                     // list's userScrollEnabled is always false; see below) removes that race
                     // entirely, the same way the single-page viewer avoids it by not being
                     // nested inside a scrollable at all.
-                    Modifier.pointerInput(orientation) {
+                    Modifier.pointerInput(orientation, documentIdentity) {
                         awaitEachGesture {
                             // Do NOT cancel flingJob here — the coroutine hasn't executed yet
                             // (launch() schedules it; it won't run until this frame yields).
@@ -1194,17 +1168,14 @@ internal fun ContinuousReferencePdfPane(
                             }
                             val flingVelocity = if (wasMultiTouch) 0f else rawMainVelocity / sharedZoom
                             val crossFlingVelocity = if (wasMultiTouch) 0f else rawCrossVelocity / sharedZoom
-                            Log.d("PdfFlingDebug", "Gesture end: tracked=$trackedVelocity main=$rawMainVelocity flingVel=$flingVelocity crossFlingVel=$crossFlingVelocity zoom=$sharedZoom multiTouch=$wasMultiTouch")
 
                             if (abs(flingVelocity) > 100f || abs(crossFlingVelocity) > 100f) {
-                                Log.d("PdfFlingDebug", "Launching flingJob with vel=$flingVelocity crossVel=$crossFlingVelocity")
                                 // Post a NaN sentinel to force the drag consumer to exit its
                                 // listState.scroll() session.
                                 // The coalescer delivers any final pending drag movement before
                                 // this sentinel so no active gesture distance is lost at handoff.
                                 scrollDeltaChannel.trySend(Float.NaN)  // sentinel: release drag session
                                 flingJob = flingScope.launch {
-                                    Log.d("PdfFlingDebug", "flingJob ENTERED coroutine body vel=$flingVelocity")
                                     isFlinging = true
                                     try {
                                         var vel = flingVelocity
@@ -1216,7 +1187,6 @@ internal fun ContinuousReferencePdfPane(
                                         // can pre-empt it cleanly.
                                         listState.scroll(MutatePriority.UserInput) {
                                             var lastFrameNanos = System.nanoTime()
-                                            var frameCount = 0
                                             while (isActive && abs(vel) > 10f) {
                                                 withFrameNanos { frameTime ->
                                                     val dt = ((frameTime - lastFrameNanos) / 1e9f).coerceIn(0.001f, 0.05f)
@@ -1230,7 +1200,6 @@ internal fun ContinuousReferencePdfPane(
                                                     vel = mainStep.nextVelocity
                                                     if (mainStep.delta != 0f) {
                                                         applyMainAxisScroll(mainStep.delta)
-                                                        frameCount++
                                                     }
 
                                                     if (sharedZoom > 1.02f && abs(crossVel) > 10f) {
@@ -1246,16 +1215,11 @@ internal fun ContinuousReferencePdfPane(
                                                     }
                                                 }
                                             }
-                                            Log.d("PdfFlingDebug", "flingJob scrollSession finished frames=$frameCount remainingVel=$vel")
                                         }
-                                        Log.d("PdfFlingDebug", "flingJob finished loop cleanly")
                                     } finally {
                                         isFlinging = false
-                                        Log.d("PdfFlingDebug", "flingJob finally block executed")
                                     }
                                 }
-                            } else {
-                                Log.d("PdfFlingDebug", "Fling threshold NOT met (vel=$flingVelocity <= 100)")
                             }
                         }
                     }
@@ -1336,12 +1300,6 @@ internal fun ContinuousReferencePdfPane(
                             pageRightPx = pageBounds.right,
                             pageBottomPx = pageBounds.bottom,
                             cropFrac = overlay.cropFrac
-                        )
-                        Log.d(
-                            CONTINUOUS_PDF_RENDER_TRACE_TAG,
-                            "canvas draw page=${overlay.renderIdentity.displayPage} dark=${overlay.renderIdentity.preferDarkMode} " +
-                                "bitmap=${overlay.bitmap.width}x${overlay.bitmap.height} pageRect=$pageBounds " +
-                                "fraction=${overlay.cropFrac} dest=$bounds canvas=${size.width}x${size.height}"
                         )
                         drawImage(
                             image = overlay.bitmap.asImageBitmap(),

@@ -326,10 +326,25 @@ class ContinuousReferencePdfPaneTest {
         val file = File("plans.pdf")
         val light = continuousPageRenderIdentity(5, resolved, file, preferDarkMode = false)
         val dark = continuousPageRenderIdentity(5, resolved, file, preferDarkMode = true)
+        val documentIdentity = resolveContinuousPdfDocumentIdentity(1, { resolved }) { file }
 
         assertEquals(
-            continuousPageGeometryIdentity(light, fileIdentitySeed = 17L, docKey = "plans"),
-            continuousPageGeometryIdentity(dark, fileIdentitySeed = 17L, docKey = "plans")
+            continuousPageGeometryIdentity(light, documentIdentity, docKey = "plans"),
+            continuousPageGeometryIdentity(dark, documentIdentity, docKey = "plans")
+        )
+    }
+
+    @Test
+    fun continuousPageGeometryIdentity_staysStableAcrossUnrelatedRefresh() {
+        val file = File("plans.pdf")
+        val resolved = ResolvedPageSource("plans.pdf", 3)
+        val firstDocument = resolveContinuousPdfDocumentIdentity(1, { resolved }) { file }
+        val secondDocument = resolveContinuousPdfDocumentIdentity(1, { resolved }) { file }
+        val render = continuousPageRenderIdentity(5, resolved, file, preferDarkMode = false)
+
+        assertEquals(
+            continuousPageGeometryIdentity(render, firstDocument, docKey = "plans"),
+            continuousPageGeometryIdentity(render, secondDocument, docKey = "plans")
         )
     }
 
