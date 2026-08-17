@@ -239,7 +239,7 @@ class SyncthingSupervisorTest {
                 )
             ),
             preferencesStore = store,
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             managerFactory = { controller }
         )
 
