@@ -26,6 +26,45 @@ class SafetyDocumentsScreenLogicTest {
     }
 
     @Test
+    fun tabTitles_placesSafetyCommitteeMeetingsBetweenDocumentsAndConcerns() {
+        assertEquals(
+            listOf("Documents (PDFs)", "Safety Committee Meetings", "Safety Concerns"),
+            SafetyDocumentsScreenLogic.tabTitles
+        )
+    }
+
+    @Test
+    fun meetingDocumentsDir_resolvesUnderSafetyFolder() {
+        val basePath = Files.createTempDirectory("safety-meetings-path").toFile()
+
+        val result = SafetyDocumentsScreenLogic.meetingDocumentsDir(basePath.absolutePath)
+
+        assertEquals(
+            File(File(basePath, ".safety"), "safety_meetings").absolutePath,
+            result.absolutePath
+        )
+    }
+
+    @Test
+    fun listPdfs_readsOnlyMeetingPdfsSortedByName() {
+        val basePath = Files.createTempDirectory("safety-meetings-list").toFile()
+        val meetingsDir = File(File(basePath, ".safety"), "safety_meetings").apply { mkdirs() }
+        File(meetingsDir, "2026-08 Meeting.PDF").writeText("x")
+        File(meetingsDir, "2026-07 Meeting.pdf").writeText("x")
+        File(meetingsDir, "agenda.txt").writeText("x")
+        File(meetingsDir, "Archive.pdf").mkdirs()
+
+        val result = SafetyDocumentsScreenLogic.listPdfs(
+            SafetyDocumentsScreenLogic.meetingDocumentsDir(basePath.absolutePath)
+        )
+
+        assertEquals(
+            listOf("2026-07 Meeting.pdf", "2026-08 Meeting.PDF"),
+            result.map { it.name }
+        )
+    }
+
+    @Test
     fun hasSafetyConcernsAccess_grantsWhenSubscriberOrAdmin() {
         assertEquals(true, SafetyDocumentsScreenLogic.hasSafetyConcernsAccess(safetySubscriber = true, adminMode = false))
         assertEquals(true, SafetyDocumentsScreenLogic.hasSafetyConcernsAccess(safetySubscriber = false, adminMode = true))

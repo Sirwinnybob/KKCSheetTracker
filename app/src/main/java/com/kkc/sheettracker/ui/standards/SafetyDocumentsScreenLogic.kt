@@ -9,6 +9,15 @@ import java.io.File
  */
 object SafetyDocumentsScreenLogic {
 
+    val tabTitles = listOf(
+        "Documents (PDFs)",
+        "Safety Committee Meetings",
+        "Safety Concerns"
+    )
+
+    fun meetingDocumentsDir(basePath: String): File =
+        File(File(basePath, ".safety"), "safety_meetings")
+
     fun listPdfs(safetyDir: File): List<File> {
         if (!safetyDir.isDirectory) return emptyList()
         return safetyDir.listFiles { file -> file.isFile && file.extension.equals("pdf", ignoreCase = true) }

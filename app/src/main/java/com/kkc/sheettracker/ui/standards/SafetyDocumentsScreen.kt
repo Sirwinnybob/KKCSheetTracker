@@ -62,9 +62,10 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
- * Safety & SDS Documents screen featuring a 2-tab layout:
+ * Safety & SDS Documents screen featuring a 3-tab layout:
  * - Tab 0: Documents (PDFs published under `.safety`)
- * - Tab 1: Safety Concerns feed, report concern dialog, password unlock gate, and detail thread modal.
+ * - Tab 1: Safety Committee Meetings (PDFs published under `.safety/safety_meetings`)
+ * - Tab 2: Safety Concerns feed, report concern dialog, password unlock gate, and detail thread modal.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +75,9 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
     val repository = remember(basePath) { SafetyRepository(basePath) }
     val uiPrefs = remember(context) { UiPreferencesStore(context) }
     val safetyDir = remember(basePath) { File(basePath, ".safety") }
+    val meetingDocumentsDir = remember(basePath) {
+        SafetyDocumentsScreenLogic.meetingDocumentsDir(basePath)
+    }
 
     val tabletId = remember(context) {
         runCatching {
@@ -93,15 +97,37 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
     var savedAuthorName by remember { mutableStateOf(uiPrefs.getSafetyAuthorName()) }
 
     var pdfFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+    var meetingPdfFiles by remember { mutableStateOf<List<File>>(emptyList()) }
     var concerns by remember { mutableStateOf<List<SafetyItem>>(emptyList()) }
 
     var showReportDialog by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
     var selectedConcernForDetail by remember { mutableStateOf<SafetyItem?>(null) }
 
+    fun openPdf(file: File) {
+        try {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.provider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/pdf")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("KKC", "Failed to open safety document: ${file.absolutePath}", e)
+        }
+    }
+
     fun refreshData() {
         coroutineScope.launch {
             pdfFiles = withContext(Dispatchers.IO) { SafetyDocumentsScreenLogic.listPdfs(safetyDir) }
+            meetingPdfFiles = withContext(Dispatchers.IO) {
+                SafetyDocumentsScreenLogic.listPdfs(meetingDocumentsDir)
+            }
             concerns = withContext(Dispatchers.IO) { repository.getConcerns() }
         }
     }
@@ -131,70 +157,38 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
         )
 
         TabRow(selectedTabIndex = selectedTab) {
-            Tab(
-                selected = selectedTab == 0,
-                onClick = { selectedTab = 0 },
-                text = { Text("Documents (PDFs)") },
-                icon = { Icon(Icons.Filled.PictureAsPdf, contentDescription = null) }
-            )
-            Tab(
-                selected = selectedTab == 1,
-                onClick = { selectedTab = 1 },
-                text = { Text("Safety Concerns") },
-                icon = { Icon(Icons.Filled.Warning, contentDescription = null) }
-            )
+            SafetyDocumentsScreenLogic.tabTitles.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = { Text(title) },
+                    icon = {
+                        Icon(
+                            imageVector = if (index == 2) {
+                                Icons.Filled.Warning
+                            } else {
+                                Icons.Filled.PictureAsPdf
+                            },
+                            contentDescription = null
+                        )
+                    }
+                )
+            }
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
-            if (selectedTab == 0) {
-                // Tab 0: Documents (PDFs)
-                if (pdfFiles.isEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "No safety documents found.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                } else {
-                    LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
-                        items(pdfFiles, key = { it.name }) { file ->
-                            ListItem(
-                                headlineContent = { Text(file.nameWithoutExtension) },
-                                leadingContent = {
-                                    Icon(Icons.Filled.PictureAsPdf, contentDescription = null)
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        try {
-                                            val uri = FileProvider.getUriForFile(
-                                                context,
-                                                "${context.packageName}.provider",
-                                                file
-                                            )
-                                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                setDataAndType(uri, "application/pdf")
-                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (e: Exception) {
-                                            Log.e("KKC", "Failed to open safety document: ${file.absolutePath}", e)
-                                        }
-                                    }
-                            )
-                        }
-                    }
-                }
-            } else {
-                // Tab 1: Safety Concerns
-                if (!isSubscriber) {
+            when (selectedTab) {
+                0 -> SafetyPdfList(
+                    files = pdfFiles,
+                    emptyMessage = "No safety documents found.",
+                    onOpenPdf = ::openPdf
+                )
+                1 -> SafetyPdfList(
+                    files = meetingPdfFiles,
+                    emptyMessage = "No safety committee meeting documents found.",
+                    onOpenPdf = ::openPdf
+                )
+                2 -> if (!isSubscriber) {
                     // Non-Subscriber view: Locked card
                     Box(
                         modifier = Modifier
@@ -358,6 +352,42 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
             onStatusChanged = { refreshData() },
             onAuthorUpdated = { savedAuthorName = it }
         )
+    }
+}
+
+@Composable
+private fun SafetyPdfList(
+    files: List<File>,
+    emptyMessage: String,
+    onOpenPdf: (File) -> Unit
+) {
+    if (files.isEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = emptyMessage,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    } else {
+        LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
+            items(files, key = { it.absolutePath }) { file ->
+                ListItem(
+                    headlineContent = { Text(file.nameWithoutExtension) },
+                    leadingContent = {
+                        Icon(Icons.Filled.PictureAsPdf, contentDescription = null)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenPdf(file) }
+                )
+            }
+        }
     }
 }
 
