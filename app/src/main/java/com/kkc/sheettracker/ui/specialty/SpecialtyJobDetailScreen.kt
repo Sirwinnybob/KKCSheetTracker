@@ -4,10 +4,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -70,8 +73,6 @@ import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -242,8 +243,7 @@ fun SpecialtyJobDetailScreen(
                 .fillMaxSize()
                 .padding(padding),
             state = listState,
-            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 112.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 112.dp)
         ) {
             item(key = "summary") {
                 Text(
@@ -255,13 +255,16 @@ fun SpecialtyJobDetailScreen(
                         "$completedItems / $totalItems items complete"
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
                 )
             }
 
             item(key = "actions-reference") {
                 Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -341,6 +344,9 @@ fun SpecialtyJobDetailScreen(
                     ).isComplete
                 }
                 val sheetExpanded = SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS in activeExpandedSectionIds
+                item(key = "sheet-rips-spacing") {
+                    Spacer(Modifier.height(12.dp))
+                }
                 stickyHeader(key = "sheet-rips-header") {
                     SectionProgressHeader(
                         title = "Sheet Rips",
@@ -358,18 +364,22 @@ fun SpecialtyJobDetailScreen(
                     )
                 }
 
-                if (sheetExpanded) {
-                    val sheetRipEntries = specialtySheetRipLazyRowEntries(sheetRipItems)
-                    itemsIndexed(items = sheetRipEntries, key = { _, entry -> entry.key }) { index, entry ->
-                        val item = entry.item
-                        val target = Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
-                        val tally = resolveSheetRipTallyState(
-                            specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
-                            sheetRipDone[item.id] == true,
-                            target
-                        )
-                        val isDone = tally.isComplete
-                        val alpha = if (isDone) 0.5f else 1f
+                val sheetRipEntries = specialtySheetRipLazyRowEntries(sheetRipItems)
+                itemsIndexed(items = sheetRipEntries, key = { _, entry -> entry.key }) { index, entry ->
+                    val item = entry.item
+                    val target = Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
+                    val tally = resolveSheetRipTallyState(
+                        specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
+                        sheetRipDone[item.id] == true,
+                        target
+                    )
+                    val isDone = tally.isComplete
+                    val alpha = if (isDone) 0.5f else 1f
+                    AnimatedVisibility(
+                        visible = sheetExpanded,
+                        enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                        exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
+                    ) {
                         val isDark = LocalKKCIsDarkTheme.current
                         val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                         Surface(
@@ -377,7 +387,6 @@ fun SpecialtyJobDetailScreen(
                             color = backdropColor,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
                             modifier = Modifier
-                                .flushWithHeader()
                                 .fillMaxWidth()
                                 .padding(bottom = 8.dp)
                         ) {
@@ -473,7 +482,8 @@ fun SpecialtyJobDetailScreen(
                     Text(
                         "No specialty checklist items found.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 12.dp)
                     )
                 }
             } else {
@@ -482,6 +492,9 @@ fun SpecialtyJobDetailScreen(
                     val sectionDone = section.items.count { isChecklistItemComplete(it, completionOverrides) }
                     val sectionExpanded = section.id in activeExpandedSectionIds
 
+                    item(key = "section-$sectionKey-spacing") {
+                        Spacer(Modifier.height(12.dp))
+                    }
                     stickyHeader(key = "section-$sectionKey") {
                         SectionProgressHeader(
                             title = section.label,
@@ -499,11 +512,15 @@ fun SpecialtyJobDetailScreen(
                         )
                     }
 
-                    if (sectionExpanded) {
-                        val sectionEntries = specialtyChecklistLazyRowEntries(sectionKey, section.items)
-                        itemsIndexed(items = sectionEntries, key = { _, entry -> entry.key }) { index, entry ->
-                            val resolved = entry.item
-                            val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
+                    val sectionEntries = specialtyChecklistLazyRowEntries(sectionKey, section.items)
+                    itemsIndexed(items = sectionEntries, key = { _, entry -> entry.key }) { index, entry ->
+                        val resolved = entry.item
+                        val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
+                        AnimatedVisibility(
+                            visible = sectionExpanded,
+                            enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                            exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
+                        ) {
                             val isDark = LocalKKCIsDarkTheme.current
                             val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                             Surface(
@@ -511,7 +528,6 @@ fun SpecialtyJobDetailScreen(
                                 color = backdropColor,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
                                 modifier = Modifier
-                                    .flushWithHeader()
                                     .fillMaxWidth()
                                     .padding(bottom = 8.dp)
                             ) {
@@ -677,8 +693,6 @@ fun SpecialtyJobDetailScreen(
     } // Box
     } // SharedTransitionLayout
 }
-
-
 internal fun hasClosetRodCutList(index: HardwoodCutlistIndex?): Boolean {
     return index
         ?.documents
@@ -732,7 +746,6 @@ private fun SpecialtySectionHeader(
         }
     }
 }
-
 @Composable
 private fun SpecialtyActionWidget(
     title: String,
@@ -844,7 +857,6 @@ private fun CompactSpecialtyProgressCard(
         }
     }
 }
-
 @Composable
 internal fun SpecialtyChecklistRow(
     resolved: SpecialtyResolvedItem,
@@ -1418,13 +1430,5 @@ private fun SpecialtyQuantitySection(
                 SuggestionChip(onClick = { editing = true }, label = { Text("Add quantity...", style = MaterialTheme.typography.labelSmall) })
             }
         }
-    }
-}
-
-private fun Modifier.flushWithHeader(gap: Dp = 12.dp): Modifier = this.layout { measurable, constraints ->
-    val placeable = measurable.measure(constraints)
-    val gapPx = gap.roundToPx()
-    layout(placeable.width, (placeable.height - gapPx).coerceAtLeast(0)) {
-        placeable.placeRelative(0, -gapPx)
     }
 }
