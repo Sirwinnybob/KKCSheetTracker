@@ -1,12 +1,12 @@
 package com.kkc.sheettracker.data
 
 import android.os.FileObserver
-import android.util.Log
 import com.google.gson.Gson
 import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.data.models.PdfMarkupPageKey
 import com.kkc.sheettracker.data.models.PdfPageMarkup
 import com.kkc.sheettracker.data.models.PdfTabletMarkup
+import com.kkc.sheettracker.logging.AppLog
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
@@ -65,7 +65,7 @@ class PdfMarkupStore(
         val loaded = runCatching {
             gson.fromJson(file.readText(), PdfTabletMarkup::class.java)
         }.getOrNull()?.sanitize(fallbackTabletId = tabletId) ?: PdfTabletMarkup(tabletId = tabletId)
-        Log.d(
+        AppLog.d(
             TAG,
             "loadTabletMarkup job=$jobFolderName tablet=$tabletId file=${file.name} pages=${loaded.pages.size}"
         )
@@ -92,7 +92,7 @@ class PdfMarkupStore(
                     strokes = strokes,
                     deletedStrokeIds = deletedStrokeIds
                 )
-            Log.d(
+            AppLog.d(
                 TAG,
                 "savePageMarkup job=$jobFolderName tablet=$tabletId pdf=$normalizedFilename page=$page strokes=${strokes.size} deleted=${deletedStrokeIds.size} totalPages=${nextPages.size}"
             )
@@ -120,7 +120,7 @@ class PdfMarkupStore(
         val strokes = getMergedActiveStrokesByPage(jobFolderName)[
             PdfMarkupPageKey(normalizedFilename, page)
         ].orEmpty()
-        Log.d(
+        AppLog.d(
             TAG,
             "getMergedActiveStrokes job=$jobFolderName pdf=$normalizedFilename page=$page result=${strokes.size}"
         )
@@ -199,7 +199,7 @@ class PdfMarkupStore(
     private fun saveTabletMarkup(jobFolderName: String, markup: PdfTabletMarkup) {
         val destFile = tabletMarkupFile(jobFolderName)
         atomicWriteFile(destFile, gson.toJson(markup))
-        Log.d(
+        AppLog.d(
             TAG,
             "saveTabletMarkup job=$jobFolderName path=${destFile.absolutePath} exists=${destFile.exists()} bytes=${destFile.length()}"
         )

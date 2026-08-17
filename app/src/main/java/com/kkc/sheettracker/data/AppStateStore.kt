@@ -13,6 +13,7 @@ import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SheetStatusKey
 import com.kkc.sheettracker.data.models.SheetStatusSnapshot
 import com.kkc.sheettracker.data.models.StatusCounts
+import com.kkc.sheettracker.logging.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -147,7 +148,7 @@ class AppStateStore(
                         errorMessage = scanState.errorMessage
                     )
 
-                    Log.i(
+                    AppLog.i(
                         APP_STATE_TAG,
                         "derive_done duration_ms=${System.currentTimeMillis() - derivingStartedAt} " +
                             "index_jobs=${jobInfos.size} dashboard_candidates=${dashboardCandidates.size} " +
@@ -179,7 +180,7 @@ class AppStateStore(
                 burstCount = if (now - lastEventAt <= 300L) burstCount + 1 else 1
                 lastEventAt = now
                 if (burstCount >= 3) {
-                    Log.d(
+                    AppLog.d(
                         APP_STATE_TAG,
                         "progress_burst count=$burstCount latest_version=$version"
                     )

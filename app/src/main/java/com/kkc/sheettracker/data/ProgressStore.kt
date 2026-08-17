@@ -11,6 +11,7 @@ import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.models.TabletProgress
 import com.kkc.sheettracker.data.models.TrackerAction
+import com.kkc.sheettracker.logging.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -477,7 +478,7 @@ class ProgressStore(
         val materialTouches = mutableMapOf<String, MaterialTouchEntry>()
         allActions.forEach { action -> applyActionToSheets(sheets, materialTouches, action) }
 
-        Log.i(
+        AppLog.i(
             "KKC_PROGRESS",
             "Built index job=$jobFolderName actions=${allActions.size} sheets=${sheets.size} in ${System.currentTimeMillis() - startedAt}ms"
         )
@@ -1179,7 +1180,7 @@ class ProgressStore(
         producer: suspend () -> Bitmap?
     ): Bitmap? {
         getPreparedPageEntry(key)?.let { entry ->
-            Log.d("KKC_PREPARED_STATE", "prewarm_reused key=$key source=$source")
+            AppLog.d("KKC_PREPARED_STATE", "prewarm_reused key=$key source=$source")
             return entry.diagramBitmap
         }
 
@@ -1187,7 +1188,7 @@ class ProgressStore(
         val isOwner: Boolean
         synchronized(preparedPageLock) {
             getPreparedPageEntry(key)?.let { entry ->
-                Log.d("KKC_PREPARED_STATE", "prewarm_reused key=$key source=$source")
+                AppLog.d("KKC_PREPARED_STATE", "prewarm_reused key=$key source=$source")
                 return entry.diagramBitmap
             }
             val inFlight = preparedPageInFlight[key]
@@ -1202,11 +1203,11 @@ class ProgressStore(
         }
 
         if (!isOwner) {
-            Log.d("KKC_PREPARED_STATE", "prewarm_reused key=$key source=${source}_inflight")
+            AppLog.d("KKC_PREPARED_STATE", "prewarm_reused key=$key source=${source}_inflight")
             return deferred.await()
         }
 
-        Log.d("KKC_PREPARED_STATE", "prewarm_started key=$key source=$source")
+        AppLog.d("KKC_PREPARED_STATE", "prewarm_started key=$key source=$source")
         return try {
             val produced = producer()
             if (produced != null) {
@@ -1240,7 +1241,7 @@ class ProgressStore(
             preparedPageOrder.remove(key)
             preparedPageInFlight.remove(key)
         }
-        Log.d("KKC_PREPARED_STATE", "prewarm_invalidated_reason=$reason key=$key")
+        AppLog.d("KKC_PREPARED_STATE", "prewarm_invalidated_reason=$reason key=$key")
     }
 
     fun invalidatePreparedPagesForDocument(
@@ -1258,7 +1259,7 @@ class ProgressStore(
                 preparedPageInFlight.remove(it)
             }
         }
-        Log.d(
+        AppLog.d(
             "KKC_PREPARED_STATE",
             "prewarm_invalidated_reason=$reason scope=document job=$jobFolderName pdf=$pdfFilename"
         )
@@ -1276,7 +1277,7 @@ class ProgressStore(
                 preparedPageInFlight.remove(it)
             }
         }
-        Log.d("KKC_PREPARED_STATE", "prewarm_invalidated_reason=$reason scope=job job=$jobFolderName")
+        AppLog.d("KKC_PREPARED_STATE", "prewarm_invalidated_reason=$reason scope=job job=$jobFolderName")
     }
 
     fun invalidateAllPreparedPages(reason: PreparedStateInvalidationReason) {
@@ -1285,7 +1286,7 @@ class ProgressStore(
             preparedPageOrder.clear()
             preparedPageInFlight.clear()
         }
-        Log.d("KKC_PREPARED_STATE", "prewarm_invalidated_reason=$reason scope=all")
+        AppLog.d("KKC_PREPARED_STATE", "prewarm_invalidated_reason=$reason scope=all")
     }
 
     private fun putPreparedPageEntry(
@@ -1299,7 +1300,7 @@ class ProgressStore(
             while (preparedPageOrder.size > PREPARED_CACHE_MAX_ENTRIES) {
                 val stale = preparedPageOrder.removeFirst()
                 preparedPageCache.remove(stale)
-                Log.d(
+                AppLog.d(
                     "KKC_PREPARED_STATE",
                     "prewarm_invalidated_reason=${PreparedStateInvalidationReason.MemoryPressure} key=$stale"
                 )
@@ -1376,7 +1377,7 @@ class ProgressStore(
                 preparedPageCache.remove(it)
                 preparedPageOrder.remove(it)
                 preparedPageInFlight.remove(it)
-                Log.d(
+                AppLog.d(
                     "KKC_PREPARED_STATE",
                     "prewarm_invalidated_reason=${PreparedStateInvalidationReason.FingerprintChanged} key=$it"
                 )

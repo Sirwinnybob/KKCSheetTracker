@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.assembly
 
 import android.content.res.Configuration
+import com.kkc.sheettracker.logging.AppLog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -411,7 +412,7 @@ fun AssemblyViewerScreen(
             .apply()
     }
     DisposableEffect(basePath, jobFolderName) {
-        android.util.Log.d("AssemblyViewer", "DisposableEffect: basePath='$basePath' job='$jobFolderName'")
+        AppLog.d("AssemblyViewer", "DisposableEffect: basePath='$basePath' job='$jobFolderName'")
         if (basePath.isBlank()) {
             android.util.Log.w("AssemblyViewer", "basePath blank — skipping server start")
             serverPort = 0
@@ -422,7 +423,7 @@ fun AssemblyViewerScreen(
         val startResult = server.startWithRetry()
         serverPort = startResult.port
         viewerServerError = startResult.error
-        android.util.Log.d("AssemblyViewer", "serverPort set to $serverPort, viewerServerError=${viewerServerError ?: "none"}")
+        AppLog.d("AssemblyViewer", "serverPort set to $serverPort, viewerServerError=${viewerServerError ?: "none"}")
         onDispose { server.stop() }
     }
 

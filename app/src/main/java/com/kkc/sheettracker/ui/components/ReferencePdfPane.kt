@@ -5,6 +5,7 @@ import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.LruCache
+import com.kkc.sheettracker.logging.AppLog
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -983,7 +984,7 @@ private fun ZoomablePdfImage(
         modifier = modifier
             .onSizeChanged {
                 if (viewSize != it) {
-                    android.util.Log.d("ReferencePdfPane", "ZoomablePdfImage size changed to: ${it.width}x${it.height}")
+                    AppLog.d("ReferencePdfPane", "ZoomablePdfImage size changed to: ${it.width}x${it.height}")
                     viewSize = it
                     emitViewport()
                 }

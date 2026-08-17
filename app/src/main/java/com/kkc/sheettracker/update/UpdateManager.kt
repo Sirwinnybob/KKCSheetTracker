@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
+import com.kkc.sheettracker.logging.AppLog
 import java.io.File
 
 data class ExternalApp(
@@ -194,7 +195,7 @@ class UpdateManager(
         }
 
         if (newestApk != null) {
-            Log.d(TAG, "Reinstalling ${newestApk.name} v$newestVersionCode")
+            AppLog.d(TAG, "Reinstalling ${newestApk.name} v$newestVersionCode")
             installApk(newestApk)
         } else {
             Toast.makeText(activity, "No valid APK found", Toast.LENGTH_SHORT).show()
@@ -435,14 +436,14 @@ class UpdateManager(
             return
         }
         try {
-            Log.d(TAG, "Preparing update APK: ${apkFile.absolutePath}")
+            AppLog.d(TAG, "Preparing update APK: ${apkFile.absolutePath}")
             val cacheDir = activity.cacheDir
             val updateApk = File(cacheDir, "update.apk")
             if (updateApk.exists()) {
                 updateApk.delete()
             }
             apkFile.copyTo(updateApk, overwrite = true)
-            Log.d(TAG, "Copied update APK to cache: ${updateApk.absolutePath} (size: ${updateApk.length()})")
+            AppLog.d(TAG, "Copied update APK to cache: ${updateApk.absolutePath} (size: ${updateApk.length()})")
 
             val apkUri = FileProvider.getUriForFile(activity, "${activity.packageName}.provider", updateApk)
             val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -461,7 +462,7 @@ class UpdateManager(
 
             for (resolveInfo in resolveInfos) {
                 val packageName = resolveInfo.activityInfo.packageName
-                Log.d(TAG, "Granting read URI permission to resolver package: $packageName")
+                AppLog.d(TAG, "Granting read URI permission to resolver package: $packageName")
                 activity.grantUriPermission(packageName, apkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
@@ -474,13 +475,13 @@ class UpdateManager(
             for (pkg in extraPackages) {
                 try {
                     activity.grantUriPermission(pkg, apkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    Log.d(TAG, "Explicitly granted read URI permission to: $pkg")
+                    AppLog.d(TAG, "Explicitly granted read URI permission to: $pkg")
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not grant URI permission to $pkg: ${e.message}")
                 }
             }
 
-            Log.d(TAG, "Launching PackageInstaller activity with Intent")
+            AppLog.d(TAG, "Launching PackageInstaller activity with Intent")
             activity.startActivity(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Install failed", e)

@@ -4,6 +4,7 @@ import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
+import com.kkc.sheettracker.logging.AppLog
 import java.io.File
 
 data class FallbackPolicy(
@@ -22,7 +23,7 @@ class DeviceOwnerUpdateFallback(private val context: Context) {
         val appUpdatesDir = File(basePath, ".appupdates")
         val policyFile = File(appUpdatesDir, "device_policy.json")
         if (!policyFile.isFile) {
-            Log.d(TAG, "shouldUseLegacyPrompt=true: policyFile is not a file: ${policyFile.absolutePath}")
+            AppLog.d(TAG, "shouldUseLegacyPrompt=true: policyFile is not a file: ${policyFile.absolutePath}")
             return true
         }
 
@@ -35,29 +36,29 @@ class DeviceOwnerUpdateFallback(private val context: Context) {
 
         val silentEnabled = policy.silentInstallEnabled ?: false
         if (!silentEnabled) {
-            Log.d(TAG, "shouldUseLegacyPrompt=true: silentInstallEnabled is false")
+            AppLog.d(TAG, "shouldUseLegacyPrompt=true: silentInstallEnabled is false")
             return true
         }
 
         val updaterPackage = policy.updaterAgentPackage?.ifBlank { null } ?: "com.kkc.updateragent"
         if (!isPackageInstalled(updaterPackage)) {
-            Log.d(TAG, "shouldUseLegacyPrompt=true: updaterPackage not installed: $updaterPackage")
+            AppLog.d(TAG, "shouldUseLegacyPrompt=true: updaterPackage not installed: $updaterPackage")
             return true
         }
 
         val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         if (!dpm.isDeviceOwnerApp(updaterPackage)) {
-            Log.d(TAG, "shouldUseLegacyPrompt=true: updaterPackage is not device owner: $updaterPackage")
+            AppLog.d(TAG, "shouldUseLegacyPrompt=true: updaterPackage is not device owner: $updaterPackage")
             return true
         }
 
         val fallbackSignal = File(appUpdatesDir, "$tabletId/updater-fallback-required.json")
         if (fallbackSignal.isFile) {
-            Log.d(TAG, "shouldUseLegacyPrompt=true: fallbackSignal file exists: ${fallbackSignal.absolutePath}")
+            AppLog.d(TAG, "shouldUseLegacyPrompt=true: fallbackSignal file exists: ${fallbackSignal.absolutePath}")
             return true
         }
 
-        Log.d(TAG, "shouldUseLegacyPrompt=false: All checks passed. Using silent update flow.")
+        AppLog.d(TAG, "shouldUseLegacyPrompt=false: All checks passed. Using silent update flow.")
         return false
     }
 
