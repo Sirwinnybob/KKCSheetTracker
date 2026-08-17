@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.util.LruCache
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -38,6 +39,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +68,8 @@ import dev.chrisbanes.haze.hazeEffect
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+internal const val REFERENCE_MODAL_SHEET_CACHE_PAGES = 4
 
 data class ReferenceModalSnapshot(
     val isOpen: Boolean = false,
@@ -320,10 +324,15 @@ fun ReferenceModalHost(
     // count effect is separate from the per-page bitmap effect since it only needs to run once per file.
     var sheetBitmap by remember(sheetPdfFile) { mutableStateOf<Bitmap?>(null) }
     var sheetTotalPages by remember(sheetPdfFile) { mutableStateOf(0) }
-    // Page-keyed bitmap cache scoped to the current sheetPdfFile: revisiting an already-resolved
-    // page is instant, and switching to a different Sheet PDF/job starts with a fresh, empty map
-    // (remember(sheetPdfFile) reallocates it) so bitmaps never leak across different files.
-    val sheetBitmapCache = remember(sheetPdfFile, refreshGeneration) { mutableMapOf<Int, Bitmap>() }
+    // Page-keyed bitmap cache scoped to the current sheetPdfFile and refresh generation:
+    // revisiting a recently-resolved page is instant, and switching sheets/jobs starts with a
+    // fresh bounded cache so bitmaps never leak across different file identities.
+    val sheetBitmapCache = remember(sheetPdfFile, refreshGeneration) {
+        LruCache<Int, Bitmap>(REFERENCE_MODAL_SHEET_CACHE_PAGES)
+    }
+    DisposableEffect(sheetBitmapCache) {
+        onDispose { sheetBitmapCache.evictAll() }
+    }
 
     LaunchedEffect(sheetPdfFile, refreshGeneration) {
         val file = sheetPdfFile ?: return@LaunchedEffect
@@ -342,7 +351,7 @@ fun ReferenceModalHost(
         sheetBitmap = null
         val file = sheetPdfFile ?: return@LaunchedEffect
         val pageIndex = snapshot.sheetPage - 1
-        val cached = sheetBitmapCache[pageIndex]
+        val cached = sheetBitmapCache.get(pageIndex)
         if (cached != null) {
             sheetBitmap = cached
             return@LaunchedEffect
@@ -354,7 +363,7 @@ fun ReferenceModalHost(
             extractLargestEmbeddedImage(file, pageIndex) ?: renderSheetPageFallback(file, pageIndex)
         }
         if (resolved != null) {
-            sheetBitmapCache[pageIndex] = resolved
+            sheetBitmapCache.put(pageIndex, resolved)
         }
         sheetBitmap = resolved
     }
