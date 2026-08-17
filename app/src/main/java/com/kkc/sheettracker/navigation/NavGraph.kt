@@ -49,6 +49,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
@@ -143,7 +144,6 @@ import com.kkc.sheettracker.ui.settings.SettingsScreen
 import com.kkc.sheettracker.ui.supply.SupplyDashboardScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyDoorPanelsScreen
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
-import com.kkc.sheettracker.ui.specialty.hasClosetRodCutList
 import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.viewer.ReferencePdfViewerScreen
 import com.kkc.sheettracker.ui.viewer.SheetViewerScreen
@@ -154,6 +154,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.background
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -1376,31 +1377,21 @@ private fun JobsTabHost(
             arguments = listOf(navArgument("folderName") { type = NavType.StringType })
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-            val hasDeliverySheet = remember(folderName) {
-                jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
-            }
-            val hasAssemblySheet = remember(folderName) {
-                jobRepository.hasReferenceDocument(folderName, ReferenceDocType.ASSEMBLY)
-            }
-            val hasPlansElevations = remember(folderName) {
-                jobRepository.hasReferenceDocument(folderName, ReferenceDocType.PLANS_ELEVATIONS)
-            }
-            val hasThreeDAssets = remember(folderName) {
-                jobRepository.hasThreeDAssets(folderName)
-            }
-            val hasClosetRods = remember(folderName) {
-                hasClosetRodCutList(jobRepository.loadHardwoodsIndex(folderName))
+            val availability by produceState(SpecialtyAvailability(), folderName) {
+                value = withContext(Dispatchers.IO) {
+                    loadSpecialtyAvailability(jobRepository, folderName)
+                }
             }
             SpecialtyJobDetailScreen(
                 jobFolderName = folderName,
                 specialtyStateStore = specialtyStateStore,
                 specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                 jobRepository = jobRepository,
-                hasAssemblySheet = hasAssemblySheet,
-                hasPlansElevations = hasPlansElevations,
-                hasDeliverySheet = hasDeliverySheet,
-                hasThreeDAssets = hasThreeDAssets,
-                hasClosetRods = hasClosetRods,
+                hasAssemblySheet = availability.hasAssemblySheet,
+                hasPlansElevations = availability.hasPlansElevations,
+                hasDeliverySheet = availability.hasDeliverySheet,
+                hasThreeDAssets = availability.hasThreeDAssets,
+                hasClosetRods = availability.hasClosetRods,
                 onOpenReferenceDocument = { docType, startPage ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
                         launchSingleTop = true
@@ -2530,31 +2521,21 @@ private fun LegacySingleStackNavigation(
                     arguments = listOf(navArgument("folderName") { type = NavType.StringType })
                 ) { backStack ->
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                    val hasDeliverySheet = remember(folderName) {
-                        jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
-                    }
-                    val hasAssemblySheet = remember(folderName) {
-                        jobRepository.hasReferenceDocument(folderName, ReferenceDocType.ASSEMBLY)
-                    }
-                    val hasPlansElevations = remember(folderName) {
-                        jobRepository.hasReferenceDocument(folderName, ReferenceDocType.PLANS_ELEVATIONS)
-                    }
-                    val hasThreeDAssets = remember(folderName) {
-                        jobRepository.hasThreeDAssets(folderName)
-                    }
-                    val hasClosetRods = remember(folderName) {
-                        hasClosetRodCutList(jobRepository.loadHardwoodsIndex(folderName))
+                    val availability by produceState(SpecialtyAvailability(), folderName) {
+                        value = withContext(Dispatchers.IO) {
+                            loadSpecialtyAvailability(jobRepository, folderName)
+                        }
                     }
                     SpecialtyJobDetailScreen(
                         jobFolderName = folderName,
                         specialtyStateStore = specialtyStateStore,
                         specialtyViewerDefaultsStore = legacySpecialtyViewerDefaultsStore,
                         jobRepository = jobRepository,
-                        hasAssemblySheet = hasAssemblySheet,
-                        hasPlansElevations = hasPlansElevations,
-                        hasDeliverySheet = hasDeliverySheet,
-                        hasThreeDAssets = hasThreeDAssets,
-                        hasClosetRods = hasClosetRods,
+                        hasAssemblySheet = availability.hasAssemblySheet,
+                        hasPlansElevations = availability.hasPlansElevations,
+                        hasDeliverySheet = availability.hasDeliverySheet,
+                        hasThreeDAssets = availability.hasThreeDAssets,
+                        hasClosetRods = availability.hasClosetRods,
                         onOpenReferenceDocument = { docType, startPage ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
                                 launchSingleTop = true
