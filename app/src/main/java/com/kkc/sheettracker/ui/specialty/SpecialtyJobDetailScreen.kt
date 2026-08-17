@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -87,8 +86,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.kkc.sheettracker.ui.components.SectionProgressHeader
@@ -361,23 +358,18 @@ fun SpecialtyJobDetailScreen(
                     )
                 }
 
-                val sheetRipEntries = specialtySheetRipLazyRowEntries(sheetRipItems)
-                itemsIndexed(items = sheetRipEntries, key = { _, entry -> entry.key }) { index, entry ->
-                    val item = entry.item
-                    val target = Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
-                    val tally = resolveSheetRipTallyState(
-                        specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
-                        sheetRipDone[item.id] == true,
-                        target
-                    )
-                    val isDone = tally.isComplete
-                    val alpha = if (isDone) 0.5f else 1f
-                    AnimatedVisibility(
-                        visible = sheetExpanded,
-                        enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                        exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
-                        modifier = Modifier.flushWithHeader()
-                    ) {
+                if (sheetExpanded) {
+                    val sheetRipEntries = specialtySheetRipLazyRowEntries(sheetRipItems)
+                    itemsIndexed(items = sheetRipEntries, key = { _, entry -> entry.key }) { index, entry ->
+                        val item = entry.item
+                        val target = Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
+                        val tally = resolveSheetRipTallyState(
+                            specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
+                            sheetRipDone[item.id] == true,
+                            target
+                        )
+                        val isDone = tally.isComplete
+                        val alpha = if (isDone) 0.5f else 1f
                         val isDark = LocalKKCIsDarkTheme.current
                         val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                         Surface(
@@ -385,6 +377,7 @@ fun SpecialtyJobDetailScreen(
                             color = backdropColor,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
                             modifier = Modifier
+                                .flushWithHeader()
                                 .fillMaxWidth()
                                 .padding(bottom = 8.dp)
                         ) {
@@ -506,16 +499,11 @@ fun SpecialtyJobDetailScreen(
                         )
                     }
 
-                    val sectionEntries = specialtyChecklistLazyRowEntries(sectionKey, section.items)
-                    itemsIndexed(items = sectionEntries, key = { _, entry -> entry.key }) { index, entry ->
-                        val resolved = entry.item
-                        val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
-                        AnimatedVisibility(
-                            visible = sectionExpanded,
-                            enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                            exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
-                            modifier = Modifier.flushWithHeader()
-                        ) {
+                    if (sectionExpanded) {
+                        val sectionEntries = specialtyChecklistLazyRowEntries(sectionKey, section.items)
+                        itemsIndexed(items = sectionEntries, key = { _, entry -> entry.key }) { index, entry ->
+                            val resolved = entry.item
+                            val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
                             val isDark = LocalKKCIsDarkTheme.current
                             val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
                             Surface(
@@ -523,6 +511,7 @@ fun SpecialtyJobDetailScreen(
                                 color = backdropColor,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
                                 modifier = Modifier
+                                    .flushWithHeader()
                                     .fillMaxWidth()
                                     .padding(bottom = 8.dp)
                             ) {
