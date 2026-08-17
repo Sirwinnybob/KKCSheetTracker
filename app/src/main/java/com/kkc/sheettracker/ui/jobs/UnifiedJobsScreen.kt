@@ -117,6 +117,8 @@ private fun sanitizeModeTitle(modeName: String): String {
 
 internal fun shouldRunUnifiedJobsBackgroundWork(active: Boolean): Boolean = active
 
+internal fun shouldLoadUnifiedJobsLabels(active: Boolean): Boolean = active
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UnifiedJobsScreen(
@@ -342,7 +344,8 @@ fun UnifiedJobsScreen(
 
     var editingLabelsFor by remember { mutableStateOf<UnifiedJobUiModel?>(null) }
     var allLabels by remember { mutableStateOf<List<JobLabel>>(emptyList()) }
-    LaunchedEffect(basePath, scanGeneration) {
+    LaunchedEffect(active, basePath, scanGeneration) {
+        if (!shouldLoadUnifiedJobsLabels(active)) return@LaunchedEffect
         allLabels = withContext(Dispatchers.IO) {
             runCatching {
                 UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild).listAllLabels()

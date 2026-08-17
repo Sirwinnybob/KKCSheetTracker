@@ -10,4 +10,10 @@ class UnifiedJobsScreenTest {
         assertTrue(shouldRunUnifiedJobsBackgroundWork(active = true))
         assertFalse(shouldRunUnifiedJobsBackgroundWork(active = false))
     }
+
+    @Test
+    fun labelLoadingRunsOnlyForTheActiveTab() {
+        assertTrue(shouldLoadUnifiedJobsLabels(active = true))
+        assertFalse(shouldLoadUnifiedJobsLabels(active = false))
+    }
 }
