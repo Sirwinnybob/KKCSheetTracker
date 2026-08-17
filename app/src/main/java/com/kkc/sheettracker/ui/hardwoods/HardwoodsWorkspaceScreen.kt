@@ -2523,11 +2523,6 @@ private fun HardwoodsBoardStockList(
         sections
     }
 
-    // DEBUG
-    LaunchedEffect(selectedSource, sections.size) {
-        println("DEBUG: selectedSource=$selectedSource, allSections=${sections.size}, filtered=${sectionsToShow.size}, sources=${sections.map { it.source }}")
-    }
-
     if (sectionsToShow.isEmpty() && adminItems.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             Text("No rip cut lines found", color = MaterialTheme.colorScheme.onSurfaceVariant)
