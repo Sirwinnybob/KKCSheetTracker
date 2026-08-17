@@ -235,7 +235,6 @@ fun AppNavigation(
             },
             onCncJobsChanged = { jobFolderNames ->
                 jobFolderNames.forEach { scanCoordinator.unifiedEngine.invalidateJob(it) }
-                watcherRefreshSignal.value = System.currentTimeMillis()
             }
         )
     }
