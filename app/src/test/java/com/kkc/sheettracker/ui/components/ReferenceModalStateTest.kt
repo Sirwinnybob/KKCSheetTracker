@@ -8,6 +8,11 @@ import org.junit.Test
 class ReferenceModalStateTest {
 
     @Test
+    fun modalSheetBitmapCache_isBoundToFourPages() {
+        assertEquals(4, REFERENCE_MODAL_SHEET_CACHE_PAGES)
+    }
+
+    @Test
     fun pageForActiveDoc_returnsPerDocPage() {
         val snap = ReferenceModalSnapshot(
             docType = ReferenceDocType.PLANS_ELEVATIONS,

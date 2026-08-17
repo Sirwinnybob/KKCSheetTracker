@@ -15,7 +15,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
+import com.kkc.sheettracker.logging.AppLog
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 data class ExternalApp(
     val packageName: String,
@@ -56,6 +58,8 @@ class UpdateManager(
     )
 
     private val skippedExternalPackagesInSession = mutableSetOf<String>()
+    private val updateScanGate = UpdateScanGate()
+    private val apkInfoCache = ConcurrentHashMap<ApkArchiveFingerprint, ApkInfo>()
 
     @Volatile
     var resolvedUpdatePath: String? = null
@@ -133,9 +137,14 @@ class UpdateManager(
      * uses it); state changes land asynchronously via applyUpdateScan.
      */
     fun checkForUpdates(checkSelf: Boolean = true): Boolean {
+        if (!updateScanGate.tryEnter()) return false
         Thread {
-            val scan = scanForUpdates(checkSelf)
-            activity.runOnUiThread { applyUpdateScan(scan, checkSelf) }
+            try {
+                val scan = scanForUpdates(checkSelf)
+                activity.runOnUiThread { applyUpdateScan(scan, checkSelf) }
+            } finally {
+                updateScanGate.leave()
+            }
         }.apply { name = "UpdateScan"; isDaemon = true }.start()
         return false
     }
@@ -194,7 +203,7 @@ class UpdateManager(
         }
 
         if (newestApk != null) {
-            Log.d(TAG, "Reinstalling ${newestApk.name} v$newestVersionCode")
+            AppLog.d(TAG, "Reinstalling ${newestApk.name} v$newestVersionCode")
             installApk(newestApk)
         } else {
             Toast.makeText(activity, "No valid APK found", Toast.LENGTH_SHORT).show()
@@ -255,7 +264,7 @@ class UpdateManager(
         var newestApk: File? = null
         var newestVersionCode = -1L
         for (apk in apkFiles) {
-            val apkVersion = getApkVersionCode(apk)
+            val apkVersion = getSelfApkInfo(apk)?.versionCode ?: -1L
             if (apkVersion > currentVersionCode &&
                 (apkVersion > newestVersionCode ||
                     (apkVersion == newestVersionCode &&
@@ -323,6 +332,9 @@ class UpdateManager(
     }
 
     private fun getApkInfo(apkFile: File): ApkInfo? {
+        val fingerprint = ApkArchiveFingerprint.from(apkFile)
+        apkInfoCache[fingerprint]?.let { return it }
+
         return try {
             val pInfo = activity.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
             if (pInfo != null) {
@@ -336,7 +348,7 @@ class UpdateManager(
                     packageName = pInfo.packageName,
                     versionCode = code,
                     versionName = pInfo.versionName ?: ""
-                )
+                ).also { apkInfoCache[fingerprint] = it }
             } else null
         } catch (e: Exception) {
             Log.e(TAG, "Error reading APK info for ${apkFile.name}", e)
@@ -413,20 +425,11 @@ class UpdateManager(
     }
 
     private fun getApkVersionCode(apkFile: File): Long {
-        return try {
-            val pInfo = activity.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
-            if (pInfo != null) {
-                if (pInfo.packageName != activity.packageName) return -1L
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) pInfo.longVersionCode
-                else {
-                    @Suppress("DEPRECATION")
-                    pInfo.versionCode.toLong()
-                }
-            } else -1L
-        } catch (e: Exception) {
-            Log.e(TAG, "Error reading APK version", e)
-            -1L
-        }
+        return getSelfApkInfo(apkFile)?.versionCode ?: -1L
+    }
+
+    private fun getSelfApkInfo(apkFile: File): ApkInfo? {
+        return getApkInfo(apkFile)?.takeIf { it.packageName == activity.packageName }
     }
 
     private fun installApk(apkFile: File) {
@@ -435,14 +438,14 @@ class UpdateManager(
             return
         }
         try {
-            Log.d(TAG, "Preparing update APK: ${apkFile.absolutePath}")
+            AppLog.d(TAG, "Preparing update APK: ${apkFile.absolutePath}")
             val cacheDir = activity.cacheDir
             val updateApk = File(cacheDir, "update.apk")
             if (updateApk.exists()) {
                 updateApk.delete()
             }
             apkFile.copyTo(updateApk, overwrite = true)
-            Log.d(TAG, "Copied update APK to cache: ${updateApk.absolutePath} (size: ${updateApk.length()})")
+            AppLog.d(TAG, "Copied update APK to cache: ${updateApk.absolutePath} (size: ${updateApk.length()})")
 
             val apkUri = FileProvider.getUriForFile(activity, "${activity.packageName}.provider", updateApk)
             val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -461,7 +464,7 @@ class UpdateManager(
 
             for (resolveInfo in resolveInfos) {
                 val packageName = resolveInfo.activityInfo.packageName
-                Log.d(TAG, "Granting read URI permission to resolver package: $packageName")
+                AppLog.d(TAG, "Granting read URI permission to resolver package: $packageName")
                 activity.grantUriPermission(packageName, apkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
@@ -474,13 +477,13 @@ class UpdateManager(
             for (pkg in extraPackages) {
                 try {
                     activity.grantUriPermission(pkg, apkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    Log.d(TAG, "Explicitly granted read URI permission to: $pkg")
+                    AppLog.d(TAG, "Explicitly granted read URI permission to: $pkg")
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not grant URI permission to $pkg: ${e.message}")
                 }
             }
 
-            Log.d(TAG, "Launching PackageInstaller activity with Intent")
+            AppLog.d(TAG, "Launching PackageInstaller activity with Intent")
             activity.startActivity(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Install failed", e)

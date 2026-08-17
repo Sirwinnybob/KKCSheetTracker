@@ -3,6 +3,7 @@ package com.kkc.sheettracker.viewer3d
 import android.content.Context
 import android.util.Log
 import androidx.annotation.VisibleForTesting
+import com.kkc.sheettracker.logging.AppLog
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONArray
 import org.json.JSONObject
@@ -33,7 +34,7 @@ class ViewerServer(
                     Log.e("ViewerServer", "Start failed attempt=$attempt/$maxAttempts baseDir=${baseDir.absolutePath} error=$errorText")
                     stop()
                 } else {
-                    Log.d("ViewerServer", "Started on port $port, baseDir=${baseDir.absolutePath}, attempt=$attempt")
+                    AppLog.d("ViewerServer", "Started on port $port, baseDir=${baseDir.absolutePath}, attempt=$attempt")
                     return StartResult(port = port)
                 }
             } catch (e: Exception) {

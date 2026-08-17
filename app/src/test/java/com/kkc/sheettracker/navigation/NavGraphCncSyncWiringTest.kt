@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.navigation
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -15,6 +16,21 @@ import java.io.File
  * source structure of NavGraph.kt to close that gap.
  */
 class NavGraphCncSyncWiringTest {
+
+    @Test
+    fun cncInvalidationDoesNotEmitASecondWatcherEpoch() {
+        val source = navGraphSource().joinToString("\n")
+        assertEquals(
+            1,
+            Regex("jobFolderNames\\.forEach \\{ scanCoordinator\\.unifiedEngine\\.invalidateJob\\(it\\) \\}")
+                .findAll(source).count()
+        )
+        assertEquals(
+            2,
+            Regex("watcherRefreshSignal\\.value = System\\.currentTimeMillis\\(\\)")
+                .findAll(source).count()
+        )
+    }
 
     @Test
     fun onSheetStatusChangedListenerIsRegisteredInSharedAppNavigationBeforeBothNavHosts() {

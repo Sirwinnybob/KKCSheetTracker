@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.kkc.sheettracker.logging.AppLog
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -610,7 +611,7 @@ fun UnifiedReferenceViewer(
         localMarkupStrokes.addAll(mergedStrokes)
         localDeletedIds.clear()
         localDeletedIds.addAll(deletedIds)
-        Log.d(
+        AppLog.d(
             "PdfMarkupDebug",
             "UnifiedReferenceViewer reload job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage strokes=${localMarkupStrokes.size} deleted=${localDeletedIds.size}"
         )
@@ -773,7 +774,7 @@ fun UnifiedReferenceViewer(
                 markupStrokes = if (markupStrokesVisible) visibleMarkupStrokes else emptyList(),
                 onMarkupStrokeAdded = { stroke ->
                     localMarkupStrokes.add(stroke)
-                    Log.d(
+                    AppLog.d(
                         "PdfMarkupDebug",
                         "UnifiedReferenceViewer addStroke job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage local=${localMarkupStrokes.size}"
                     )

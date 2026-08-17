@@ -1,7 +1,6 @@
 package com.kkc.sheettracker.viewer3d
 
 import android.annotation.SuppressLint
-import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -34,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.kkc.sheettracker.data.ViewerInteractionSignal
+import com.kkc.sheettracker.logging.AppLog
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -110,12 +110,12 @@ fun Model3DPane(
                             webViewClient = WebViewClient()
                             webChromeClient = object : WebChromeClient() {
                                 override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
-                                    val level = when (msg.messageLevel()) {
-                                        ConsoleMessage.MessageLevel.ERROR -> Log.ERROR
-                                        ConsoleMessage.MessageLevel.WARNING -> Log.WARN
-                                        else -> Log.DEBUG
+                                    val message = "${msg.message()} [${msg.sourceId()}:${msg.lineNumber()}]"
+                                    when (msg.messageLevel()) {
+                                        ConsoleMessage.MessageLevel.ERROR -> AppLog.e("Viewer3D_JS", message)
+                                        ConsoleMessage.MessageLevel.WARNING -> AppLog.w("Viewer3D_JS", message)
+                                        else -> AppLog.d("Viewer3D_JS", message)
                                     }
-                                    Log.println(level, "Viewer3D_JS", "${msg.message()} [${msg.sourceId()}:${msg.lineNumber()}]")
                                     return true
                                 }
                             }

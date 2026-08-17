@@ -115,6 +115,10 @@ private fun sanitizeModeTitle(modeName: String): String {
     }
 }
 
+internal fun shouldRunUnifiedJobsBackgroundWork(active: Boolean): Boolean = active
+
+internal fun shouldLoadUnifiedJobsLabels(active: Boolean): Boolean = active
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UnifiedJobsScreen(
@@ -340,7 +344,8 @@ fun UnifiedJobsScreen(
 
     var editingLabelsFor by remember { mutableStateOf<UnifiedJobUiModel?>(null) }
     var allLabels by remember { mutableStateOf<List<JobLabel>>(emptyList()) }
-    LaunchedEffect(basePath, scanGeneration) {
+    LaunchedEffect(active, basePath, scanGeneration) {
+        if (!shouldLoadUnifiedJobsLabels(active)) return@LaunchedEffect
         allLabels = withContext(Dispatchers.IO) {
             runCatching {
                 UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild).listAllLabels()
@@ -348,7 +353,8 @@ fun UnifiedJobsScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(active) {
+        if (!shouldRunUnifiedJobsBackgroundWork(active)) return@LaunchedEffect
         if (lowEndMode.lazyLoadingActive) delay(500)
         spec.refresh(RefreshReason.APP_FOREGROUND, force = false)
     }
@@ -503,7 +509,8 @@ fun UnifiedJobsScreen(
 
                             itemsIndexed(activeCards, key = { _, card -> card.folderName }) { index, card ->
                                 val loadedBadges = badgeCache[card.folderName]
-                                LaunchedEffect(card.folderName, scanGeneration) {
+                                LaunchedEffect(card.folderName, scanGeneration, active) {
+                                    if (!shouldRunUnifiedJobsBackgroundWork(active)) return@LaunchedEffect
                                     if (!badgeCache.containsKey(card.folderName)) {
                                         badgeCache[card.folderName] = spec.resolveBadges(card.folderName)
                                     }
@@ -528,7 +535,8 @@ fun UnifiedJobsScreen(
                                 }
                                 itemsIndexed(pendingCards, key = { _, card -> "pending_${card.folderName}" }) { index, card ->
                                     val loadedBadges = badgeCache[card.folderName]
-                                    LaunchedEffect(card.folderName, scanGeneration) {
+                                    LaunchedEffect(card.folderName, scanGeneration, active) {
+                                        if (!shouldRunUnifiedJobsBackgroundWork(active)) return@LaunchedEffect
                                         if (!badgeCache.containsKey(card.folderName)) {
                                             badgeCache[card.folderName] = spec.resolveBadges(card.folderName)
                                         }
@@ -596,7 +604,8 @@ fun UnifiedJobsScreen(
                                 }
                                 itemsIndexed(pinnedCards, key = { _, card -> "pinned_${card.folderName}" }) { index, card ->
                                     val loadedBadges = badgeCache[card.folderName]
-                                    LaunchedEffect(card.folderName, scanGeneration) {
+                                    LaunchedEffect(card.folderName, scanGeneration, active) {
+                                        if (!shouldRunUnifiedJobsBackgroundWork(active)) return@LaunchedEffect
                                         if (!badgeCache.containsKey(card.folderName)) {
                                             badgeCache[card.folderName] = spec.resolveBadges(card.folderName)
                                         }
@@ -623,7 +632,8 @@ fun UnifiedJobsScreen(
                                 val card = activeCardsByFolder[activeFolderName]
                                 if (card != null) {
                                     val loadedBadges = badgeCache[card.folderName]
-                                    LaunchedEffect(card.folderName, scanGeneration) {
+                                    LaunchedEffect(card.folderName, scanGeneration, active) {
+                                        if (!shouldRunUnifiedJobsBackgroundWork(active)) return@LaunchedEffect
                                         if (!badgeCache.containsKey(card.folderName)) {
                                             badgeCache[card.folderName] = spec.resolveBadges(card.folderName)
                                         }
@@ -653,7 +663,8 @@ fun UnifiedJobsScreen(
                                 }
                                 itemsIndexed(pendingCards, key = { _, card -> "pending_${card.folderName}" }) { index, card ->
                                     val loadedBadges = badgeCache[card.folderName]
-                                    LaunchedEffect(card.folderName, scanGeneration) {
+                                    LaunchedEffect(card.folderName, scanGeneration, active) {
+                                        if (!shouldRunUnifiedJobsBackgroundWork(active)) return@LaunchedEffect
                                         if (!badgeCache.containsKey(card.folderName)) {
                                             badgeCache[card.folderName] = spec.resolveBadges(card.folderName)
                                         }

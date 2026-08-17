@@ -1,6 +1,6 @@
 package com.kkc.sheettracker.data
 
-import android.util.Log
+import com.kkc.sheettracker.logging.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -76,7 +76,7 @@ class StaticCachePoller(
                 checkForChanges()
             }
         }
-        Log.d(TAG, "Started polling ${baseDir.absolutePath} every ${pollIntervalMs}ms")
+        AppLog.d(TAG, "Started polling ${baseDir.absolutePath} every ${pollIntervalMs}ms")
     }
 
     fun stop() {
@@ -84,7 +84,7 @@ class StaticCachePoller(
         pollJob = null
         intervalObserverJob?.cancel()
         intervalObserverJob = null
-        Log.d(TAG, "Stopped")
+        AppLog.d(TAG, "Stopped")
     }
 
     /** Update base directory (e.g. when the user changes the base path in settings). */
@@ -135,7 +135,7 @@ class StaticCachePoller(
                     // Both cache and gate vanished — job deleted, skip.
                     continue
                 }
-                Log.d(TAG, "Jobs-list index or deployment gate changed for $folderName")
+                AppLog.d(TAG, "Jobs-list index or deployment gate changed for $folderName")
                 onJobCacheUpdated(folderName)
             }
         }

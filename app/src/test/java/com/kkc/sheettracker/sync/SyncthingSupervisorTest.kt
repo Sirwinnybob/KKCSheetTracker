@@ -239,7 +239,7 @@ class SyncthingSupervisorTest {
                 )
             ),
             preferencesStore = store,
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             managerFactory = { controller }
         )
 
@@ -312,11 +312,12 @@ class SyncthingSupervisorTest {
         waitUntil(2_000L) { supervisor.apiKey.value == "api-key" }
         supervisor.setAppForeground(false)
         supervisor.observeIdlePhase(phase)
+        waitUntil(2_000L) { controller.resumeCalls == 1 }
         supervisor.setAppForeground(true)
         waitUntil(2_000L) { controller.pauseCalls == 1 }
 
         supervisor.setAppForeground(false)
-        waitUntil(2_000L) { controller.resumeCalls == 1 }
+        waitUntil(2_000L) { controller.resumeCalls == 2 }
         phase.value = IdlePhase.ACTIVE
         supervisor.setAppForeground(true)
         delay(100L)

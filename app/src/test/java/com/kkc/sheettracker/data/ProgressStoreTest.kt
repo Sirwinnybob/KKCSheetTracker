@@ -3,6 +3,7 @@ package com.kkc.sheettracker.data
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.TabletProgress
 import com.kkc.sheettracker.data.models.TrackerAction
@@ -259,6 +260,24 @@ class ProgressStoreTest {
         store.pruneLocalStateForJob(jobFolderName, emptyList())
 
         assertEquals(setOf(7), store.getDraftBadParts(jobFolderName, "A.pdf", 1, "fp1"))
+    }
+
+    @Test
+    fun pruneDoesNotDeleteTabletLocalOcrDirectories() {
+        val baseDir = createTempBaseDir()
+        val localStateDir = File(baseDir, ".local")
+        val store = ProgressStore(baseDir, tabletId, localStateDir)
+        val ocrFile = File(localStateDir, "ocr/$jobFolderName/stale.pdf/stale-fp/p1.json").apply {
+            parentFile?.mkdirs()
+            writeText("legacy OCR cache")
+        }
+
+        store.pruneLocalStateForJob(
+            jobFolderName,
+            listOf(Material("A.pdf", "A", pageCount = 1, fileFingerprint = "fp1"))
+        )
+
+        assertTrue(ocrFile.exists())
     }
 
     @Test

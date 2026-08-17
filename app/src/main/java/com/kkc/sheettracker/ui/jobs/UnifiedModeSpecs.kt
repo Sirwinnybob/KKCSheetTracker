@@ -24,6 +24,7 @@ import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.data.unified.UnifiedJobInfo
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.io.File
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.withContext
 
 @Composable
 fun rememberCncJobsSpec(
@@ -435,8 +437,12 @@ fun rememberSpecialtyJobsSpec(
             }
             
             override suspend fun resolveBadges(folderName: String): Set<JobBadge> {
-                val hasDelivery = jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
-                val has3D = jobRepository.hasThreeDAssets(folderName)
+                val (hasDelivery, has3D) = withContext(Dispatchers.IO) {
+                    Pair(
+                        jobRepository.getJobPdfCatalog(folderName).deliverySheet != null,
+                        jobRepository.hasThreeDAssets(folderName)
+                    )
+                }
                 val badges = mutableSetOf<JobBadge>()
                 if (hasDelivery) badges.add(JobBadge.HAS_DELIVERY_SHEET)
                 if (has3D) badges.add(JobBadge.HAS_3D_ASSETS)

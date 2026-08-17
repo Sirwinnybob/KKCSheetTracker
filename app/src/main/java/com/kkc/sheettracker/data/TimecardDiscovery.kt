@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.util.Log
+import com.kkc.sheettracker.logging.AppLog
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
@@ -43,7 +44,7 @@ class TimecardDiscovery(private val context: Context) {
                         }
                         val port = info.port
                         val url = "http://$host:$port"
-                        Log.i(TAG, "Discovered timeclock hub at $url")
+                        AppLog.i(TAG, "Discovered timeclock hub at $url")
                         if (cont.isActive) cont.resume(url)
                     }
                 }
@@ -61,7 +62,7 @@ class TimecardDiscovery(private val context: Context) {
                     }
 
                     override fun onDiscoveryStarted(type: String) {
-                        Log.d(TAG, "Discovery started for $type")
+                        AppLog.d(TAG, "Discovery started for $type")
                         discoveryStarted.set(true)
                         if (cancelPending.get()) {
                             try {
@@ -73,18 +74,18 @@ class TimecardDiscovery(private val context: Context) {
                     }
 
                     override fun onDiscoveryStopped(type: String) {
-                        Log.d(TAG, "Discovery stopped for $type")
+                        AppLog.d(TAG, "Discovery stopped for $type")
                     }
 
                     override fun onServiceFound(info: NsdServiceInfo) {
                         if (!resolving.compareAndSet(false, true)) return
-                        Log.d(TAG, "Found service: ${info.serviceName}")
+                        AppLog.d(TAG, "Found service: ${info.serviceName}")
                         @Suppress("DEPRECATION")
                         nsdManager.resolveService(info, resolveListener)
                     }
 
                     override fun onServiceLost(info: NsdServiceInfo) {
-                        Log.d(TAG, "Service lost: ${info.serviceName}")
+                        AppLog.d(TAG, "Service lost: ${info.serviceName}")
                     }
                 }
 
