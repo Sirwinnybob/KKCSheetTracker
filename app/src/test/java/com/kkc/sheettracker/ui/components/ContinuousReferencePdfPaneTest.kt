@@ -6,6 +6,11 @@ import androidx.compose.ui.unit.IntSize
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -155,6 +160,19 @@ class ContinuousReferencePdfPaneTest {
 
         guard.release(secondToken) // the current scroll actually finishes
         assertFalse(guard.isActive)
+    }
+
+    @Test
+    fun continuousPdfDocumentFlingScope_cancelsOutgoingJobsWithScope() = runBlocking {
+        val parent = CoroutineScope(coroutineContext + SupervisorJob())
+        val documentScope = continuousPdfDocumentFlingScope(parent)
+        val fling = documentScope.launch { awaitCancellation() }
+
+        documentScope.cancel()
+        withTimeout(1_000L) { fling.join() }
+
+        assertTrue(fling.isCancelled)
+        parent.cancel()
     }
 
     @Test

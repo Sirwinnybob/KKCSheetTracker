@@ -64,3 +64,55 @@ Result: clean; only Git line-ending normalization warnings were emitted by statu
 ## Concerns
 
 None found in the scoped checks. The focused viewer tests do not exercise Compose pointer disposal directly; verification is compile plus the existing unit-test coverage.
+
+## Fix round 1/5 — outgoing fling lifetime
+
+### Change
+
+Reviewer finding: `flingScope = rememberCoroutineScope()` outlived `documentIdentity`, while the `flingJob` holder was reset with the identity key and could lose the only cancellation handle. The fix adds `continuousPdfDocumentFlingScope(parentScope)`, a child scope with the composition scope as parent, and remembers it by `(documentIdentity, orientation)`. A `DisposableEffect(documentFlingScope)` cancels that child scope on document/orientation disposal before the replacement gesture owner can launch work. Fling jobs now launch in this per-document scope instead of the shared composition scope.
+
+### TDD evidence
+
+Added `continuousPdfDocumentFlingScope_cancelsOutgoingJobsWithScope` to `ContinuousReferencePdfPaneTest.kt` before the production helper.
+
+RED command:
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.ui.components.ContinuousReferencePdfPaneTest"
+```
+
+Result: expected compile failure, `Unresolved reference 'continuousPdfDocumentFlingScope'` at `ContinuousReferencePdfPaneTest.kt:168`.
+
+GREEN covering command:
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.ui.components.ContinuousReferencePdfPaneTest"
+```
+
+Result: `BUILD SUCCESSFUL in 7s` (26 actionable tasks; 5 executed, 21 up-to-date).
+
+Full focused viewer command:
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.ui.components.ContinuousReferencePdfPaneTest" --tests "com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewerTest" --tests "com.kkc.sheettracker.ui.viewer.ReferencePdfViewerScreenTest"
+```
+
+Result: `BUILD SUCCESSFUL in 4s` (26 actionable tasks; 1 executed, 25 up-to-date).
+
+Additional check:
+
+```powershell
+git diff --check
+```
+
+Result: clean; only Git line-ending normalization warnings were emitted during status/diff inspection.
+
+### Covering files
+
+- `app/src/main/java/com/kkc/sheettracker/ui/components/ContinuousReferencePdfPane.kt`
+- `app/src/test/java/com/kkc/sheettracker/ui/components/ContinuousReferencePdfPaneTest.kt`
+- `.superpowers/sdd/2026-08-17-continuous-pdf-refresh-gesture-fix/task-2-report.md`
+
+### Fix-round concerns
+
+The new unit test verifies child-scope cancellation and the focused viewer suite passes. Compose disposal ordering is exercised by the `DisposableEffect(documentFlingScope)` binding; there is no existing Compose pointer-disposal test harness in this module.

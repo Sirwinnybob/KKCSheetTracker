@@ -67,6 +67,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
@@ -516,6 +517,11 @@ internal class PdfEngineCache(
 // which in Kotlin is file-private (not package-private) and therefore not visible here.
 private val continuousPdfEngineDisposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+internal fun continuousPdfDocumentFlingScope(parentScope: CoroutineScope): CoroutineScope =
+    CoroutineScope(
+        parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job])
+    )
+
 private data class ContinuousCropOverlay(
     val renderIdentity: ContinuousPageRenderIdentity,
     val bitmap: Bitmap,
@@ -635,6 +641,12 @@ internal fun ContinuousReferencePdfPane(
     var isFlinging by remember(documentIdentity, orientation) { mutableStateOf(false) }
     var flingJob by remember(documentIdentity, orientation) { mutableStateOf<Job?>(null) }
     val flingScope = rememberCoroutineScope()
+    val documentFlingScope = remember(documentIdentity, orientation) {
+        continuousPdfDocumentFlingScope(flingScope)
+    }
+    DisposableEffect(documentFlingScope) {
+        onDispose { documentFlingScope.cancel() }
+    }
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var paneRootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var contentSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1175,7 +1187,7 @@ internal fun ContinuousReferencePdfPane(
                                 // The coalescer delivers any final pending drag movement before
                                 // this sentinel so no active gesture distance is lost at handoff.
                                 scrollDeltaChannel.trySend(Float.NaN)  // sentinel: release drag session
-                                flingJob = flingScope.launch {
+                                flingJob = documentFlingScope.launch {
                                     isFlinging = true
                                     try {
                                         var vel = flingVelocity
