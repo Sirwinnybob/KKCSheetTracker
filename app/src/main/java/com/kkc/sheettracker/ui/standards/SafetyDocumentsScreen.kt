@@ -82,7 +82,14 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
     }
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    var isSubscriber by remember { mutableStateOf(uiPrefs.isSafetySubscriber()) }
+    var isSubscriber by remember {
+        mutableStateOf(
+            SafetyDocumentsScreenLogic.hasSafetyConcernsAccess(
+                safetySubscriber = uiPrefs.isSafetySubscriber(),
+                adminMode = uiPrefs.getAdminMode()
+            )
+        )
+    }
     var savedAuthorName by remember { mutableStateOf(uiPrefs.getSafetyAuthorName()) }
 
     var pdfFiles by remember { mutableStateOf<List<File>>(emptyList()) }
@@ -1054,4 +1061,3 @@ private fun formatTimestamp(isoString: String): String {
         instant.atZone(zone).format(formatter)
     }.getOrDefault(isoString)
 }
-

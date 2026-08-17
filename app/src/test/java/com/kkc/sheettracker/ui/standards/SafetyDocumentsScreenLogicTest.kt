@@ -24,4 +24,12 @@ class SafetyDocumentsScreenLogicTest {
         val missing = File(Files.createTempDirectory("safety-test-missing").toFile(), "nope")
         assertEquals(emptyList<File>(), SafetyDocumentsScreenLogic.listPdfs(missing))
     }
+
+    @Test
+    fun hasSafetyConcernsAccess_grantsWhenSubscriberOrAdmin() {
+        assertEquals(true, SafetyDocumentsScreenLogic.hasSafetyConcernsAccess(safetySubscriber = true, adminMode = false))
+        assertEquals(true, SafetyDocumentsScreenLogic.hasSafetyConcernsAccess(safetySubscriber = false, adminMode = true))
+        assertEquals(true, SafetyDocumentsScreenLogic.hasSafetyConcernsAccess(safetySubscriber = true, adminMode = true))
+        assertEquals(false, SafetyDocumentsScreenLogic.hasSafetyConcernsAccess(safetySubscriber = false, adminMode = false))
+    }
 }

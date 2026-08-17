@@ -1107,6 +1107,13 @@ class FileBackedUnifiedMetadataEngine(
     }
 
     private fun buildBoardStockRows(jobFolderName: String, index: HardwoodCutlistIndex?): List<BoardStockRow> {
+        // Aggregate from row-level qty/width/length data, matching Ready Jobs Watcher's
+        // authoritative build_board_stock_rows (metadata_cache.py). Do NOT aggregate from
+        // doc.totals: that's the PDF's own TOTALS/RIPS footer, which CabinetVision sometimes
+        // omits entirely (confirmed on job 644d - SHOWROOM AND STORAGE CABS, zero totals blocks
+        // across every hardwood doc) -- aggregating from it silently produced an empty rip list
+        // whenever this local recompute path ran (e.g. right after a deployment_gate.json touch
+        // makes cache_static.json look stale) even though row data existed.
         val aggregated = linkedMapOf<Triple<String, Double, BoardStockSource>, Double>()
         index?.documents.orEmpty().forEach { doc ->
             val source = when (doc.docType) {
@@ -1116,18 +1123,14 @@ class FileBackedUnifiedMetadataEngine(
                 HardwoodDocType.CLOSET_ROD_CUT_LIST -> null
                 HardwoodDocType.DOOR_LIST -> null
             } ?: return@forEach
-            doc.totals.forEach { block ->
-                val material = block.material.orEmpty().trim()
-                val maxSize = maxOf(block.widthValues.size, block.lengthValues.size)
-                for (i in 0 until maxSize) {
-                    val widthRaw = block.widthValues.getOrNull(i).orEmpty().trim()
-                    val feetRaw = block.lengthValues.getOrNull(i).orEmpty().trim().replace(",", "")
-                    val width = widthRaw.toDoubleOrNull() ?: continue
-                    val feet = feetRaw.toDoubleOrNull() ?: 0.0
-                    if (feet <= 0.0) continue
-                    val key = Triple(material, width, source)
-                    aggregated[key] = (aggregated[key] ?: 0.0) + feet
-                }
+            doc.rows.forEach { row ->
+                val material = row.material.orEmpty().trim()
+                val width = row.width.trim().toDoubleOrNull() ?: return@forEach
+                val lengthInches = row.length.trim().replace(",", "").toDoubleOrNull() ?: return@forEach
+                val feet = (lengthInches * row.qty) / 12.0
+                if (material.isEmpty() || width <= 0.0 || feet <= 0.0) return@forEach
+                val key = Triple(material, width, source)
+                aggregated[key] = (aggregated[key] ?: 0.0) + feet
             }
         }
 

@@ -235,6 +235,53 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun boardStockRowsAggregateFromRowsWhenPdfHasNoTotalsBlock() {
+        // CabinetVision sometimes exports hardwood cut lists with no TOTALS/RIPS footer at all
+        // (confirmed on job 644d - SHOWROOM AND STORAGE CABS: zero totals blocks across every
+        // hardwood doc). Ready Jobs Watcher's own board-stock builder (metadata_cache.py
+        // build_board_stock_rows) aggregates from row-level qty/width/length data, not the PDF's
+        // totals footer, so it always produces a rip list as long as rows exist. The local
+        // (stale-cache fallback) recompute here must match that source, not `doc.totals`.
+        val baseDir = createTempBaseDir()
+        val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
+        val metadataDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(metadataDir, "deployment_gate.json").writeText("""{"deployed": true}""")
+
+        val hardwoodDir = File(metadataDir, "hardwoods").apply { mkdirs() }
+        val hardwoodIndex = HardwoodCutlistIndex(
+            documents = listOf(
+                HardwoodDocumentIndex(
+                    docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+                    pdfFilename = "1234 - Face Frame Cut List.pdf",
+                    rows = listOf(
+                        HardwoodCutlistRow(
+                            rowId = "row-1",
+                            qty = 2,
+                            material = "Alder Knotty",
+                            description = "Top Rail",
+                            width = "4",
+                            length = "120",
+                            cabinets = listOf("42")
+                        )
+                    )
+                    // totals intentionally omitted (defaults to emptyList()), matching a PDF
+                    // export with no TOTALS/RIPS footer.
+                )
+            )
+        )
+        File(hardwoodDir, "cutlist_index.json").writeText(gson.toJson(hardwoodIndex))
+
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+        val rows = engine.getBoardStockRows(jobFolder, includeProgressOverlay = false).rows
+
+        assertFalse("expected rip list rows built from row-level data, got none", rows.isEmpty())
+        val row = rows.first()
+        assertEquals("Alder Knotty", row.material)
+        assertEquals(20.0, row.totalFeet, 0.0001) // (120in * 2) / 12 = 20 ft
+        assertEquals(2, row.neededRips) // ceil(20 / 10)
+    }
+
+    @Test
     fun resolvesCabinetPartsWithOverlayCallbacks() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)

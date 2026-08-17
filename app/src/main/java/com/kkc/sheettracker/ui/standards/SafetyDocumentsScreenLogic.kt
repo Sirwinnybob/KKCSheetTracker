@@ -15,4 +15,12 @@ object SafetyDocumentsScreenLogic {
             ?.sortedBy { it.name }
             ?: emptyList()
     }
+
+    /**
+     * The safety concerns feed is visible when the user has explicitly subscribed with the
+     * safety password OR when admin mode is unlocked. Admin mode grants access without
+     * persisting a separate safety subscription, so access follows the admin session.
+     */
+    fun hasSafetyConcernsAccess(safetySubscriber: Boolean, adminMode: Boolean): Boolean =
+        safetySubscriber || adminMode
 }

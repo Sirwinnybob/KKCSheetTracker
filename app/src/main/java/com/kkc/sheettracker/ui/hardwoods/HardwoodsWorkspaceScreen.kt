@@ -2535,11 +2535,9 @@ private fun HardwoodsBoardStockList(
         return
     }
 
+    // Rip cut list material sections start collapsed; the operator expands the ones they need.
     var expandedMaterialSections by rememberSaveable(jobFolderName, sectionsToShow, adminItems) {
-        mutableStateOf(
-            sections.flatMapTo(linkedSetOf()) { sec -> sec.materials.map { "${sec.source.name}|${it.material}" } } +
-            adminItems.map { "ADMIN|${it.material.ifBlank { "—" }}" }
-        )
+        mutableStateOf(emptySet<String>())
     }
     val widthBandPalette = statusColors.widthBandPalette
     val widthColorBands = remember(sectionsToShow, widthBandPalette) {
