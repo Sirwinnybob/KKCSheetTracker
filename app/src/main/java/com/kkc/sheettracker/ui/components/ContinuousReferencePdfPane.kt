@@ -412,21 +412,17 @@ internal fun maxCrossAxisPan(viewportExtent: Float, zoom: Float): Float =
 
 /**
  * Max [sharedMainAxisOverscroll]-style main-axis overscroll (list-space px, not screen px)
- * needed at the start OR end of the scrollable content so the first/last page's far edge can
- * still be dragged into view while zoomed in.
+ * needed at the start OR end of the scrollable content so the first/last page can be dragged
+ * half a viewport past its far edge.
  *
  * The shared whole-stack zoom is a `graphicsLayer` scale pivoted at the center of the viewport
  * (Compose's default transformOrigin), applied on top of the LazyColumn/LazyRow's own unscaled
- * layout. At maximum scroll-up, page 1's top edge sits at list-space y=0, which the center-pivot
- * scale maps to screen y = viewportExtent/2 * (1 - zoom) — negative (off-screen) for zoom > 1,
- * with no further scroll available to reach it (list is already at its start boundary). The same
- * happens in reverse for the last page's bottom edge at the end boundary. Solving screenY = 0 for
- * how much extra (list-space) reveal is needed at that boundary yields
- * `viewportExtent/2 * (1 - 1/zoom)`, i.e. [maxCrossAxisPan]'s screen-space overflow converted to
- * list-space by dividing out the zoom.
+ * layout. The matching list-space allowance is half the unscaled viewport. After the layer scale
+ * is applied, it places the first/last page edge half of the visible viewport beyond the pane,
+ * regardless of zoom.
  */
 internal fun mainAxisEdgePadding(viewportExtent: Float, zoom: Float): Float =
-    maxCrossAxisPan(viewportExtent, zoom) / zoom
+    viewportExtent / 2f
 
 internal data class ScrollSplitResult(val realScrollDelta: Float, val overscrollDelta: Float)
 
