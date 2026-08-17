@@ -156,7 +156,7 @@ import java.util.ArrayDeque
 private val ROOM_PAREN_REGEX = Regex("""\(([^)]+)\)""")
 private val ROOM_ILLEGAL_CHARS_REGEX = Regex("""[/\\:*?"<>|]""")
 private val ROOM_WHITESPACE_REGEX = Regex("""\s+""")
-private const val OCR_TAG = "KKC_OCR"
+private const val SHEET_RENDER_TAG = "KKC_SHEET_RENDER"
 private const val VIEWER_REF_TAG = "KKC_VIEWER_REF"
 private const val VIEWER_PARITY_TAG = "KKC_APP_STATE_PARITY_VIEWER"
 private const val VIEWER_PREPARED_TAG = "KKC_PREPARED_STATE"
@@ -636,7 +636,7 @@ fun SheetViewerScreen(
             val pageIndex = pageNumber - 1
             ParcelFileDescriptor.open(targetPdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                 PdfRenderer(fd).use { renderer ->
-                    AppLog.d(OCR_TAG, "render_fn: pageIndex=$pageIndex pageCount=${renderer.pageCount} quality=$quality file=${targetPdfFile.path} exists=${targetPdfFile.exists()}")
+                    AppLog.d(SHEET_RENDER_TAG, "render_fn: pageIndex=$pageIndex pageCount=${renderer.pageCount} quality=$quality file=${targetPdfFile.path} exists=${targetPdfFile.exists()}")
                     if (pageIndex !in 0 until renderer.pageCount) return null
                     renderer.openPage(pageIndex).use { page ->
                         val width = (page.width * quality.scale).toInt().coerceAtLeast(1)
@@ -683,7 +683,7 @@ fun SheetViewerScreen(
         } catch (e: Exception) {
             renderedBitmap?.takeUnless { it.isRecycled }?.recycle()
             if (e is CancellationException) throw e
-            Log.e(OCR_TAG, "Page $pageNumber render error source=$source", e)
+            Log.e(SHEET_RENDER_TAG, "Page $pageNumber render error source=$source", e)
             null
         }
     }
@@ -821,20 +821,20 @@ fun SheetViewerScreen(
 
     LaunchedEffect(currentPage, fileFingerprint) {
         val material = currentMaterial ?: run {
-            Log.w(OCR_TAG, "render_guard: currentMaterial=null page=$currentPage fp=$fileFingerprint")
+            Log.w(SHEET_RENDER_TAG, "render_guard: currentMaterial=null page=$currentPage fp=$fileFingerprint")
             return@LaunchedEffect
         }
         if (fileFingerprint.isBlank()) {
-            Log.w(OCR_TAG, "render_guard: fileFingerprint blank page=$currentPage material=${material.pdfFilename}")
+            Log.w(SHEET_RENDER_TAG, "render_guard: fileFingerprint blank page=$currentPage material=${material.pdfFilename}")
             return@LaunchedEffect
         }
         val pages = visiblePages.ifEmpty { material.visibleSheetPages() }
         if (pages.isEmpty()) {
-            Log.w(OCR_TAG, "render_guard: pages empty page=$currentPage material=${material.pdfFilename}")
+            Log.w(SHEET_RENDER_TAG, "render_guard: pages empty page=$currentPage material=${material.pdfFilename}")
             return@LaunchedEffect
         }
         if (currentPage !in pages) {
-            Log.w(OCR_TAG, "render_guard: currentPage=$currentPage not in pages=$pages material=${material.pdfFilename}")
+            Log.w(SHEET_RENDER_TAG, "render_guard: currentPage=$currentPage not in pages=$pages material=${material.pdfFilename}")
             return@LaunchedEffect
         }
         totalPages = pages.size
@@ -851,7 +851,7 @@ fun SheetViewerScreen(
             pageBitmap = cached.pageBitmap
             diagramBitmap = cached.diagramBitmap
             AppLog.i(
-                OCR_TAG,
+                SHEET_RENDER_TAG,
                 "Page $currentPage render cache hit: pageBitmap=${pageBitmap?.width}x${pageBitmap?.height}, diagram=${diagramBitmap?.width}x${diagramBitmap?.height}"
             )
         }
@@ -876,7 +876,7 @@ fun SheetViewerScreen(
                 diagramBitmap = rendered.diagramBitmap
                 cacheRenderedPage(currentPage, rendered)
                 AppLog.i(
-                    OCR_TAG,
+                    SHEET_RENDER_TAG,
                     "Page $currentPage render fresh: pageBitmap=${pageBitmap?.width}x${pageBitmap?.height}, diagram=${diagramBitmap?.width}x${diagramBitmap?.height}"
                 )
             } else {
@@ -887,13 +887,13 @@ fun SheetViewerScreen(
 
         val meta = resolvePageMetadata(material, currentPage)
         if (meta != null && meta.parts.isEmpty()) {
-            Log.w(OCR_TAG, "Page $currentPage metadata resolved but parts list is empty (sheetId=${meta.sheetId})")
+            Log.w(SHEET_RENDER_TAG, "Page $currentPage metadata resolved but parts list is empty (sheetId=${meta.sheetId})")
         }
         val resolvedFiles = inferSheetFiles(meta)
         sheetFilesCache[currentPage] = resolvedFiles
         selectedPartType = null
 
-        diagramBboxes = meta.toSidecarOcrMap()
+        diagramBboxes = meta.toSidecarDiagramBounds()
     }
 
     LaunchedEffect(currentPage, totalPages, fileFingerprint) {
@@ -2521,7 +2521,7 @@ internal fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int):
                             xo.image
                         } catch (e: Exception) {
                             Log.w(
-                                OCR_TAG,
+                                SHEET_RENDER_TAG,
                                 "Skipping undecodable embedded image pageIndex=$pageIndex size=${xo.width}x${xo.height}",
                                 e
                             )
@@ -2552,12 +2552,12 @@ internal fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int):
         walk(page.resources)
         val raw = bestBitmap ?: fallbackBitmap ?: return null
         AppLog.i(
-            OCR_TAG,
+            SHEET_RENDER_TAG,
             "Embedded image selected: raw=${raw.width}x${raw.height}, area=${if (bestArea > 0) bestArea else fallbackArea}, nonWhite=${"%.5f".format(bestNonWhite)}, variance=${"%.2f".format(bestVariance)}"
         )
         raw
     } catch (e: Exception) {
-        Log.e(OCR_TAG, "Embedded image extraction failed for pageIndex=$pageIndex", e)
+        Log.e(SHEET_RENDER_TAG, "Embedded image extraction failed for pageIndex=$pageIndex", e)
         null
     } finally {
         try { doc?.close() } catch (_: Exception) {}
@@ -2603,7 +2603,7 @@ private fun measureImageSignal(bitmap: Bitmap): Pair<Double, Double> {
     return nonWhiteRatio to variance
 }
 
-private fun com.kkc.sheettracker.data.models.PageMetadata?.toSidecarOcrMap(): Map<Int, List<Rect>> {
+private fun com.kkc.sheettracker.data.models.PageMetadata?.toSidecarDiagramBounds(): Map<Int, List<Rect>> {
     val ocrBoxes = this?.ocrBoxes.orEmpty()
     if (ocrBoxes.isEmpty()) return emptyMap()
     return ocrBoxes.mapNotNull { (numText, boxes) ->

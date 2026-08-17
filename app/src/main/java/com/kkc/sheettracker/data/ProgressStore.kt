@@ -1,7 +1,6 @@
 package com.kkc.sheettracker.data
 
 import android.graphics.Bitmap
-import android.graphics.Rect
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -101,18 +100,6 @@ private data class DraftBadPartState(
     val entries: List<DraftBadPartEntry> = emptyList()
 )
 
-private data class OcrBox(
-    val left: Int,
-    val top: Int,
-    val right: Int,
-    val bottom: Int
-)
-
-private data class OcrPageCache(
-    val boxes: Map<String, List<OcrBox>> = emptyMap(),
-    val savedAt: String = ""
-)
-
 private data class SheetKey(
     val file: String,
     val page: Int
@@ -181,7 +168,6 @@ class ProgressStore(
 ) {
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
-    private val ocrMemCache = ConcurrentHashMap<String, Map<Int, List<Rect>>>()
     private val preparedPageCache = mutableMapOf<PreparedPageKey, PreparedPageEntry>()
     private val preparedPageOrder = ArrayDeque<PreparedPageKey>()
     private val preparedPageInFlight = mutableMapOf<PreparedPageKey, CompletableDeferred<Bitmap?>>()
@@ -263,26 +249,6 @@ class ProgressStore(
     private fun draftFile(jobFolderName: String): File {
         return File(draftDir(jobFolderName), "$tabletId.json")
     }
-
-    private fun ocrCacheFile(
-        jobFolderName: String,
-        pdfFilename: String,
-        page: Int,
-        fileFingerprint: String
-    ): File {
-        val safePdf = safeName(pdfFilename)
-        val safeFp = safeName(fileFingerprint)
-        return File(localStateDir, "ocr/$jobFolderName/$safePdf/$safeFp/p$page.json")
-    }
-
-    private fun ocrCacheKey(
-        jobFolderName: String,
-        pdfFilename: String,
-        page: Int,
-        fileFingerprint: String
-    ): String = "$jobFolderName|$pdfFilename|$page|$fileFingerprint"
-
-    private fun safeName(value: String): String = value.replace(Regex("[^A-Za-z0-9._-]"), "_")
 
     private fun loadDraftState(jobFolderName: String): DraftBadPartState {
         val file = draftFile(jobFolderName)
@@ -1119,52 +1085,6 @@ class ProgressStore(
         }
     }
 
-    fun hasOcrCache(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String): Boolean {
-        val key = ocrCacheKey(jobFolderName, pdfFilename, page, fileFingerprint)
-        if (ocrMemCache.containsKey(key)) return true
-        return ocrCacheFile(jobFolderName, pdfFilename, page, fileFingerprint).exists()
-    }
-
-    fun getOcrCache(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String): Map<Int, List<Rect>>? {
-        val key = ocrCacheKey(jobFolderName, pdfFilename, page, fileFingerprint)
-        ocrMemCache[key]?.let { return it }
-
-        val file = ocrCacheFile(jobFolderName, pdfFilename, page, fileFingerprint)
-        if (!file.exists()) return null
-        return try {
-            val raw = gson.fromJson(file.readText(), OcrPageCache::class.java).let { sanitizeOcrPageCache(it) }
-            val parsed = raw.boxes.mapNotNull { (k, v) ->
-                val num = k.toIntOrNull() ?: return@mapNotNull null
-                num to v.map { Rect(it.left, it.top, it.right, it.bottom) }
-            }.toMap()
-            ocrMemCache[key] = parsed
-            parsed
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    fun saveOcrCache(
-        jobFolderName: String,
-        pdfFilename: String,
-        page: Int,
-        fileFingerprint: String,
-        boxes: Map<Int, List<Rect>>
-    ) {
-        val key = ocrCacheKey(jobFolderName, pdfFilename, page, fileFingerprint)
-        ocrMemCache[key] = boxes
-
-        val file = ocrCacheFile(jobFolderName, pdfFilename, page, fileFingerprint)
-        file.parentFile?.mkdirs()
-        val data = OcrPageCache(
-            boxes = boxes.mapKeys { it.key.toString() }.mapValues { (_, rects) ->
-                rects.map { OcrBox(it.left, it.top, it.right, it.bottom) }
-            },
-            savedAt = Instant.now().toString()
-        )
-        file.writeText(gson.toJson(data))
-    }
-
     fun getPreparedPageEntry(key: PreparedPageKey): PreparedPageEntry? {
         synchronized(preparedPageLock) {
             val existing = preparedPageCache[key] ?: return null
@@ -1311,15 +1231,9 @@ class ProgressStore(
     fun pruneLocalStateForJob(jobFolderName: String, materials: List<Material>) {
         if (readOnly) return
         // A missing/empty metadata result is not authoritative. Pruning it would erase
-        // local bad-part drafts and expensive OCR/prepared-page caches for the whole job.
+        // local bad-part drafts and prepared-page caches for the whole job.
         if (materials.isEmpty()) return
         val validFingerprintsByPdf = materials.associate { it.pdfFilename to it.fileFingerprint }
-        // This method runs from app-state derivation; precomputing the safe-name map avoids
-        // scanning every PDF key for every OCR directory (O(D*M) -> O(D+M)).
-        val originalPdfBySafeName = mutableMapOf<String, String>()
-        validFingerprintsByPdf.keys.forEach { originalPdf ->
-            originalPdfBySafeName.putIfAbsent(safeName(originalPdf), originalPdf)
-        }
 
         val draft = loadDraftState(jobFolderName)
         val filteredDraftEntries = draft.entries.filter { entry ->
@@ -1329,34 +1243,6 @@ class ProgressStore(
             saveDraftState(jobFolderName, draft.copy(entries = filteredDraftEntries))
             bumpProgressVersion()
         }
-
-        val ocrJobDir = File(localStateDir, "ocr/$jobFolderName")
-        if (ocrJobDir.exists()) {
-            ocrJobDir.listFiles()?.forEach { pdfDir ->
-                if (!pdfDir.isDirectory) return@forEach
-                val originalPdf = originalPdfBySafeName[pdfDir.name]
-                if (originalPdf == null) {
-                    pdfDir.deleteRecursively()
-                    return@forEach
-                }
-                val validFpSafe = safeName(validFingerprintsByPdf.getValue(originalPdf))
-                pdfDir.listFiles()?.forEach { fpDir ->
-                    if (fpDir.isDirectory && fpDir.name != validFpSafe) {
-                        fpDir.deleteRecursively()
-                    }
-                }
-            }
-        }
-
-        val validKeys = mutableSetOf<String>()
-        materials.forEach { material ->
-            (1..material.pageCount).forEach { page ->
-                validKeys += ocrCacheKey(jobFolderName, material.pdfFilename, page, material.fileFingerprint)
-            }
-        }
-        ocrMemCache.keys
-            .filter { it.startsWith("$jobFolderName|") && it !in validKeys }
-            .forEach { stale -> ocrMemCache.remove(stale) }
 
         synchronized(preparedPageLock) {
             val validPreparedKeys = mutableSetOf<PreparedPageKey>()
@@ -1402,15 +1288,4 @@ class ProgressStore(
         )
     }
 
-    private fun sanitizeOcrPageCache(cache: OcrPageCache?): OcrPageCache {
-        if (cache == null) return OcrPageCache()
-        return OcrPageCache(
-            boxes = (gsonNullable(cache.boxes) ?: emptyMap()).mapValues { (_, list) ->
-                (gsonNullable(list) ?: emptyList()).mapNotNull { box ->
-                    gsonNullable(box)?.let { OcrBox(it.left, it.top, it.right, it.bottom) }
-                }
-            },
-            savedAt = gsonNullable(cache.savedAt) ?: ""
-        )
-    }
 }
