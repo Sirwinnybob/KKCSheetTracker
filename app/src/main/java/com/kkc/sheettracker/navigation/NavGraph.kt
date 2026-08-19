@@ -518,13 +518,14 @@ private fun MultiBackStackNavigation(
     }
     val specialtyScanCoordinator = remember(specialtyRepository) { SpecialtyScanCoordinator(specialtyRepository) }
     val assemblyScanCoordinator = remember(basePath) { AssemblyScanCoordinator(File(basePath), jobRepository) }
-    val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore) {
+    val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore, liveIndexEngine) {
         AssemblyStateStore(
             assemblyScanCoordinator = assemblyScanCoordinator,
             scanCoordinator = scanCoordinator,
             hardwoodsScanCoordinator = hardwoodsScanCoordinator,
             progressStore = progressStore,
-            hardwoodsProgressStore = hardwoodsProgressStore
+            hardwoodsProgressStore = hardwoodsProgressStore,
+            liveEngine = liveIndexEngine
         )
     }
     val sheetRipProgressStore = remember(basePath) {
@@ -2089,13 +2090,14 @@ private fun LegacySingleStackNavigation(
     }
     val specialtyScanCoordinator = remember(specialtyRepository) { SpecialtyScanCoordinator(specialtyRepository) }
     val assemblyScanCoordinator = remember(basePath) { AssemblyScanCoordinator(File(basePath), jobRepository) }
-    val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore) {
+    val assemblyStateStore = remember(assemblyScanCoordinator, scanCoordinator, hardwoodsScanCoordinator, progressStore, hardwoodsProgressStore, unifiedEngine) {
         AssemblyStateStore(
             assemblyScanCoordinator = assemblyScanCoordinator,
             scanCoordinator = scanCoordinator,
             hardwoodsScanCoordinator = hardwoodsScanCoordinator,
             progressStore = progressStore,
-            hardwoodsProgressStore = hardwoodsProgressStore
+            hardwoodsProgressStore = hardwoodsProgressStore,
+            liveEngine = unifiedEngine
         )
     }
     val sheetRipProgressStore = remember(basePath) {
