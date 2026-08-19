@@ -14,21 +14,66 @@ import java.io.File
  * it does not read `NavGraph.kt`, so it would not catch a regression that moves the listener
  * registration back into `MultiBackStackNavigation` only. This test inspects the actual
  * source structure of NavGraph.kt to close that gap.
+ *
+ * `cncInvalidationDoesNotEmitASecondWatcherEpoch` specifically guards against the historical
+ * bug where `onCncJobsChanged` independently re-emitted `watcherRefreshSignal` from within its
+ * own callback body, even though `TrackerChangeMonitor`'s separate `onWatcherRefreshRequested`
+ * callback already owns emitting that signal for this event -- causing a duplicate/redundant
+ * refresh. That check used to be a blunt whole-file count of `watcherRefreshSignal.value =
+ * System.currentTimeMillis()` occurrences (expected exactly 2), back when the file happened to
+ * have only 2 legitimate call sites. NavGraph.kt has since grown legitimate additional call
+ * sites (e.g. the live jobs-index client's onSnapshot/onDelta/onConnectionState callbacks) that
+ * have nothing to do with `onCncJobsChanged`, so a whole-file count is no longer a reliable proxy
+ * for the invariant and would break on any future unrelated feature that also needs to bump this
+ * signal. The check below instead locates the `onCncJobsChanged` callback block specifically (by
+ * finding its enclosing braces around the `jobFolderNames.forEach { ... }` line) and asserts that
+ * block alone contains no `watcherRefreshSignal` write, which is the actual invariant this test
+ * claims to guard.
  */
 class NavGraphCncSyncWiringTest {
 
     @Test
     fun cncInvalidationDoesNotEmitASecondWatcherEpoch() {
-        val source = navGraphSource().joinToString("\n")
+        val lines = navGraphSource()
+        val source = lines.joinToString("\n")
         assertEquals(
             1,
             Regex("jobFolderNames\\.forEach \\{ scanCoordinator\\.unifiedEngine\\.invalidateJob\\(it\\) \\}")
                 .findAll(source).count()
         )
-        assertEquals(
-            2,
-            Regex("watcherRefreshSignal\\.value = System\\.currentTimeMillis\\(\\)")
-                .findAll(source).count()
+
+        // Locate the onCncJobsChanged callback block itself, rather than counting
+        // watcherRefreshSignal writes across the whole file (see class doc comment above).
+        val forEachLineIndex = lines.indexOfFirst {
+            it.contains("jobFolderNames.forEach { scanCoordinator.unifiedEngine.invalidateJob(it) }")
+        }
+        assertTrue("Could not locate the onCncJobsChanged forEach line in NavGraph.kt", forEachLineIndex >= 0)
+
+        // Walk backward to the line that opens the onCncJobsChanged lambda...
+        val callbackStartIndex = (forEachLineIndex downTo 0).firstOrNull { lines[it].contains("onCncJobsChanged") }
+        assertTrue(
+            "Could not locate the enclosing 'onCncJobsChanged = { jobFolderNames ->' line above the forEach call",
+            callbackStartIndex != null
+        )
+
+        // ...and forward to the line that closes it, so the checked window is exactly the
+        // callback's body regardless of incidental formatting changes elsewhere in the file.
+        val callbackEndIndex = (forEachLineIndex until lines.size).firstOrNull {
+            val trimmed = lines[it].trim()
+            trimmed == "}" || trimmed == "},"
+        }
+        assertTrue(
+            "Could not locate the closing brace of the onCncJobsChanged callback",
+            callbackEndIndex != null
+        )
+
+        val callbackBlock = lines.subList(callbackStartIndex!!, callbackEndIndex!! + 1)
+        assertTrue(
+            "onCncJobsChanged must not independently write watcherRefreshSignal -- " +
+                "TrackerChangeMonitor's onWatcherRefreshRequested callback already owns emitting " +
+                "that signal for CNC-completion events (code-review finding #23). Offending block:\n" +
+                callbackBlock.joinToString("\n"),
+            callbackBlock.none { it.contains("watcherRefreshSignal") }
         )
     }
 
