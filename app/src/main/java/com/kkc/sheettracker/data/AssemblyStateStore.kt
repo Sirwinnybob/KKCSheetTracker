@@ -1,6 +1,5 @@
 package com.kkc.sheettracker.data
 
-import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.models.AssemblyBomEntry
 import com.kkc.sheettracker.data.models.AssemblyCabinetParts
 import com.kkc.sheettracker.data.models.AssemblyCncPart
@@ -17,7 +16,6 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.unified.UnifiedBoardStockOverlayLookup
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
-import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.unified.UnifiedPartOverlayLookup
 
 class AssemblyStateStore(
@@ -25,16 +23,10 @@ class AssemblyStateStore(
     private val scanCoordinator: ScanCoordinator,
     private val hardwoodsScanCoordinator: HardwoodsScanCoordinator,
     private val progressStore: ProgressStore,
-    private val hardwoodsProgressStore: HardwoodsProgressStore
+    private val hardwoodsProgressStore: HardwoodsProgressStore,
+    private val liveEngine: UnifiedMetadataEngine
 ) {
-    private fun engine(): UnifiedMetadataEngine {
-        val path = assemblyScanCoordinator.state.value.snapshot.basePath
-        val baseDir = java.io.File(path)
-        return UnifiedMetadataEngineRegistry.getOrCreate(
-            baseDir = baseDir,
-            isDebugBuild = BuildConfig.DEBUG
-        )
-    }
+    private fun engine(): UnifiedMetadataEngine = liveEngine
 
     fun getJobs(): List<AssemblyJob> {
         return engine().getCachedJobInfos().mapNotNull { info ->

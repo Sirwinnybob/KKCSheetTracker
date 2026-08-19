@@ -8,6 +8,7 @@ import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -184,7 +185,8 @@ class UnifiedFacadeParityTest {
             scanCoordinator = scanCoordinator,
             hardwoodsScanCoordinator = hardwoodScanCoordinator,
             progressStore = progressStore,
-            hardwoodsProgressStore = hardwoodProgressStore
+            hardwoodsProgressStore = hardwoodProgressStore,
+            liveEngine = UnifiedMetadataEngineRegistry.getOrCreate(baseDir, isDebugBuild = true)
         )
 
         val jump = stateStore.getCabinetJumpPages(jobFolder, "42")
