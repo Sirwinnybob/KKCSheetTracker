@@ -780,6 +780,7 @@ private fun MultiBackStackNavigation(
                         assemblyScanCoordinator = assemblyScanCoordinator,
                         assemblyStateStore = assemblyStateStore,
                         specialtyStateStore = specialtyStateStore,
+                        liveEngine = liveIndexEngine,
                         onNavigateToJobs = {
                             coordinator.navigateTopLevel(TopLevelTab.JOBS)
                         },
@@ -1095,6 +1096,7 @@ private fun DashboardTabHost(
     assemblyScanCoordinator: AssemblyScanCoordinator,
     assemblyStateStore: AssemblyStateStore,
     specialtyStateStore: SpecialtyStateStore,
+    liveEngine: UnifiedMetadataEngine,
     onNavigateToJobs: () -> Unit,
     onOpenJobInJobs: (String) -> Unit,
     onOpenSpecialtyJobInJobs: (String) -> Unit,
@@ -1127,6 +1129,7 @@ private fun DashboardTabHost(
                         UnifiedModeDashboardSpec.Hardwoods(
                             scanCoordinator = hardwoodsScanCoordinator,
                             progressStore = hardwoodsProgressStore,
+                            liveEngine = liveEngine,
                             onOpenJob = { job ->
                                 onOpenHardwoodsJobInJobs(job.folderName)
                             }
@@ -2376,6 +2379,7 @@ private fun LegacySingleStackNavigation(
                                     UnifiedModeDashboardSpec.Hardwoods(
                                         scanCoordinator = hardwoodsScanCoordinator,
                                         progressStore = hardwoodsProgressStore,
+                                        liveEngine = unifiedEngine,
                                         onOpenJob = { job ->
                                             navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
                                                 launchSingleTop = true
