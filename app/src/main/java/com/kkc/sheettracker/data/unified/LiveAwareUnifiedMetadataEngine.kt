@@ -2,7 +2,6 @@ package com.kkc.sheettracker.data.unified
 
 import com.kkc.sheettracker.data.models.CacheIndexProgressSummary
 import com.kkc.sheettracker.data.models.CacheIndexRoot
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Decorates [delegate] (the registry-singleton [FileBackedUnifiedMetadataEngine]) with
@@ -17,22 +16,21 @@ class LiveAwareUnifiedMetadataEngine(
     private val delegate: UnifiedMetadataEngine
 ) : UnifiedMetadataEngine by delegate {
 
-    private val liveJobs = ConcurrentHashMap<String, CacheIndexRoot>()
+    @Volatile private var liveJobs: Map<String, CacheIndexRoot> = emptyMap()
     @Volatile private var connected = false
 
     fun applySnapshot(jobs: Map<String, CacheIndexRoot>) {
-        liveJobs.clear()
-        liveJobs.putAll(jobs)
+        liveJobs = jobs.toMap()
         connected = true
     }
 
     fun applyDelta(folderName: String, index: CacheIndexRoot?) {
-        if (index == null) liveJobs.remove(folderName) else liveJobs[folderName] = index
+        liveJobs = if (index == null) liveJobs - folderName else liveJobs + (folderName to index)
     }
 
     fun setConnected(value: Boolean) {
         connected = value
-        if (!value) liveJobs.clear()
+        if (!value) liveJobs = emptyMap()
     }
 
     override fun listJobsFromCacheIndex(): Pair<List<UnifiedJobInfo>, List<String>> =
