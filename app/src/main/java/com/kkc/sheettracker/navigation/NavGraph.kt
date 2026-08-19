@@ -100,6 +100,9 @@ import com.kkc.sheettracker.data.TrackerChangeMonitor
 import com.kkc.sheettracker.data.StaticCachePoller
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import com.kkc.sheettracker.data.LiveIndexClient
+import com.kkc.sheettracker.data.unified.LiveAwareUnifiedMetadataEngine
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
@@ -278,6 +281,52 @@ fun AppNavigation(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             staticCachePoller.stop()
+        }
+    }
+
+    val liveIndexContext = LocalContext.current
+    val liveIndexAdminSyncConfig = remember { AdminSyncConfig.create(liveIndexContext) }
+    val liveIndexRegistryEngine = remember(basePath, isDebugBuild) {
+        UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild)
+    }
+    val liveIndexEngine = remember(liveIndexRegistryEngine) {
+        LiveAwareUnifiedMetadataEngine(liveIndexRegistryEngine)
+    }
+    val liveIndexClient = remember(liveIndexAdminSyncConfig, liveIndexEngine, tabletId) {
+        LiveIndexClient(
+            config = liveIndexAdminSyncConfig,
+            tabletId = tabletId,
+            onSnapshot = { jobs ->
+                liveIndexEngine.applySnapshot(jobs)
+                watcherRefreshSignal.value = System.currentTimeMillis()
+            },
+            onDelta = { folderName, index ->
+                liveIndexEngine.applyDelta(folderName, index)
+                watcherRefreshSignal.value = System.currentTimeMillis()
+            },
+            onConnectionState = { isConnected ->
+                liveIndexEngine.setConnected(isConnected)
+                if (isConnected) staticCachePoller.stop() else staticCachePoller.start()
+                watcherRefreshSignal.value = System.currentTimeMillis()
+            }
+        )
+    }
+    DisposableEffect(lifecycleOwner, liveIndexClient) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> liveIndexClient.start()
+                Lifecycle.Event.ON_STOP -> {
+                    liveIndexClient.stop()
+                    liveIndexEngine.setConnected(false)
+                    staticCachePoller.start()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            liveIndexClient.stop()
         }
     }
 
