@@ -54,9 +54,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.AppStateFeatureFlags
-import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
@@ -113,6 +112,7 @@ sealed interface UnifiedModeDashboardSpec {
     data class Hardwoods(
         val scanCoordinator: HardwoodsScanCoordinator,
         val progressStore: HardwoodsProgressStore,
+        val liveEngine: UnifiedMetadataEngine,
         val onOpenJob: (HardwoodJob) -> Unit
     ) : UnifiedModeDashboardSpec
 
@@ -147,6 +147,7 @@ fun UnifiedModeDashboardScreen(spec: UnifiedModeDashboardSpec) {
         is UnifiedModeDashboardSpec.Hardwoods -> HardwoodsDashboardContent(
             scanCoordinator = spec.scanCoordinator,
             progressStore = spec.progressStore,
+            liveEngine = spec.liveEngine,
             onOpenJob = spec.onOpenJob
         )
         is UnifiedModeDashboardSpec.Assembly -> AssemblyDashboardContent(
@@ -743,12 +744,11 @@ private fun recentMaterialAccent(counts: StatusCounts): DashboardAccent = when {
 private fun HardwoodsDashboardContent(
     scanCoordinator: HardwoodsScanCoordinator,
     progressStore: HardwoodsProgressStore,
+    liveEngine: UnifiedMetadataEngine,
     onOpenJob: (HardwoodJob) -> Unit
 ) {
     val scanState by scanCoordinator.state.collectAsState()
-    val engine = remember(scanState.snapshot.basePath) {
-        UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), BuildConfig.DEBUG)
-    }
+    val engine = liveEngine
     // Lightweight: use cache_index progress, no getHardwoodsSnapshot() needed
     val jobInfos = engine.getCachedJobInfos()
     val totalCounts = remember(jobInfos) {
