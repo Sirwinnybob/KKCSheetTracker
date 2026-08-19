@@ -16,6 +16,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 internal fun nextBackoffDelayMs(attempt: Int): Long =
@@ -59,6 +60,7 @@ class LiveIndexClient(
     @Volatile private var running = false
     @Volatile private var socket: WebSocket? = null
     private val attempt = AtomicInteger(0)
+    private val reconnectPending = AtomicBoolean(false)
     private var pendingJob: Job? = null
 
     companion object {
@@ -74,11 +76,13 @@ class LiveIndexClient(
         if (running) return
         running = true
         attempt.set(0)
+        reconnectPending.set(false)
         connectNow()
     }
 
     fun stop() {
         running = false
+        reconnectPending.set(false)
         pendingJob?.cancel()
         pendingJob = null
         socket?.close(1000, "client stop")
@@ -108,11 +112,16 @@ class LiveIndexClient(
 
     private fun scheduleReconnect() {
         if (!running) return
+        if (!reconnectPending.compareAndSet(false, true)) {
+            Log.d(TAG, "Reconnect already pending; ignoring duplicate schedule request")
+            return
+        }
         val currentAttempt = attempt.getAndIncrement()
         val delayMs = reconnectDelayMs(currentAttempt)
         Log.d(TAG, "Scheduling reconnect: attempt=$currentAttempt delayMs=$delayMs")
         pendingJob = scope.launch {
             delay(delayMs)
+            reconnectPending.set(false)
             if (running) connectNow()
         }
     }

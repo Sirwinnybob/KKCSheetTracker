@@ -264,6 +264,33 @@ class LiveIndexClientReconnectTest {
     }
 
     @Test
+    fun `duplicate onFailure on the same listener schedules only one reconnect`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val scheduleCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val client = LiveIndexClient(
+            config = configWithIp("192.168.1.15"),
+            tabletId = "tablet-7",
+            onSnapshot = {},
+            onDelta = { _, _ -> },
+            onConnectionState = {},
+            reconnectDelayMs = { attempt -> scheduleCount.incrementAndGet(); 100L },
+            webSocketFactory = { _, listener -> listeners.add(listener); fakeSocket }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        // Simulate a stray duplicate callback firing on the same (stale) listener instance.
+        listeners[0].onFailure(fakeSocket, RuntimeException("first"), null)
+        listeners[0].onFailure(fakeSocket, RuntimeException("second"), null)
+
+        Thread.sleep(300L) // longer than the 100ms reconnect delay so the pending job would have fired
+        assertEquals(1, scheduleCount.get())
+        assertEquals(2, listeners.size) // exactly one reconnect actually happened
+        client.stop()
+    }
+
+    @Test
     fun `stop cancels a pending reconnect`() = runBlocking {
         val fakeSocket = mock<WebSocket>()
         val listeners = CopyOnWriteArrayList<WebSocketListener>()
