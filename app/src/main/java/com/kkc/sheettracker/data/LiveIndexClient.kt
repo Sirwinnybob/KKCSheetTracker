@@ -65,6 +65,7 @@ class LiveIndexClient(
         private val gson = Gson()
         private val sharedClient = OkHttpClient.Builder()
             .readTimeout(0, TimeUnit.MILLISECONDS)
+            .pingInterval(15, TimeUnit.SECONDS)
             .build()
     }
 
@@ -85,20 +86,29 @@ class LiveIndexClient(
 
     private fun connectNow() {
         pendingJob = scope.launch {
-            val baseUrl = buildAdminSyncUrl(config.getManualIp())
-            if (baseUrl == null) {
+            try {
+                val baseUrl = buildAdminSyncUrl(config.getManualIp())
+                if (baseUrl == null) {
+                    Log.d(TAG, "No server IP configured; skipping connect")
+                    scheduleReconnect()
+                    return@launch
+                }
+                val wsUrl = baseUrl.replaceFirst("http://", "ws://") + "/api/ready-jobs-worker/live-index"
+                val request = Request.Builder().url(wsUrl).build()
+                if (!running) return@launch
+                socket = webSocketFactory(request, Listener())
+            } catch (e: Exception) {
+                Log.w(TAG, "connectNow failed", e)
                 scheduleReconnect()
-                return@launch
             }
-            val wsUrl = baseUrl.replaceFirst("http://", "ws://") + "/api/ready-jobs-worker/live-index"
-            val request = Request.Builder().url(wsUrl).build()
-            socket = webSocketFactory(request, Listener())
         }
     }
 
     private fun scheduleReconnect() {
         if (!running) return
-        val delayMs = reconnectDelayMs(attempt.getAndIncrement())
+        val currentAttempt = attempt.getAndIncrement()
+        val delayMs = reconnectDelayMs(currentAttempt)
+        Log.d(TAG, "Scheduling reconnect: attempt=$currentAttempt delayMs=$delayMs")
         pendingJob = scope.launch {
             delay(delayMs)
             if (running) connectNow()
@@ -107,6 +117,7 @@ class LiveIndexClient(
 
     private inner class Listener : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            Log.d(TAG, "WebSocket opened, sending hello")
             webSocket.send(gson.toJson(mapOf("type" to "hello", "tabletId" to tabletId)))
         }
 
@@ -115,13 +126,17 @@ class LiveIndexClient(
             when (envelope.type) {
                 "snapshot" -> {
                     attempt.set(0)
+                    Log.d(TAG, "Received snapshot: revision=${envelope.revision}, jobs=${envelope.jobs?.size ?: 0}")
                     onSnapshot(envelope.jobs.orEmpty())
                     onConnectionState(true)
                 }
                 "delta" -> {
-                    val delta = envelope.delta ?: return
-                    val folderName = delta.folderName ?: return
-                    onDelta(folderName, if (delta.type == "remove") null else delta.index)
+                    val delta = envelope.delta
+                    if (delta == null || delta.folderName == null) {
+                        Log.w(TAG, "Dropped malformed delta: missing delta or folderName")
+                        return
+                    }
+                    onDelta(delta.folderName, if (delta.type == "remove") null else delta.index)
                 }
                 "not_running", "error" -> onConnectionState(false)
                 else -> Unit
@@ -129,6 +144,7 @@ class LiveIndexClient(
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            Log.d(TAG, "WebSocket closed: code=$code reason=$reason")
             onConnectionState(false)
             scheduleReconnect()
         }
