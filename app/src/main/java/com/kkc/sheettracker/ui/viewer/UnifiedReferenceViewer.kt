@@ -40,6 +40,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -546,6 +547,9 @@ fun UnifiedReferenceViewer(
         sourceTotalPages
     }
     val clampedDisplayPage = displayPage.coerceIn(1, effectiveTotalPages.coerceAtLeast(1))
+    var continuousEdgeOverscrollFraction by remember(defaultPdfFilename, virtualMapping, continuousScrollEnabled) {
+        mutableFloatStateOf(0f)
+    }
 
     val reverseIndex = remember(virtualMapping) {
         virtualMapping?.let(::buildVirtualReverseIndex).orEmpty()
@@ -837,7 +841,10 @@ fun UnifiedReferenceViewer(
                         persistMarkupState()
                     },
                     contentPadding = contentPadding,
-                    onSingleTap = onSingleTap
+                    onSingleTap = onSingleTap,
+                    onEdgeOverscrollChange = { fraction ->
+                        continuousEdgeOverscrollFraction = fraction.takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f
+                    }
                 )
                 if (showHeaderRow || showNavigationButtons) {
                     Row(
@@ -878,7 +885,8 @@ fun UnifiedReferenceViewer(
                     preferDarkMode = preferDarkMode,
                     hazeState = hazeState,
                     isSplitPaneActive = isSplitPaneActive,
-                    hasNavBarBelow = hasNavBarBelow
+                    hasNavBarBelow = hasNavBarBelow,
+                    edgeOverscrollFraction = continuousEdgeOverscrollFraction
                 )
             }
         }

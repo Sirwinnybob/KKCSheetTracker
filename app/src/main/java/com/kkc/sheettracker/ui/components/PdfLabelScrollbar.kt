@@ -20,7 +20,6 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,16 +28,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -56,6 +51,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,10 +72,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlin.math.roundToInt
 
-/** Real (not estimated) bounds of one rendered scrollbar row, in the scrollbar's own local
- * coordinate space — sourced from LazyListState.layoutInfo.visibleItemsInfo. Decoupled into a
- * plain data class (rather than using LazyListItemInfo directly) so the hit-test below is a pure
- * function, testable without a Compose runtime. */
+/** Real bounds of one rendered scrollbar row in the scrollbar's local coordinate space. Kept as
+ * plain data so the hit-test below remains testable without a Compose runtime. */
 internal data class ItemBounds(val index: Int, val offset: Int, val size: Int)
 
 /** Nearest visible row to a touch Y, by comparing the touch position against each row's real
@@ -126,6 +120,58 @@ internal fun pageForTouchY(
     val span = range.last - range.first
     return (range.first + (fraction * span).roundToInt()).coerceIn(range.first, range.last)
 }
+
+/**
+ * Centers document ticks in page-space inside a virtual half-page interval at both track ends.
+ * This mirrors continuous mode's half-viewport reveal before page 1 and after the final page
+ * without adding spacer rows that would distort [Arrangement.SpaceBetween] on short tracks.
+ */
+internal fun scrollbarEntryCenters(
+    pageRanges: List<IntRange>,
+    totalPages: Int,
+    trackHeightPx: Float,
+    tickHeightPx: Float
+): List<Float> {
+    if (pageRanges.isEmpty() || totalPages <= 0 || !trackHeightPx.isFinite() || trackHeightPx <= 0f) return emptyList()
+    val firstCenter = (tickHeightPx.coerceAtLeast(0f) / 2f).coerceAtMost(trackHeightPx / 2f)
+    val lastCenter = (trackHeightPx - firstCenter).coerceAtLeast(firstCenter)
+    val span = lastCenter - firstCenter
+    return pageRanges.map { range ->
+        val firstPage = range.first.coerceIn(1, totalPages)
+        val lastPage = range.last.coerceIn(firstPage, totalPages)
+        val pageCenterFraction = (firstPage + lastPage - 1f) / (2f * totalPages)
+        firstCenter + span * pageCenterFraction
+    }
+}
+
+/**
+ * Moves only the first/last document marker into the corresponding virtual track region.
+ * [edgeOverscrollFraction] is normalized by the pane's own edge allowance: -1 is fully before
+ * page 1 and +1 is fully after the final page.
+ */
+internal fun scrollbarMarkerCenter(
+    entryCenters: List<Float>,
+    focusIndex: Int,
+    edgeOverscrollFraction: Float,
+    trackHeightPx: Float
+): Float {
+    if (entryCenters.isEmpty()) return 0f
+    val index = focusIndex.coerceIn(0, entryCenters.lastIndex)
+    val baseCenter = entryCenters[index]
+    val trackEnd = trackHeightPx.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 0f
+    val edgeFraction = edgeOverscrollFraction.takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f
+    return when {
+        index == 0 && edgeFraction < 0f -> baseCenter * (1f + edgeFraction)
+        index == entryCenters.lastIndex && edgeFraction > 0f ->
+            baseCenter + (trackEnd - baseCenter) * edgeFraction
+        else -> baseCenter
+    }.coerceIn(0f, trackEnd)
+}
+
+/** True when a touch lands in the visual-only leading or trailing edge region of the track. */
+internal fun isScrollbarVirtualEdgeTouch(entryCenters: List<Float>, touchY: Float): Boolean =
+    entryCenters.isNotEmpty() && touchY.isFinite() &&
+        (touchY < entryCenters.first() || touchY > entryCenters.last())
 
 /**
  * How much detail the scrollbar can afford to show, derived from available vertical space vs.
@@ -187,14 +233,15 @@ internal fun PdfLabelScrollbar(
     preferDarkMode: Boolean = false,
     hazeState: HazeState? = null,
     isSplitPaneActive: Boolean = false,
-    hasNavBarBelow: Boolean = true
+    hasNavBarBelow: Boolean = true,
+    edgeOverscrollFraction: Float = 0f
 ) {
     if (rows.isEmpty()) return
     val density = LocalDensity.current
     val lowEnd = LocalLowEndMode.current
     val scrollPreviewLabelOnly = LocalScrollPreviewLabelOnly.current
     val effectiveLabelOnly = scrollPreviewLabelOnly || isSplitPaneActive
-    val listState = rememberLazyListState()
+    var trackHeightPx by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
     var dragIndex by remember { mutableStateOf<Int?>(null) }
     var touchYPx by remember { mutableFloatStateOf(0f) }
@@ -229,15 +276,11 @@ internal fun PdfLabelScrollbar(
     val captionAllowance = 20.dp
     val rowFootprintPx = with(density) { (idleTickHeight + captionAllowance + rowSpacing).toPx() }
 
-    // Real viewport height (already clearance-adjusted, since this reads the Lazy list's own
-    // layout and the list sits inside the bottom-padded root Box below).
-    val trackHeightPx by remember { derivedStateOf { listState.layoutInfo.viewportSize.height.toFloat() } }
-
     // Adaptive display mode — mirrors github.com/mooalot/alphabetical-scroll-bar's approach of
     // dropping detail as space tightens, driven by measured space vs. page count rather than a
     // hardcoded threshold.
     val displayMode = remember(rows.size, trackHeightPx) {
-        if (trackHeightPx <= 0f || rows.size * rowFootprintPx <= trackHeightPx) {
+        if (trackHeightPx > 0f && rows.size * rowFootprintPx <= trackHeightPx) {
             ScrollbarDisplayMode.FULL
         } else {
             ScrollbarDisplayMode.BUCKETED
@@ -264,6 +307,24 @@ internal fun PdfLabelScrollbar(
         entries.indexOfFirst { currentPage in it.pageRange }.let { if (it < 0) 0 else it }
     }
     val focusIndex = dragIndex ?: currentEntryIndex
+    val tickHeightPx = with(density) { idleTickHeight.toPx() }
+    val entryCenters = remember(entries, rows.size, trackHeightPx, tickHeightPx) {
+        scrollbarEntryCenters(
+            pageRanges = entries.map { it.pageRange },
+            totalPages = rows.size,
+            trackHeightPx = trackHeightPx,
+            tickHeightPx = tickHeightPx
+        )
+    }
+    val entryBounds = remember(entryCenters, tickHeightPx) {
+        entryCenters.mapIndexed { index, center ->
+            ItemBounds(
+                index = index,
+                offset = (center - tickHeightPx / 2f).roundToInt(),
+                size = tickHeightPx.roundToInt().coerceAtLeast(1)
+            )
+        }
+    }
 
     val engineCache = remember { PdfEngineCache(maxOpen = 2) }
     DisposableEffect(engineCache) {
@@ -309,18 +370,8 @@ internal fun PdfLabelScrollbar(
         }
     }
 
-    // Keeps the current page's row anchored/visible whenever the user isn't actively dragging
-    // this scrollbar themselves. BUCKETED mode already sizes `entries` so idle-tick rows — far
-    // smaller than the drag-chip-sized footprint bucketing is computed against — always fit
-    // inside trackHeightPx, so in practice this is a no-op safety net, not the mechanism that
-    // positions the pill: the pill's real screen position always comes straight from
-    // listState.layoutInfo in the item content below.
-    LaunchedEffect(currentEntryIndex, isDragging) {
-        if (!isDragging) listState.scrollToItem(currentEntryIndex)
-    }
-
     fun hitTest(touchY: Float): Int = indexForTouchY(
-        items = listState.layoutInfo.visibleItemsInfo.map { ItemBounds(it.index, it.offset, it.size) },
+        items = entryBounds,
         touchY = touchY,
         fallback = focusIndex
     )
@@ -331,12 +382,17 @@ internal fun PdfLabelScrollbar(
     // keeps requesting the same page every frame, which never re-triggers
     // ContinuousReferencePdfPane's value-keyed scrollToPage effect — the PDF appears frozen until
     // the finger crosses into the next row. See pageForTouchY's doc comment.
-    fun pageForTouch(touchY: Float): Int = pageForTouchY(
-        items = listState.layoutInfo.visibleItemsInfo.map { ItemBounds(it.index, it.offset, it.size) },
-        entries = entries,
-        touchY = touchY,
-        fallbackPage = entries.getOrNull(focusIndex)?.page ?: currentPage
-    )
+    fun selectPageForTouch(touchY: Float) {
+        if (isScrollbarVirtualEdgeTouch(entryCenters, touchY)) return
+        onPageSelected(
+            pageForTouchY(
+                items = entryBounds,
+                entries = entries,
+                touchY = touchY,
+                fallbackPage = entries.getOrNull(focusIndex)?.page ?: currentPage
+            )
+        )
+    }
 
     // Root is fillMaxWidth, NOT clamped to idleWidth — three attempts at making the carousel
     // escape a narrow parent (align+requiredWidth, wrapContentWidth+align, a custom layout{}
@@ -358,9 +414,10 @@ internal fun PdfLabelScrollbar(
                 .align(Alignment.TopEnd)
                 .fillMaxHeight()
                 .width(idleWidth)
+                .onSizeChanged { trackHeightPx = it.height.toFloat() }
                 .pointerInput(entries.size, displayMode) {
                     detectTapGestures { offset ->
-                        onPageSelected(pageForTouch(offset.y))
+                        selectPageForTouch(offset.y)
                     }
                 }
                 .pointerInput(entries.size, displayMode) {
@@ -369,27 +426,27 @@ internal fun PdfLabelScrollbar(
                             isDragging = true
                             touchYPx = offset.y
                             dragIndex = hitTest(offset.y)
-                            onPageSelected(pageForTouch(offset.y))
+                            selectPageForTouch(offset.y)
                         },
                         onVerticalDrag = { change, _ ->
                             touchYPx = change.position.y
                             dragIndex = hitTest(change.position.y)
-                            onPageSelected(pageForTouch(change.position.y))
+                            selectPageForTouch(change.position.y)
                         },
                         onDragEnd = { isDragging = false; dragIndex = null },
                         onDragCancel = { isDragging = false; dragIndex = null }
                     )
                 }
         ) {
-            // Real measured center of the focused row, from the same layoutInfo source hitTest
-            // already trusts — never a separate position estimate, consistent with this file's
-            // established convention (see indexForTouchY above). Falls back to the last known-good
-            // value (not 0f) when the row is transiently unmeasured — e.g. right after switching
-            // to a different PDF/job or a rotation, where focusIndex/entries have updated but the
-            // LazyColumn hasn't re-measured yet — so the fill doesn't flicker to empty.
+            // The rail and pill share this pure coordinate mapping, including the virtual
+            // leading/trailing half-page space used while the continuous pane is at either edge.
             var lastKnownFillHeightPx by remember { mutableFloatStateOf(0f) }
-            val focusedItemInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == focusIndex }
-            val fillHeightPx = focusedItemInfo?.let { it.offset + it.size / 2f }
+            val fillHeightPx = scrollbarMarkerCenter(
+                entryCenters = entryCenters,
+                focusIndex = focusIndex,
+                edgeOverscrollFraction = edgeOverscrollFraction,
+                trackHeightPx = trackHeightPx
+            ).takeIf { entryCenters.isNotEmpty() }
                 ?.also { lastKnownFillHeightPx = it }
                 ?: lastKnownFillHeightPx
 
@@ -441,34 +498,27 @@ internal fun PdfLabelScrollbar(
             }
 
 
-            // The track — always the tick/pill rendering, in both idle and dragging. This is the
-            // permanent position indicator; the carousel below is a separate, purely local
-            // preview.
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.align(Alignment.TopEnd).fillMaxSize(),
-                userScrollEnabled = false,
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.SpaceBetween,
-                contentPadding = PaddingValues(vertical = 8.dp)
-            ) {
-                itemsIndexed(entries, key = { _, entry -> entry.rowIndex }) { index, _ ->
-                    Box(
-                        modifier = Modifier
-                            .padding(end = 6.dp)
-                            .width(tickWidth)
-                            .height(idleTickHeight)
-                            .background(
-                                MaterialTheme.colorScheme.outlineVariant.copy(
-                                    alpha = if (index <= focusIndex) 0.65f else 0.5f
-                                ),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                    )
-                }
+            // The track — static positioned ticks ensure the virtual endpoint space remains
+            // proportional even when a short track switches to bucketed rows.
+            entries.forEachIndexed { index, _ ->
+                val item = entryBounds.getOrNull(index) ?: return@forEachIndexed
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(y = with(density) { item.offset.toFloat().toDp() })
+                        .padding(end = 6.dp)
+                        .width(tickWidth)
+                        .height(idleTickHeight)
+                        .background(
+                            MaterialTheme.colorScheme.outlineVariant.copy(
+                                alpha = if (index <= focusIndex) 0.65f else 0.5f
+                            ),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                )
             }
 
-            // Drawn after (on top of) the LazyColumn ticks — the current-page indicator, sliding
+            // Drawn after (on top of) the positioned ticks — the current-page indicator, sliding
             // smoothly to the focused row's real measured position rather than being tied to a
             // specific row's own composable.
             Box(

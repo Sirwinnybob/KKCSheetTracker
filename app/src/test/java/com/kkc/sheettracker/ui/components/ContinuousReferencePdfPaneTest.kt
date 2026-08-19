@@ -22,6 +22,30 @@ import org.junit.Test
 class ContinuousReferencePdfPaneTest {
 
     @Test
+    fun continuousCurrentPage_keepsFirstVisiblePageAwayFromTheDocumentEnd() {
+        assertEquals(
+            4,
+            continuousCurrentPage(firstVisibleIndex = 3, lastVisibleIndex = 5, canScrollForward = true)
+        )
+    }
+
+    @Test
+    fun continuousCurrentPage_selectsLastVisiblePageAtTheDocumentEnd() {
+        assertEquals(
+            10,
+            continuousCurrentPage(firstVisibleIndex = 7, lastVisibleIndex = 9, canScrollForward = false)
+        )
+    }
+
+    @Test
+    fun continuousCurrentPage_keepsPageOneWhenTheEntireDocumentFits() {
+        assertEquals(
+            1,
+            continuousCurrentPage(firstVisibleIndex = 0, lastVisibleIndex = 2, canScrollForward = false)
+        )
+    }
+
+    @Test
     fun continuousCropOverlayBounds_tracksTheStoredPdfFraction() {
         assertEquals(
             ContinuousCropOverlayBounds(leftPx = 200f, topPx = 260f, widthPx = 300f, heightPx = 200f),

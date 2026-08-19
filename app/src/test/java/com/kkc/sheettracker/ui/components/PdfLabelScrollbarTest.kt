@@ -1,6 +1,8 @@
 package com.kkc.sheettracker.ui.components
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PdfLabelScrollbarTest {
@@ -77,5 +79,73 @@ class PdfLabelScrollbarTest {
         assertEquals(98, pageForTouchY(items, entries, touchY = 13f, fallbackPage = -1))
         assertEquals(99, pageForTouchY(items, entries, touchY = 27f, fallbackPage = -1))
         assertEquals(100, pageForTouchY(items, entries, touchY = 40f, fallbackPage = -1))
+    }
+
+    @Test
+    fun scrollbarEntryCenters_reserveHalfAPageIntervalAtBothTrackEnds() {
+        assertEquals(
+            listOf(50f, 150f, 250f, 350f),
+            scrollbarEntryCenters(
+                pageRanges = listOf(1..1, 2..2, 3..3, 4..4),
+                totalPages = 4,
+                trackHeightPx = 400f,
+                tickHeightPx = 0f
+            )
+        )
+    }
+
+    @Test
+    fun scrollbarEntryCenters_keepEdgeSpaceStableForBucketedPageRanges() {
+        assertEquals(
+            listOf(50f, 150f, 250f, 350f),
+            scrollbarEntryCenters(
+                pageRanges = listOf(1..25, 26..50, 51..75, 76..100),
+                totalPages = 100,
+                trackHeightPx = 400f,
+                tickHeightPx = 0f
+            )
+        )
+    }
+
+    @Test
+    fun scrollbarEntryCenters_centerASinglePageBetweenBothVirtualEdges() {
+        assertEquals(
+            listOf(200f),
+            scrollbarEntryCenters(
+                pageRanges = listOf(1..1),
+                totalPages = 1,
+                trackHeightPx = 400f,
+                tickHeightPx = 0f
+            )
+        )
+    }
+
+    @Test
+    fun scrollbarMarkerCenter_movesBoundaryMarkerIntoLeadingAndTrailingSpace() {
+        val centers = listOf(50f, 150f, 250f, 350f)
+
+        assertEquals(0f, scrollbarMarkerCenter(centers, focusIndex = 0, edgeOverscrollFraction = -1f, trackHeightPx = 400f), 0.001f)
+        assertEquals(25f, scrollbarMarkerCenter(centers, focusIndex = 0, edgeOverscrollFraction = -0.5f, trackHeightPx = 400f), 0.001f)
+        assertEquals(400f, scrollbarMarkerCenter(centers, focusIndex = 3, edgeOverscrollFraction = 1f, trackHeightPx = 400f), 0.001f)
+        assertEquals(375f, scrollbarMarkerCenter(centers, focusIndex = 3, edgeOverscrollFraction = 0.5f, trackHeightPx = 400f), 0.001f)
+    }
+
+    @Test
+    fun scrollbarMarkerCenter_ignoresEdgeOverscrollAwayFromDocumentBoundaries() {
+        val centers = listOf(50f, 150f, 250f, 350f)
+
+        assertEquals(150f, scrollbarMarkerCenter(centers, focusIndex = 1, edgeOverscrollFraction = -1f, trackHeightPx = 400f), 0.001f)
+        assertEquals(250f, scrollbarMarkerCenter(centers, focusIndex = 2, edgeOverscrollFraction = 1f, trackHeightPx = 400f), 0.001f)
+    }
+
+    @Test
+    fun scrollbarVirtualEdgeTouch_detectsOnlySpaceOutsideDocumentTicks() {
+        val centers = listOf(50f, 150f, 250f, 350f)
+
+        assertTrue(isScrollbarVirtualEdgeTouch(centers, touchY = 25f))
+        assertFalse(isScrollbarVirtualEdgeTouch(centers, touchY = 50f))
+        assertFalse(isScrollbarVirtualEdgeTouch(centers, touchY = 200f))
+        assertFalse(isScrollbarVirtualEdgeTouch(centers, touchY = 350f))
+        assertTrue(isScrollbarVirtualEdgeTouch(centers, touchY = 375f))
     }
 }

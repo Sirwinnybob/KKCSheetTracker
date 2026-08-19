@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -169,6 +170,20 @@ internal fun continuousPdfMatteColorArgb(
     preferDarkMode: Boolean,
     lightMatteColorArgb: Int
 ): Int = if (preferDarkMode) android.graphics.Color.BLACK else lightMatteColorArgb
+
+/**
+ * Chooses the page represented by continuous scrolling. The usual first-visible rule preserves
+ * the existing upward behavior, but once the real LazyList reaches its end the final visible page
+ * must own the scrollbar marker instead of leaving it stranded on a preceding page.
+ */
+internal fun continuousCurrentPage(
+    firstVisibleIndex: Int?,
+    lastVisibleIndex: Int?,
+    canScrollForward: Boolean
+): Int? {
+    val first = firstVisibleIndex ?: return null
+    return if (!canScrollForward && first > 0) (lastVisibleIndex ?: first) + 1 else first + 1
+}
 
 internal fun continuousMainAxisScrollDelta(
     panDelta: Float,
@@ -577,7 +592,8 @@ internal fun ContinuousReferencePdfPane(
     onMarkupStrokeAdded: ((sourceFilename: String, sourcePage: Int, PdfInkStroke) -> Unit)? = null,
     onMarkupStrokeErased: ((sourceFilename: String, sourcePage: Int, strokeId: String) -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(0.dp),
-    onSingleTap: (() -> Unit)? = null
+    onSingleTap: (() -> Unit)? = null,
+    onEdgeOverscrollChange: (Float) -> Unit = {}
 ) {
     val documentIdentity = remember(fileIdentitySeed, totalPages, docKey, preferDarkMode) {
         resolveContinuousPdfDocumentIdentity(totalPages, resolvePage, pdfFileForFilename)
@@ -604,6 +620,7 @@ internal fun ContinuousReferencePdfPane(
     }
     val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
     val currentOnSingleTap by rememberUpdatedState(onSingleTap)
+    val currentOnEdgeOverscrollChange by rememberUpdatedState(onEdgeOverscrollChange)
     val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
     // True only while THIS composable is driving an animateScrollToItem below (external nav
     // request — scrollbar drag, resume-to-page). Distinguishes "the list moved because we
@@ -648,6 +665,18 @@ internal fun ContinuousReferencePdfPane(
     var contentSize by remember { mutableStateOf(IntSize.Zero) }
     var contentCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val zoomedIn = sharedZoom > 1.02f
+
+    val viewportExtent = if (orientation == Orientation.Vertical) paneSize.height.toFloat() else paneSize.width.toFloat()
+    val maxEdgeOverscroll = mainAxisEdgePadding(viewportExtent, sharedZoom)
+    val edgeOverscrollFraction = if (maxEdgeOverscroll > 0f) {
+        (sharedMainAxisOverscroll / maxEdgeOverscroll).takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f
+    } else {
+        0f
+    }
+    SideEffect { currentOnEdgeOverscrollChange(edgeOverscrollFraction) }
+    DisposableEffect(documentIdentity, orientation) {
+        onDispose { currentOnEdgeOverscrollChange(0f) }
+    }
 
     LaunchedEffect(zoomedIn) {
         if (!zoomedIn) cropOverlays.clear()
@@ -717,6 +746,9 @@ internal fun ContinuousReferencePdfPane(
     LaunchedEffect(scrollToPage, totalPages) {
         // Only jump for an EXTERNAL request (initial open, scrollbar drag, resume-to-page).
         if (totalPages <= 0 || scrollToPage !in 1..totalPages) return@LaunchedEffect
+        // A page selection is a new document position. It must not inherit the temporary visual
+        // translation used to reveal the leading/trailing blank space at the previous boundary.
+        sharedMainAxisOverscroll = 0f
         if (scrollToPage == lastReportedPage || isInteracting) {
             lastReportedPage = scrollToPage
             return@LaunchedEffect
@@ -744,7 +776,11 @@ internal fun ContinuousReferencePdfPane(
         snapshotFlow {
             val info = listState.layoutInfo
             val visible = info.visibleItemsInfo
-            if (visible.isEmpty()) null else visible.first().index + 1
+            continuousCurrentPage(
+                firstVisibleIndex = visible.firstOrNull()?.index,
+                lastVisibleIndex = visible.lastOrNull()?.index,
+                canScrollForward = listState.canScrollForward
+            )
         }
             .distinctUntilChanged()
             .collectLatest { centeredPage ->
