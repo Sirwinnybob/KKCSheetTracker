@@ -3,6 +3,7 @@ package com.kkc.sheettracker.data
 import android.util.Log
 import com.google.gson.Gson
 import com.kkc.sheettracker.data.models.CacheIndexRoot
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -98,6 +99,7 @@ class LiveIndexClient(
                 if (!running) return@launch
                 socket = webSocketFactory(request, Listener())
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.w(TAG, "connectNow failed", e)
                 scheduleReconnect()
             }
