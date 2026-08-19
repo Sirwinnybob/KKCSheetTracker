@@ -28,7 +28,11 @@ import java.io.File
  * signal. The check below instead locates the `onCncJobsChanged` callback block specifically (by
  * finding its enclosing braces around the `jobFolderNames.forEach { ... }` line) and asserts that
  * block alone contains no `watcherRefreshSignal` write, which is the actual invariant this test
- * claims to guard.
+ * claims to guard. The closing brace is located by requiring matching indentation with the
+ * `onCncJobsChanged` line itself, not just the first bare `}`/`},` encountered -- this correctly
+ * skips past any nested blocks (`if`, `when`, another `forEach`, etc.) that might be added inside
+ * the callback body in the future, since a nested block's own closing brace is always more
+ * indented than the lambda's opening line.
  */
 class NavGraphCncSyncWiringTest {
 
@@ -58,16 +62,31 @@ class NavGraphCncSyncWiringTest {
 
         // ...and forward to the line that closes it, so the checked window is exactly the
         // callback's body regardless of incidental formatting changes elsewhere in the file.
+        //
+        // The closing brace must match the indentation of the `onCncJobsChanged` line itself,
+        // not just be the first bare "}" / "}," encountered. If the callback body ever grows a
+        // nested block (an if, another forEach, a when, a try) between the forEach line and the
+        // callback's real closing brace, a naive "first bare closing brace" scan would stop at
+        // that nested block's own closing brace instead -- truncating callbackBlock before it
+        // reaches the actual end of onCncJobsChanged, and silently failing to catch a
+        // watcherRefreshSignal write added after that point. In this codebase's Kotlin
+        // formatting convention, a "}" that closes a top-level lambda argument sits at the same
+        // indentation as the line that opened it, regardless of how many nested blocks exist
+        // inside the lambda body, so requiring matching indentation reliably finds the true
+        // closing brace without needing full brace-depth counting.
+        val expectedIndent = lines[callbackStartIndex!!].takeWhile { it == ' ' || it == '\t' }
         val callbackEndIndex = (forEachLineIndex until lines.size).firstOrNull {
-            val trimmed = lines[it].trim()
-            trimmed == "}" || trimmed == "},"
+            val line = lines[it]
+            val trimmed = line.trim()
+            (trimmed == "}" || trimmed == "},") &&
+                line.takeWhile { c -> c == ' ' || c == '\t' } == expectedIndent
         }
         assertTrue(
             "Could not locate the closing brace of the onCncJobsChanged callback",
             callbackEndIndex != null
         )
 
-        val callbackBlock = lines.subList(callbackStartIndex!!, callbackEndIndex!! + 1)
+        val callbackBlock = lines.subList(callbackStartIndex, callbackEndIndex!! + 1)
         assertTrue(
             "onCncJobsChanged must not independently write watcherRefreshSignal -- " +
                 "TrackerChangeMonitor's onWatcherRefreshRequested callback already owns emitting " +
