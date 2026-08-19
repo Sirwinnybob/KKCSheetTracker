@@ -205,3 +205,94 @@ class LiveIndexClientDispatchTest {
         throw AssertionError("Timed out waiting for condition")
     }
 }
+
+class LiveIndexClientReconnectTest {
+
+    private fun configWithIp(ip: String): AdminSyncConfig = mock {
+        onBlocking { getManualIp() } doReturn ip
+    }
+
+    @Test
+    fun `onFailure schedules a reconnect that calls the factory again`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val connectAttempts = java.util.concurrent.atomic.AtomicInteger(0)
+        val client = LiveIndexClient(
+            config = configWithIp("192.168.1.15"),
+            tabletId = "tablet-7",
+            onSnapshot = {},
+            onDelta = { _, _ -> },
+            onConnectionState = {},
+            reconnectDelayMs = { 0L },
+            webSocketFactory = { _, listener -> connectAttempts.incrementAndGet(); listeners.add(listener); fakeSocket }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onFailure(fakeSocket, RuntimeException("boom"), null)
+
+        waitUntil { connectAttempts.get() >= 2 }
+        client.stop()
+    }
+
+    @Test
+    fun `backoff attempt counter resets after a successful snapshot`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val recordedAttempts = CopyOnWriteArrayList<Int>()
+        val client = LiveIndexClient(
+            config = configWithIp("192.168.1.15"),
+            tabletId = "tablet-7",
+            onSnapshot = {},
+            onDelta = { _, _ -> },
+            onConnectionState = {},
+            reconnectDelayMs = { attempt -> recordedAttempts.add(attempt); 0L },
+            webSocketFactory = { _, listener -> listeners.add(listener); fakeSocket }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onFailure(fakeSocket, RuntimeException("first failure"), null)
+        waitUntil { listeners.size == 2 }
+        listeners[1].onMessage(fakeSocket, """{"type":"snapshot","serverInstanceId":"abc","revision":1,"jobs":{}}""")
+        listeners[1].onFailure(fakeSocket, RuntimeException("second failure"), null)
+
+        waitUntil { recordedAttempts.size >= 2 }
+        assertEquals(0, recordedAttempts[0]) // first failure: attempt was 0
+        assertEquals(0, recordedAttempts[1]) // reset by the snapshot before the second failure
+        client.stop()
+    }
+
+    @Test
+    fun `stop cancels a pending reconnect`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val connectAttempts = java.util.concurrent.atomic.AtomicInteger(0)
+        val client = LiveIndexClient(
+            config = configWithIp("192.168.1.15"),
+            tabletId = "tablet-7",
+            onSnapshot = {},
+            onDelta = { _, _ -> },
+            onConnectionState = {},
+            reconnectDelayMs = { 200L },
+            webSocketFactory = { _, listener -> connectAttempts.incrementAndGet(); listeners.add(listener); fakeSocket }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onFailure(fakeSocket, RuntimeException("boom"), null)
+        client.stop()
+
+        Thread.sleep(400L) // longer than the 200ms reconnect delay
+        assertEquals(1, connectAttempts.get())
+    }
+
+    private fun waitUntil(timeoutMs: Long = 2_000L, condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) return
+            Thread.sleep(20L)
+        }
+        throw AssertionError("Timed out waiting for condition")
+    }
+}
