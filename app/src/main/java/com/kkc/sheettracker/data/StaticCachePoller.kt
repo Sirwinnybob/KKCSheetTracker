@@ -46,6 +46,7 @@ class StaticCachePoller(
         const val POLL_INTERVAL_MS = 20_000L
     }
 
+    @Synchronized
     fun start() {
         if (pollJob?.isActive == true) return
         val isFirstStart = mtimeSnapshot.isEmpty()
@@ -79,6 +80,7 @@ class StaticCachePoller(
         AppLog.d(TAG, "Started polling ${baseDir.absolutePath} every ${pollIntervalMs}ms")
     }
 
+    @Synchronized
     fun stop() {
         pollJob?.cancel()
         pollJob = null

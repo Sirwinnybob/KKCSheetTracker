@@ -273,6 +273,8 @@ fun AppNavigation(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> staticCachePoller.start()
+                // Sole ON_STOP handler for staticCachePoller -- see the liveIndexClient
+                // DisposableEffect below, which intentionally does not also touch it.
                 Lifecycle.Event.ON_STOP -> staticCachePoller.stop()
                 else -> Unit
             }
@@ -316,9 +318,12 @@ fun AppNavigation(
             when (event) {
                 Lifecycle.Event.ON_START -> liveIndexClient.start()
                 Lifecycle.Event.ON_STOP -> {
+                    // staticCachePoller has its own separate DisposableEffect above that already
+                    // stops it on ON_STOP -- do not also start it here. Android dispatches ON_STOP
+                    // to observers in reverse registration order, so a start() call here would run
+                    // BEFORE that other observer's stop() call and get immediately undone.
                     liveIndexClient.stop()
                     liveIndexEngine.setConnected(false)
-                    staticCachePoller.start()
                 }
                 else -> Unit
             }
