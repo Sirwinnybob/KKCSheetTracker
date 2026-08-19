@@ -442,7 +442,8 @@ fun AppNavigation(
                 themeCatalog = themeCatalog,
                 onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
                 onThemeOverrideChanged = onThemeOverrideChanged,
-                onThemeCatalogReload = onThemeCatalogReload
+                onThemeCatalogReload = onThemeCatalogReload,
+                unifiedEngine = liveIndexEngine
             )
         }
     }
@@ -2071,7 +2072,8 @@ private fun LegacySingleStackNavigation(
     themeCatalog: KKCThemeCatalog,
     onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
     onThemeOverrideChanged: (String?) -> Unit,
-    onThemeCatalogReload: () -> Unit
+    onThemeCatalogReload: () -> Unit,
+    unifiedEngine: UnifiedMetadataEngine
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
@@ -2237,7 +2239,6 @@ private fun LegacySingleStackNavigation(
     }
 
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
-    val unifiedEngine = remember { UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild) }
 
     val currentNavDest = remember(currentRoute) {
         when {
