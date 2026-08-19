@@ -136,6 +136,30 @@ by this design.
   hardwood index within one worker refresh cycle, then confirms the jobs list
   remains usable after the socket is intentionally killed.
 
+## Known limitations
+
+- **Dashboard-family screens stay on the file-backed path even while the
+  socket is connected.** `UnifiedModeDashboardScreen` and
+  `AssemblyDashboardScreen` (both reachable from `TopLevelTab.DASHBOARD`,
+  a sibling tab to `TopLevelTab.JOBS`) call `getCachedJobInfos()` and
+  `getProgressFromIndex()` against the raw `UnifiedMetadataEngineRegistry`
+  singleton directly, not through `LiveAwareUnifiedMetadataEngine` — only
+  the Jobs-tab composables (`JobsTabHost`, `LegacySingleStackNavigation`)
+  were wired to the live wrapper. This means the Jobs tab and the Dashboard
+  tab can show different data for the same job at the same moment while
+  connected (Jobs tab ahead, by design; Dashboard tab lagging on the normal
+  Syncthing/file-poll cadence) — a new, user-visible divergence that did not
+  exist before this feature, since every screen previously read the same
+  lagged source. It is bounded and self-healing (never a crash or data
+  loss), and was surfaced by a whole-feature review after the tablet-client
+  implementation (2026-08-19), not resolved as part of it. Extending the
+  live wrapper to the Dashboard family is a candidate follow-up slice, not
+  a silent gap.
+- The debug-build `hiddenFromProduction` visibility allowance
+  (`DeploymentGateRules`, only applies to non-live-connected reads) has no
+  equivalent on the live path — see the tablet-client implementation plan's
+  self-review for detail. Debug builds lose that visibility while connected.
+
 ## Non-goals
 
 - Any change to job-detail/viewer screens or full job data hydration — this

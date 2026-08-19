@@ -918,6 +918,19 @@ In `AppNavigation`, insert this block immediately after the `staticCachePoller` 
 
 `ON_STOP` explicitly restarts `staticCachePoller` (not just stopping the live client) so the fallback path is guaranteed running whenever the app is backgrounded — mirroring the same explicit "don't wait for the async callback" reasoning as `setConnected(false)` itself (see the design doc's Fallback semantics section).
 
+> **Correction (code review, same day):** the `staticCachePoller.start()` call shown above is
+> wrong and was removed before this task was marked complete. Android's `LifecycleRegistry`
+> dispatches `ON_STOP` to observers in *reverse registration order* — since `staticCachePoller`'s
+> own `DisposableEffect` (declared earlier in `AppNavigation`, with its own
+> `ON_STOP -> staticCachePoller.stop()`) registers before this one, that block's `.stop()` call
+> actually fires *after* the `.start()` shown here on every real `ON_STOP`, immediately undoing
+> it. The actual, correct `ON_STOP` branch only calls `liveIndexClient.stop()` and
+> `liveIndexEngine.setConnected(false)` — it does not touch `staticCachePoller` at all, leaving
+> that poller's own `DisposableEffect` as the sole owner of its stop-on-background behavior
+> (matching this app's existing convention that nothing actively polls while backgrounded, same
+> as `trackerChangeMonitor`). See commit `c32f15e` ("fix: correct ON_STOP dispatch-order bug and
+> thread-safety in live-index poller wiring").
+
 - [ ] **Step 3: Compile-check**
 
 Run: `./gradlew compileDebugKotlin`
@@ -1147,6 +1160,10 @@ Trigger a CNC or hardwoods tracker action from another tablet (or via the backen
 - [ ] **Step 4: Confirm the fallback path**
 
 Stop the Hours Tracker backend (or block the socket port at the network level). Confirm the jobs list remains populated and usable — reading from `StaticCachePoller`'s file-based path — with no crash and no blank screen. Restart the backend and confirm the tablet reconnects and resumes live updates within the backoff window (30s worst case).
+
+- [ ] **Step 4b: Confirm a `not_running` frame with the socket left open still reconnects**
+
+Added after the initial implementation, per a whole-feature review (2026-08-19): a server-sent `not_running` or `error` frame only calls `onConnectionState(false)` in `LiveIndexClient` — it does not itself schedule a reconnect. Reconnect scheduling normally happens via `onClosed`/`onFailure`, which fire because the server's route handler always closes the socket right after sending `not_running`/`error` today. If that server behavior ever changes (socket stays open after such a frame), the client would sit on the file-polling fallback indefinitely with no further reconnect attempts until the app is backgrounded and foregrounded again. Verify against the current server: trigger a `not_running` condition (e.g. stop just the Ready Jobs worker while leaving the FastAPI process running, if that's separable) and confirm the socket actually closes server-side and the tablet reconnects on its normal backoff schedule, not just that the jobs list falls back correctly (Step 4 already covers the fallback; this step is specifically about confirming the reconnect path still fires).
 
 - [ ] **Step 5: Confirm background/foreground behavior**
 
