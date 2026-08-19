@@ -400,7 +400,8 @@ fun AppNavigation(
                 themeCatalog = themeCatalog,
                 onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
                 onThemeOverrideChanged = onThemeOverrideChanged,
-                onThemeCatalogReload = onThemeCatalogReload
+                onThemeCatalogReload = onThemeCatalogReload,
+                liveIndexEngine = liveIndexEngine
             )
         } else {
             LegacySingleStackNavigation(
@@ -487,7 +488,8 @@ private fun MultiBackStackNavigation(
     themeCatalog: KKCThemeCatalog,
     onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
     onThemeOverrideChanged: (String?) -> Unit,
-    onThemeCatalogReload: () -> Unit
+    onThemeCatalogReload: () -> Unit,
+    liveIndexEngine: UnifiedMetadataEngine
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
     val supplyNotificationCount by supplySubscriptionManager.notificationCount.collectAsState()
@@ -828,7 +830,8 @@ private fun MultiBackStackNavigation(
                         onSearchClick = { coordinator.navigateTopLevel(TopLevelTab.SEARCH) },
                         onSettingsClick = { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) },
                         onUiVisibilityChanged = { viewerUiVisible = it },
-                        active = selectedTab == TopLevelTab.JOBS
+                        active = selectedTab == TopLevelTab.JOBS,
+                        unifiedEngine = liveIndexEngine
                     )
                 }
 
@@ -1195,11 +1198,11 @@ private fun JobsTabHost(
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onUiVisibilityChanged: (Boolean) -> Unit = {},
-    active: Boolean = true
+    active: Boolean = true,
+    unifiedEngine: UnifiedMetadataEngine
 ) {
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     val coroutineScope = rememberCoroutineScope()
-    val unifiedEngine = remember { UnifiedMetadataEngineRegistry.getOrCreate(File(basePath), isDebugBuild) }
     val pinnedFolderNames by pinnedJobsStore.pinnedFolderNames.collectAsState(initial = emptyList())
     val jobsBackStack by navController.currentBackStackEntryAsState()
     val jobsListActive = active && isJobsListRoute(jobsBackStack?.destination?.route)
