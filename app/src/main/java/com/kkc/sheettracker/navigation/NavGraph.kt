@@ -2086,9 +2086,11 @@ private fun ArchiveTabHost(
             // Placeholder route — intentionally out of scope for this task (see plan's Task 7
             // Step 3 scope disclosure). The real read-only archive job detail screen, backed by
             // an ArchiveSession-derived ProgressStore/UnifiedMetadataEngine against
-            // filesDir/archive-cache/<archiveJobId>, is a separate focused follow-up once this
-            // navigation skeleton compiles and the Archive tab is confirmed reachable. Minimal
-            // placeholder body below so tapping "Open" doesn't land on a silent blank screen.
+            // cacheDir/archive-cache/<archiveJobId> (ArchiveCacheManager's actual base directory
+            // -- see ArchiveLibraryScreen.kt's deliberate cacheDir choice from Task 6's review),
+            // is a separate focused follow-up once this navigation skeleton compiles and the
+            // Archive tab is confirmed reachable. Minimal placeholder body below so tapping
+            // "Open" doesn't land on a silent blank screen.
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     "Archive job detail view not yet available",
@@ -3250,8 +3252,12 @@ private fun LegacySingleStackNavigation(
                     // Placeholder route — intentionally out of scope for this task (see plan's
                     // Task 7 Step 3 scope disclosure, mirrored here since this nav variant has
                     // no separate ArchiveTabHost wrapper). The real read-only archive job detail
-                    // screen is a separate focused follow-up. Minimal placeholder body below so
-                    // tapping "Open" doesn't land on a silent blank screen.
+                    // screen, backed by an ArchiveSession-derived ProgressStore/
+                    // UnifiedMetadataEngine against cacheDir/archive-cache/<archiveJobId>
+                    // (ArchiveCacheManager's actual base directory -- see
+                    // ArchiveLibraryScreen.kt's deliberate cacheDir choice from Task 6's review),
+                    // is a separate focused follow-up. Minimal placeholder body below so tapping
+                    // "Open" doesn't land on a silent blank screen.
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             "Archive job detail view not yet available",
