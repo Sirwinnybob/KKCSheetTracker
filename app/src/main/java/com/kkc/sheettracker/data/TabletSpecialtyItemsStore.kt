@@ -16,7 +16,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 class TabletSpecialtyItemsStore(
     private val baseDir: File,
-    val tabletId: String        // public so SpecialtyStateStore can expose it
+    val tabletId: String,       // public so SpecialtyStateStore can expose it
+    private val readOnly: Boolean = false
 ) {
     private val gson = GsonBuilder().setPrettyPrinting().create()
     private val writeMutexByJob = ConcurrentHashMap<String, Mutex>()
@@ -34,6 +35,7 @@ class TabletSpecialtyItemsStore(
 
     /** Saves (create or update by id) an item in this tablet's own file. */
     suspend fun saveItem(jobFolderName: String, item: TabletSpecialtyItem) {
+        if (readOnly) return
         val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         mutex.withLock {
             val existing = loadOwnItems(jobFolderName).toMutableList()
@@ -45,6 +47,7 @@ class TabletSpecialtyItemsStore(
 
     /** Deletes an item from this tablet's own file. `itemId` may include the "tablet:" prefix. */
     suspend fun deleteItem(jobFolderName: String, itemId: String) {
+        if (readOnly) return
         val rawId = itemId.removePrefix("tablet:")
         val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         mutex.withLock {
@@ -55,6 +58,7 @@ class TabletSpecialtyItemsStore(
 
     /** Writes a tombstone (deleted = true) for the item into this tablet's own file. */
     suspend fun deleteItemTombstone(jobFolderName: String, itemId: String) {
+        if (readOnly) return
         val rawId = itemId.removePrefix("tablet:")
         val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         mutex.withLock {

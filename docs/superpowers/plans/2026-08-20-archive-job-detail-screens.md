@@ -72,7 +72,7 @@ fun readOnly_mutations_doNotCreateTabletItemsSidecar() = runBlocking {
 
 - [ ] **Step 2: Run it and confirm the constructor argument is missing.**
 
-Run: `.\gradlew.bat testDebugUnitTest --tests "com.kkc.sheettracker.data.SheetRipProgressStoreTest" --tests "com.kkc.sheettracker.data.TabletSpecialtyItemsStoreTest"`
+Run: `.\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.data.SheetRipProgressStoreTest" --tests "com.kkc.sheettracker.data.TabletSpecialtyItemsStoreTest"`
 
 Expected: compilation fails because neither constructor accepts `readOnly`.
 
@@ -107,7 +107,7 @@ Add the same first-line guard to both delete methods. Keep default values false 
 
 - [ ] **Step 4: Run focused regressions.**
 
-Run: `.\gradlew.bat testDebugUnitTest --tests "com.kkc.sheettracker.data.SheetRipProgressStoreTest" --tests "com.kkc.sheettracker.data.TabletSpecialtyItemsStoreTest" --tests "com.kkc.sheettracker.data.SpecialtyStateStoreTest"`
+Run: `.\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.data.SheetRipProgressStoreTest" --tests "com.kkc.sheettracker.data.TabletSpecialtyItemsStoreTest" --tests "com.kkc.sheettracker.data.SpecialtyStateStoreTest"`
 
 Expected: all tests pass.
 

@@ -15,7 +15,8 @@ import kotlinx.coroutines.sync.withLock
  * Thread-safe and atomic writes.
  */
 class SheetRipProgressStore(
-    private val baseDir: File
+    private val baseDir: File,
+    private val readOnly: Boolean = false
 ) {
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val writeMutexByJob = ConcurrentHashMap<String, Mutex>()
@@ -56,6 +57,7 @@ class SheetRipProgressStore(
         done: Boolean,
         projectionRevision: Long? = null
     ) {
+        if (readOnly) return
         if (itemId.isBlank()) return
         val projectionKey = projectionKey(jobFolderName, itemId)
         val effectiveRevision = registerProjectionRevision(projectionKey, projectionRevision)

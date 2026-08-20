@@ -54,4 +54,16 @@ class SheetRipProgressStoreTest {
 
         assertEquals(false, store.loadDone(jobFolderName)["item-1"])
     }
+
+    @Test
+    fun setDone_readOnly_doesNotCreateSidecar() = runBlocking {
+        val baseDir = Files.createTempDirectory("sheet-rip-read-only-test").toFile()
+        val store = SheetRipProgressStore(baseDir, readOnly = true)
+        val sidecar = File(baseDir, "$jobFolderName/.metadata/admin/sheet_rip_done.json")
+
+        store.setDone(jobFolderName, "item-1", done = true, projectionRevision = 7)
+
+        assertFalse(sidecar.exists())
+        assertFalse(sidecar.parentFile?.exists() == true)
+    }
 }
