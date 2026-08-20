@@ -53,8 +53,16 @@ original session list.
 
 ### Navigation and session ownership
 
-Both `ArchiveTabHost`'s route and the inline `LegacySingleStackNavigation` copy replace their
-placeholder `Box` with a shared `ArchiveJobDetailHost`. The host owns exactly one
+Archive is a Library action, not a bottom-navigation destination. `StandardsHubScreen` adds an
+enabled `ARCHIVE` tile immediately after `SAFETY` in its declared tile order and accepts an
+`onOpenArchive` callback. Both navigation variants route that callback into an archive-library
+host nested under the Standards/Library navigation flow. Remove `ARCHIVE` from the bottom-nav
+destination list, top-level tab enum, navigation coordinator, separate archive controller, and
+the archive tab layer; the existing archive library and detail flow remain otherwise available
+from the new Library action.
+
+The archive-library host's job route in both Standards flows replaces the current placeholder
+with a shared `ArchiveJobDetailHost`. The host owns exactly one
 `ArchiveSession`, created with `remember(archiveJobId, folderName, contentVersion, cacheJobParentDir,
 tabletId, isDebugBuild)`, plus a nested `NavHost` for the archive detail and all of its child
 viewer/workspace destinations. It routes to whichever ONE of
