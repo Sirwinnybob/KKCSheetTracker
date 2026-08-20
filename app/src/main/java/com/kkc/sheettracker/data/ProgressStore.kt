@@ -117,7 +117,8 @@ private data class SheetIndexEntry(
     var badPartsHasFingerprint: Boolean = false,
     val renestedByFingerprint: MutableMap<String, Boolean> = mutableMapOf(),
     var renestedLegacy: Boolean = false,
-    var renestedHasFingerprint: Boolean = false
+    var renestedHasFingerprint: Boolean = false,
+    val observedFingerprints: MutableList<String> = mutableListOf(),
 )
 
 private data class MaterialTouchEntry(
@@ -164,8 +165,14 @@ class ProgressStore(
     private val baseDir: File,
     private val tabletId: String,
     private val localStateDir: File,
-    private val readOnly: Boolean = false
+    private val readOnly: Boolean = false,
+    archiveFingerprintCompatibility: Boolean = false,
 ) {
+
+    // Historical fingerprint matching is an archive-read concern only. Keep the safety boundary
+    // inside the store as well as at ArchiveSession's call site so a writable/live store cannot
+    // accidentally opt into archive semantics.
+    private val archiveFingerprintCompatibility = archiveFingerprintCompatibility && readOnly
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val preparedPageCache = mutableMapOf<PreparedPageKey, PreparedPageEntry>()
@@ -188,7 +195,7 @@ class ProgressStore(
     }
 
     init {
-        localStateDir.mkdirs()
+        if (!readOnly) localStateDir.mkdirs()
     }
 
     private fun bumpProgressVersion() {
@@ -482,6 +489,9 @@ class ProgressStore(
     ) {
         val entry = sheets.getOrPut(SheetKey(action.file, action.page)) { SheetIndexEntry() }
         val fp = action.fileFingerprint?.takeIf { it.isNotBlank() }
+        if (archiveFingerprintCompatibility && fp != null) {
+            entry.observedFingerprints += fp
+        }
         val touchedAtMs = parseTimestampMillis(action.timestamp)
         val touchEntry = materialTouches.getOrPut(action.file) { MaterialTouchEntry() }
         if (touchedAtMs >= touchEntry.lastTouchedAtMs) {
@@ -563,7 +573,8 @@ class ProgressStore(
     private fun resolveComplete(entry: SheetIndexEntry?, fileFingerprint: String): Boolean {
         if (entry == null) return false
         return if (entry.completeHasFingerprint) {
-            entry.completeByFingerprint[fileFingerprint] ?: false
+            val resolvedFingerprint = resolveFingerprint(entry, fileFingerprint, entry.completeByFingerprint)
+            resolvedFingerprint?.let { entry.completeByFingerprint[it] ?: false } ?: false
         } else {
             entry.completeLegacy
         }
@@ -572,7 +583,8 @@ class ProgressStore(
     private fun resolveSkipped(entry: SheetIndexEntry?, fileFingerprint: String): Boolean {
         if (entry == null) return false
         return if (entry.skippedHasFingerprint) {
-            entry.skippedByFingerprint[fileFingerprint] ?: false
+            val resolvedFingerprint = resolveFingerprint(entry, fileFingerprint, entry.skippedByFingerprint)
+            resolvedFingerprint?.let { entry.skippedByFingerprint[it] ?: false } ?: false
         } else {
             entry.skippedLegacy
         }
@@ -581,7 +593,8 @@ class ProgressStore(
     private fun resolveRenested(entry: SheetIndexEntry?, fileFingerprint: String): Boolean {
         if (entry == null) return false
         return if (entry.renestedHasFingerprint) {
-            entry.renestedByFingerprint[fileFingerprint] ?: false
+            val resolvedFingerprint = resolveFingerprint(entry, fileFingerprint, entry.renestedByFingerprint)
+            resolvedFingerprint?.let { entry.renestedByFingerprint[it] ?: false } ?: false
         } else {
             entry.renestedLegacy
         }
@@ -590,11 +603,35 @@ class ProgressStore(
     private fun resolveCommittedBadParts(entry: SheetIndexEntry?, fileFingerprint: String): Set<Int> {
         if (entry == null) return emptySet()
         val raw = if (entry.badPartsHasFingerprint) {
-            entry.badPartsByFingerprint[fileFingerprint] ?: emptyMap()
+            val resolvedFingerprint = resolveFingerprint(entry, fileFingerprint, entry.badPartsByFingerprint)
+            resolvedFingerprint?.let { entry.badPartsByFingerprint[it] ?: emptyMap() } ?: emptyMap()
         } else {
             entry.badPartsLegacy
         }
         return raw.filterValues { it }.keys
+    }
+
+    private fun <T> resolveFingerprint(
+        entry: SheetIndexEntry,
+        requestedFingerprint: String,
+        statesByFingerprint: Map<String, T>,
+    ): String? {
+        if (statesByFingerprint.containsKey(requestedFingerprint)) return requestedFingerprint
+        if (!archiveFingerprintCompatibility) return null
+
+        val requestedSize = fingerprintByteLength(requestedFingerprint) ?: return null
+        return entry.observedFingerprints.asReversed().firstOrNull { historicalFingerprint ->
+            fingerprintByteLength(historicalFingerprint) == requestedSize
+        }
+    }
+
+    private fun fingerprintByteLength(fileFingerprint: String): Long? {
+        val separator = fileFingerprint.indexOf('_')
+        if (separator <= 0 || separator == fileFingerprint.lastIndex) return null
+        if (fileFingerprint.indexOf('_', separator + 1) >= 0) return null
+        val byteLength = fileFingerprint.substring(0, separator).toLongOrNull() ?: return null
+        if (byteLength < 0L) return null
+        return fileFingerprint.substring(separator + 1).toLongOrNull()?.let { byteLength }
     }
 
     fun markSheetComplete(jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String) {
@@ -812,7 +849,20 @@ class ProgressStore(
         // tracker directory from scratch for every material.
         val index = ensureJobIndex(jobFolderName)
         val allActions = synchronized(indexLock) { index.allActions.toList() }
-            .filter { it.file == pdfFilename && (it.fileFingerprint ?: "") == fileFingerprint }
+            .filter { action ->
+                if (action.file != pdfFilename) return@filter false
+                val entry = index.sheets[SheetKey(action.file, action.page)]
+                if (entry?.badPartsHasFingerprint == true) {
+                    val resolvedFingerprint = resolveFingerprint(
+                        entry,
+                        fileFingerprint,
+                        entry.badPartsByFingerprint,
+                    )
+                    action.fileFingerprint == resolvedFingerprint
+                } else {
+                    (action.fileFingerprint ?: "") == fileFingerprint
+                }
+            }
             .sortedWith(TRACKER_TOTAL_ORDER)
         val pending = mutableSetOf<Pair<Int, Int>>() // (page, partNumber)
         for (action in allActions) {

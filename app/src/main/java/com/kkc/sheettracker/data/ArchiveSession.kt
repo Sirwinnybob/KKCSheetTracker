@@ -71,14 +71,12 @@ class ArchiveSession private constructor(
          * UnifiedMetadataEngineRegistry.listJobs() scans baseDir's direct children as jobs, and
          * the four stores below resolve job-relative paths as `File(baseDir, jobFolderName)`, so
          * baseDir must be that parent directory for both to work correctly.
-         * @param folderName the restored job folder's exact name under [cacheJobParentDir] (e.g.
-         * `ArchiveCacheResult.Success.jobDir.name`, or the `folderName` already threaded through
-         * the Task 7 nav route `archive/job/{archiveJobId}/{folderName}/{contentVersion}`). Must
-         * be passed explicitly rather than re-derived by listing [cacheJobParentDir]'s children:
-         * ProgressStore's own `init` creates a second directory (`.state`) under the same parent
-         * once constructed, so on any call after the first, a directory-listing approach could
-         * non-deterministically resolve to `.state` instead of the real job folder (File.listFiles
-         * order is not guaranteed) and silently point every store at an empty path.
+          * @param folderName the restored job folder's exact name under [cacheJobParentDir] (e.g.
+          * `ArchiveCacheResult.Success.jobDir.name`, or the `folderName` already threaded through
+          * the Task 7 nav route `archive/job/{archiveJobId}/{folderName}/{contentVersion}`). Must
+          * be passed explicitly rather than re-derived by listing [cacheJobParentDir]'s children.
+          * Directory listing order is not guaranteed, and unrelated cache children must never be
+          * mistaken for the restored job folder and silently point every store at empty content.
          *
          * This function does not itself verify that `File(cacheJobParentDir, folderName)` exists
          * — callers (Task 6/7) are responsible for ensuring the job directory has finished
@@ -100,6 +98,7 @@ class ArchiveSession private constructor(
                 tabletId = tabletId,
                 localStateDir = localStateDir,
                 readOnly = true,
+                archiveFingerprintCompatibility = true,
             )
             val hardwoodsProgressStore = HardwoodsProgressStore(
                 baseDir = cacheJobParentDir,

@@ -36,7 +36,6 @@ import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
@@ -49,7 +48,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Search
@@ -125,8 +123,7 @@ enum class NavDestination(
     TIMECARD("timecard", "Timeclock", TimecardIcon, TimecardIcon),
     SUPPLY("supply", "Supply", SupplyIcon, SupplyIcon),
     SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
-    STANDARDS("standards", "Library", Icons.AutoMirrored.Filled.MenuBook, Icons.AutoMirrored.Outlined.MenuBook),
-    ARCHIVE("archive", "Archive", Icons.Filled.Archive, Icons.Outlined.Archive)
+    STANDARDS("standards", "Library", Icons.AutoMirrored.Filled.MenuBook, Icons.AutoMirrored.Outlined.MenuBook)
 }
 
 @Composable

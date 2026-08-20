@@ -4,6 +4,7 @@ import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.TabletSpecialtyItem
 import com.kkc.sheettracker.data.models.RefreshReason
+import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.ScanStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -65,10 +66,9 @@ class ArchiveSessionTest {
             assertEquals("200 - Beta", first.folderName)
             assertEquals(cacheRoot, first.baseDir)
 
-            // At this point ProgressStore's init{} has created cacheRoot/.state as a second
-            // subdirectory alongside the real job folder, exactly the navigate-away-and-back
-            // scenario the bug depended on.
-            assertTrue(cacheRoot.resolve(".state").isDirectory)
+            // Read-only archive stores must not create a local state directory in the extracted
+            // cache slot; passing folderName explicitly still eliminates directory re-discovery.
+            assertFalse(cacheRoot.resolve(".state").exists())
         } finally {
             first.close()
         }
@@ -164,6 +164,44 @@ class ArchiveSessionTest {
             assertFalse(cacheRoot.resolve("$folderName/.metadata/admin/tablet_items_tablet-7.json").exists())
         } finally {
             session.close()
+            session.close()
+        }
+    }
+
+    @Test
+    fun `session enables archive fingerprint compatibility without local state writes`() {
+        val cacheRoot = Files.createTempDirectory("archive-session-fingerprint").toFile()
+        val folderName = "123 - Archive Job"
+        val historicalFingerprint = "1623305_1777664058047"
+        cacheRoot.resolve("$folderName/CNC/.tracker").also { trackerDir ->
+            trackerDir.mkdirs()
+            trackerDir.resolve("tablet-7.json").writeText(
+                """{"tabletId":"tablet-7","actions":[{"file":"A.pdf","page":1,"action":"complete","timestamp":"2026-08-20T10:00:00Z","fileFingerprint":"$historicalFingerprint"}]}"""
+            )
+        }
+
+        val session = ArchiveSession.create(
+            archiveJobId = "archive-123",
+            contentVersion = "v1",
+            cacheJobParentDir = cacheRoot,
+            folderName = folderName,
+            tabletId = "tablet-7",
+            isDebugBuild = true,
+        )
+
+        try {
+            assertTrue(session.readOnly)
+            assertEquals(
+                SheetStatus.COMPLETE,
+                session.progressStore.getSheetStatus(
+                    folderName,
+                    "A.pdf",
+                    page = 1,
+                    fileFingerprint = "1623305_1777664059000",
+                )
+            )
+            assertFalse(cacheRoot.resolve(".state").exists())
+        } finally {
             session.close()
         }
     }

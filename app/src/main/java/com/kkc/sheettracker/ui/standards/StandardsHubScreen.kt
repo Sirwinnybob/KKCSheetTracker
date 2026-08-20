@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.DoorFront
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.Badge
@@ -51,7 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 
 /**
- * Tiles on the [StandardsHubScreen] grid. Molding Library and Safety / SDS are live destinations; Door
+ * Tiles on the [StandardsHubScreen] grid. Molding Library, Safety / SDS, and Archive are live destinations; Door
  * Profiles and KKC Standards are placeholders reserved for future reference libraries — they
  * render dimmed and inert with a "Coming soon" badge until those screens exist.
  */
@@ -59,7 +60,8 @@ enum class StandardsTile(val label: String, val icon: ImageVector, val enabled: 
     MOLDING("Molding Library", Icons.Filled.Straighten, enabled = true),
     DOOR_PROFILES("Door Profiles", Icons.Filled.DoorFront, enabled = false),
     KKC_STANDARDS("KKC Standards", Icons.Filled.ClearAll, enabled = false),
-    SAFETY("Safety / SDS", Icons.Filled.Shield, enabled = true)
+    SAFETY("Safety / SDS", Icons.Filled.Shield, enabled = true),
+    ARCHIVE("Archive", Icons.Filled.Archive, enabled = true)
 }
 
 /**
@@ -72,6 +74,7 @@ fun StandardsHubScreen(
     onBack: () -> Unit,
     onOpenMolding: () -> Unit,
     onOpenSafety: () -> Unit,
+    onOpenArchive: () -> Unit,
     safetyNotificationCount: Int = 0
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -95,6 +98,7 @@ fun StandardsHubScreen(
                 val onClick = when (tile) {
                     StandardsTile.MOLDING -> onOpenMolding
                     StandardsTile.SAFETY -> onOpenSafety
+                    StandardsTile.ARCHIVE -> onOpenArchive
                     else -> null
                 }
                 StandardsTileCard(

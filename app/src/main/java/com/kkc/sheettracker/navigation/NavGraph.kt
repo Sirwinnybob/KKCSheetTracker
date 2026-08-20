@@ -559,7 +559,6 @@ private fun MultiBackStackNavigation(
     val timecardNavController = rememberNavController()
     val supplyNavController = rememberNavController()
     val standardsNavController = rememberNavController()
-    val archiveNavController = rememberNavController()
     val homeTab = homeTopLevelTabForWorkMode(workMode)
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
@@ -569,7 +568,7 @@ private fun MultiBackStackNavigation(
         // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
         // bottom nav bar — filtered out of both branches here.
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS, NavDestination.ARCHIVE)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
         } else {
             NavDestination.entries.filter {
                 it != NavDestination.SEARCH && it != NavDestination.SETTINGS
@@ -640,7 +639,6 @@ private fun MultiBackStackNavigation(
         timecardNavController,
         supplyNavController,
         standardsNavController,
-        archiveNavController
     ) {
         NavigationCoordinator(
             dashboardNavController = dashboardNavController,
@@ -651,7 +649,6 @@ private fun MultiBackStackNavigation(
             settingsNavController = settingsNavController,
             supplyNavController = supplyNavController,
             standardsNavController = standardsNavController,
-            archiveNavController = archiveNavController,
             getHomeTab = { homeTab },
             getSelectedTab = { selectedTab },
             setSelectedTab = { selectedTab = it }
@@ -949,6 +946,12 @@ private fun MultiBackStackNavigation(
                     StandardsTabHost(
                         navController = standardsNavController,
                         basePath = basePath,
+                        tabletId = tabletId,
+                        isDebugBuild = isDebugBuild,
+                        workMode = workMode,
+                        appStateFlags = appStateFlags,
+                        continuousScrollDefault = continuousScrollDefault,
+                        specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                         onBack = {
                             coordinator.navigateTopLevel(homeTab)
                         },
@@ -966,14 +969,6 @@ private fun MultiBackStackNavigation(
                         employeeName = employeeName,
                         subscriptionManager = supplySubscriptionManager,
                         active = selectedTab == TopLevelTab.SUPPLY
-                    )
-                }
-
-                TabLayer(visible = selectedTab == TopLevelTab.ARCHIVE) {
-                    ArchiveTabHost(
-                        navController = archiveNavController,
-                        tabletId = tabletId,
-                        isDebugBuild = isDebugBuild
                     )
                 }
 
@@ -1274,7 +1269,7 @@ private fun JobsTabHost(
                         navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                     },
                     onView3D = { jobFolder ->
-                        val target = resolveDefaultThreeDTarget(basePath, jobRepository, jobFolder)
+                        val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
                         navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                     },
                     onViewCoverSheet = { jobFolder ->
@@ -1292,7 +1287,7 @@ private fun JobsTabHost(
                         navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                     },
                     onView3D = { jobFolder ->
-                        val target = resolveDefaultThreeDTarget(basePath, jobRepository, jobFolder)
+                        val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
                         navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                     },
                     onViewCoverSheet = { jobFolder ->
@@ -1328,7 +1323,7 @@ private fun JobsTabHost(
                         navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
                     },
                     onView3D = { jobFolder ->
-                        val room = resolveSpecialtyThreeDRoom(basePath, jobFolder)
+                        val room = resolveSpecialtyThreeDRoom(File(basePath), jobFolder)
                         if (room != null) {
                             navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, source = "3d", room = room)) { launchSingleTop = true }
                         }
@@ -1426,7 +1421,7 @@ private fun JobsTabHost(
                     }
                 },
                 onOpenThreeD = {
-                    val target = resolveDefaultThreeDTarget(basePath, jobRepository, folderName)
+                    val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, folderName)
                     navController.navigate(
                         assemblyViewerRoute(
                             jobFolderName = folderName,
@@ -1476,7 +1471,7 @@ private fun JobsTabHost(
                     }
                 },
                 onOpenThreeD = {
-                    val room = resolveSpecialtyThreeDRoom(basePath, folderName)
+                    val room = resolveSpecialtyThreeDRoom(File(basePath), folderName)
                     if (room != null) {
                         navController.navigate(
                             assemblyViewerRoute(
@@ -1689,7 +1684,7 @@ private fun JobsTabHost(
                     }
                 },
                 onOpenThreeD = {
-                    val target = resolveDefaultThreeDTarget(basePath, jobRepository, folderName)
+                    val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, folderName)
                     navController.navigate(
                         assemblyViewerRoute(
                             jobFolderName = folderName,
@@ -1992,6 +1987,12 @@ onOpenSpecialtyViewerDefaults = {
 private fun StandardsTabHost(
     navController: NavHostController,
     basePath: String,
+    tabletId: String,
+    isDebugBuild: Boolean,
+    workMode: WorkMode,
+    appStateFlags: AppStateFeatureFlags,
+    continuousScrollDefault: Boolean,
+    specialtyViewerDefaultsStore: com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore,
     onBack: () -> Unit,
     safetyNotificationCount: Int = 0,
     isDarkTheme: Boolean = false,
@@ -2007,6 +2008,7 @@ private fun StandardsTabHost(
                 onBack = onBack,
                 onOpenMolding = { navController.navigate("standards/molding") { launchSingleTop = true } },
                 onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } },
+                onOpenArchive = { navController.navigate("standards/archive") { launchSingleTop = true } },
                 safetyNotificationCount = safetyNotificationCount
             )
         }
@@ -2025,6 +2027,19 @@ private fun StandardsTabHost(
             com.kkc.sheettracker.ui.standards.SafetyDocumentsScreen(
                 basePath = basePath,
                 onBack = { navController.popBackStack() }
+            )
+        }
+        composable("standards/archive") {
+            ArchiveLibraryHost(
+                tabletId = tabletId,
+                isDebugBuild = isDebugBuild,
+                isDarkTheme = isDarkTheme,
+                useStandardSheets = useStandardSheets,
+                continuousScrollDefault = continuousScrollDefault,
+                specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
+                workMode = workMode,
+                appStateFlags = appStateFlags,
+                onExitArchive = { navController.popBackStack() },
             )
         }
     }
@@ -2057,15 +2072,24 @@ private fun SupplyTabHost(
 }
 
 @Composable
-private fun ArchiveTabHost(
-    navController: NavHostController,
+private fun ArchiveLibraryHost
+(
     tabletId: String,
-    isDebugBuild: Boolean
+    isDebugBuild: Boolean,
+    isDarkTheme: Boolean,
+    useStandardSheets: Boolean,
+    continuousScrollDefault: Boolean,
+    specialtyViewerDefaultsStore: com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore,
+    workMode: WorkMode,
+    appStateFlags: AppStateFeatureFlags,
+    onExitArchive: () -> Unit,
 ) {
+    val navController = rememberNavController()
+    val context = LocalContext.current
     NavHost(
         navController = navController,
         startDestination = "archive",
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
     ) {
         composable("archive") {
             com.kkc.sheettracker.ui.archive.ArchiveLibraryScreen(
@@ -2075,7 +2099,7 @@ private fun ArchiveTabHost(
                     navController.navigate(
                         "archive/job/${URLEncoder.encode(archiveJobId, "UTF-8")}/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(contentVersion, "UTF-8")}"
                     ) { launchSingleTop = true }
-                }
+                },
             )
         }
         composable(
@@ -2083,29 +2107,27 @@ private fun ArchiveTabHost(
             arguments = listOf(
                 navArgument("archiveJobId") { type = NavType.StringType },
                 navArgument("folderName") { type = NavType.StringType },
-                navArgument("contentVersion") { type = NavType.StringType }
-            )
+                navArgument("contentVersion") { type = NavType.StringType },
+            ),
         ) { backStackEntry ->
-            @Suppress("UNUSED_VARIABLE")
             val archiveJobId = URLDecoder.decode(backStackEntry.arguments?.getString("archiveJobId").orEmpty(), "UTF-8")
-            @Suppress("UNUSED_VARIABLE")
             val folderName = URLDecoder.decode(backStackEntry.arguments?.getString("folderName").orEmpty(), "UTF-8")
-            @Suppress("UNUSED_VARIABLE")
             val contentVersion = URLDecoder.decode(backStackEntry.arguments?.getString("contentVersion").orEmpty(), "UTF-8")
-            // Placeholder route — intentionally out of scope for this task (see plan's Task 7
-            // Step 3 scope disclosure). The real read-only archive job detail screen, backed by
-            // an ArchiveSession-derived ProgressStore/UnifiedMetadataEngine against
-            // cacheDir/archive-cache/<archiveJobId> (ArchiveCacheManager's actual base directory
-            // -- see ArchiveLibraryScreen.kt's deliberate cacheDir choice from Task 6's review),
-            // is a separate focused follow-up once this navigation skeleton compiles and the
-            // Archive tab is confirmed reachable. Minimal placeholder body below so tapping
-            // "Open" doesn't land on a silent blank screen.
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Archive job detail view not yet available",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            ArchiveJobDetailHost(
+                archiveJobId = archiveJobId,
+                folderName = folderName,
+                contentVersion = contentVersion,
+                cacheJobParentDir = File(context.cacheDir, "archive-cache/$archiveJobId"),
+                tabletId = tabletId,
+                isDebugBuild = isDebugBuild,
+                isDarkTheme = isDarkTheme,
+                useStandardSheets = useStandardSheets,
+                continuousScrollDefault = continuousScrollDefault,
+                specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
+                workMode = workMode,
+                appStateFlags = appStateFlags,
+                onExitArchive = onExitArchive,
+            )
         }
     }
 }
@@ -2208,7 +2230,7 @@ private fun LegacySingleStackNavigation(
         // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
         // bottom nav bar — filtered out of both branches here.
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS, NavDestination.ARCHIVE)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
         } else {
             NavDestination.entries.filter {
                 it != NavDestination.SEARCH && it != NavDestination.SETTINGS
@@ -2338,7 +2360,6 @@ private fun LegacySingleStackNavigation(
             currentRoute?.startsWith("supply") == true -> NavDestination.SUPPLY
             currentRoute == "settings" || currentRoute?.startsWith("settings/") == true -> NavDestination.SETTINGS
             currentRoute == "standards" || currentRoute?.startsWith("standards/") == true -> NavDestination.STANDARDS
-            currentRoute == "archive" || currentRoute?.startsWith("archive/") == true -> NavDestination.ARCHIVE
             else -> if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) NavDestination.JOBS else NavDestination.DASHBOARD
         }
     }
@@ -2514,7 +2535,7 @@ private fun LegacySingleStackNavigation(
                                     navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                                 },
                                 onView3D = { jobFolder ->
-                                    val target = resolveDefaultThreeDTarget(basePath, jobRepository, jobFolder)
+                                    val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
                                     navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                                 },
                                 onViewCoverSheet = { jobFolder ->
@@ -2532,7 +2553,7 @@ private fun LegacySingleStackNavigation(
                                     navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
                                 },
                                 onView3D = { jobFolder ->
-                                    val target = resolveDefaultThreeDTarget(basePath, jobRepository, jobFolder)
+                                    val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
                                     navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
                                 },
                                 onViewCoverSheet = { jobFolder ->
@@ -2568,7 +2589,7 @@ private fun LegacySingleStackNavigation(
                                     navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
                                 },
                                 onView3D = { jobFolder ->
-                                    val room = resolveSpecialtyThreeDRoom(basePath, jobFolder)
+                                    val room = resolveSpecialtyThreeDRoom(File(basePath), jobFolder)
                                     if (room != null) {
                                         navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, source = "3d", room = room)) { launchSingleTop = true }
                                     }
@@ -2632,7 +2653,7 @@ private fun LegacySingleStackNavigation(
                             }
                         },
                         onOpenThreeD = {
-                            val target = resolveDefaultThreeDTarget(basePath, jobRepository, folderName)
+                            val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, folderName)
                             navController.navigate(
                                 assemblyViewerRoute(
                                     jobFolderName = folderName,
@@ -2682,7 +2703,7 @@ private fun LegacySingleStackNavigation(
                             }
                         },
                         onOpenThreeD = {
-                            val room = resolveSpecialtyThreeDRoom(basePath, folderName)
+                            val room = resolveSpecialtyThreeDRoom(File(basePath), folderName)
                             if (room != null) {
                                 navController.navigate(
                                     assemblyViewerRoute(
@@ -2916,7 +2937,7 @@ private fun LegacySingleStackNavigation(
                             }
                         },
                         onOpenThreeD = {
-                            val target = resolveDefaultThreeDTarget(basePath, jobRepository, folderName)
+                            val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, folderName)
                             navController.navigate(
                                 assemblyViewerRoute(
                                     jobFolderName = folderName,
@@ -3217,6 +3238,7 @@ private fun LegacySingleStackNavigation(
                         onBack = { navController.popBackStack() },
                         onOpenMolding = { navController.navigate("standards/molding") { launchSingleTop = true } },
                         onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } },
+                        onOpenArchive = { navController.navigate("standards/archive") { launchSingleTop = true } },
                         safetyNotificationCount = safetyNotificationCount
                     )
                 }
@@ -3237,48 +3259,20 @@ private fun LegacySingleStackNavigation(
                         onBack = { navController.popBackStack() }
                     )
                 }
-
-                composable("archive") {
-                    com.kkc.sheettracker.ui.archive.ArchiveLibraryScreen(
+                composable("standards/archive") {
+                    ArchiveLibraryHost(
                         tabletId = tabletId,
                         isDebugBuild = isDebugBuild,
-                        onOpenArchiveJob = { archiveJobId, folderName, contentVersion ->
-                            navController.navigate(
-                                "archive/job/${URLEncoder.encode(archiveJobId, "UTF-8")}/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(contentVersion, "UTF-8")}"
-                            ) { launchSingleTop = true }
-                        }
+                        isDarkTheme = isDarkTheme,
+                        useStandardSheets = useStandardSheets,
+                        continuousScrollDefault = continuousScrollDefault,
+                        specialtyViewerDefaultsStore = legacySpecialtyViewerDefaultsStore,
+                        workMode = workMode,
+                        appStateFlags = appStateFlags,
+                        onExitArchive = { navController.popBackStack() },
                     )
                 }
-                composable(
-                    "archive/job/{archiveJobId}/{folderName}/{contentVersion}",
-                    arguments = listOf(
-                        navArgument("archiveJobId") { type = NavType.StringType },
-                        navArgument("folderName") { type = NavType.StringType },
-                        navArgument("contentVersion") { type = NavType.StringType }
-                    )
-                ) { backStackEntry ->
-                    @Suppress("UNUSED_VARIABLE")
-                    val archiveJobId = URLDecoder.decode(backStackEntry.arguments?.getString("archiveJobId").orEmpty(), "UTF-8")
-                    @Suppress("UNUSED_VARIABLE")
-                    val folderName = URLDecoder.decode(backStackEntry.arguments?.getString("folderName").orEmpty(), "UTF-8")
-                    @Suppress("UNUSED_VARIABLE")
-                    val contentVersion = URLDecoder.decode(backStackEntry.arguments?.getString("contentVersion").orEmpty(), "UTF-8")
-                    // Placeholder route — intentionally out of scope for this task (see plan's
-                    // Task 7 Step 3 scope disclosure, mirrored here since this nav variant has
-                    // no separate ArchiveTabHost wrapper). The real read-only archive job detail
-                    // screen, backed by an ArchiveSession-derived ProgressStore/
-                    // UnifiedMetadataEngine against cacheDir/archive-cache/<archiveJobId>
-                    // (ArchiveCacheManager's actual base directory -- see
-                    // ArchiveLibraryScreen.kt's deliberate cacheDir choice from Task 6's review),
-                    // is a separate focused follow-up. Minimal placeholder body below so tapping
-                    // "Open" doesn't land on a silent blank screen.
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            "Archive job detail view not yet available",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+
                 }
                 }
 
@@ -3397,7 +3391,7 @@ private fun LegacySingleStackNavigation(
     } // LocalOnOpenSettings CompositionLocalProvider
 }
 
-private fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int): String {
+internal fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int): String {
     return "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
 }
 
@@ -3445,106 +3439,11 @@ private fun rememberCompactWidthClass(): Boolean {
     return windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact
 }
 
-private fun referenceViewerRoute(jobFolderName: String, docType: ReferenceDocType, page: Int): String {
+internal fun referenceViewerRoute(jobFolderName: String, docType: ReferenceDocType, page: Int): String {
     return "referenceViewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(docType.name, "UTF-8")}/$page"
 }
 
-private data class ThreeDRouteTarget(
-    val assemblyPage: Int,
-    val plansPage: Int,
-    val room: String?
-)
-
-private fun resolveDefaultThreeDTarget(
-    basePath: String,
-    jobRepository: JobRepository,
-    jobFolderName: String
-): ThreeDRouteTarget {
-    val sheetIndex = jobRepository.getCabinetSheetIndex(jobFolderName)
-    val assemblyDoc = sheetIndex?.documents?.assembly
-    val plansDoc = sheetIndex?.documents?.plansElevations
-    val assemblyPageDetails = assemblyDoc?.virtualCombined?.pageDetails
-        ?.takeIf { it.isNotEmpty() }
-        ?: assemblyDoc?.pageDetails.orEmpty()
-    val assemblyCabinetToPages = assemblyDoc?.virtualCombined?.cabinetToPages
-        ?.takeIf { it.isNotEmpty() }
-        ?: assemblyDoc?.cabinetToPages.orEmpty()
-
-    val assemblyRooms = assemblyPageDetails
-        .mapNotNull { (pageKey, detail) ->
-            val page = pageKey.toIntOrNull() ?: return@mapNotNull null
-            val room = normalizeRoomFolderName(detail.room) ?: return@mapNotNull null
-            room to page
-        }
-    // Pick best room from sheet index, verify GLB exists on disk, fallback to filesystem scan
-    val threeDDir = java.io.File(basePath, "$jobFolderName/3D")
-    val sheetRooms = assemblyRooms
-        .firstOrNull { it.first.equals("Kitchen", ignoreCase = true) }
-        ?: assemblyRooms
-            .sortedWith(compareBy<Pair<String, Int>> { it.first }.thenBy { it.second })
-            .firstOrNull()
-    val sheetRoomHasGlb = sheetRooms?.let { (room, _) ->
-        java.io.File(threeDDir, room).isDirectory && java.io.File(threeDDir, "$room/3d_medium.glb").exists()
-    } == true
-    val firstRoom = if (sheetRoomHasGlb) {
-        sheetRooms
-    } else {
-        // Sheet-index room has no GLB - scan filesystem like resolveSpecialtyThreeDRoom
-        val fsRooms = threeDDir.listFiles()
-            ?.filter { it.isDirectory && java.io.File(it, "3d_medium.glb").exists() }
-            ?.map { it.name }
-            ?.sorted()
-            ?: emptyList()
-        val fsRoom = fsRooms.firstOrNull { it.equals("Kitchen", ignoreCase = true) }
-            ?: fsRooms.firstOrNull()
-        if (fsRoom != null) {
-            // Try to find matching assembly page for this filesystem room
-            assemblyRooms.firstOrNull { it.first.equals(fsRoom, ignoreCase = true) }
-                ?: (fsRoom to (sheetRooms?.second ?: 1))
-        } else {
-            null
-        }
-    }
-
-    val firstAssemblyPage = firstRoom?.second
-        ?: assemblyCabinetToPages.values.flatten().minOrNull()
-        ?: 1
-    val firstPlansPage = plansDoc?.cabinetToPages?.values?.flatten()?.minOrNull() ?: 1
-
-    return ThreeDRouteTarget(
-        assemblyPage = firstAssemblyPage,
-        plansPage = firstPlansPage,
-        room = firstRoom?.first
-    )
-}
-
-private fun resolveSpecialtyThreeDRoom(
-    basePath: String,
-    jobFolderName: String
-): String? {
-    val threeDDir = File(basePath, "$jobFolderName/3D")
-    if (!threeDDir.isDirectory) return null
-    val rooms = threeDDir.listFiles()
-        ?.filter { it.isDirectory && File(it, "3d_medium.glb").exists() }
-        ?.map { it.name }
-        ?.sorted()
-        ?: emptyList()
-    if (rooms.isEmpty()) return null
-    return rooms.firstOrNull { it.equals("Kitchen", ignoreCase = true) } ?: rooms.first()
-}
-
-private fun normalizeRoomFolderName(roomText: String?): String? {
-    val raw = roomText?.let {
-        Regex("""\(([^)]+)\)""").find(it)?.groupValues?.get(1)?.uppercase()
-            ?: it.uppercase().takeIf { s -> s.isNotBlank() }
-    } ?: return null
-    return raw.replace(Regex("""[/\\:*?"<>|]"""), " ")
-        .replace(Regex("""\s+"""), " ")
-        .trim()
-        .takeIf { it.isNotBlank() }
-}
-
-private fun assemblyViewerRoute(
+internal fun assemblyViewerRoute(
     jobFolderName: String,
     assemblyPage: Int,
     plansPage: Int,
@@ -3569,7 +3468,7 @@ private fun assemblyViewerRoute(
     return if (query.isEmpty()) base else "$base?${query.joinToString("&")}"
 }
 
-private fun hardwoodsWorkspaceRoute(jobFolderName: String, docType: HardwoodDocType, rowId: String?): String {
+internal fun hardwoodsWorkspaceRoute(jobFolderName: String, docType: HardwoodDocType, rowId: String?): String {
     val encodedRowId = URLEncoder.encode(rowId ?: "_", "UTF-8")
     return "hardwoods/workspace/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(docType.name, "UTF-8")}/$encodedRowId"
 }

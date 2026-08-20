@@ -189,6 +189,283 @@ class ProgressStoreTest {
     }
 
     @Test
+    fun defaultStoreDoesNotMatchHistoricalFingerprintByByteLength() {
+        val baseDir = createTempBaseDir()
+        val historicalFingerprint = "1623305_1777664058047"
+        val extractedFingerprint = "1623305_1777664059000"
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-archive",
+            progress = TabletProgress(
+                tabletId = "tablet-archive",
+                actions = listOf(
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 1,
+                        action = "complete",
+                        timestamp = "2026-08-20T10:00:00Z",
+                        fileFingerprint = historicalFingerprint,
+                    )
+                )
+            )
+        )
+
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+
+        assertEquals(
+            SheetStatus.NOT_STARTED,
+            store.getSheetStatus(jobFolderName, "A.pdf", 1, extractedFingerprint)
+        )
+    }
+
+    @Test
+    fun writableStoreCannotEnableArchiveFingerprintCompatibility() {
+        val baseDir = createTempBaseDir()
+        val historicalFingerprint = "1623305_1777664058047"
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-archive",
+            progress = TabletProgress(
+                tabletId = "tablet-archive",
+                actions = listOf(
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 1,
+                        action = "complete",
+                        timestamp = "2026-08-20T10:00:00Z",
+                        fileFingerprint = historicalFingerprint,
+                    )
+                )
+            )
+        )
+
+        val store = ProgressStore(
+            baseDir = baseDir,
+            tabletId = tabletId,
+            localStateDir = File(baseDir, ".local"),
+            archiveFingerprintCompatibility = true,
+        )
+
+        assertEquals(
+            SheetStatus.NOT_STARTED,
+            store.getSheetStatus(jobFolderName, "A.pdf", 1, "1623305_1777664059000")
+        )
+    }
+
+    @Test
+    fun archiveFingerprintCompatibilityUsesMatchingSizeForCompletionAndBadParts() {
+        val baseDir = createTempBaseDir()
+        val historicalFingerprint = "1623305_1777664058047"
+        val extractedFingerprint = "1623305_1777664059000"
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-archive",
+            progress = TabletProgress(
+                tabletId = "tablet-archive",
+                actions = listOf(
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 1,
+                        action = "complete",
+                        timestamp = "2026-08-20T10:00:00Z",
+                        fileFingerprint = historicalFingerprint,
+                    ),
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 1,
+                        part = 7,
+                        action = "bad_part",
+                        timestamp = "2026-08-20T10:01:00Z",
+                        fileFingerprint = historicalFingerprint,
+                    ),
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 2,
+                        action = "skip",
+                        timestamp = "2026-08-20T10:02:00Z",
+                        fileFingerprint = historicalFingerprint,
+                        reNested = true,
+                    )
+                )
+            )
+        )
+
+        val store = ProgressStore(
+            baseDir = baseDir,
+            tabletId = tabletId,
+            localStateDir = File(baseDir, ".local"),
+            readOnly = true,
+            archiveFingerprintCompatibility = true,
+        )
+
+        assertEquals(
+            SheetStatus.HAS_BAD_PARTS,
+            store.getSheetStatus(jobFolderName, "A.pdf", 1, extractedFingerprint)
+        )
+        assertEquals(
+            SheetStatus.RE_NESTED,
+            store.getSheetStatus(jobFolderName, "A.pdf", 2, extractedFingerprint)
+        )
+        assertEquals(
+            setOf(7),
+            store.getBadParts(jobFolderName, "A.pdf", 1, extractedFingerprint, includeDraft = false)
+        )
+        assertEquals(
+            SheetStatus.NOT_STARTED,
+            store.getSheetStatus(jobFolderName, "A.pdf", 1, "1623306_1777664059000")
+        )
+    }
+
+    @Test
+    fun archiveFingerprintCompatibilityUsesFallbackForPendingBadParts() {
+        val baseDir = createTempBaseDir()
+        val historicalFingerprint = "1623305_1777664058047"
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-archive",
+            progress = TabletProgress(
+                tabletId = "tablet-archive",
+                actions = listOf(
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 1,
+                        action = "complete",
+                        timestamp = "2026-08-20T10:00:00Z",
+                        fileFingerprint = historicalFingerprint,
+                    ),
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 1,
+                        part = 7,
+                        action = "bad_part",
+                        timestamp = "2026-08-20T10:01:00Z",
+                        fileFingerprint = historicalFingerprint,
+                    )
+                )
+            )
+        )
+
+        val store = ProgressStore(
+            baseDir = baseDir,
+            tabletId = tabletId,
+            localStateDir = File(baseDir, ".local"),
+            readOnly = true,
+            archiveFingerprintCompatibility = true,
+        )
+
+        assertEquals(
+            1,
+            store.getPendingBadPartsForMaterial(
+                jobFolderName,
+                "A.pdf",
+                "1623305_1777664059000",
+            )
+        )
+    }
+
+    @Test
+    fun archiveFingerprintCompatibilityUsesMostRecentlyObservedMatchingSizeFingerprint() {
+        val baseDir = createTempBaseDir()
+        val firstFingerprint = "1623305_1777664058047"
+        val latestFingerprint = "1623305_1777664059000"
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-archive",
+            progress = TabletProgress(
+                tabletId = "tablet-archive",
+                actions = listOf(
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 1,
+                        action = "complete",
+                        timestamp = "2026-08-20T10:00:00Z",
+                        fileFingerprint = firstFingerprint,
+                    ),
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 1,
+                        action = "skip",
+                        timestamp = "2026-08-20T10:01:00Z",
+                        fileFingerprint = latestFingerprint,
+                    )
+                )
+            )
+        )
+
+        val store = ProgressStore(
+            baseDir = baseDir,
+            tabletId = tabletId,
+            localStateDir = File(baseDir, ".local"),
+            readOnly = true,
+            archiveFingerprintCompatibility = true,
+        )
+
+        assertEquals(
+            SheetStatus.SKIPPED,
+            store.getSheetStatus(jobFolderName, "A.pdf", 1, "1623305_1777664060000")
+        )
+    }
+
+    @Test
+    fun archiveFingerprintCompatibilityDoesNotMatchMalformedFingerprints() {
+        val baseDir = createTempBaseDir()
+        writeTabletProgress(
+            baseDir = baseDir,
+            jobFolderName = jobFolderName,
+            tabletId = "tablet-archive",
+            progress = TabletProgress(
+                tabletId = "tablet-archive",
+                actions = listOf(
+                    TrackerAction(
+                        file = "A.pdf",
+                        page = 1,
+                        action = "complete",
+                        timestamp = "2026-08-20T10:00:00Z",
+                        fileFingerprint = "not-a-size-fingerprint",
+                    )
+                )
+            )
+        )
+
+        val store = ProgressStore(
+            baseDir = baseDir,
+            tabletId = tabletId,
+            localStateDir = File(baseDir, ".local"),
+            readOnly = true,
+            archiveFingerprintCompatibility = true,
+        )
+
+        assertEquals(
+            SheetStatus.NOT_STARTED,
+            store.getSheetStatus(jobFolderName, "A.pdf", 1, "1623305_1777664060000")
+        )
+        assertEquals(
+            SheetStatus.NOT_STARTED,
+            store.getSheetStatus(jobFolderName, "A.pdf", 1, "1623305")
+        )
+    }
+
+    @Test
+    fun readOnlyStoreDoesNotCreateLocalStateDirectory() {
+        val baseDir = createTempBaseDir()
+        val localStateDir = File(baseDir, ".archive-state")
+
+        ProgressStore(
+            baseDir = baseDir,
+            tabletId = tabletId,
+            localStateDir = localStateDir,
+            readOnly = true,
+        )
+
+        assertFalse(localStateDir.exists())
+    }
+
+    @Test
     fun decodeToleratesWrongTypedFields() {
         val good = JsonParser.parseString(
             """{"op":"view","payload":{"file":"A.pdf","page":5,"timestamp":"2026-05-01T00:00:01Z"},"wallTime":"2026-05-01T00:00:01Z","lamport":1,"eventId":"e1"}"""
@@ -312,7 +589,13 @@ class ProgressStoreTest {
         assertEquals(null, store.getIndexJobStatusCountsOrNull(jobFolderName))
     }
 
-    private fun trackerAction(file: String, page: Int, action: String, timestamp: String): TrackerAction {
-        return TrackerAction(file = file, page = page, part = null, action = action, timestamp = timestamp, fileFingerprint = "fp1")
+    private fun trackerAction(
+        file: String,
+        page: Int,
+        action: String,
+        timestamp: String,
+        fileFingerprint: String = "fp1",
+    ): TrackerAction {
+        return TrackerAction(file = file, page = page, part = null, action = action, timestamp = timestamp, fileFingerprint = fileFingerprint)
     }
 }
