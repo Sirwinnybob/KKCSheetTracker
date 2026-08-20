@@ -26,23 +26,55 @@ Explicit design goal: **reuse the same 4 job-detail screens (and their sub-scree
 
 ## Architecture
 
-### `ArchiveJobSession` (expands the existing `ArchiveSession.kt`)
+### `ArchiveSession` (expanded in the existing `ArchiveSession.kt`)
 
-A single object, built once per archive-job-detail screen visit, bundling everything the reused screens need — all pointed at the archive cache job's directory, all in read-only mode:
+A single object, built once for the lifetime of an archive detail host, bundling everything the reused screens need — all pointed at the archive cache job's directory, all in read-only mode:
 
 - `progressStore: ProgressStore` (readOnly = true) — already built
 - `hardwoodsProgressStore: HardwoodsProgressStore` (readOnly = true) — already built
 - `specialtyProgressStore: SpecialtyProgressStore` (readOnly = true) — already built
 - `pdfMarkupStore: PdfMarkupStore` (readOnly = true) — already built
+- `sheetRipProgressStore: SheetRipProgressStore` (readOnly = true) — new; required by
+  `HardwoodsWorkspaceScreen` and `SpecialtyStateStore`
+- `tabletSpecialtyItemsStore: TabletSpecialtyItemsStore` (readOnly = true) — new; required by
+  `SpecialtyStateStore` for tablet-created Specialty items
 - `unifiedEngine: UnifiedMetadataEngine` — already built, via `UnifiedMetadataEngineRegistry.getOrCreate`
-- `jobRepository: JobRepository` — new, constructed against the archive cache directory
-- `hardwoodsRepository`, `specialtyRepository` — new; exact constructor shape to be confirmed during planning
+- `jobRepository: JobRepository` — new, constructed as `JobRepository(baseDir, isDebugBuild, unifiedEngine)`
+- `hardwoodsRepository: HardwoodsRepository` — new, constructed as `HardwoodsRepository(baseDir)`
+- `specialtyRepository: SpecialtyRepository` — new, constructed as `SpecialtyRepository(baseDir, specialtyProgressStore, unifiedEngine)`
 - `scanCoordinator: ScanCoordinator`, `hardwoodsScanCoordinator: HardwoodsScanCoordinator`, `assemblyScanCoordinator: AssemblyScanCoordinator`, `specialtyScanCoordinator: SpecialtyScanCoordinator` — new, **real instances** (not fakes/stubs) constructed pointed at the archive directory, per the safety findings above
 - `appStateStore: AppStateStore`, `assemblyStateStore: AssemblyStateStore`, `specialtyStateStore: SpecialtyStateStore` — new, composed from the above exactly like `NavGraph.kt` composes the live equivalents today
 
-### Navigation wiring
+`SheetRipProgressStore` and `TabletSpecialtyItemsStore` gain the same constructor-level
+`readOnly: Boolean = false` contract as the existing archive-safe stores. Their mutating public
+methods return without creating directories, updating in-memory write bookkeeping, or writing a
+file when `readOnly` is true. This closes the only Specialty persistence paths omitted from the
+original session list.
 
-Both `ArchiveTabHost`'s route and the inline `LegacySingleStackNavigation` copy replace their current placeholder `Box` with: build an `ArchiveJobSession` for the route's `archiveJobId`/`folderName`/`contentVersion` args, then call whichever ONE of `JobDetailScreen`/`HardwoodsJobDetailScreen`/`AssemblyJobDetailScreen`/`SpecialtyJobDetailScreen` matches this tablet's existing `workMode` value (already in scope at both call sites) — same dispatch pattern the live job route already uses at each of its own analogous `when (workMode) { ... }` blocks.
+### Navigation and session ownership
+
+Both `ArchiveTabHost`'s route and the inline `LegacySingleStackNavigation` copy replace their
+placeholder `Box` with a shared `ArchiveJobDetailHost`. The host owns exactly one
+`ArchiveSession`, created with `remember(archiveJobId, folderName, contentVersion, cacheJobParentDir,
+tabletId, isDebugBuild)`, plus a nested `NavHost` for the archive detail and all of its child
+viewer/workspace destinations. It routes to whichever ONE of
+`JobDetailScreen`/`HardwoodsJobDetailScreen`/`AssemblyJobDetailScreen`/`SpecialtyJobDetailScreen`
+matches this tablet's existing `workMode` value.
+
+The nested host is mandatory: the existing global `viewer`, `referenceViewer`,
+`hardwoods/workspace`, and `assembly/viewer` routes inject live dependencies. Archive detail
+callbacks must navigate only to the host's child routes, where every screen receives the same
+archive session. The host uses `session.baseDir.absolutePath` for 3D resolution, not the live
+tablet `basePath`, and its unavailable-material callback returns to the archive detail root.
+This keeps all parent and child reads inside the restored cache across both navigation variants.
+
+On host entry, a `LaunchedEffect(session, workMode)` starts the selected mode's coordinator
+refresh before rendering dependent data. This is not optional: coordinators do not self-scan,
+and the initial `HardwoodScanSnapshot` has an empty `basePath`.
+
+Archive routes pass no live `ClockInState` and no live clock-in callback. The existing fallback
+buttons therefore remain interactive but silently no-op, preserving the no-persistence contract
+without adding a separate restricted UI.
 
 The 4 detail screens themselves are **not modified** — they receive the session's coordinator/store instances instead of the live app-scope ones.
 
@@ -53,7 +85,24 @@ The 4 detail screens themselves are **not modified** — they receive the sessio
 
 ### Lifecycle
 
-A fresh `ArchiveJobSession` (and its real coordinators) is constructed per archive-job-detail screen visit, matching exactly how the live app constructs its one long-lived set at startup — just scoped per-visit instead of per-process. **Decision: accept the same latent CoroutineScope-leak risk the live coordinators already carry** rather than building new disposal machinery these classes were never designed to support. Bounded in practice by how many distinct archived jobs a user opens in one tablet session (realistically small). Not re-litigated as a blocking concern — this mirrors existing, already-shipped risk exactly, not a new risk class introduced by this feature.
+The host constructs one session for its own lifetime rather than on every destination composition.
+Each coordinator exposes `close()` by retaining and cancelling its own `SupervisorJob`.
+`ArchiveSession.close()` delegates to all four coordinators, and the host calls it from
+`DisposableEffect` when the archive route leaves composition. This prevents each archive visit
+from retaining four background scopes for the remainder of the tablet process. If Android
+recreates the process, the persisted parent route arguments rebuild a new session against the
+validated cache slot; no session object is stored in saved navigation state.
+
+### Verification requirements
+
+- Unit tests prove `ArchiveSession.create()` supplies the archive-scoped repositories, state
+  stores, coordinators, and the two newly read-only Specialty stores.
+- Unit tests prove `SheetRipProgressStore` and `TabletSpecialtyItemsStore` no-op without creating
+  their target files when read-only.
+- Navigation wiring tests cover both navigation variants, verify the placeholders are gone, and
+  verify archive child destinations receive archive session dependencies rather than live ones.
+- Viewer call-site tests verify archive callers pass the session's `PdfMarkupStore`, while live
+  callers preserve their SharedPreferences-backed construction with `readOnly = isViewOnlyMode`.
 
 ## Non-goals (explicitly deferred, not part of this plan)
 
