@@ -195,7 +195,9 @@ fun AssemblyViewerScreen(
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onLeaveWhileClockedIn: () -> Unit = {},
     onUiVisibilityChanged: (Boolean) -> Unit = {},
-    clockInState: ClockInState? = null
+    clockInState: ClockInState? = null,
+    overridePdfMarkupStore: PdfMarkupStore? = null,
+    pdfMarkupReadOnly: Boolean = false
 ) {
     val sheetIndex by produceState<CabinetSheetIndex?>(
         initialValue = null,
@@ -312,7 +314,6 @@ fun AssemblyViewerScreen(
 
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
-    val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
     val resumePrefix = remember(jobFolderName) { "assembly_resume_v1_${jobFolderName}" }
     // Per-pane, NOT shared — each pane tracks its own Assembly/Plans page independently so
     // selecting the same doc type in both panes doesn't lock them together. Both panes seed
@@ -389,13 +390,14 @@ fun AssemblyViewerScreen(
     var serverPort by remember { mutableIntStateOf(0) }
     var viewerServerError by remember { mutableStateOf<String?>(null) }
     var detectedRoom by rememberSaveable(initialRoom) { mutableStateOf(initialRoom) }
-    val pdfMarkupStore = remember {
+    val pdfMarkupStore = overridePdfMarkupStore ?: remember(pdfMarkupReadOnly) {
+        val trackerPrefs = context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE)
         val storedBasePath = trackerPrefs.getString("base_path", null)
         val tabletId = trackerPrefs.getString("tablet_id", null)
         if (storedBasePath.isNullOrBlank() || tabletId.isNullOrBlank()) {
             null
         } else {
-            PdfMarkupStore(File(storedBasePath), tabletId)
+            PdfMarkupStore(File(storedBasePath), tabletId, readOnly = pdfMarkupReadOnly)
         }
     }
 

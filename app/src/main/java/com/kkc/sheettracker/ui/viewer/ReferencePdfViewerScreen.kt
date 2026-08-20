@@ -71,11 +71,12 @@ fun ReferencePdfViewerScreen(
     continuousScrollDefault: Boolean = false,
     isDarkTheme: Boolean,
     onBack: () -> Unit,
-    onUiVisibilityChanged: (Boolean) -> Unit = {}
+    onUiVisibilityChanged: (Boolean) -> Unit = {},
+    overridePdfMarkupStore: PdfMarkupStore? = null,
+    pdfMarkupReadOnly: Boolean = false
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
-    val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
     val referenceData = rememberReferenceViewerData(
         jobRepository = jobRepository,
         jobFolderName = jobFolderName,
@@ -112,13 +113,14 @@ fun ReferencePdfViewerScreen(
     val hazeState = remember { HazeState() }
     // Restore bottom nav visibility when navigating back.
     DisposableEffect(Unit) { onDispose { onUiVisibilityChanged(true) } }
-    val pdfMarkupStore = remember {
+    val pdfMarkupStore = overridePdfMarkupStore ?: remember(pdfMarkupReadOnly) {
+        val trackerPrefs = context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE)
         val basePath = trackerPrefs.getString("base_path", null)
         val tabletId = trackerPrefs.getString("tablet_id", null)
         if (basePath.isNullOrBlank() || tabletId.isNullOrBlank()) {
             null
         } else {
-            PdfMarkupStore(File(basePath), tabletId)
+            PdfMarkupStore(File(basePath), tabletId, readOnly = pdfMarkupReadOnly)
         }
     }
 

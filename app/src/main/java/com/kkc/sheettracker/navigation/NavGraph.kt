@@ -372,6 +372,7 @@ fun AppNavigation(
                 tabletId = tabletId,
                 basePath = basePath,
                 isDebugBuild = isDebugBuild,
+                isViewOnlyMode = isViewOnlyMode,
                 isDarkTheme = isDarkTheme,
                 followSystemTheme = followSystemTheme,
                 darkThemeOverride = darkThemeOverride,
@@ -415,6 +416,7 @@ fun AppNavigation(
                 tabletId = tabletId,
                 basePath = basePath,
                 isDebugBuild = isDebugBuild,
+                isViewOnlyMode = isViewOnlyMode,
                 isDarkTheme = isDarkTheme,
                 followSystemTheme = followSystemTheme,
                 darkThemeOverride = darkThemeOverride,
@@ -461,6 +463,7 @@ private fun MultiBackStackNavigation(
     tabletId: String,
     basePath: String,
     isDebugBuild: Boolean,
+    isViewOnlyMode: Boolean,
     isDarkTheme: Boolean,
     followSystemTheme: Boolean,
     darkThemeOverride: Boolean,
@@ -826,6 +829,7 @@ private fun MultiBackStackNavigation(
                         basePath = basePath,
                         tabletId = tabletId,
                         isDebugBuild = isDebugBuild,
+                        isViewOnlyMode = isViewOnlyMode,
                         clockInState = clockInState,
                         deliveryScheduleRepository = deliveryScheduleRepository,
                         assemblyViewerDefaultsStore = assemblyViewerDefaultsStore,
@@ -1204,6 +1208,7 @@ private fun JobsTabHost(
     basePath: String,
     tabletId: String,
     isDebugBuild: Boolean,
+    isViewOnlyMode: Boolean,
     clockInState: ClockInState,
     deliveryScheduleRepository: DeliveryScheduleRepository,
     assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore,
@@ -1581,6 +1586,7 @@ private fun JobsTabHost(
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
                 clockInState = clockInState,
+                pdfMarkupReadOnly = isViewOnlyMode,
                 onOpenReferenceDocument = { docType, startAt ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
                         launchSingleTop = true
@@ -1630,6 +1636,7 @@ private fun JobsTabHost(
                 startPage = startPage,
                 refreshGeneration = refreshGeneration,
                 continuousScrollDefault = continuousScrollDefault,
+                pdfMarkupReadOnly = isViewOnlyMode,
                 isDarkTheme = isDarkTheme,
                 onBack = { navController.popBackStack() },
                 onUiVisibilityChanged = onUiVisibilityChanged
@@ -1727,6 +1734,7 @@ private fun JobsTabHost(
                 continuousScrollDefault = continuousScrollDefault,
                 isDarkTheme = isDarkTheme,
                 isClockedInHere = isClockedInHere,
+                pdfMarkupReadOnly = isViewOnlyMode,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
                 clockInState = clockInState,
                 onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
@@ -1799,6 +1807,7 @@ private fun JobsTabHost(
                 continuousScrollDefault = continuousScrollDefault,
                 isDarkTheme = isDarkTheme,
                 isClockedInHere = isClockedInHere,
+                pdfMarkupReadOnly = isViewOnlyMode,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
                 onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                 onBack = { navController.popBackStack() },
@@ -2114,6 +2123,7 @@ private fun LegacySingleStackNavigation(
     tabletId: String,
     basePath: String,
     isDebugBuild: Boolean,
+    isViewOnlyMode: Boolean,
     isDarkTheme: Boolean,
     followSystemTheme: Boolean,
     darkThemeOverride: Boolean,
@@ -2808,6 +2818,7 @@ private fun LegacySingleStackNavigation(
                         isClockedInHere = isClockedInHere,
                         onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
                         clockInState = clockInState,
+                        pdfMarkupReadOnly = isViewOnlyMode,
                         onOpenReferenceDocument = { docType, startAt ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startAt)) {
                                 launchSingleTop = true
@@ -2857,6 +2868,7 @@ private fun LegacySingleStackNavigation(
                         startPage = startPage,
                         refreshGeneration = refreshGeneration,
                         continuousScrollDefault = continuousScrollDefault,
+                        pdfMarkupReadOnly = isViewOnlyMode,
                         isDarkTheme = preferDarkMode,
                         onBack = { navController.popBackStack() },
                         onUiVisibilityChanged = { viewerUiVisible = it }
@@ -2949,6 +2961,7 @@ private fun LegacySingleStackNavigation(
                         continuousScrollDefault = continuousScrollDefault,
                         isDarkTheme = preferDarkMode,
                         isClockedInHere = isClockedInHere,
+                        pdfMarkupReadOnly = isViewOnlyMode,
                         onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
                         clockInState = clockInState,
                         onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
@@ -3021,6 +3034,7 @@ private fun LegacySingleStackNavigation(
                         continuousScrollDefault = continuousScrollDefault,
                         isDarkTheme = preferDarkMode,
                         isClockedInHere = isClockedInHere,
+                        pdfMarkupReadOnly = isViewOnlyMode,
                         onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, jobFolderName, "assembly") },
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                         onBack = { navController.popBackStack() },

@@ -297,7 +297,9 @@ fun SheetViewerScreen(
     onBack: () -> Unit,
     onMaterialUnavailable: () -> Unit = onBack,
     onUiVisibilityChanged: (Boolean) -> Unit = {},
-    clockInState: ClockInState? = null
+    clockInState: ClockInState? = null,
+    overridePdfMarkupStore: PdfMarkupStore? = null,
+    pdfMarkupReadOnly: Boolean = false
 ) {
     val idlePhase by LocalIdlePhase.current.collectAsState()
     val invertSheetBitmap = shouldInvertCncSheetBitmap(
@@ -317,16 +319,16 @@ fun SheetViewerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
     val sharedPrefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
-    val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
-    val markupStoreConfig = remember {
-        resolveSheetViewerMarkupStoreConfig(
+    val pdfMarkupStore = overridePdfMarkupStore ?: remember(pdfMarkupReadOnly) {
+        val trackerPrefs = context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE)
+        val markupStoreConfig = resolveSheetViewerMarkupStoreConfig(
             basePath = trackerPrefs.getString("base_path", null),
             tabletId = trackerPrefs.getString("tablet_id", null)
         )
-    }
-    val pdfMarkupStore = remember {
-        markupStoreConfig?.let { PdfMarkupStore(File(it.basePath), it.tabletId) }
+        markupStoreConfig?.let {
+            PdfMarkupStore(File(it.basePath), it.tabletId, readOnly = pdfMarkupReadOnly)
+        }
     }
 
     fun loadTablePrefs(): TableLayoutPrefs {

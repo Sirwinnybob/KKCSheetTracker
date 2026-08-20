@@ -361,7 +361,9 @@ fun HardwoodsWorkspaceScreen(
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
     onBack: () -> Unit,
-    clockInState: ClockInState? = null
+    clockInState: ClockInState? = null,
+    overridePdfMarkupStore: PdfMarkupStore? = null,
+    pdfMarkupReadOnly: Boolean = false
 ) {
     val navBarDeco = LocalNavBarDecoration.current
     LaunchedEffect(Unit) {
@@ -1730,7 +1732,9 @@ fun HardwoodsWorkspaceScreen(
                 markupEnabled = isClassicView || referenceMarkupEnabled,
                 onToggleMarkupEnabled = { referenceMarkupEnabled = !referenceMarkupEnabled },
                 markupToolState = sharedMarkupToolState,
-                ownsNavBarMarkupControls = !isClassicView
+                ownsNavBarMarkupControls = !isClassicView,
+                overridePdfMarkupStore = overridePdfMarkupStore,
+                pdfMarkupReadOnly = pdfMarkupReadOnly
             )
         }
 
@@ -2132,17 +2136,19 @@ private fun ReferencePane(
     markupEnabled: Boolean,
     onToggleMarkupEnabled: () -> Unit,
     markupToolState: PdfMarkupToolState,
-    ownsNavBarMarkupControls: Boolean
+    ownsNavBarMarkupControls: Boolean,
+    overridePdfMarkupStore: PdfMarkupStore? = null,
+    pdfMarkupReadOnly: Boolean = false
 ) {
     val context = LocalContext.current
-    val trackerPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
-    val pdfMarkupStore = remember {
+    val pdfMarkupStore = overridePdfMarkupStore ?: remember(pdfMarkupReadOnly) {
+        val trackerPrefs = context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE)
         val basePath = trackerPrefs.getString("base_path", null)
         val tabletId = trackerPrefs.getString("tablet_id", null)
         if (basePath.isNullOrBlank() || tabletId.isNullOrBlank()) {
             null
         } else {
-            PdfMarkupStore(File(basePath), tabletId)
+            PdfMarkupStore(File(basePath), tabletId, readOnly = pdfMarkupReadOnly)
         }
     }
     val referenceAvailability by produceState(
