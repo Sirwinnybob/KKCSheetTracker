@@ -21,7 +21,8 @@ import java.io.File
 class HardwoodsScanCoordinator(
     private val repository: HardwoodsRepository
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scopeJob = SupervisorJob()
+    private val scope = CoroutineScope(scopeJob + Dispatchers.IO)
     private val refreshMutex = Mutex()
     private val generation = AtomicLong(0L)
     private val pendingLock = Any()
@@ -80,6 +81,10 @@ class HardwoodsScanCoordinator(
                 }
             }
         }
+    }
+
+    fun close() {
+        scopeJob.cancel()
     }
 
     /** Loads full hardwood row data only after the operator opens the Search screen. */

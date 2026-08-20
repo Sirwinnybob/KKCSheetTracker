@@ -5,10 +5,10 @@ import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import java.io.File
 
 /**
- * Read-only session descriptor for viewing an archived (restored-to-cache) Ready Jobs job on a
- * tablet. Wires up read-only instances of the four store classes plus a UnifiedMetadataEngine,
- * all pointed at [baseDir] — the archive cache's job-parent directory, i.e. the directory that
- * directly contains the restored job folder (mirrors the live-root layout that these stores and
+ * Read-only dependency graph for viewing an archived (restored-to-cache) Ready Jobs job on a
+ * tablet. All repositories, stores, coordinators, and derived state stores point at [baseDir] —
+ * the archive cache's job-parent directory, i.e. the directory that directly contains the
+ * restored job folder (mirrors the live-root layout that these stores and
  * UnifiedMetadataEngineRegistry.listJobs() expect: one folder-per-job under a single base dir).
  *
  * Every store is constructed with readOnly = true, which each store class enforces internally by
@@ -43,7 +43,27 @@ class ArchiveSession private constructor(
     val specialtyProgressStore: SpecialtyProgressStore,
     val pdfMarkupStore: PdfMarkupStore,
     val unifiedEngine: UnifiedMetadataEngine,
+    val jobRepository: JobRepository,
+    val hardwoodsRepository: HardwoodsRepository,
+    val specialtyRepository: SpecialtyRepository,
+    val sheetRipProgressStore: SheetRipProgressStore,
+    val tabletSpecialtyItemsStore: TabletSpecialtyItemsStore,
+    val scanCoordinator: ScanCoordinator,
+    val hardwoodsScanCoordinator: HardwoodsScanCoordinator,
+    val assemblyScanCoordinator: AssemblyScanCoordinator,
+    val specialtyScanCoordinator: SpecialtyScanCoordinator,
+    val appStateStore: AppStateStore,
+    val assemblyStateStore: AssemblyStateStore,
+    val specialtyStateStore: SpecialtyStateStore,
 ) {
+    /** Cancels coordinator work; safe to call repeatedly when the host leaves composition. */
+    fun close() {
+        scanCoordinator.close()
+        hardwoodsScanCoordinator.close()
+        assemblyScanCoordinator.close()
+        specialtyScanCoordinator.close()
+    }
+
     companion object {
         /**
          * @param cacheJobParentDir the directory that directly contains the restored archive job
@@ -75,6 +95,73 @@ class ArchiveSession private constructor(
             isDebugBuild: Boolean,
         ): ArchiveSession {
             val localStateDir = File(cacheJobParentDir, ".state")
+            val progressStore = ProgressStore(
+                baseDir = cacheJobParentDir,
+                tabletId = tabletId,
+                localStateDir = localStateDir,
+                readOnly = true,
+            )
+            val hardwoodsProgressStore = HardwoodsProgressStore(
+                baseDir = cacheJobParentDir,
+                tabletId = tabletId,
+                readOnly = true,
+            )
+            val specialtyProgressStore = SpecialtyProgressStore(
+                baseDir = cacheJobParentDir,
+                tabletId = tabletId,
+                readOnly = true,
+            )
+            val pdfMarkupStore = PdfMarkupStore(
+                baseDir = cacheJobParentDir,
+                tabletId = tabletId,
+                readOnly = true,
+            )
+            val sheetRipProgressStore = SheetRipProgressStore(
+                baseDir = cacheJobParentDir,
+                readOnly = true,
+            )
+            val tabletSpecialtyItemsStore = TabletSpecialtyItemsStore(
+                baseDir = cacheJobParentDir,
+                tabletId = tabletId,
+                readOnly = true,
+            )
+            val unifiedEngine = UnifiedMetadataEngineRegistry.getOrCreate(
+                baseDir = cacheJobParentDir,
+                isDebugBuild = isDebugBuild,
+            )
+            val jobRepository = JobRepository(
+                baseDir = cacheJobParentDir,
+                isDebugBuild = isDebugBuild,
+                unifiedEngine = unifiedEngine,
+            )
+            val hardwoodsRepository = HardwoodsRepository(cacheJobParentDir)
+            val specialtyRepository = SpecialtyRepository(
+                baseDir = cacheJobParentDir,
+                progressStore = specialtyProgressStore,
+                unifiedEngine = unifiedEngine,
+            )
+            val scanCoordinator = ScanCoordinator(cacheJobParentDir, jobRepository)
+            val hardwoodsScanCoordinator = HardwoodsScanCoordinator(hardwoodsRepository)
+            val assemblyScanCoordinator = AssemblyScanCoordinator(cacheJobParentDir, jobRepository)
+            val specialtyScanCoordinator = SpecialtyScanCoordinator(specialtyRepository)
+            val appStateStore = AppStateStore(scanCoordinator, progressStore)
+            val assemblyStateStore = AssemblyStateStore(
+                assemblyScanCoordinator = assemblyScanCoordinator,
+                scanCoordinator = scanCoordinator,
+                hardwoodsScanCoordinator = hardwoodsScanCoordinator,
+                progressStore = progressStore,
+                hardwoodsProgressStore = hardwoodsProgressStore,
+                liveEngine = unifiedEngine,
+            )
+            val specialtyStateStore = SpecialtyStateStore(
+                specialtyScanCoordinator = specialtyScanCoordinator,
+                specialtyProgressStore = specialtyProgressStore,
+                hardwoodsProgressStore = hardwoodsProgressStore,
+                sheetRipProgressStore = sheetRipProgressStore,
+                tabletItemsStore = tabletSpecialtyItemsStore,
+                baseDir = cacheJobParentDir,
+            )
+
             return ArchiveSession(
                 archiveJobId = archiveJobId,
                 contentVersion = contentVersion,
@@ -82,31 +169,23 @@ class ArchiveSession private constructor(
                 folderName = folderName,
                 readOnly = true,
                 tabletId = tabletId,
-                progressStore = ProgressStore(
-                    baseDir = cacheJobParentDir,
-                    tabletId = tabletId,
-                    localStateDir = localStateDir,
-                    readOnly = true,
-                ),
-                hardwoodsProgressStore = HardwoodsProgressStore(
-                    baseDir = cacheJobParentDir,
-                    tabletId = tabletId,
-                    readOnly = true,
-                ),
-                specialtyProgressStore = SpecialtyProgressStore(
-                    baseDir = cacheJobParentDir,
-                    tabletId = tabletId,
-                    readOnly = true,
-                ),
-                pdfMarkupStore = PdfMarkupStore(
-                    baseDir = cacheJobParentDir,
-                    tabletId = tabletId,
-                    readOnly = true,
-                ),
-                unifiedEngine = UnifiedMetadataEngineRegistry.getOrCreate(
-                    baseDir = cacheJobParentDir,
-                    isDebugBuild = isDebugBuild,
-                ),
+                progressStore = progressStore,
+                hardwoodsProgressStore = hardwoodsProgressStore,
+                specialtyProgressStore = specialtyProgressStore,
+                pdfMarkupStore = pdfMarkupStore,
+                unifiedEngine = unifiedEngine,
+                jobRepository = jobRepository,
+                hardwoodsRepository = hardwoodsRepository,
+                specialtyRepository = specialtyRepository,
+                sheetRipProgressStore = sheetRipProgressStore,
+                tabletSpecialtyItemsStore = tabletSpecialtyItemsStore,
+                scanCoordinator = scanCoordinator,
+                hardwoodsScanCoordinator = hardwoodsScanCoordinator,
+                assemblyScanCoordinator = assemblyScanCoordinator,
+                specialtyScanCoordinator = specialtyScanCoordinator,
+                appStateStore = appStateStore,
+                assemblyStateStore = assemblyStateStore,
+                specialtyStateStore = specialtyStateStore,
             )
         }
     }

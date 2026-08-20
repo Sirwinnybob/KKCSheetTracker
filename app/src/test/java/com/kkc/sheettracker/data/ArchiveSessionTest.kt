@@ -1,6 +1,15 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.data.models.SpecialtyItemCategory
+import com.kkc.sheettracker.data.models.SpecialtyStation
+import com.kkc.sheettracker.data.models.TabletSpecialtyItem
+import com.kkc.sheettracker.data.models.RefreshReason
+import com.kkc.sheettracker.data.models.ScanStatus
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
@@ -20,11 +29,15 @@ class ArchiveSessionTest {
             isDebugBuild = true,
         )
 
-        assertEquals("100 - Alpha", session.archiveJobId)
-        assertEquals("v1", session.contentVersion)
-        assertTrue(session.readOnly)
-        assertEquals(cacheRoot, session.baseDir)
-        assertEquals("100 - Alpha", session.folderName)
+        try {
+            assertEquals("100 - Alpha", session.archiveJobId)
+            assertEquals("v1", session.contentVersion)
+            assertTrue(session.readOnly)
+            assertEquals(cacheRoot, session.baseDir)
+            assertEquals("100 - Alpha", session.folderName)
+        } finally {
+            session.close()
+        }
     }
 
     @Test
@@ -48,13 +61,17 @@ class ArchiveSessionTest {
             tabletId = "tablet-7",
             isDebugBuild = true,
         )
-        assertEquals("200 - Beta", first.folderName)
-        assertEquals(cacheRoot, first.baseDir)
+        try {
+            assertEquals("200 - Beta", first.folderName)
+            assertEquals(cacheRoot, first.baseDir)
 
-        // At this point ProgressStore's init{} has created cacheRoot/.state as a second
-        // subdirectory alongside the real job folder, exactly the navigate-away-and-back
-        // scenario the bug depended on.
-        assertTrue(cacheRoot.resolve(".state").isDirectory)
+            // At this point ProgressStore's init{} has created cacheRoot/.state as a second
+            // subdirectory alongside the real job folder, exactly the navigate-away-and-back
+            // scenario the bug depended on.
+            assertTrue(cacheRoot.resolve(".state").isDirectory)
+        } finally {
+            first.close()
+        }
 
         val second = ArchiveSession.create(
             archiveJobId = "200 - Beta",
@@ -64,8 +81,90 @@ class ArchiveSessionTest {
             tabletId = "tablet-7",
             isDebugBuild = true,
         )
+        try {
+            assertEquals("200 - Beta", second.folderName)
+            assertEquals(cacheRoot, second.baseDir)
+        } finally {
+            second.close()
+        }
+    }
 
-        assertEquals("200 - Beta", second.folderName)
-        assertEquals(cacheRoot, second.baseDir)
+    @Test
+    fun `session exposes archive scoped dependencies and all writes are no ops`() = runBlocking {
+        val cacheRoot = Files.createTempDirectory("archive-session-graph").toFile()
+        cacheRoot.resolve("1234 - Test Job").mkdirs()
+
+        val session = ArchiveSession.create(
+            archiveJobId = "archive-1234",
+            contentVersion = "v1",
+            cacheJobParentDir = cacheRoot,
+            folderName = "1234 - Test Job",
+            tabletId = "tablet-7",
+            isDebugBuild = true,
+        )
+
+        try {
+            val folderName = session.folderName
+            val expectedBasePath = cacheRoot.absolutePath
+
+            assertEquals(cacheRoot, session.jobRepository.getJobDirectory(folderName).parentFile)
+            assertEquals(expectedBasePath, session.hardwoodsRepository.currentBasePath())
+            assertEquals(expectedBasePath, session.specialtyRepository.currentBasePath())
+            assertEquals(expectedBasePath, session.scanCoordinator.state.value.snapshot.basePath)
+            assertEquals(expectedBasePath, session.assemblyScanCoordinator.state.value.snapshot.basePath)
+            assertEquals(expectedBasePath, session.specialtyScanCoordinator.state.value.snapshot.basePath)
+
+            session.hardwoodsScanCoordinator.refresh(RefreshReason.APP_START, force = true)
+            withTimeout(2_000L) {
+                while (session.hardwoodsScanCoordinator.state.value.status != ScanStatus.READY &&
+                    session.hardwoodsScanCoordinator.state.value.status != ScanStatus.ERROR
+                ) {
+                    delay(10L)
+                }
+            }
+            assertEquals(expectedBasePath, session.hardwoodsScanCoordinator.state.value.snapshot.basePath)
+
+            session.progressStore.markSheetComplete(folderName, "sheet.pdf", page = 1, fileFingerprint = "fp")
+            session.hardwoodsProgressStore.setDoneCount(folderName, "CUTLIST", "row-1", qty = 1, doneCount = 1)
+            session.specialtyProgressStore.setCompletion(folderName, "item-1", "ITEM", completed = true)
+            session.pdfMarkupStore.savePageMarkup(
+                jobFolderName = folderName,
+                pdfFilename = "sheet.pdf",
+                page = 1,
+                strokes = emptyList(),
+                deletedStrokeIds = emptyList(),
+            )
+            session.sheetRipProgressStore.setDone(folderName, "rip-1", done = true)
+            session.tabletSpecialtyItemsStore.saveItem(
+                folderName,
+                TabletSpecialtyItem(
+                    id = "item-1",
+                    name = "Test Item",
+                    category = SpecialtyItemCategory.CUSTOM,
+                    stations = listOf(SpecialtyStation.SPECIALTY),
+                    createdAt = "2026-08-20T00:00:00Z",
+                    createdByDevice = "tablet-7",
+                ),
+            )
+
+            assertTrue(session.progressStore.loadAllProgress(folderName).isEmpty())
+            assertEquals(0, session.hardwoodsProgressStore.getRowProgress(folderName, "CUTLIST", "row-1").doneCount)
+            assertTrue(session.specialtyProgressStore.loadResolvedItems(folderName).isEmpty())
+            assertTrue(session.pdfMarkupStore.loadTabletPageMarkup(folderName, "sheet.pdf", page = 1) == null)
+            assertTrue(session.sheetRipProgressStore.loadDone(folderName).isEmpty())
+            assertTrue(session.tabletSpecialtyItemsStore.loadAllItems(folderName).isEmpty())
+            assertTrue(session.assemblyStateStore.getJobs().isEmpty())
+            assertTrue(session.specialtyStateStore.getJobs().isEmpty())
+
+            assertFalse(cacheRoot.resolve("$folderName/CNC/.tracker/events/tablet-7.ndjson").exists())
+            assertFalse(cacheRoot.resolve("$folderName/.metadata/hardwoods/.tracker/events/tablet-7.ndjson").exists())
+            assertFalse(cacheRoot.resolve("$folderName/.metadata/admin/.tracker/tablet-7.json").exists())
+            assertFalse(cacheRoot.resolve("$folderName/.metadata/pdf_markup/.tracker/tablet-7.markup.json").exists())
+            assertFalse(cacheRoot.resolve("$folderName/.metadata/admin/sheet_rip_done.json").exists())
+            assertFalse(cacheRoot.resolve("$folderName/.metadata/admin/tablet_items_tablet-7.json").exists())
+        } finally {
+            session.close()
+            session.close()
+        }
     }
 }

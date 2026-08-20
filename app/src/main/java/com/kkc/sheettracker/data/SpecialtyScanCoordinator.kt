@@ -22,7 +22,8 @@ class SpecialtyScanCoordinator(
     private val scanJobsProvider: (() -> List<SpecialtyJob>) = repository::scanJobs,
     private val onBeforeIdleTransition: (() -> Unit)? = null
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scopeJob = SupervisorJob()
+    private val scope = CoroutineScope(scopeJob + Dispatchers.IO)
     private val generation = AtomicLong(0L)
     private val refreshLock = Any()
 
@@ -83,6 +84,10 @@ class SpecialtyScanCoordinator(
                 }
             }
         }
+    }
+
+    fun close() {
+        scopeJob.cancel()
     }
 
     /** Re-projects one job from the repository and emits an updated SpecialtyScanState. */

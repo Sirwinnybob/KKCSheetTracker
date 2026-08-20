@@ -30,7 +30,8 @@ class ScanCoordinator(
     initialBaseDir: File,
     private val jobRepository: JobRepository
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scopeJob = SupervisorJob()
+    private val scope = CoroutineScope(scopeJob + Dispatchers.IO)
     private val refreshMutex = Mutex()
     private val generation = AtomicLong(0L)
     private val pendingLock = Any()
@@ -89,6 +90,10 @@ class ScanCoordinator(
                 }
             }
         }
+    }
+
+    fun close() {
+        scopeJob.cancel()
     }
 
     fun invalidate() {

@@ -24,7 +24,8 @@ class AssemblyScanCoordinator(
     initialBaseDir: File,
     private val jobRepository: JobRepository
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scopeJob = SupervisorJob()
+    private val scope = CoroutineScope(scopeJob + Dispatchers.IO)
     private val refreshMutex = Mutex()
     private val generation = AtomicLong(0L)
     private val pendingLock = Any()
@@ -92,6 +93,10 @@ class AssemblyScanCoordinator(
                 }
             }
         }
+    }
+
+    fun close() {
+        scopeJob.cancel()
     }
 
     private suspend fun runRefresh(reason: RefreshReason, force: Boolean) {
