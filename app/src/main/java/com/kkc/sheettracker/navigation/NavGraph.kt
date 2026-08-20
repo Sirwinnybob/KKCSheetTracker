@@ -556,6 +556,7 @@ private fun MultiBackStackNavigation(
     val timecardNavController = rememberNavController()
     val supplyNavController = rememberNavController()
     val standardsNavController = rememberNavController()
+    val archiveNavController = rememberNavController()
     val homeTab = homeTopLevelTabForWorkMode(workMode)
     var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
@@ -565,7 +566,7 @@ private fun MultiBackStackNavigation(
         // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
         // bottom nav bar — filtered out of both branches here.
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS, NavDestination.ARCHIVE)
         } else {
             NavDestination.entries.filter {
                 it != NavDestination.SEARCH && it != NavDestination.SETTINGS
@@ -635,7 +636,8 @@ private fun MultiBackStackNavigation(
         hoursNavController,
         timecardNavController,
         supplyNavController,
-        standardsNavController
+        standardsNavController,
+        archiveNavController
     ) {
         NavigationCoordinator(
             dashboardNavController = dashboardNavController,
@@ -646,6 +648,7 @@ private fun MultiBackStackNavigation(
             settingsNavController = settingsNavController,
             supplyNavController = supplyNavController,
             standardsNavController = standardsNavController,
+            archiveNavController = archiveNavController,
             getHomeTab = { homeTab },
             getSelectedTab = { selectedTab },
             setSelectedTab = { selectedTab = it }
@@ -959,6 +962,14 @@ private fun MultiBackStackNavigation(
                         employeeName = employeeName,
                         subscriptionManager = supplySubscriptionManager,
                         active = selectedTab == TopLevelTab.SUPPLY
+                    )
+                }
+
+                TabLayer(visible = selectedTab == TopLevelTab.ARCHIVE) {
+                    ArchiveTabHost(
+                        navController = archiveNavController,
+                        tabletId = tabletId,
+                        isDebugBuild = isDebugBuild
                     )
                 }
 
@@ -2036,6 +2047,58 @@ private fun SupplyTabHost(
     }
 }
 
+@Composable
+private fun ArchiveTabHost(
+    navController: NavHostController,
+    tabletId: String,
+    isDebugBuild: Boolean
+) {
+    NavHost(
+        navController = navController,
+        startDestination = "archive",
+        modifier = Modifier.fillMaxSize()
+    ) {
+        composable("archive") {
+            com.kkc.sheettracker.ui.archive.ArchiveLibraryScreen(
+                tabletId = tabletId,
+                isDebugBuild = isDebugBuild,
+                onOpenArchiveJob = { archiveJobId, folderName, contentVersion ->
+                    navController.navigate(
+                        "archive/job/${URLEncoder.encode(archiveJobId, "UTF-8")}/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(contentVersion, "UTF-8")}"
+                    ) { launchSingleTop = true }
+                }
+            )
+        }
+        composable(
+            "archive/job/{archiveJobId}/{folderName}/{contentVersion}",
+            arguments = listOf(
+                navArgument("archiveJobId") { type = NavType.StringType },
+                navArgument("folderName") { type = NavType.StringType },
+                navArgument("contentVersion") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            @Suppress("UNUSED_VARIABLE")
+            val archiveJobId = URLDecoder.decode(backStackEntry.arguments?.getString("archiveJobId").orEmpty(), "UTF-8")
+            @Suppress("UNUSED_VARIABLE")
+            val folderName = URLDecoder.decode(backStackEntry.arguments?.getString("folderName").orEmpty(), "UTF-8")
+            @Suppress("UNUSED_VARIABLE")
+            val contentVersion = URLDecoder.decode(backStackEntry.arguments?.getString("contentVersion").orEmpty(), "UTF-8")
+            // Placeholder route — intentionally out of scope for this task (see plan's Task 7
+            // Step 3 scope disclosure). The real read-only archive job detail screen, backed by
+            // an ArchiveSession-derived ProgressStore/UnifiedMetadataEngine against
+            // filesDir/archive-cache/<archiveJobId>, is a separate focused follow-up once this
+            // navigation skeleton compiles and the Archive tab is confirmed reachable. Minimal
+            // placeholder body below so tapping "Open" doesn't land on a silent blank screen.
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "Archive job detail view not yet available",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun LegacySingleStackNavigation(
@@ -2133,7 +2196,7 @@ private fun LegacySingleStackNavigation(
         // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
         // bottom nav bar — filtered out of both branches here.
         if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
-            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
+            listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS, NavDestination.ARCHIVE)
         } else {
             NavDestination.entries.filter {
                 it != NavDestination.SEARCH && it != NavDestination.SETTINGS
@@ -2263,6 +2326,7 @@ private fun LegacySingleStackNavigation(
             currentRoute?.startsWith("supply") == true -> NavDestination.SUPPLY
             currentRoute == "settings" || currentRoute?.startsWith("settings/") == true -> NavDestination.SETTINGS
             currentRoute == "standards" || currentRoute?.startsWith("standards/") == true -> NavDestination.STANDARDS
+            currentRoute == "archive" || currentRoute?.startsWith("archive/") == true -> NavDestination.ARCHIVE
             else -> if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) NavDestination.JOBS else NavDestination.DASHBOARD
         }
     }
@@ -3156,6 +3220,44 @@ private fun LegacySingleStackNavigation(
                         basePath = basePath,
                         onBack = { navController.popBackStack() }
                     )
+                }
+
+                composable("archive") {
+                    com.kkc.sheettracker.ui.archive.ArchiveLibraryScreen(
+                        tabletId = tabletId,
+                        isDebugBuild = isDebugBuild,
+                        onOpenArchiveJob = { archiveJobId, folderName, contentVersion ->
+                            navController.navigate(
+                                "archive/job/${URLEncoder.encode(archiveJobId, "UTF-8")}/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(contentVersion, "UTF-8")}"
+                            ) { launchSingleTop = true }
+                        }
+                    )
+                }
+                composable(
+                    "archive/job/{archiveJobId}/{folderName}/{contentVersion}",
+                    arguments = listOf(
+                        navArgument("archiveJobId") { type = NavType.StringType },
+                        navArgument("folderName") { type = NavType.StringType },
+                        navArgument("contentVersion") { type = NavType.StringType }
+                    )
+                ) { backStackEntry ->
+                    @Suppress("UNUSED_VARIABLE")
+                    val archiveJobId = URLDecoder.decode(backStackEntry.arguments?.getString("archiveJobId").orEmpty(), "UTF-8")
+                    @Suppress("UNUSED_VARIABLE")
+                    val folderName = URLDecoder.decode(backStackEntry.arguments?.getString("folderName").orEmpty(), "UTF-8")
+                    @Suppress("UNUSED_VARIABLE")
+                    val contentVersion = URLDecoder.decode(backStackEntry.arguments?.getString("contentVersion").orEmpty(), "UTF-8")
+                    // Placeholder route — intentionally out of scope for this task (see plan's
+                    // Task 7 Step 3 scope disclosure, mirrored here since this nav variant has
+                    // no separate ArchiveTabHost wrapper). The real read-only archive job detail
+                    // screen is a separate focused follow-up. Minimal placeholder body below so
+                    // tapping "Open" doesn't land on a silent blank screen.
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            "Archive job detail view not yet available",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 }
                 }
