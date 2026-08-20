@@ -1,19 +1,45 @@
 package com.kkc.sheettracker.data
 
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+
+/**
+ * Serves the same response body to every request, but blocks each one in [dispatch] until
+ * [expectedRequests] requests have arrived before releasing any of them. Used to force two
+ * concurrent [ArchiveCacheManager.downloadAndExtract] calls to actually be in flight at the same
+ * time -- and therefore to reach the promotion step (and its per-archiveJobId lock) at roughly
+ * the same moment -- rather than one completing (and promoting) before the other has even
+ * started, which a plain sequential `enqueue`/`await` pair would not exercise.
+ */
+private class SynchronizingDispatcher(
+    private val responseBytes: ByteArray,
+    expectedRequests: Int,
+) : Dispatcher() {
+    private val arrived = CountDownLatch(expectedRequests)
+
+    override fun dispatch(request: RecordedRequest): MockResponse {
+        arrived.countDown()
+        arrived.await()
+        return MockResponse().setBody(okio.Buffer().write(responseBytes)).setResponseCode(200)
+    }
+}
 
 private fun buildTestZip(files: Map<String, ByteArray>): ByteArray {
     val out = ByteArrayOutputStream()
@@ -346,5 +372,48 @@ class ArchiveCacheManagerTest {
             "/api/ready-jobs-archive/library/100%20-%20Alpha/package",
             recorded.path,
         )
+    }
+
+    @Test
+    fun `two concurrent downloadAndExtract calls for the same archiveJobId never leave the cache slot empty or broken`() = runBlocking {
+        // Regression test for the promotion race the double-tap scenario could hit: without the
+        // per-archiveJobId promotionLock (and the backup-swap-restore sequence replacing the old
+        // delete-then-move), two concurrent promotions for the same archiveJobId could interleave
+        // their steps and, on an unlucky failure partway through, leave cacheRoot/archiveJobId
+        // deleted with nothing to replace it. Both calls here serve genuinely valid content (via
+        // SynchronizingDispatcher, which holds each request open until both have arrived, so
+        // neither call's HTTP round trip -- and therefore neither promotion attempt -- completes
+        // before the other has started) to isolate the promotion-step race itself: whichever call
+        // wins, the cache slot afterward must always be a single complete, valid entry, never
+        // empty or partially overwritten.
+        val zipBytes = buildTestZip(mapOf("cover.pdf" to "good-bytes".toByteArray()))
+        server.dispatcher = SynchronizingDispatcher(zipBytes, expectedRequests = 2)
+        val cacheRoot = Files.createTempDirectory("archive-cache-test").toFile()
+        val manager = ArchiveCacheManager(cacheRoot, server.url("/").toString())
+
+        val resultA = async(Dispatchers.IO) {
+            manager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v-a")
+        }
+        val resultB = async(Dispatchers.IO) {
+            manager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v-b")
+        }
+        val a = resultA.await()
+        val b = resultB.await()
+
+        // Both downloads were independently valid, so both must have succeeded -- the lock
+        // serializes the promotion step, it does not fail either caller.
+        assertTrue("expected first concurrent download to succeed, was: $a", a is ArchiveCacheResult.Success)
+        assertTrue("expected second concurrent download to succeed, was: $b", b is ArchiveCacheResult.Success)
+
+        // The cache slot must hold exactly one complete, valid, readable entry afterward --
+        // whichever of v-a/v-b won the race -- never empty and never a mix of both.
+        val cached = manager.getCachedEntry("100 - Alpha")
+        assertTrue("cache slot must not be empty/broken after a concurrent promotion race", cached != null)
+        assertTrue(cached!!.contentVersion == "v-a" || cached.contentVersion == "v-b")
+        assertEquals("good-bytes", cached.jobDir.resolve("cover.pdf").readText())
+
+        // No scratch/backup directories should linger once both calls have finished.
+        val leftoverScratch = cacheRoot.listFiles()?.filter { it.name != "100 - Alpha" }.orEmpty()
+        assertTrue("expected no leftover scratch/backup dirs, found: ${leftoverScratch.map { it.name }}", leftoverScratch.isEmpty())
     }
 }

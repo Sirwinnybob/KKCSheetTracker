@@ -1,6 +1,8 @@
 package com.kkc.sheettracker.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -12,6 +14,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
@@ -33,6 +36,7 @@ private const val LOCAL_CACHE_MANIFEST_NAME = ".archive_cache_manifest.json"
 private const val PACKAGE_MANIFEST_ARCNAME = "manifest.json"
 private const val SCRATCH_SUFFIX_INCOMPLETE = ".incomplete"
 private const val SCRATCH_SUFFIX_STAGING = ".staging"
+private const val SCRATCH_SUFFIX_BACKUP = ".backup"
 
 // A single leading Windows drive letter, e.g. "C:" in "C:\evil.txt" or "C:evil.txt".
 private val DRIVE_LETTER_PREFIX = Regex("^[A-Za-z]:")
@@ -66,6 +70,16 @@ class ArchiveCacheManager(private val cacheRoot: File, private val serverUrl: St
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .build()
+
+        // Keyed by the promoted cache slot's absolute path (cacheRoot/archiveJobId), so two
+        // concurrent downloadAndExtract calls for the same archiveJobId -- even across separate
+        // ArchiveCacheManager instances pointed at the same cacheRoot, e.g. a UI double-tap that
+        // races two coroutines each constructing their own manager -- serialize on the same
+        // Mutex and can never interleave their promotion steps. Left unbounded: one Mutex per
+        // distinct archiveJobId ever downloaded on this device is a trivial memory cost.
+        private val promotionLocks = ConcurrentHashMap<String, Mutex>()
+
+        private fun promotionLock(key: String): Mutex = promotionLocks.getOrPut(key) { Mutex() }
     }
 
     init {
@@ -90,6 +104,13 @@ class ArchiveCacheManager(private val cacheRoot: File, private val serverUrl: St
         // a failed re-download from destroying a previously-good cached entry: every failure
         // path below returns before finalDir is deleted or modified.
         val staging = File(cacheRoot, "${UUID.randomUUID()}$SCRATCH_SUFFIX_STAGING")
+        val finalDir = File(cacheRoot, archiveJobId)
+        // Scratch slot for the promotion step's backup-swap-restore sequence below. Keyed by
+        // archiveJobId (not a UUID) because it must be re-findable to restore if the final move
+        // fails -- safe to reuse across calls because it only ever exists while promotionLock
+        // for this archiveJobId is held, and is always cleaned up (deleted or restored) before
+        // that lock is released.
+        val backup = File(cacheRoot, "$archiveJobId$SCRATCH_SUFFIX_BACKUP")
         incomplete.mkdirs()
         try {
             val response = runCatching { client.newCall(request).execute() }.getOrElse {
@@ -198,26 +219,48 @@ class ArchiveCacheManager(private val cacheRoot: File, private val serverUrl: St
                 return@withContext ArchiveCacheResult.Failure("could not write cache manifest: ${e.message}")
             }
 
-            // Staging now holds a fully-extracted, fully-verified, manifest-written entry.
-            // Only now is it safe to touch the real cache slot: delete whatever was there
-            // (if anything) and move the new, already-complete staging directory into its
-            // place. incomplete and jobDir/finalDir are both directly under cacheRoot
-            // (private app storage, guaranteed to be a single filesystem/volume), so the NIO
-            // move is a single filesystem metadata operation -- atomic, not a copy -- and
-            // ATOMIC_MOVE will not throw AtomicMoveNotSupportedException here.
-            val finalDir = File(cacheRoot, archiveJobId)
-            if (finalDir.exists() && !finalDir.deleteRecursively()) {
-                return@withContext ArchiveCacheResult.Failure("could not remove previous cache entry for $archiveJobId")
-            }
-            try {
-                Files.move(staging.toPath(), finalDir.toPath(), StandardCopyOption.ATOMIC_MOVE)
-            } catch (e: IOException) {
-                return@withContext ArchiveCacheResult.Failure("could not promote staged download: ${e.message}")
+            // Staging now holds a fully-extracted, fully-verified, manifest-written entry. Only
+            // now is it safe to touch the real cache slot. This promotion runs under a
+            // per-archiveJobId lock (see promotionLock) so two concurrent downloadAndExtract
+            // calls for the same archiveJobId -- e.g. a UI double-tap -- can never interleave
+            // their steps here, and uses a backup-swap-restore sequence rather than
+            // delete-then-move: the previous entry (if any) is moved aside first and only
+            // deleted once the new entry has successfully landed, so that even an unrelated IO
+            // failure partway through promotion can never leave finalDir empty -- the previous
+            // good entry (if there was one) is always either still in place or restorable.
+            // incomplete/staging/backup/finalDir are all directly under cacheRoot (private app
+            // storage, guaranteed to be a single filesystem/volume), so each NIO move is a
+            // single filesystem metadata operation -- atomic, not a copy -- and ATOMIC_MOVE will
+            // not throw AtomicMoveNotSupportedException here.
+            promotionLock(finalDir.absolutePath).withLock {
+                var backedUp = false
+                if (finalDir.exists()) {
+                    if (backup.exists()) backup.deleteRecursively()
+                    try {
+                        Files.move(finalDir.toPath(), backup.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                        backedUp = true
+                    } catch (e: IOException) {
+                        return@withContext ArchiveCacheResult.Failure(
+                            "could not back up previous cache entry for $archiveJobId: ${e.message}"
+                        )
+                    }
+                }
+                try {
+                    Files.move(staging.toPath(), finalDir.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                } catch (e: IOException) {
+                    // Put the previous good entry back rather than leaving the slot empty.
+                    if (backedUp) {
+                        runCatching { Files.move(backup.toPath(), finalDir.toPath(), StandardCopyOption.ATOMIC_MOVE) }
+                    }
+                    return@withContext ArchiveCacheResult.Failure("could not promote staged download: ${e.message}")
+                }
+                if (backedUp) backup.deleteRecursively()
             }
             ArchiveCacheResult.Success(File(finalDir, folderName))
         } finally {
             if (incomplete.exists()) incomplete.deleteRecursively()
             if (staging.exists()) staging.deleteRecursively()
+            if (backup.exists()) backup.deleteRecursively()
         }
     }
 
@@ -312,7 +355,10 @@ class ArchiveCacheManager(private val cacheRoot: File, private val serverUrl: St
 
     fun pruneExpiredEntries(nowMs: Long = System.currentTimeMillis()) {
         val entries = cacheRoot.listFiles { file ->
-            file.isDirectory && !file.name.endsWith(SCRATCH_SUFFIX_INCOMPLETE) && !file.name.endsWith(SCRATCH_SUFFIX_STAGING)
+            file.isDirectory &&
+                !file.name.endsWith(SCRATCH_SUFFIX_INCOMPLETE) &&
+                !file.name.endsWith(SCRATCH_SUFFIX_STAGING) &&
+                !file.name.endsWith(SCRATCH_SUFFIX_BACKUP)
         } ?: return
         for (dir in entries) {
             val entry = getCachedEntry(dir.name) ?: continue
