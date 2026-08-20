@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,7 +37,9 @@ import com.kkc.sheettracker.data.ArchiveCacheResult
 import com.kkc.sheettracker.data.ArchiveLibraryClient
 import com.kkc.sheettracker.data.ArchiveLibraryStore
 import com.kkc.sheettracker.data.models.ArchiveJobEntry
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -76,6 +79,23 @@ fun ArchiveLibraryScreen(
     DisposableEffect(client) {
         client.start()
         onDispose { client.stop() }
+    }
+
+    // Design requirement: "App startup and periodic cleanup remove entries whose last access is
+    // older than 24 hours" (see ArchiveCacheManager.pruneExpiredEntries, which is otherwise never
+    // called from any running code path -- see the fix that added this LaunchedEffect). This
+    // screen being composed is the practical "app startup" moment on a shop tablet: a user opens
+    // the Archive tab at least once per session, which is the realistic case this needs to cover,
+    // without standing up a dedicated background service/WorkManager job for it. LaunchedEffect(
+    // Unit) runs this once per composition of this screen (not on every recomposition), and the
+    // file-system walk runs on Dispatchers.IO so it never blocks the UI thread. serverUrl is a
+    // placeholder here -- pruneExpiredEntries only ever touches cacheRoot, never the network
+    // client, so no real server URL is needed to prune.
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val cacheRoot = File(context.cacheDir, "archive-cache")
+            ArchiveCacheManager(cacheRoot, serverUrl = "").pruneExpiredEntries()
+        }
     }
 
     var downloadingArchiveJobId by remember { mutableStateOf<String?>(null) }
