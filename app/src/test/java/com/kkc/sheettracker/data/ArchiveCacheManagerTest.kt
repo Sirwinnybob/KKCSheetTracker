@@ -4,6 +4,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -20,6 +21,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -377,6 +379,174 @@ class ArchiveCacheManagerTest {
         val backupDir = File(cacheRoot, "100 - Alpha.backup")
         assertTrue("expected the backup directory to survive a double promotion failure", backupDir.exists())
         assertEquals("good-bytes", backupDir.resolve("100 - Alpha").resolve("cover.pdf").readText())
+    }
+
+    @Test
+    fun `a SecurityException from the promotion move is caught cleanly instead of crashing`() = runBlocking {
+        // Regression test: java.nio.file.Files.move is documented to also throw SecurityException
+        // and UnsupportedOperationException, neither of which is an IOException. The promotion
+        // move used to be guarded only by catch(IOException), so an exception of this shape
+        // propagated UNCAUGHT out of downloadAndExtract instead of collapsing to a clean Failure
+        // -- breaking this class's own documented "never throws" contract, and (with the old,
+        // now-fixed unconditional finally-block backup delete) losing data on top of it, since
+        // backupMustBePreserved never got set when that catch branch never ran at all.
+        val cacheRoot = Files.createTempDirectory("archive-cache-test").toFile()
+        val manager = ArchiveCacheManager(cacheRoot, server.url("/").toString())
+
+        val goodZip = buildTestZip(mapOf("cover.pdf" to "good-bytes".toByteArray()))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(goodZip)).setResponseCode(200))
+        val first = manager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v1")
+        assertTrue(first is ArchiveCacheResult.Success)
+
+        val secondZip = buildTestZip(mapOf("cover.pdf" to "new-bytes".toByteArray()))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(secondZip)).setResponseCode(200))
+
+        val failingManager = ArchiveCacheManager(
+            cacheRoot,
+            server.url("/").toString(),
+            atomicMove = { source, target ->
+                // Only the promotion move (source is the staging root, target is finalDir) throws
+                // here -- the backup-creation move (finalDir -> "100 - Alpha.backup") and the
+                // restore-from-backup move (source is the backup dir) are both left to succeed
+                // for real, so this isolates the promotion move's exception handling specifically.
+                if (target.name == "100 - Alpha" && source.name.endsWith(".staging")) {
+                    throw SecurityException("forced SecurityException for regression test")
+                }
+                Files.move(source.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            },
+        )
+        val second = failingManager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v2")
+        assertTrue("expected a clean Failure, not an uncaught exception escaping downloadAndExtract", second is ArchiveCacheResult.Failure)
+
+        // The restore-from-backup succeeded for real (it was not intercepted), so the previous
+        // good entry must be back in place, and no backup directory should linger.
+        val cached = manager.getCachedEntry("100 - Alpha")
+        assertTrue(cached != null)
+        assertEquals("good-bytes", cached!!.jobDir.resolve("cover.pdf").readText())
+        assertTrue("expected the now-redundant backup to be cleaned up", !File(cacheRoot, "100 - Alpha.backup").exists())
+    }
+
+    @Test
+    fun `an unrelated later failure does not delete a backup preserved by an earlier double failure`() = runBlocking {
+        // Regression test: backup-preservation used to be tracked by a flag local to a single
+        // downloadAndExtract call. Call 1 succeeds (good entry cached). Call 2 double-fails (both
+        // the promotion move and the restore-from-backup move fail), correctly preserving backup
+        // on disk. Call 3 is an ORDINARY, UNRELATED failure -- a plain HTTP 500, no fault
+        // injection at all -- for the very next tap of "Open". It must not delete the backup call
+        // 2 left behind, even though call 3 never reaches the promotion step at all and so (under
+        // the old per-call-flag design) would have a freshly-false "preserve" flag of its own.
+        // Deletion must be decided from the ACTUAL on-disk state (is finalDir currently valid?)
+        // at the moment of deletion, never from anything remembered about one call's own history.
+        val cacheRoot = Files.createTempDirectory("archive-cache-test").toFile()
+        val manager = ArchiveCacheManager(cacheRoot, server.url("/").toString())
+
+        // Call 1: succeeds.
+        val goodZip = buildTestZip(mapOf("cover.pdf" to "good-bytes".toByteArray()))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(goodZip)).setResponseCode(200))
+        val first = manager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v1")
+        assertTrue(first is ArchiveCacheResult.Success)
+
+        // Call 2: double failure (same technique as the double-promotion-failure test above).
+        val secondZip = buildTestZip(mapOf("cover.pdf" to "new-bytes".toByteArray()))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(secondZip)).setResponseCode(200))
+        val doubleFailManager = ArchiveCacheManager(
+            cacheRoot,
+            server.url("/").toString(),
+            atomicMove = { source, target ->
+                if (target.name == "100 - Alpha") {
+                    throw IOException("forced double failure for regression test")
+                }
+                Files.move(source.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            },
+        )
+        val second = doubleFailManager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v2")
+        assertTrue(second is ArchiveCacheResult.Failure)
+        val backupDir = File(cacheRoot, "100 - Alpha.backup")
+        assertTrue("expected backup to survive call 2's double failure", backupDir.exists())
+
+        // Call 3: an ordinary, completely unrelated failure -- plain HTTP 500, using the
+        // ORIGINAL manager with no fault injection at all. Must not touch call 2's backup.
+        server.enqueue(MockResponse().setResponseCode(500))
+        val third = manager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v3")
+        assertTrue(third is ArchiveCacheResult.Failure)
+
+        assertTrue("expected call 2's backup to still survive an unrelated call 3 failure", backupDir.exists())
+        assertEquals("good-bytes", backupDir.resolve("100 - Alpha").resolve("cover.pdf").readText())
+    }
+
+    @Test
+    fun `a concurrent prune never corrupts or loses an entry actively being promoted by a download`() = runBlocking {
+        // Regression test: pruneExpiredEntries() used to walk and delete cache directories with
+        // no locking at all, completely uncoordinated with downloadAndExtract's per-archiveJobId
+        // promotionLock. A tablet left open across shifts is exactly the situation that makes an
+        // entry prune-eligible (last access >24h ago) at the same moment a user finally taps back
+        // in and starts re-downloading it -- an unlocked, concurrent prune walk could see the old
+        // entry as a normal aged-out candidate and delete it out from under an in-progress
+        // promotion. Forces genuine overlap: the download's atomicMove is made to block, mid-lock,
+        // right after finalDir's old content is confirmed still fully present on disk and right
+        // before it gets moved aside -- exactly the window an unlocked prune could have raced into.
+        val cacheRoot = Files.createTempDirectory("archive-cache-test").toFile()
+        val manager = ArchiveCacheManager(cacheRoot, server.url("/").toString())
+
+        // Seed a cached entry, then backdate its last-access far past the 24h expiry window so it
+        // is genuinely prune-eligible -- directly rewriting the manifest this class itself writes
+        // (there's no public API to backdate it).
+        val goodZip = buildTestZip(mapOf("cover.pdf" to "good-bytes".toByteArray()))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(goodZip)).setResponseCode(200))
+        val first = manager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v1")
+        assertTrue(first is ArchiveCacheResult.Success)
+        val manifestFile = File(File(cacheRoot, "100 - Alpha"), ".archive_cache_manifest.json")
+        val staleManifest = JSONObject(manifestFile.readText())
+        staleManifest.put("lastAccessMs", System.currentTimeMillis() - 48L * 60 * 60 * 1000)
+        manifestFile.writeText(staleManifest.toString())
+
+        val promotionHoldingLock = CountDownLatch(1)
+        val releasePromotion = CountDownLatch(1)
+        val secondZip = buildTestZip(mapOf("cover.pdf" to "new-bytes".toByteArray()))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(secondZip)).setResponseCode(200))
+        val delayedManager = ArchiveCacheManager(
+            cacheRoot,
+            server.url("/").toString(),
+            atomicMove = { source, target ->
+                if (source.name == "100 - Alpha" && target.name == "100 - Alpha.backup") {
+                    // The download now holds the per-archiveJobId lock and is about to move
+                    // finalDir's old (stale) content aside -- finalDir is still fully present on
+                    // disk right now, which is exactly what an unlocked prune walk would see as a
+                    // normal aged-out candidate.
+                    promotionHoldingLock.countDown()
+                    releasePromotion.await(5, TimeUnit.SECONDS)
+                }
+                Files.move(source.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            },
+        )
+
+        val download = async(Dispatchers.IO) {
+            delayedManager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v2")
+        }
+        assertTrue(promotionHoldingLock.await(5, TimeUnit.SECONDS))
+        val prune = async(Dispatchers.IO) {
+            // Default nowMs (real "now") -- the entry backdated above is genuinely >24h old
+            // against real current time, so this is a realistic, not artificially-triggered, prune.
+            manager.pruneExpiredEntries()
+        }
+        // Give the prune coroutine a chance to actually reach and block on the same per-
+        // archiveJobId lock the download is currently holding, before releasing the download to
+        // finish its promotion.
+        Thread.sleep(100)
+        releasePromotion.countDown()
+
+        val result = download.await()
+        prune.await()
+
+        assertTrue("expected the download to succeed despite a concurrent prune", result is ArchiveCacheResult.Success)
+        val cached = manager.getCachedEntry("100 - Alpha")
+        assertTrue("expected the freshly-promoted entry to survive the concurrent prune", cached != null)
+        assertEquals("v2", cached!!.contentVersion)
+        assertEquals("new-bytes", cached.jobDir.resolve("cover.pdf").readText())
+
+        // No scratch/backup directories should linger once both calls have finished.
+        val leftoverScratch = cacheRoot.listFiles()?.filter { it.name != "100 - Alpha" }.orEmpty()
+        assertTrue("expected no leftover scratch/backup dirs, found: ${leftoverScratch.map { it.name }}", leftoverScratch.isEmpty())
     }
 
     @Test

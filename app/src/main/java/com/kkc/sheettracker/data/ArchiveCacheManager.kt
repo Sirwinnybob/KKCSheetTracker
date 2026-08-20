@@ -9,7 +9,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
-import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -121,19 +120,14 @@ class ArchiveCacheManager(
         val finalDir = File(cacheRoot, archiveJobId)
         // Scratch slot for the promotion step's backup-swap-restore sequence below. Keyed by
         // archiveJobId (not a UUID) because it must be re-findable to restore if the final move
-        // fails -- safe to reuse across calls because it only ever exists while promotionLock
-        // for this archiveJobId is held, and is always cleaned up (deleted or restored) before
-        // that lock is released.
+        // fails, and because a later call (or pruneExpiredEntries) may need to find and reuse it
+        // too. It is NOT guaranteed to be gone by the time this call's promotionLock hold ends:
+        // if both the promotion move and the restore-from-backup move fail (see
+        // deleteBackupIfRedundant), it is deliberately left in place as the last surviving good
+        // copy, to be picked up and cleaned up once some later call actually makes finalDir valid
+        // again -- by design, not a leak. Every read/write of this path outside object
+        // construction happens while holding promotionLock(finalDir.absolutePath).
         val backup = File(cacheRoot, "$archiveJobId$SCRATCH_SUFFIX_BACKUP")
-        // Set true only in the double-I/O-failure exit path below: the promotion move
-        // (staging -> finalDir) failed AND the subsequent restore-from-backup move
-        // (backup -> finalDir) also failed. In that case backup is the only remaining copy of
-        // the previously-good entry, so the outer `finally` block below must not delete it even
-        // though this call correctly returns Failure. Every other exit path leaves this false,
-        // and the `finally` block's cleanup is unconditional in those cases -- which is correct
-        // because backup either never existed, was already explicitly deleted after a successful
-        // promotion, or was consumed (moved away) by a successful restore.
-        var backupMustBePreserved = false
         incomplete.mkdirs()
         try {
             val response = runCatching { client.newCall(request).execute() }.getOrElse {
@@ -231,15 +225,20 @@ class ArchiveCacheManager(
             // archiveJobId exactly as it was before this call.
             staging.mkdirs()
             val stagedJobDir = File(staging, folderName)
-            try {
-                Files.move(incomplete.toPath(), stagedJobDir.toPath(), StandardCopyOption.ATOMIC_MOVE)
-            } catch (e: IOException) {
-                return@withContext ArchiveCacheResult.Failure("could not stage extracted download: ${e.message}")
+            // runCatching (not a narrow catch(IOException)) for the same reason every move in
+            // the promotion step below uses it: java.nio.file.Files.move is documented to also
+            // throw SecurityException and UnsupportedOperationException, neither of which is an
+            // IOException, and this class's contract (see the class doc) is to never let any of
+            // that escape as an uncaught exception -- it always collapses to a clean Failure.
+            val stagedMove = runCatching { Files.move(incomplete.toPath(), stagedJobDir.toPath(), StandardCopyOption.ATOMIC_MOVE) }
+            if (stagedMove.isFailure) {
+                return@withContext ArchiveCacheResult.Failure("could not stage extracted download: ${stagedMove.exceptionOrNull()?.message}")
             }
-            try {
+            val manifestWrite = runCatching {
                 writeManifest(staging, ArchiveCacheEntry(archiveJobId, folderName, contentVersion, stagedJobDir, System.currentTimeMillis()))
-            } catch (e: IOException) {
-                return@withContext ArchiveCacheResult.Failure("could not write cache manifest: ${e.message}")
+            }
+            if (manifestWrite.isFailure) {
+                return@withContext ArchiveCacheResult.Failure("could not write cache manifest: ${manifestWrite.exceptionOrNull()?.message}")
             }
 
             // Staging now holds a fully-extracted, fully-verified, manifest-written entry. Only
@@ -255,42 +254,100 @@ class ArchiveCacheManager(
             // storage, guaranteed to be a single filesystem/volume), so each NIO move is a
             // single filesystem metadata operation -- atomic, not a copy -- and ATOMIC_MOVE will
             // not throw AtomicMoveNotSupportedException here.
+            //
+            // Backup-directory deletion never happens by trusting "what this call's own flow
+            // did" (a per-call flag) -- every deletion, in this block and in the outer `finally`
+            // below, goes through deleteBackupIfRedundant(), which re-checks the ACTUAL on-disk
+            // state (does finalDir currently hold a valid, complete entry?) immediately before
+            // deleting. That is the one fact that makes a backup provably redundant, and basing
+            // every deletion on a fresh check of it -- rather than on a flag set earlier in one
+            // particular call -- is what keeps a backup left behind by call N safe from an
+            // unrelated call N+1, N+2, etc., however each of those later calls succeeds or fails.
             promotionLock(finalDir.absolutePath).withLock {
-                var backedUp = false
+                // A `.backup` directory may already be sitting here from an earlier call --
+                // either an ordinary leftover from an interrupted run, or deliberately preserved
+                // by an earlier double-I/O-failure (see below). Don't blindly reuse or discard
+                // it: only clear it out if finalDir is *currently* confirmed valid, which is the
+                // only thing that makes the orphan provably redundant. If finalDir is not
+                // currently valid, this orphan may be the only surviving good copy, so it is left
+                // completely alone for now (this call may still end up using it as its own
+                // restore target below, if finalDir also doesn't exist).
+                deleteBackupIfRedundant(archiveJobId, backup)
+
                 if (finalDir.exists()) {
-                    if (backup.exists()) backup.deleteRecursively()
-                    try {
-                        atomicMove(finalDir, backup)
-                        backedUp = true
-                    } catch (e: IOException) {
-                        return@withContext ArchiveCacheResult.Failure(
-                            "could not back up previous cache entry for $archiveJobId: ${e.message}"
-                        )
-                    }
-                }
-                try {
-                    atomicMove(staging, finalDir)
-                } catch (e: IOException) {
-                    // Put the previous good entry back rather than leaving the slot empty.
-                    if (backedUp) {
-                        val restored = runCatching { atomicMove(backup, finalDir) }.isSuccess
-                        if (!restored) {
-                            // Both the promotion move and the restore-from-backup move failed
-                            // (e.g. two consecutive transient I/O errors, low disk space). backup
-                            // is now the only remaining copy of the previously-good entry -- do
-                            // not let the outer `finally` block delete it.
-                            backupMustBePreserved = true
+                    if (!backup.exists()) {
+                        val backedUpResult = runCatching { atomicMove(finalDir, backup) }
+                        if (backedUpResult.isFailure) {
+                            return@withContext ArchiveCacheResult.Failure(
+                                "could not back up previous cache entry for $archiveJobId: " +
+                                    "${backedUpResult.exceptionOrNull()?.message}"
+                            )
                         }
+                    } else {
+                        // deleteBackupIfRedundant() above did NOT clear the existing backup,
+                        // meaning finalDir was not confirmed valid despite something existing on
+                        // disk at that path (this class's own code only ever replaces finalDir
+                        // via a single whole-directory ATOMIC_MOVE, so in practice this means
+                        // external interference/corruption, not a state this class produces on
+                        // its own). Discard the unconfirmed finalDir content directly rather than
+                        // clobbering the backup slot, which may hold the one confirmed-good copy.
+                        finalDir.deleteRecursively()
                     }
-                    return@withContext ArchiveCacheResult.Failure("could not promote staged download: ${e.message}")
                 }
-                if (backedUp) backup.deleteRecursively()
+
+                val promoted = runCatching { atomicMove(staging, finalDir) }
+                if (promoted.isFailure) {
+                    // Put the previous good entry back rather than leaving the slot empty, if we
+                    // have one -- whether it's this call's own backup or an orphan left behind by
+                    // an earlier call entirely (both are equally valid last-known-good copies). If
+                    // the restore succeeds, opportunistically clean up the now-redundant backup
+                    // right away (still under this same lock hold); if it fails too, this is a
+                    // no-op and the backup is left in place -- the outer `finally` below re-checks
+                    // and preserves it for as long as finalDir stays invalid, across any number of
+                    // later unrelated calls.
+                    if (backup.exists()) {
+                        runCatching { atomicMove(backup, finalDir) }
+                        deleteBackupIfRedundant(archiveJobId, backup)
+                    }
+                    return@withContext ArchiveCacheResult.Failure(
+                        "could not promote staged download: ${promoted.exceptionOrNull()?.message}"
+                    )
+                }
+                // Promotion succeeded -- finalDir is now provably valid, so any backup (this
+                // call's own, or an orphan from an earlier run that this call ended up reusing
+                // as a restore target and didn't need) is now genuinely redundant.
+                deleteBackupIfRedundant(archiveJobId, backup)
             }
             ArchiveCacheResult.Success(File(finalDir, folderName))
         } finally {
             if (incomplete.exists()) incomplete.deleteRecursively()
             if (staging.exists()) staging.deleteRecursively()
-            if (backup.exists() && !backupMustBePreserved) backup.deleteRecursively()
+            // Opportunistic cleanup for every exit path, including ones that never touched the
+            // promotion logic above at all (e.g. a plain network error on an ordinary,
+            // unrelated call) -- those calls must never delete a backup some OTHER call left
+            // behind, which is exactly why this goes through the same redundancy check under the
+            // same per-archiveJobId lock rather than an unconditional delete or a flag scoped to
+            // this call alone.
+            if (backup.exists()) {
+                promotionLock(finalDir.absolutePath).withLock {
+                    deleteBackupIfRedundant(archiveJobId, backup)
+                }
+            }
+        }
+    }
+
+    /**
+     * Deletes [backup] only if [archiveJobId]'s cache slot currently holds a valid, complete
+     * promoted entry (per [getCachedEntry]) -- the one fact that makes a leftover `.backup`
+     * directory provably redundant. Every backup deletion in this class goes through this
+     * function so that "redundant" is always decided from a fresh read of actual on-disk state
+     * at the moment of deletion, never from a flag or assumption carried over from what some
+     * earlier call did. Callers must hold `promotionLock(finalDir.absolutePath)` (finalDir being
+     * [archiveJobId]'s cache slot) -- every call site in this class does.
+     */
+    private fun deleteBackupIfRedundant(archiveJobId: String, backup: File) {
+        if (backup.exists() && getCachedEntry(archiveJobId) != null) {
+            backup.deleteRecursively()
         }
     }
 
@@ -347,7 +404,7 @@ class ArchiveCacheManager(
         }.getOrNull()
     }
 
-    /** Throws [IOException] on write failure; callers decide whether that's fatal for them. */
+    /** Throws java.io.IOException on write failure; callers decide whether that's fatal for them. */
     private fun writeManifest(finalDir: File, entry: ArchiveCacheEntry) {
         val manifest = JSONObject().apply {
             put("archiveJobId", entry.archiveJobId)
@@ -383,7 +440,20 @@ class ArchiveCacheManager(
         runCatching { writeManifest(File(cacheRoot, archiveJobId), entry.copy(lastAccessMs = System.currentTimeMillis())) }
     }
 
-    fun pruneExpiredEntries(nowMs: Long = System.currentTimeMillis()) {
+    /**
+     * `suspend` (not a plain `fun`) specifically so each candidate entry's expiry check-and-
+     * delete can run under `promotionLock(dir.absolutePath)` -- the same per-archiveJobId lock
+     * `downloadAndExtract`'s promotion step uses. Without that, this walk had no coordination at
+     * all with an in-flight `downloadAndExtract` for the same archiveJobId: it could delete a
+     * directory mid-promotion, or race a caller's `getCachedEntry()`-then-use sequence, purely
+     * because a tablet left open across shifts is exactly the situation that makes an entry
+     * prune-eligible (last access >24h ago) at the same moment a user finally taps back in and
+     * opens it. Locking here closes that race for the promotion step specifically; it does not
+     * (and cannot, from inside this class alone) close the separate, narrower window between a
+     * caller's own `getCachedEntry()` read and its later use of the returned directory once this
+     * function has released the lock for that entry.
+     */
+    suspend fun pruneExpiredEntries(nowMs: Long = System.currentTimeMillis()) {
         val entries = cacheRoot.listFiles { file ->
             file.isDirectory &&
                 !file.name.endsWith(SCRATCH_SUFFIX_INCOMPLETE) &&
@@ -391,9 +461,11 @@ class ArchiveCacheManager(
                 !file.name.endsWith(SCRATCH_SUFFIX_BACKUP)
         } ?: return
         for (dir in entries) {
-            val entry = getCachedEntry(dir.name) ?: continue
-            if (nowMs - entry.lastAccessMs > CACHE_EXPIRY_MS) {
-                dir.deleteRecursively()
+            promotionLock(dir.absolutePath).withLock {
+                val entry = getCachedEntry(dir.name) ?: return@withLock
+                if (nowMs - entry.lastAccessMs > CACHE_EXPIRY_MS) {
+                    dir.deleteRecursively()
+                }
             }
         }
     }
