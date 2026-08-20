@@ -955,6 +955,7 @@ private fun MultiBackStackNavigation(
                         onBack = {
                             coordinator.navigateTopLevel(homeTab)
                         },
+                        active = selectedTab == TopLevelTab.STANDARDS,
                         safetyNotificationCount = safetyNotificationCount,
                         isDarkTheme = isDarkTheme,
                         useStandardSheets = useStandardSheets
@@ -1994,6 +1995,7 @@ private fun StandardsTabHost(
     continuousScrollDefault: Boolean,
     specialtyViewerDefaultsStore: com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore,
     onBack: () -> Unit,
+    active: Boolean = true,
     safetyNotificationCount: Int = 0,
     isDarkTheme: Boolean = false,
     useStandardSheets: Boolean = false
@@ -2039,6 +2041,7 @@ private fun StandardsTabHost(
                 specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                 workMode = workMode,
                 appStateFlags = appStateFlags,
+                active = active,
                 onExitArchive = { navController.popBackStack() },
             )
         }
@@ -2082,9 +2085,11 @@ private fun ArchiveLibraryHost
     specialtyViewerDefaultsStore: com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore,
     workMode: WorkMode,
     appStateFlags: AppStateFeatureFlags,
+    active: Boolean = true,
     onExitArchive: () -> Unit,
 ) {
     val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
     val context = LocalContext.current
     NavHost(
         navController = navController,
@@ -2095,6 +2100,7 @@ private fun ArchiveLibraryHost
             com.kkc.sheettracker.ui.archive.ArchiveLibraryScreen(
                 tabletId = tabletId,
                 isDebugBuild = isDebugBuild,
+                active = active && backStackEntry?.destination?.route == "archive",
                 onOpenArchiveJob = { archiveJobId, folderName, contentVersion ->
                     navController.navigate(
                         "archive/job/${URLEncoder.encode(archiveJobId, "UTF-8")}/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(contentVersion, "UTF-8")}"
@@ -3269,6 +3275,7 @@ private fun LegacySingleStackNavigation(
                         specialtyViewerDefaultsStore = legacySpecialtyViewerDefaultsStore,
                         workMode = workMode,
                         appStateFlags = appStateFlags,
+                        active = currentNavDest == NavDestination.STANDARDS && currentRoute == "standards/archive",
                         onExitArchive = { navController.popBackStack() },
                     )
                 }

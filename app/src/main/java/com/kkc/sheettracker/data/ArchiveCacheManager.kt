@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -21,6 +22,15 @@ sealed class ArchiveCacheResult {
     data class Success(val jobDir: File) : ArchiveCacheResult()
     data class Failure(val reason: String) : ArchiveCacheResult()
 }
+
+/** Bytes received from the archive package response; [totalBytes] is null for chunked responses. */
+data class ArchiveDownloadProgress(
+    val bytesRead: Long,
+    val totalBytes: Long?,
+)
+
+/** A zero-length response cannot describe a usable ZIP, so show indeterminate progress. */
+internal fun archiveProgressTotalBytes(contentLength: Long): Long? = contentLength.takeIf { it > 0L }
 
 data class ArchiveCacheEntry(
     val archiveJobId: String,
@@ -36,9 +46,72 @@ private const val PACKAGE_MANIFEST_ARCNAME = "manifest.json"
 private const val SCRATCH_SUFFIX_INCOMPLETE = ".incomplete"
 private const val SCRATCH_SUFFIX_STAGING = ".staging"
 private const val SCRATCH_SUFFIX_BACKUP = ".backup"
+private const val UNKNOWN_LENGTH_PROGRESS_STEP_BYTES = 64L * 1024L
 
 // A single leading Windows drive letter, e.g. "C:" in "C:\evil.txt" or "C:evil.txt".
 private val DRIVE_LETTER_PREFIX = Regex("^[A-Za-z]:")
+
+private class ProgressReportingInputStream(
+    private val delegate: InputStream,
+    private val totalBytes: Long?,
+    private val onProgress: ((ArchiveDownloadProgress) -> Unit)?,
+) : InputStream() {
+    private var bytesRead = 0L
+    private var lastReportedBytes = Long.MIN_VALUE
+    private var lastReportedPercent = -1
+
+    init {
+        reportProgress(force = true)
+    }
+
+    override fun read(): Int {
+        val value = delegate.read()
+        if (value >= 0) recordBytes(1) else reportProgress(force = true)
+        return value
+    }
+
+    override fun read(buffer: ByteArray): Int = read(buffer, 0, buffer.size)
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        val count = delegate.read(buffer, offset, length)
+        if (count > 0) recordBytes(count.toLong()) else if (count < 0) reportProgress(force = true)
+        return count
+    }
+
+    override fun skip(byteCount: Long): Long {
+        val skipped = delegate.skip(byteCount)
+        if (skipped > 0) recordBytes(skipped)
+        return skipped
+    }
+
+    override fun available(): Int = delegate.available()
+
+    override fun close() {
+        reportProgress(force = true)
+        delegate.close()
+    }
+
+    private fun recordBytes(count: Long) {
+        bytesRead += count
+        reportProgress()
+    }
+
+    private fun reportProgress(force: Boolean = false) {
+        val shouldReport = when (val total = totalBytes) {
+            null -> force || bytesRead == 0L || bytesRead - lastReportedBytes >= UNKNOWN_LENGTH_PROGRESS_STEP_BYTES
+            else -> {
+                val percentage = ((bytesRead * 100L) / total).toInt().coerceIn(0, 100)
+                force || percentage != lastReportedPercent
+            }
+        }
+        if (!shouldReport) return
+        lastReportedBytes = bytesRead
+        totalBytes?.let { total ->
+            lastReportedPercent = ((bytesRead * 100L) / total).toInt().coerceIn(0, 100)
+        }
+        onProgress?.invoke(ArchiveDownloadProgress(bytesRead, totalBytes))
+    }
+}
 
 /**
  * Downloads the ZIP package for one archived job from
@@ -101,6 +174,7 @@ class ArchiveCacheManager(
 
     suspend fun downloadAndExtract(
         archiveJobId: String, folderName: String, contentVersion: String,
+        onDownloadProgress: ((ArchiveDownloadProgress) -> Unit)? = null,
     ): ArchiveCacheResult = withContext(Dispatchers.IO) {
         val baseUrl = serverUrl.trimEnd('/')
         val url = "$baseUrl/api/ready-jobs-archive/library/".toHttpUrl().newBuilder()
@@ -136,6 +210,7 @@ class ArchiveCacheManager(
             response.use { resp ->
                 if (!resp.isSuccessful) return@withContext ArchiveCacheResult.Failure("http ${resp.code}")
                 val body = resp.body ?: return@withContext ArchiveCacheResult.Failure("empty response body")
+                val totalBytes = archiveProgressTotalBytes(body.contentLength())
 
                 // path -> (declared size, declared sha256), parsed from manifest.json.
                 val declaredHashes = mutableMapOf<String, Pair<Long, String>>()
@@ -146,7 +221,9 @@ class ArchiveCacheManager(
                 val extractedHashes = mutableMapOf<String, String>()
                 var sawManifest = false
 
-                ZipInputStream(body.byteStream()).use { zip ->
+                ZipInputStream(
+                    ProgressReportingInputStream(body.byteStream(), totalBytes, onDownloadProgress),
+                ).use { zip ->
                     var entry = zip.nextEntry
                     while (entry != null) {
                         val name = entry.name

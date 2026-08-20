@@ -95,6 +95,64 @@ class ArchiveCacheManagerTest {
     }
 
     @Test
+    fun `downloadAndExtract reports received package bytes with the HTTP content length`() = runBlocking {
+        val zipBytes = buildTestZip(mapOf("cover.pdf" to ByteArray(32 * 1024) { it.toByte() }))
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Length", zipBytes.size)
+                .setBody(okio.Buffer().write(zipBytes))
+                .setResponseCode(200),
+        )
+        val cacheRoot = Files.createTempDirectory("archive-cache-test").toFile()
+        val manager = ArchiveCacheManager(cacheRoot, server.url("/").toString())
+        val reports = mutableListOf<ArchiveDownloadProgress>()
+
+        val result = manager.downloadAndExtract(
+            archiveJobId = "100 - Alpha",
+            folderName = "100 - Alpha",
+            contentVersion = "v1",
+            onDownloadProgress = reports::add,
+        )
+
+        assertTrue(result is ArchiveCacheResult.Success)
+        assertTrue("expected real byte progress callbacks", reports.isNotEmpty())
+        assertEquals(0L, reports.first().bytesRead)
+        assertEquals(zipBytes.size.toLong(), reports.last().bytesRead)
+        assertEquals(zipBytes.size.toLong(), reports.last().totalBytes)
+        assertTrue(reports.zipWithNext().all { (previous, next) -> previous.bytesRead <= next.bytesRead })
+    }
+
+    @Test
+    fun `zero content length is treated as an unknown progress total`() {
+        assertNull(archiveProgressTotalBytes(0L))
+    }
+
+    @Test
+    fun `downloadAndExtract reports an unknown total for a chunked package response`() = runBlocking {
+        val zipBytes = buildTestZip(mapOf("cover.pdf" to ByteArray(8 * 1024) { it.toByte() }))
+        server.enqueue(
+            MockResponse()
+                .setChunkedBody(okio.Buffer().write(zipBytes), 1024)
+                .setResponseCode(200),
+        )
+        val cacheRoot = Files.createTempDirectory("archive-cache-test").toFile()
+        val manager = ArchiveCacheManager(cacheRoot, server.url("/").toString())
+        val reports = mutableListOf<ArchiveDownloadProgress>()
+
+        val result = manager.downloadAndExtract(
+            archiveJobId = "100 - Alpha",
+            folderName = "100 - Alpha",
+            contentVersion = "v1",
+            onDownloadProgress = reports::add,
+        )
+
+        assertTrue(result is ArchiveCacheResult.Success)
+        assertEquals(null, reports.first().totalBytes)
+        assertEquals(null, reports.last().totalBytes)
+        assertEquals(zipBytes.size.toLong(), reports.last().bytesRead)
+    }
+
+    @Test
     fun `downloadAndExtract fails when a file's hash does not match the manifest`() = runBlocking {
         // NOTE: the originally-specified approach here built a valid zip via buildTestZip and
         // then regex-replaced the sha256 hex string directly on the raw zip bytes (treated as
