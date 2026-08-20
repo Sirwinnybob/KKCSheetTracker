@@ -64,7 +64,21 @@ private val DRIVE_LETTER_PREFIX = Regex("^[A-Za-z]:")
  * server, or a truncated transfer are all in scope) and is expected to yield a clean
  * [ArchiveCacheResult.Failure] rather than an uncaught exception for any of it.
  */
-class ArchiveCacheManager(private val cacheRoot: File, private val serverUrl: String) {
+class ArchiveCacheManager(
+    private val cacheRoot: File,
+    private val serverUrl: String,
+    // Test-only fault-injection seam for the promotion step's three atomic renames (previous
+    // entry -> backup, staging -> finalDir, backup -> finalDir restore). Production callers never
+    // pass this -- the default performs exactly the same java.nio Files.move(..., ATOMIC_MOVE) as
+    // before this parameter existed. It exists only so a unit test can deterministically force
+    // the promotion move and the restore-from-backup move to both fail (the double-I/O-failure
+    // scenario that must leave the backup directory on disk, see the regression test in
+    // ArchiveCacheManagerTest) -- that failure combination cannot be produced portably by
+    // manipulating real filesystem permissions/locks from a JVM unit test.
+    private val atomicMove: (source: File, target: File) -> Unit = { source, target ->
+        Files.move(source.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+    },
+) {
     companion object {
         private val client = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -111,6 +125,15 @@ class ArchiveCacheManager(private val cacheRoot: File, private val serverUrl: St
         // for this archiveJobId is held, and is always cleaned up (deleted or restored) before
         // that lock is released.
         val backup = File(cacheRoot, "$archiveJobId$SCRATCH_SUFFIX_BACKUP")
+        // Set true only in the double-I/O-failure exit path below: the promotion move
+        // (staging -> finalDir) failed AND the subsequent restore-from-backup move
+        // (backup -> finalDir) also failed. In that case backup is the only remaining copy of
+        // the previously-good entry, so the outer `finally` block below must not delete it even
+        // though this call correctly returns Failure. Every other exit path leaves this false,
+        // and the `finally` block's cleanup is unconditional in those cases -- which is correct
+        // because backup either never existed, was already explicitly deleted after a successful
+        // promotion, or was consumed (moved away) by a successful restore.
+        var backupMustBePreserved = false
         incomplete.mkdirs()
         try {
             val response = runCatching { client.newCall(request).execute() }.getOrElse {
@@ -237,7 +260,7 @@ class ArchiveCacheManager(private val cacheRoot: File, private val serverUrl: St
                 if (finalDir.exists()) {
                     if (backup.exists()) backup.deleteRecursively()
                     try {
-                        Files.move(finalDir.toPath(), backup.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                        atomicMove(finalDir, backup)
                         backedUp = true
                     } catch (e: IOException) {
                         return@withContext ArchiveCacheResult.Failure(
@@ -246,11 +269,18 @@ class ArchiveCacheManager(private val cacheRoot: File, private val serverUrl: St
                     }
                 }
                 try {
-                    Files.move(staging.toPath(), finalDir.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                    atomicMove(staging, finalDir)
                 } catch (e: IOException) {
                     // Put the previous good entry back rather than leaving the slot empty.
                     if (backedUp) {
-                        runCatching { Files.move(backup.toPath(), finalDir.toPath(), StandardCopyOption.ATOMIC_MOVE) }
+                        val restored = runCatching { atomicMove(backup, finalDir) }.isSuccess
+                        if (!restored) {
+                            // Both the promotion move and the restore-from-backup move failed
+                            // (e.g. two consecutive transient I/O errors, low disk space). backup
+                            // is now the only remaining copy of the previously-good entry -- do
+                            // not let the outer `finally` block delete it.
+                            backupMustBePreserved = true
+                        }
                     }
                     return@withContext ArchiveCacheResult.Failure("could not promote staged download: ${e.message}")
                 }
@@ -260,7 +290,7 @@ class ArchiveCacheManager(private val cacheRoot: File, private val serverUrl: St
         } finally {
             if (incomplete.exists()) incomplete.deleteRecursively()
             if (staging.exists()) staging.deleteRecursively()
-            if (backup.exists()) backup.deleteRecursively()
+            if (backup.exists() && !backupMustBePreserved) backup.deleteRecursively()
         }
     }
 

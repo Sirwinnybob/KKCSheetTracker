@@ -14,7 +14,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.zip.ZipEntry
@@ -321,6 +324,59 @@ class ArchiveCacheManagerTest {
         assertTrue(cached != null)
         assertEquals("good-bytes", cached!!.jobDir.resolve("cover.pdf").readText())
         assertEquals("v1", cached.contentVersion)
+    }
+
+    @Test
+    fun `a double promotion failure preserves the backup directory and its content on disk`() = runBlocking {
+        // Regression test for the bug where the outer `finally` block unconditionally deleted
+        // the `.backup` scratch directory even when BOTH the promotion move (staging ->
+        // finalDir) and the restore-from-backup move (backup -> finalDir) failed -- e.g. two
+        // consecutive transient I/O errors on the same volume (low disk space). In that exact
+        // double-failure case, the previously-good entry is left ONLY in the backup directory
+        // (finalDir itself ends up empty/missing), so deleting the backup too was a genuine
+        // data-loss bug: the function correctly returned Failure, but the one remaining copy
+        // of the last-known-good content was destroyed anyway.
+        //
+        // Forcing this deterministically requires the atomicMove seam: real filesystem
+        // permissions/locks cannot portably force exactly "the second and third renames fail,
+        // the first one succeeds" from a JVM unit test without flaky timing tricks.
+        val cacheRoot = Files.createTempDirectory("archive-cache-test").toFile()
+        val manager = ArchiveCacheManager(cacheRoot, server.url("/").toString())
+
+        val goodZip = buildTestZip(mapOf("cover.pdf" to "good-bytes".toByteArray()))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(goodZip)).setResponseCode(200))
+        val first = manager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v1")
+        assertTrue(first is ArchiveCacheResult.Success)
+
+        val secondZip = buildTestZip(mapOf("cover.pdf" to "new-bytes".toByteArray()))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(secondZip)).setResponseCode(200))
+
+        val failingManager = ArchiveCacheManager(
+            cacheRoot,
+            server.url("/").toString(),
+            atomicMove = { source, target ->
+                if (target.name == "100 - Alpha") {
+                    // Both the promotion move and the restore-from-backup move target finalDir
+                    // ("100 - Alpha") -- force both to fail. The backup-creation move (finalDir
+                    // -> "100 - Alpha.backup") targets a different name and is left to succeed
+                    // for real, so the double-failure scenario is reached (backedUp == true).
+                    throw IOException("forced failure for regression test")
+                }
+                Files.move(source.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            },
+        )
+        val second = failingManager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v2")
+        assertTrue(second is ArchiveCacheResult.Failure)
+
+        // The cache slot itself may correctly report as unavailable now (finalDir is
+        // empty/missing) -- that is expected and correct for this call's Failure result.
+        assertNull(manager.getCachedEntry("100 - Alpha"))
+
+        // But the DATA must not be gone: the backup directory must still exist on disk, with the
+        // original good content still recoverable from it.
+        val backupDir = File(cacheRoot, "100 - Alpha.backup")
+        assertTrue("expected the backup directory to survive a double promotion failure", backupDir.exists())
+        assertEquals("good-bytes", backupDir.resolve("100 - Alpha").resolve("cover.pdf").readText())
     }
 
     @Test
