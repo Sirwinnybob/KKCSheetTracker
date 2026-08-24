@@ -14,7 +14,7 @@ class LegacyStandardsTransitionWiringTest {
         assertTrue("HoursTabHost boundary not found", legacyEnd > legacyStart)
         val legacy = source.substring(legacyStart, legacyEnd)
 
-        listOf("standards", "standards/molding", "standards/safety", "standards/archive").forEach { route ->
+        listOf("standards", "standards/molding", "standards/safety").forEach { route ->
             val routeStart = Regex("composable\\(\\s*\"${Regex.escape(route)}\"")
                 .find(legacy)
                 ?.range

@@ -10,8 +10,25 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-data class CollisionPreview(val collision: Boolean, val validResolutions: List<String>)
 data class OperationStatus(val operationId: String, val state: String, val errorSummary: String?)
+
+/**
+ * The small lifecycle boundary used by the detail action sheet. It deliberately has no
+ * collision-resolution controls: tablet archive requests always fail safely on a collision.
+ */
+interface ArchiveLifecycleClient {
+    suspend fun triggerArchive(folderName: String, initiator: String): String?
+    suspend fun triggerRestore(folderName: String, initiator: String): String?
+    suspend fun getOperationStatus(operationId: String): OperationStatus?
+}
+
+/**
+ * Narrow restore selection contract. It exposes only archived folder names so the tablet can
+ * initiate an admin restore without reintroducing the removed archive browsing/cache surface.
+ */
+interface ArchiveRestoreClient : ArchiveLifecycleClient {
+    suspend fun listArchivedFolderNames(): List<String>?
+}
 
 /**
  * Plain REST trigger client for the Ready Jobs archive/restore lifecycle endpoints on the Hours
@@ -20,7 +37,7 @@ data class OperationStatus(val operationId: String, val state: String, val error
  * org.json.JSONObject parsing, runCatching { ... }.getOrNull() so any failure (timeout,
  * connection refused, non-2xx) collapses to null for the caller to handle.
  */
-class ArchiveAdminClient(serverUrl: String) {
+class ArchiveAdminClient(serverUrl: String) : ArchiveRestoreClient {
     private val baseUrl = serverUrl.trimEnd('/')
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
@@ -31,61 +48,14 @@ class ArchiveAdminClient(serverUrl: String) {
             .build()
     }
 
-    private fun parseCollisionPreview(body: String): CollisionPreview {
-        val obj = JSONObject(body)
-        return CollisionPreview(
-            collision = obj.getBoolean("collision"),
-            validResolutions = obj.optJSONArray("validResolutions")?.let { arr ->
-                (0 until arr.length()).map { arr.getString(it) }
-            }.orEmpty(),
-        )
-    }
-
-    suspend fun previewArchiveCollision(folderName: String): CollisionPreview? = withContext(Dispatchers.IO) {
-        val url = "$baseUrl/api/ready-jobs-archive/".toHttpUrl().newBuilder()
-            .addPathSegment("archive")
-            .addPathSegment(folderName)
-            .addPathSegment("collision-preview")
-            .build()
-        val request = Request.Builder()
-            .url(url)
-            .post("".toRequestBody(null))
-            .build()
-        runCatching {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                parseCollisionPreview(response.body?.string() ?: return@use null)
-            }
-        }.getOrNull()
-    }
-
-    suspend fun previewRestoreCollision(folderName: String): CollisionPreview? = withContext(Dispatchers.IO) {
-        val url = "$baseUrl/api/ready-jobs-archive/".toHttpUrl().newBuilder()
-            .addPathSegment("restore")
-            .addPathSegment(folderName)
-            .addPathSegment("collision-preview")
-            .build()
-        val request = Request.Builder()
-            .url(url)
-            .post("".toRequestBody(null))
-            .build()
-        runCatching {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                parseCollisionPreview(response.body?.string() ?: return@use null)
-            }
-        }.getOrNull()
-    }
-
     private suspend fun trigger(
-        direction: String, folderName: String, initiator: String, collisionChoice: String,
-        renameTo: String?, overwriteConfirmed: Boolean,
+        direction: String,
+        folderName: String,
+        initiator: String,
     ): String? = withContext(Dispatchers.IO) {
         val body = JSONObject().apply {
             put("initiator", initiator)
-            put("collisionChoice", collisionChoice)
-            renameTo?.let { put("renameTo", it) }
-            put("overwriteConfirmed", overwriteConfirmed)
+            put("collisionChoice", "fail")
         }.toString().toRequestBody(jsonMediaType)
         val url = "$baseUrl/api/ready-jobs-archive/".toHttpUrl().newBuilder()
             .addPathSegment(direction)
@@ -103,17 +73,33 @@ class ArchiveAdminClient(serverUrl: String) {
         }.getOrNull()
     }
 
-    suspend fun triggerArchive(
-        folderName: String, initiator: String, collisionChoice: String,
-        renameTo: String? = null, overwriteConfirmed: Boolean = false,
-    ): String? = trigger("archive", folderName, initiator, collisionChoice, renameTo, overwriteConfirmed)
+    override suspend fun triggerArchive(folderName: String, initiator: String): String? =
+        trigger("archive", folderName, initiator)
 
-    suspend fun triggerRestore(
-        folderName: String, initiator: String, collisionChoice: String,
-        renameTo: String? = null, overwriteConfirmed: Boolean = false,
-    ): String? = trigger("restore", folderName, initiator, collisionChoice, renameTo, overwriteConfirmed)
+    override suspend fun triggerRestore(folderName: String, initiator: String): String? =
+        trigger("restore", folderName, initiator)
 
-    suspend fun getOperationStatus(operationId: String): OperationStatus? = withContext(Dispatchers.IO) {
+    override suspend fun listArchivedFolderNames(): List<String>? = withContext(Dispatchers.IO) {
+        val url = "$baseUrl/api/ready-jobs-archive/library".toHttpUrl()
+        val request = Request.Builder().url(url).get().build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val archives = JSONObject(response.body?.string() ?: return@use null)
+                    .optJSONObject("archives")
+                    ?: return@use emptyList()
+                buildList {
+                    val keys = archives.keys()
+                    while (keys.hasNext()) {
+                        val entry = archives.optJSONObject(keys.next()) ?: continue
+                        entry.optString("folderName").trim().takeIf { it.isNotEmpty() }?.let(::add)
+                    }
+                }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+            }
+        }.getOrNull()
+    }
+
+    override suspend fun getOperationStatus(operationId: String): OperationStatus? = withContext(Dispatchers.IO) {
         val url = "$baseUrl/api/ready-jobs-worker/operations/".toHttpUrl().newBuilder()
             .addPathSegment(operationId)
             .build()

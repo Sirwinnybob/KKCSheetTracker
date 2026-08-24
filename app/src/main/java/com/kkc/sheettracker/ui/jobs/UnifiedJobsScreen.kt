@@ -34,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import android.content.res.Configuration
 import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.ArchiveAdminClient
 import com.kkc.sheettracker.data.AdminSyncClient
 import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.DeliveryScheduleEditRequest
@@ -94,6 +96,8 @@ import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.animateEntrance
 import com.kkc.sheettracker.ui.components.mergeActiveReorder
+import com.kkc.sheettracker.ui.detail.RestoreArchivedJobSheet
+import com.kkc.sheettracker.ui.detail.restoreActionVisible
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -150,6 +154,7 @@ fun UnifiedJobsScreen(
     var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView(spec.modeName.lowercase())) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    var showRestoreArchivedJobSheet by remember { mutableStateOf(false) }
     var selectedHistoryJob by remember { mutableStateOf<String?>(null) }
     val initialLoadComplete = rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -369,6 +374,11 @@ fun UnifiedJobsScreen(
                     )
                 },
                 actions = {
+                    if (restoreActionVisible(adminEnabled = adminMode)) {
+                        TextButton(onClick = { showRestoreArchivedJobSheet = true }) {
+                            Text("Restore")
+                        }
+                    }
                     RefreshIconButton(
                         loading = scanStatus == ScanStatus.LOADING,
                         onClick = { spec.refresh(RefreshReason.USER_REFRESH, force = true) }
@@ -689,6 +699,19 @@ fun UnifiedJobsScreen(
                 }
             }
         }
+    }
+
+    if (showRestoreArchivedJobSheet) {
+        RestoreArchivedJobSheet(
+            adminEnabled = adminMode,
+            tabletId = tabletId,
+            clientFactory = { adminSyncConfig.getServerUrl()?.let(::ArchiveAdminClient) },
+            onCompleted = {
+                showRestoreArchivedJobSheet = false
+                spec.refresh(RefreshReason.USER_REFRESH, force = true)
+            },
+            onDismiss = { showRestoreArchivedJobSheet = false },
+        )
     }
 
     val historyJob = selectedHistoryJob

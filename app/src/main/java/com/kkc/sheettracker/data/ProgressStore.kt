@@ -170,8 +170,7 @@ class ProgressStore(
 ) {
 
     // Historical fingerprint matching is an archive-read concern only. Keep the safety boundary
-    // inside the store as well as at ArchiveSession's call site so a writable/live store cannot
-    // accidentally opt into archive semantics.
+    // inside the store so a writable/live store cannot accidentally opt into archive semantics.
     private val archiveFingerprintCompatibility = archiveFingerprintCompatibility && readOnly
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
