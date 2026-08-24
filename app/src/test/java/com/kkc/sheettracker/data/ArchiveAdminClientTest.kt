@@ -48,6 +48,22 @@ class ArchiveAdminClientTest {
     }
 
     @Test
+    fun `listArchivedFolderNames returns names only from the archive snapshot`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"archives":{"100 - Alpha":{"archiveJobId":"100 - Alpha","folderName":"100 - Alpha","jobNumber":"100","jobName":"Alpha","archivedAt":"2026-08-24T10:00:00Z"},"200 - Bravo":{"archiveJobId":"200 - Bravo","folderName":"200 - Bravo","jobNumber":"200","jobName":"Bravo","archivedAt":"2026-08-24T11:00:00Z"}}}"""
+            ).setResponseCode(200)
+        )
+        val client = ArchiveAdminClient(server.url("/").toString())
+
+        assertEquals(listOf("100 - Alpha", "200 - Bravo"), client.listArchivedFolderNames())
+
+        val recorded = server.takeRequest()
+        assertEquals("GET", recorded.method)
+        assertEquals("/api/ready-jobs-archive/library", recorded.path)
+    }
+
+    @Test
     fun `getOperationStatus parses state`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"operationId":"op-123","state":"succeeded"}""").setResponseCode(200))
         val client = ArchiveAdminClient(server.url("/").toString())

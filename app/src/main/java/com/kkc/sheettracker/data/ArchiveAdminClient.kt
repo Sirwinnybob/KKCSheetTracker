@@ -18,7 +18,16 @@ data class OperationStatus(val operationId: String, val state: String, val error
  */
 interface ArchiveLifecycleClient {
     suspend fun triggerArchive(folderName: String, initiator: String): String?
+    suspend fun triggerRestore(folderName: String, initiator: String): String?
     suspend fun getOperationStatus(operationId: String): OperationStatus?
+}
+
+/**
+ * Narrow restore selection contract. It exposes only archived folder names so the tablet can
+ * initiate an admin restore without reintroducing the removed archive browsing/cache surface.
+ */
+interface ArchiveRestoreClient : ArchiveLifecycleClient {
+    suspend fun listArchivedFolderNames(): List<String>?
 }
 
 /**
@@ -28,7 +37,7 @@ interface ArchiveLifecycleClient {
  * org.json.JSONObject parsing, runCatching { ... }.getOrNull() so any failure (timeout,
  * connection refused, non-2xx) collapses to null for the caller to handle.
  */
-class ArchiveAdminClient(serverUrl: String) : ArchiveLifecycleClient {
+class ArchiveAdminClient(serverUrl: String) : ArchiveRestoreClient {
     private val baseUrl = serverUrl.trimEnd('/')
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
@@ -67,9 +76,28 @@ class ArchiveAdminClient(serverUrl: String) : ArchiveLifecycleClient {
     override suspend fun triggerArchive(folderName: String, initiator: String): String? =
         trigger("archive", folderName, initiator)
 
-    /** Reserved bounded transport for a future live-job restore action. */
-    suspend fun triggerRestore(folderName: String, initiator: String): String? =
+    override suspend fun triggerRestore(folderName: String, initiator: String): String? =
         trigger("restore", folderName, initiator)
+
+    override suspend fun listArchivedFolderNames(): List<String>? = withContext(Dispatchers.IO) {
+        val url = "$baseUrl/api/ready-jobs-archive/library".toHttpUrl()
+        val request = Request.Builder().url(url).get().build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val archives = JSONObject(response.body?.string() ?: return@use null)
+                    .optJSONObject("archives")
+                    ?: return@use emptyList()
+                buildList {
+                    val keys = archives.keys()
+                    while (keys.hasNext()) {
+                        val entry = archives.optJSONObject(keys.next()) ?: continue
+                        entry.optString("folderName").trim().takeIf { it.isNotEmpty() }?.let(::add)
+                    }
+                }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+            }
+        }.getOrNull()
+    }
 
     override suspend fun getOperationStatus(operationId: String): OperationStatus? = withContext(Dispatchers.IO) {
         val url = "$baseUrl/api/ready-jobs-worker/operations/".toHttpUrl().newBuilder()

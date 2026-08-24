@@ -16,12 +16,28 @@ class ArchiveLifecycleActionSheetTest {
     }
 
     @Test
+    fun `restore action is available only in admin mode`() {
+        assertFalse(restoreActionVisible(adminEnabled = false))
+        assertTrue(restoreActionVisible(adminEnabled = true))
+    }
+
+    @Test
     fun `admin archive request always uses fail collision choice`() = runBlocking {
         val client = RecordingArchiveClient()
 
         submitArchive(client, "100 - Alpha", "tablet-7")
 
         assertEquals("fail", client.lastCollisionChoice)
+    }
+
+    @Test
+    fun `admin restore request always uses fail collision choice`() = runBlocking {
+        val client = RecordingArchiveClient()
+
+        submitRestore(client, "100 - Alpha", "tablet-7")
+
+        assertEquals("fail", client.lastCollisionChoice)
+        assertEquals("100 - Alpha", client.lastRestoredFolderName)
     }
 
     @Test
@@ -133,6 +149,25 @@ class ArchiveLifecycleActionSheetTest {
     }
 
     @Test
+    fun `successful restore polls to completion without submitting an archive`() = runBlocking {
+        val client = RestoreOnlyClient(statuses = listOf(OperationStatus("op-restore", "succeeded", null)))
+        var completions = 0
+
+        runRestoreLifecycle(
+            clientFactory = { client },
+            folderName = "100 - Alpha",
+            initiator = "tablet-7",
+            onState = {},
+            onCompleted = { completions += 1 },
+            pollDelay = {},
+        )
+
+        assertEquals(1, client.restoreCalls)
+        assertEquals(0, client.archiveCalls)
+        assertEquals(1, completions)
+    }
+
+    @Test
     fun `client factory exception becomes terminal failure`() = runBlocking {
         val states = mutableListOf<LifecycleUiState>()
 
@@ -184,9 +219,16 @@ class ArchiveLifecycleActionSheetTest {
 
     private class RecordingArchiveClient : ArchiveLifecycleClient {
         var lastCollisionChoice: String? = null
+        var lastRestoredFolderName: String? = null
 
         override suspend fun triggerArchive(folderName: String, initiator: String): String? {
             lastCollisionChoice = "fail"
+            return "op-123"
+        }
+
+        override suspend fun triggerRestore(folderName: String, initiator: String): String? {
+            lastCollisionChoice = "fail"
+            lastRestoredFolderName = folderName
             return "op-123"
         }
 
@@ -205,10 +247,34 @@ class ArchiveLifecycleActionSheetTest {
             return "op-123"
         }
 
+        override suspend fun triggerRestore(folderName: String, initiator: String): String? {
+            triggerFailure?.let { throw it }
+            return "op-123"
+        }
+
         override suspend fun getOperationStatus(operationId: String): OperationStatus? {
             statusCalls += 1
             statusFailure?.let { throw it }
             return statuses.getOrNull(statusCalls - 1)
         }
+    }
+
+    private class RestoreOnlyClient(
+        private val statuses: List<OperationStatus>,
+    ) : ArchiveLifecycleClient {
+        var archiveCalls = 0
+        var restoreCalls = 0
+
+        override suspend fun triggerArchive(folderName: String, initiator: String): String? {
+            archiveCalls += 1
+            return "op-archive"
+        }
+
+        override suspend fun triggerRestore(folderName: String, initiator: String): String? {
+            restoreCalls += 1
+            return "op-restore"
+        }
+
+        override suspend fun getOperationStatus(operationId: String): OperationStatus? = statuses.single()
     }
 }

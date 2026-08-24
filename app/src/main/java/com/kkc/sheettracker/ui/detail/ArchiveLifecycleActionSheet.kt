@@ -38,19 +38,31 @@ internal sealed interface LifecycleUiState {
 internal fun archiveActionVisible(adminEnabled: Boolean, sourceIsLive: Boolean): Boolean =
     adminEnabled && sourceIsLive
 
+internal fun restoreActionVisible(adminEnabled: Boolean): Boolean = adminEnabled
+
 internal suspend fun submitArchive(
     client: ArchiveLifecycleClient,
     folderName: String,
     initiator: String,
 ): String? = client.triggerArchive(folderName = folderName, initiator = initiator)
 
-internal fun reduceOperation(state: String, errorSummary: String?): LifecycleUiState = when (state) {
+internal suspend fun submitRestore(
+    client: ArchiveLifecycleClient,
+    folderName: String,
+    initiator: String,
+): String? = client.triggerRestore(folderName = folderName, initiator = initiator)
+
+internal fun reduceOperation(
+    state: String,
+    errorSummary: String?,
+    requestName: String = "archive",
+): LifecycleUiState = when (state) {
     "queued" -> LifecycleUiState.Queued
     "working", "running" -> LifecycleUiState.Working
     "succeeded" -> LifecycleUiState.Completed
     "failed" -> LifecycleUiState.Failed(boundServerError(errorSummary))
-    "cancelled" -> LifecycleUiState.Failed("The archive request was cancelled.")
-    else -> LifecycleUiState.Failed("The archive request returned an unknown status.")
+    "cancelled" -> LifecycleUiState.Failed("The $requestName request was cancelled.")
+    else -> LifecycleUiState.Failed("The $requestName request returned an unknown status.")
 }
 
 internal fun lifecycleSheetDismissible(state: LifecycleUiState): Boolean =
@@ -75,29 +87,67 @@ internal suspend fun runArchiveLifecycle(
     onState: (LifecycleUiState) -> Unit,
     onCompleted: () -> Unit,
     pollDelay: suspend (Long) -> Unit = { delay(it) },
+) = runLifecycle(
+    clientFactory = clientFactory,
+    folderName = folderName,
+    initiator = initiator,
+    requestName = "archive",
+    submit = ::submitArchive,
+    onState = onState,
+    onCompleted = onCompleted,
+    pollDelay = pollDelay,
+)
+
+internal suspend fun runRestoreLifecycle(
+    clientFactory: suspend () -> ArchiveLifecycleClient?,
+    folderName: String,
+    initiator: String,
+    onState: (LifecycleUiState) -> Unit,
+    onCompleted: () -> Unit,
+    pollDelay: suspend (Long) -> Unit = { delay(it) },
+) = runLifecycle(
+    clientFactory = clientFactory,
+    folderName = folderName,
+    initiator = initiator,
+    requestName = "restore",
+    submit = ::submitRestore,
+    onState = onState,
+    onCompleted = onCompleted,
+    pollDelay = pollDelay,
+)
+
+private suspend fun runLifecycle(
+    clientFactory: suspend () -> ArchiveLifecycleClient?,
+    folderName: String,
+    initiator: String,
+    requestName: String,
+    submit: suspend (ArchiveLifecycleClient, String, String) -> String?,
+    onState: (LifecycleUiState) -> Unit,
+    onCompleted: () -> Unit,
+    pollDelay: suspend (Long) -> Unit,
 ) {
     onState(LifecycleUiState.Queued)
     val client = try {
         clientFactory()
     } catch (error: Exception) {
         if (error is CancellationException) throw error
-        onState(LifecycleUiState.Failed("Unable to start the archive request."))
+        onState(LifecycleUiState.Failed("Unable to start the $requestName request."))
         return
     }
     if (client == null) {
-        onState(LifecycleUiState.Failed("Unable to start the archive request."))
+        onState(LifecycleUiState.Failed("Unable to start the $requestName request."))
         return
     }
 
     val operationId = try {
-        submitArchive(client, folderName, initiator)
+        submit(client, folderName, initiator)
     } catch (error: Exception) {
         if (error is CancellationException) throw error
-        onState(LifecycleUiState.Failed("Unable to start the archive request."))
+        onState(LifecycleUiState.Failed("Unable to start the $requestName request."))
         return
     }
     if (operationId == null) {
-        onState(LifecycleUiState.Failed("Unable to start the archive request."))
+        onState(LifecycleUiState.Failed("Unable to start the $requestName request."))
         return
     }
 
@@ -106,15 +156,15 @@ internal suspend fun runArchiveLifecycle(
             client.getOperationStatus(operationId)
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            onState(LifecycleUiState.Failed("Unable to check the archive request."))
+            onState(LifecycleUiState.Failed("Unable to check the $requestName request."))
             return
         }
         if (operation == null) {
-            onState(LifecycleUiState.Failed("Unable to check the archive request."))
+            onState(LifecycleUiState.Failed("Unable to check the $requestName request."))
             return
         }
 
-        val nextState = reduceOperation(operation.state, operation.errorSummary)
+        val nextState = reduceOperation(operation.state, operation.errorSummary, requestName)
         onState(nextState)
         when (nextState) {
             LifecycleUiState.Completed -> {
@@ -192,7 +242,7 @@ internal fun ArchiveLifecycleActionSheet(
 }
 
 @Composable
-private fun OperationProgress(label: String) {
+internal fun OperationProgress(label: String) {
     CircularProgressIndicator()
     Text(label, style = MaterialTheme.typography.titleMedium)
     Text("Do not close this sheet while the server is processing the request.")
