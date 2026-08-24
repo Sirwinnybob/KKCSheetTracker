@@ -83,6 +83,26 @@ class ArchiveLifecycleActionSheetTest {
     }
 
     @Test
+    fun `unknown operation state becomes terminal failure without completion`() = runBlocking {
+        val client = ScriptedArchiveClient(statuses = listOf(OperationStatus("op-123", "paused", null)))
+        val states = mutableListOf<LifecycleUiState>()
+        var completions = 0
+
+        runArchiveLifecycle(
+            clientFactory = { client },
+            folderName = "100 - Alpha",
+            initiator = "tablet-7",
+            onState = { nextState -> states.add(nextState) },
+            onCompleted = { completions += 1 },
+            pollDelay = {},
+        )
+
+        assertEquals(LifecycleUiState.Failed("The archive request returned an unknown status."), states.last())
+        assertEquals(0, completions)
+        assertEquals(1, client.statusCalls)
+    }
+
+    @Test
     fun `successful operation completes only after succeeded`() = runBlocking {
         val client = ScriptedArchiveClient(
             statuses = listOf(

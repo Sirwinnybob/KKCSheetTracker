@@ -50,7 +50,7 @@ internal fun reduceOperation(state: String, errorSummary: String?): LifecycleUiS
     "succeeded" -> LifecycleUiState.Completed
     "failed" -> LifecycleUiState.Failed(boundServerError(errorSummary))
     "cancelled" -> LifecycleUiState.Failed("The archive request was cancelled.")
-    else -> LifecycleUiState.Working
+    else -> LifecycleUiState.Failed("The archive request returned an unknown status.")
 }
 
 internal fun lifecycleSheetDismissible(state: LifecycleUiState): Boolean =
