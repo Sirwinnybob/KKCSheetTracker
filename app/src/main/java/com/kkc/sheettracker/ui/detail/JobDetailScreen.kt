@@ -95,6 +95,23 @@ private data class LegacyMaterialProgress(
     val pendingBadPartsByPdfFilename: Map<String, Int> = emptyMap()
 )
 
+internal enum class JobDetailLoadState {
+    LOADING,
+    AVAILABLE,
+    UNAVAILABLE
+}
+
+internal fun jobDetailLoadState(hasResolved: Boolean, hasJob: Boolean): JobDetailLoadState = when {
+    !hasResolved -> JobDetailLoadState.LOADING
+    hasJob -> JobDetailLoadState.AVAILABLE
+    else -> JobDetailLoadState.UNAVAILABLE
+}
+
+private data class JobDetailLoadResult(
+    val job: Job?,
+    val hasResolved: Boolean
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JobDetailScreen(
@@ -130,15 +147,24 @@ fun JobDetailScreen(
     val appUiState by appStateStore.uiState.collectAsState()
     val appFlags = remember(appStateFlags) { appStateFlags.snapshot() }
     val useAppState = appFlags.detailEnabled
-    val job by produceState<Job?>(
-        initialValue = null,
+    var loadAttempt by rememberSaveable(jobFolderName) { mutableStateOf(0) }
+    val jobLoadResult by produceState(
+        initialValue = JobDetailLoadResult(job = null, hasResolved = false),
         unifiedEngine,
         scanState.snapshot.generation,
-        jobFolderName
+        jobFolderName,
+        loadAttempt
     ) {
-        value = withContext(Dispatchers.IO) {
+        val loadedJob = withContext(Dispatchers.IO) {
             unifiedEngine.getCncSnapshot(jobFolderName)?.job
         }
+        value = JobDetailLoadResult(job = loadedJob, hasResolved = true)
+    }
+    val job = jobLoadResult.job
+    val jobLoadState = jobDetailLoadState(jobLoadResult.hasResolved, job != null)
+    val retryJob = {
+        scanCoordinator.refreshJobOnOpen(jobFolderName)
+        loadAttempt += 1
     }
     // The legacy fallback remains available while AppState rolls out, but it must not cold-load
     // the tracker cache once per material during composition.
@@ -259,7 +285,7 @@ fun JobDetailScreen(
             KKCTopAppBar(
                 title = {
                     Text(
-                        job?.folderName ?: "Loading...",
+                        job?.folderName ?: if (jobLoadState == JobDetailLoadState.LOADING) "Loading..." else jobFolderName,
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
@@ -269,7 +295,7 @@ fun JobDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { scanCoordinator.refreshJobOnOpen(jobFolderName) }) {
+                    IconButton(onClick = retryJob) {
                         Icon(Icons.Filled.Refresh, "Refresh job")
                     }
                     val currentJob = job
@@ -300,7 +326,7 @@ fun JobDetailScreen(
             )
         }
     ) { padding ->
-        if (job == null) {
+        if (jobLoadState == JobDetailLoadState.LOADING) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -309,6 +335,14 @@ fun JobDetailScreen(
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
+        } else if (jobLoadState == JobDetailLoadState.UNAVAILABLE) {
+            JobUnavailableContent(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                onBack = onBack,
+                onRetry = retryJob
+            )
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -478,5 +512,34 @@ fun JobDetailScreen(
             jobRepository = jobRepository,
             onDismissRequest = { showPrintDialog = false }
         )
+    }
+}
+
+@Composable
+private fun JobUnavailableContent(
+    modifier: Modifier = Modifier,
+    onBack: () -> Unit,
+    onRetry: () -> Unit
+) {
+    androidx.compose.foundation.layout.Column(
+        modifier = modifier.padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "This job is no longer available.",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "It may have been removed, archived, or is still syncing.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(20.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(onClick = onBack) { Text("Back to jobs") }
+            Button(onClick = onRetry) { Text("Retry") }
+        }
     }
 }

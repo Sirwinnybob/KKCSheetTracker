@@ -759,7 +759,10 @@ class FileBackedUnifiedMetadataEngine(
         val cncMetadata = cncMetadataDir.listFiles()
         if (cncMetadata != null) {
             for (file in cncMetadata) {
-                if (file.isFile && file.extension.equals("json", ignoreCase = true) && !file.name.contains(".sync-conflict-")) {
+                // This is a derived remake-queue sidecar, not an input to cache_static.json.
+                // Its normal refresh must not discard an otherwise valid published cache.
+                if (file.isFile && file.extension.equals("json", ignoreCase = true) &&
+                    file.name != "remake_bad_parts_candidates.json" && !file.name.contains(".sync-conflict-")) {
                     if (file.lastModified() > cacheMTime) return true
                 }
             }

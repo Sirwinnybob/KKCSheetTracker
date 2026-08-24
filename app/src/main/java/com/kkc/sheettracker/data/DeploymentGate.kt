@@ -25,21 +25,9 @@ internal object DeploymentGateRules {
 
         val hiddenFromProduction = bool(gate, "hiddenFromProduction", "hidden_from_production")
         val deployed = boolOrNull(gate, "deployed") ?: true
-        val pending = bool(gate, "pending", "isPending")
-        val notParseReady = bool(gate, "notParseReady", "not_parse_ready")
-        val parseReady = boolOrNull(gate, "parseReady", "parse_ready")
-        val status = stringOrNull(gate, "status", "state")?.lowercase(Locale.US)
-        val statusBlocks = status in setOf(
-            "pending",
-            "not_ready",
-            "not-ready",
-            "not_parse_ready",
-            "not-parse-ready",
-            "parse_pending"
-        )
-
-        val blockedByReadiness = (!deployed) || pending || notParseReady || (parseReady == false) || statusBlocks
-        if (blockedByReadiness) {
+        // The live Ready Jobs worker treats `deployed` as the sole processing gate.
+        // `parseReady` is reparse progress, not a production-visibility decision.
+        if (!deployed) {
             return DeploymentGateDecision(
                 includeJob = false,
                 hiddenFromProduction = false
@@ -90,11 +78,4 @@ internal object DeploymentGateRules {
         }.getOrNull()
     }
 
-    private fun stringOrNull(root: JsonObject, vararg keys: String): String? {
-        return keys.firstNotNullOfOrNull { key ->
-            val value = root.get(key) ?: return@firstNotNullOfOrNull null
-            if (!value.isJsonPrimitive || !value.asJsonPrimitive.isString) return@firstNotNullOfOrNull null
-            value.asString
-        }
-    }
 }

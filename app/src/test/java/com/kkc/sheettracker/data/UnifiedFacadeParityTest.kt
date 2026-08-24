@@ -100,6 +100,28 @@ class UnifiedFacadeParityTest {
     }
 
     @Test
+    fun publishedStaticCacheRemainsUsableWhenDerivedRemakeCandidatesIsNewer() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        seedInitialStaticCache(baseDir)
+        val cacheFile = File(baseDir, "$jobFolder/.metadata/cache_static.json")
+        val gateFile = File(baseDir, "$jobFolder/.metadata/deployment_gate.json")
+        gateFile.writeText("""{"deployed":true,"parseReady":false}""")
+        gateFile.setLastModified(cacheFile.lastModified() - 1_000L)
+
+        val derivedCandidates = File(baseDir, "$jobFolder/CNC/.metadata/remake_bad_parts_candidates.json")
+        derivedCandidates.writeText("""{"jobFolderName":"$jobFolder","candidates":[]}""")
+        derivedCandidates.setLastModified(cacheFile.lastModified() + 1_000L)
+
+        val engine = UnifiedMetadataEngineRegistry.getOrCreate(baseDir, isDebugBuild = false)
+
+        assertEquals(
+            "1234 - White Melamine.pdf",
+            engine.getCncSnapshot(jobFolder)?.job?.materials?.single()?.pdfFilename
+        )
+    }
+
+    @Test
     fun scanCoordinator_cacheOnlyWatcherRefreshDoesNotDiscardDeepJobWhilePublishedCacheIsMissing() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)
