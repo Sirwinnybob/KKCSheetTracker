@@ -77,7 +77,11 @@ fun StandardsHubScreen(
     onOpenArchive: () -> Unit,
     safetyNotificationCount: Int = 0
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         KKCTopAppBar(
             title = { Text("Library") },
             navigationIcon = {

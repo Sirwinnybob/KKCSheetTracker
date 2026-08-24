@@ -33,6 +33,23 @@ modifier
 For solid-color elements (action button): use `shadow(clip = false)` + `clip()` + `background(solidColor)`.
 Never use `Surface(shadowElevation)` with any semi-transparent color — same bleed issue.
 
+### Bottom navbar Haze: Standards / Library transition regression
+- Library (`StandardsHubScreen`) and Safety/SDS (`SafetyDocumentsScreen`) must each paint
+  `MaterialTheme.colorScheme.background` at their root. These direct `Column` roots otherwise
+  leave the Haze source incomplete and create a persistent rectangular inner band in the
+  transparent bottom navbar.
+- Production tablets use `LegacySingleStackNavigation` by default. Its root `NavHost` applies a
+  slide/fade transition to routes. Haze 1.5.1 captures its source in a graphics layer and can
+  show one stale/partial frame while a direct Standards route enters through that transition.
+- Keep the navbar transparent. Do not make it opaque, change its shadow, or move the Standards
+  background onto the `NavHost` modifier; those changes either hide the intended glass effect or
+  reintroduce the persistent band.
+- The targeted fix is route-local no-op transitions for `standards`, `standards/molding`,
+  `standards/safety`, and `standards/archive` in `LegacySingleStackNavigation`:
+  `EnterTransition.None` / `ExitTransition.None` for enter, exit, pop-enter, and pop-exit.
+  Other app routes retain their slide/fade transitions.
+- `LegacyStandardsTransitionWiringTest` guards this wiring.
+
 ### hazeState wiring
 `hazeState` lives in `TimecardScreen` and is applied to `TimeclockBackground` as `.hazeSource()`.
 It flows down: `TimecardScreen` → `TimecardReadyState` → `NumpadGrid` → `NumpadKey`.

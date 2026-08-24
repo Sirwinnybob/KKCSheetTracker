@@ -5,6 +5,8 @@ import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -3239,7 +3241,13 @@ private fun LegacySingleStackNavigation(
                     )
                 }
 
-                composable("standards") {
+                composable(
+                    "standards",
+                    enterTransition = { EnterTransition.None },
+                    exitTransition = { ExitTransition.None },
+                    popEnterTransition = { EnterTransition.None },
+                    popExitTransition = { ExitTransition.None },
+                ) {
                     com.kkc.sheettracker.ui.standards.StandardsHubScreen(
                         onBack = { navController.popBackStack() },
                         onOpenMolding = { navController.navigate("standards/molding") { launchSingleTop = true } },
@@ -3248,7 +3256,13 @@ private fun LegacySingleStackNavigation(
                         safetyNotificationCount = safetyNotificationCount
                     )
                 }
-                composable("standards/molding") {
+                composable(
+                    "standards/molding",
+                    enterTransition = { EnterTransition.None },
+                    exitTransition = { ExitTransition.None },
+                    popEnterTransition = { EnterTransition.None },
+                    popExitTransition = { ExitTransition.None },
+                ) {
                     val repository = remember(basePath) {
                         com.kkc.sheettracker.data.MoldingLibraryRepository(File(basePath))
                     }
@@ -3259,13 +3273,25 @@ private fun LegacySingleStackNavigation(
                         useStandardSheets = useStandardSheets
                     )
                 }
-                composable("standards/safety") {
+                composable(
+                    "standards/safety",
+                    enterTransition = { EnterTransition.None },
+                    exitTransition = { ExitTransition.None },
+                    popEnterTransition = { EnterTransition.None },
+                    popExitTransition = { ExitTransition.None },
+                ) {
                     com.kkc.sheettracker.ui.standards.SafetyDocumentsScreen(
                         basePath = basePath,
                         onBack = { navController.popBackStack() }
                     )
                 }
-                composable("standards/archive") {
+                composable(
+                    "standards/archive",
+                    enterTransition = { EnterTransition.None },
+                    exitTransition = { ExitTransition.None },
+                    popEnterTransition = { EnterTransition.None },
+                    popExitTransition = { ExitTransition.None },
+                ) {
                     ArchiveLibraryHost(
                         tabletId = tabletId,
                         isDebugBuild = isDebugBuild,

@@ -136,7 +136,11 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
         refreshData()
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         KKCTopAppBar(
             title = { Text("Safety / SDS") },
             navigationIcon = {
