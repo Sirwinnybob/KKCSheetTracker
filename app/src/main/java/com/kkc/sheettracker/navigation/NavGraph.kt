@@ -110,6 +110,7 @@ import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.data.TimecardDiscovery
 import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.data.AdminSyncConfig
+import com.kkc.sheettracker.data.ArchiveAdminClient
 import com.kkc.sheettracker.data.TimeclockMessagesRepository
 import com.kkc.sheettracker.data.UiPreferencesStore
 import com.kkc.sheettracker.data.IdlePowerSaveStore
@@ -810,6 +811,7 @@ private fun MultiBackStackNavigation(
                         jobRepository = jobRepository,
                         progressStore = progressStore,
                         appStateFlags = appStateFlags,
+                        adminSyncConfig = adminSyncConfig,
                         isDarkTheme = preferDarkMode,
                         cncSheetIsDarkTheme = isDarkTheme,
                         useStandardSheets = useStandardSheets,
@@ -1188,6 +1190,7 @@ private fun JobsTabHost(
     jobRepository: JobRepository,
     progressStore: ProgressStore,
     appStateFlags: AppStateFeatureFlags,
+    adminSyncConfig: AdminSyncConfig,
     isDarkTheme: Boolean,
     cncSheetIsDarkTheme: Boolean,
     useStandardSheets: Boolean,
@@ -1441,6 +1444,14 @@ private fun JobsTabHost(
                         pdfFilename = material.pdfFilename,
                         fileFingerprint = material.fileFingerprint
                     )
+                },
+                tabletId = tabletId,
+                archiveClientFactory = {
+                    adminSyncConfig.getServerUrl()?.let(::ArchiveAdminClient)
+                },
+                onArchiveCompleted = {
+                    scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+                    navController.popBackStack()
                 },
                 onBack = { navController.popBackStack() }
             )
@@ -2599,6 +2610,14 @@ private fun LegacySingleStackNavigation(
                                 pdfFilename = material.pdfFilename,
                                 fileFingerprint = material.fileFingerprint
                             )
+                        },
+                        tabletId = tabletId,
+                        archiveClientFactory = {
+                            legacyAdminSyncConfig.getServerUrl()?.let(::ArchiveAdminClient)
+                        },
+                        onArchiveCompleted = {
+                            scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+                            navController.popBackStack()
                         },
                         onBack = { navController.popBackStack() }
                     )

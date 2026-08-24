@@ -63,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
+import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.ArchiveLifecycleClient
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.BuildConfig
@@ -113,11 +115,15 @@ fun JobDetailScreen(
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onLeaveWhileClockedIn: () -> Unit = {},
     onSubmitPendingBadParts: ((Material) -> Unit)? = null,
+    tabletId: String,
+    archiveClientFactory: suspend () -> ArchiveLifecycleClient?,
+    onArchiveCompleted: () -> Unit,
     clockInState: ClockInState? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val navBarDeco = LocalNavBarDecoration.current
+    val adminEnabled by AdminModeController.enabled.collectAsState()
     LaunchedEffect(Unit) {
         navBarDeco.searchDecoration = null
         navBarDeco.keepSearchDeco = false
@@ -186,6 +192,7 @@ fun JobDetailScreen(
     val listState = rememberLazyListState()
     var suppressLeavePrompt by remember { mutableStateOf(false) }
     var showPrintDialog by remember { mutableStateOf(false) }
+    var showArchiveActionSheet by remember(jobFolderName) { mutableStateOf(false) }
 
     var legacyPageStatuses by remember(jobFolderName) { mutableStateOf<Map<String, Map<Int, SheetStatus>>>(emptyMap()) }
 
@@ -271,6 +278,11 @@ fun JobDetailScreen(
                 actions = {
                     IconButton(onClick = { scanCoordinator.refreshJobOnOpen(jobFolderName) }) {
                         Icon(Icons.Filled.Refresh, "Refresh job")
+                    }
+                    if (archiveActionVisible(adminEnabled = adminEnabled, sourceIsLive = true)) {
+                        TextButton(onClick = { showArchiveActionSheet = true }) {
+                            Text("Archive")
+                        }
                     }
                     val currentJob = job
                     if (currentJob != null) {
@@ -477,6 +489,17 @@ fun JobDetailScreen(
             jobFolderName = jobFolderName,
             jobRepository = jobRepository,
             onDismissRequest = { showPrintDialog = false }
+        )
+    }
+
+    if (showArchiveActionSheet) {
+        ArchiveLifecycleActionSheet(
+            folderName = jobFolderName,
+            adminEnabled = adminEnabled,
+            tabletId = tabletId,
+            clientFactory = archiveClientFactory,
+            onCompleted = onArchiveCompleted,
+            onDismiss = { showArchiveActionSheet = false },
         )
     }
 }
