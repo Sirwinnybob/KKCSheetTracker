@@ -4,7 +4,14 @@ data class PgmInventoryItem(
     val name: String = "",
     val size: Long = 0,
     val mtime: String = ""
-)
+) {
+    // Gson has no accessible no-arg constructor to call for this class purely via reflection,
+    // even though every parameter has a Kotlin default — without one, Gson falls back to Unsafe
+    // field allocation and skips the declared defaults entirely, so a field absent from a real
+    // response would deserialize to null/0 instead of its default. See SupplyModels.kt's
+    // StoredSupplyItem for the same pattern.
+    constructor() : this(name = "", size = 0, mtime = "")
+}
 
 data class MixDefinition(
     val name: String = "",
@@ -18,7 +25,22 @@ data class MixDefinition(
     val lastCompileOk: Boolean? = null,
     val lastCompileError: String? = null,
     val status: String? = null
-)
+) {
+    // Same Gson no-arg-constructor gotcha as PgmInventoryItem above.
+    constructor() : this(
+        name = "",
+        job = "",
+        material = "",
+        programs = emptyList(),
+        mixFilename = "",
+        createdAt = null,
+        updatedAt = null,
+        lastCompiledAt = null,
+        lastCompileOk = null,
+        lastCompileError = null,
+        status = null
+    )
+}
 
 data class PgmEditRow(
     val pgm: String,
