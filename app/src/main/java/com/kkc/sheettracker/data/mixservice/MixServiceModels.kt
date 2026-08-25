@@ -1,18 +1,17 @@
 package com.kkc.sheettracker.data.mixservice
 
+// Every primary-constructor parameter here has a default, so Kotlin already synthesizes a
+// public no-arg constructor for this class — Gson finds and uses it directly. (Contrast with
+// StoredSupplyItem in SupplyModels.kt, whose required params mean Kotlin can't synthesize one,
+// so Gson falls back to Unsafe field allocation there and needs an explicit no-arg constructor.)
 data class PgmInventoryItem(
     val name: String = "",
     val size: Long = 0,
     val mtime: String = ""
-) {
-    // Gson has no accessible no-arg constructor to call for this class purely via reflection,
-    // even though every parameter has a Kotlin default — without one, Gson falls back to Unsafe
-    // field allocation and skips the declared defaults entirely, so a field absent from a real
-    // response would deserialize to null/0 instead of its default. See SupplyModels.kt's
-    // StoredSupplyItem for the same pattern.
-    constructor() : this(name = "", size = 0, mtime = "")
-}
+)
 
+// Same reasoning as PgmInventoryItem above: all params default, so Kotlin's synthesized no-arg
+// constructor is enough for Gson.
 data class MixDefinition(
     val name: String = "",
     val job: String = "",
@@ -25,22 +24,7 @@ data class MixDefinition(
     val lastCompileOk: Boolean? = null,
     val lastCompileError: String? = null,
     val status: String? = null
-) {
-    // Same Gson no-arg-constructor gotcha as PgmInventoryItem above.
-    constructor() : this(
-        name = "",
-        job = "",
-        material = "",
-        programs = emptyList(),
-        mixFilename = "",
-        createdAt = null,
-        updatedAt = null,
-        lastCompiledAt = null,
-        lastCompileOk = null,
-        lastCompileError = null,
-        status = null
-    )
-}
+)
 
 data class PgmEditRow(
     val pgm: String,
