@@ -22,6 +22,15 @@ sealed class MixWriteResult {
     object NetworkError : MixWriteResult()
 }
 
+sealed class PgmEditSubmitResult {
+    data class Success(val response: PgmEditBatchResponse) : PgmEditSubmitResult()
+    object Disabled : PgmEditSubmitResult()
+    object EditBusy : PgmEditSubmitResult()
+    object CompileBusy : PgmEditSubmitResult()
+    object WinxisoTimeout : PgmEditSubmitResult()
+    object NetworkError : PgmEditSubmitResult()
+}
+
 class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477") {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val gson = Gson()
@@ -144,4 +153,54 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     private fun errorMessage(response: Response): String =
         runCatching { gson.fromJson(response.body?.string().orEmpty(), ErrorEnvelope::class.java)?.error }
             .getOrNull().orEmpty()
+
+    suspend fun listPgmEdits(job: String, material: String, historyLimit: Int = 20): PgmEditHistoryView? =
+        withContext(Dispatchers.IO) {
+            val url = "$root/jobs/".toHttpUrl().newBuilder()
+                .addPathSegment(job)
+                .addPathSegment("materials")
+                .addPathSegment(material)
+                .addPathSegment("pgm-edits")
+                .addQueryParameter("historyLimit", historyLimit.toString())
+                .build()
+            val request = Request.Builder().url(url).get().build()
+            runCatching {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    val body = response.body?.string() ?: return@use null
+                    gson.fromJson(body, PgmEditHistoryView::class.java)
+                }
+            }.getOrNull()
+        }
+
+    suspend fun submitPgmEdits(
+        job: String,
+        material: String,
+        requestId: String,
+        files: List<PgmEditRow>
+    ): PgmEditSubmitResult = withContext(Dispatchers.IO) {
+        val url = "$root/jobs/".toHttpUrl().newBuilder()
+            .addPathSegment(job)
+            .addPathSegment("materials")
+            .addPathSegment(material)
+            .addPathSegment("pgm-edits")
+            .build()
+        val body = gson.toJson(PgmEditBatchRequest(requestId, files)).toRequestBody(jsonMediaType)
+        val request = Request.Builder().url(url).post(body).build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                when (response.code) {
+                    200 -> {
+                        val responseBody = response.body?.string() ?: return@use PgmEditSubmitResult.NetworkError
+                        PgmEditSubmitResult.Success(gson.fromJson(responseBody, PgmEditBatchResponse::class.java))
+                    }
+                    403 -> PgmEditSubmitResult.Disabled
+                    409 -> PgmEditSubmitResult.EditBusy
+                    503 -> PgmEditSubmitResult.CompileBusy
+                    504 -> PgmEditSubmitResult.WinxisoTimeout
+                    else -> PgmEditSubmitResult.NetworkError
+                }
+            }
+        }.getOrDefault(PgmEditSubmitResult.NetworkError)
+    }
 }

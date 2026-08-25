@@ -196,4 +196,62 @@ class MixServiceClientTest {
         assertFalse(sentBody.has("name"))
         assertFalse(sentBody.has("overwrite"))
     }
+
+    @Test
+    fun `listPgmEdits parses the ledger view`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"stateSource":"ledger","error":null,"files":{"R1.pgm":{"current":{"mode":"standard","punloadRemoved":true,"mixFiles":["KkcMix.mix"]},"stateSource":"ledger","history":[]}}}"""
+            )
+        )
+        val view = client().listPgmEdits("648", "19mm Pre_Finished")
+        assertEquals("standard", view?.files?.get("R1.pgm")?.current?.mode)
+        assertEquals(true, view?.files?.get("R1.pgm")?.current?.punloadRemoved)
+        val recorded = server.takeRequest()
+        assertTrue(recorded.path?.contains("pgm-edits?historyLimit=20") == true)
+    }
+
+    @Test
+    fun `listPgmEdits returns null on failure`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(500))
+        assertEquals(null, client().listPgmEdits("648", "19mm Pre_Finished"))
+    }
+
+    @Test
+    fun `submitPgmEdits posts requestId and files with name identity, parses success`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody("""{"ok":true,"requestId":"r1","backupDir":"BACKUP_1","files":[{"name":"R1.pgm","status":"succeeded"}]}""")
+        )
+        val result = client().submitPgmEdits(
+            "648", "19mm Pre_Finished", "r1",
+            listOf(PgmEditRow(name = "R1.pgm", secondPass = "standard", removePUnload = false))
+        )
+        check(result is PgmEditSubmitResult.Success)
+        assertEquals("succeeded", result.response.files.single().status)
+        assertEquals("R1.pgm", result.response.files.single().name)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        val sentBody = org.json.JSONObject(recorded.body.readUtf8())
+        assertEquals("r1", sentBody.getString("requestId"))
+        val sentFiles = sentBody.getJSONArray("files")
+        assertEquals(1, sentFiles.length())
+        assertEquals("R1.pgm", sentFiles.getJSONObject(0).getString("name"))
+        assertEquals("standard", sentFiles.getJSONObject(0).getString("secondPass"))
+        assertEquals(false, sentFiles.getJSONObject(0).getBoolean("removePUnload"))
+    }
+
+    @Test
+    fun `submitPgmEdits maps status codes to sealed results`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(403))
+        check(client().submitPgmEdits("648", "M", "r1", emptyList()) is PgmEditSubmitResult.Disabled)
+
+        server.enqueue(MockResponse().setResponseCode(409))
+        check(client().submitPgmEdits("648", "M", "r2", emptyList()) is PgmEditSubmitResult.EditBusy)
+
+        server.enqueue(MockResponse().setResponseCode(503))
+        check(client().submitPgmEdits("648", "M", "r3", emptyList()) is PgmEditSubmitResult.CompileBusy)
+
+        server.enqueue(MockResponse().setResponseCode(504))
+        check(client().submitPgmEdits("648", "M", "r4", emptyList()) is PgmEditSubmitResult.WinxisoTimeout)
+    }
 }
