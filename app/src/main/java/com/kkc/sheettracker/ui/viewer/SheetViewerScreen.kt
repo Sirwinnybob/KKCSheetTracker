@@ -3319,7 +3319,7 @@ internal fun partMarkers(rotated: Boolean, banding: String?): List<PartMarker> =
 }
 
 
-private fun inferSheetFiles(pageMeta: com.kkc.sheettracker.data.models.PageMetadata?): List<String> {
+internal fun inferSheetFiles(pageMeta: com.kkc.sheettracker.data.models.PageMetadata?): List<String> {
     val fromSidecar = pageMeta?.sheetFiles?.filter { it.isNotBlank() }?.distinct().orEmpty()
     if (fromSidecar.isNotEmpty()) return fromSidecar
 
