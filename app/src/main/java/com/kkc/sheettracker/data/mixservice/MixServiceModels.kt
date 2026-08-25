@@ -1,17 +1,11 @@
 package com.kkc.sheettracker.data.mixservice
 
-// Every primary-constructor parameter here has a default, so Kotlin already synthesizes a
-// public no-arg constructor for this class — Gson finds and uses it directly. (Contrast with
-// StoredSupplyItem in SupplyModels.kt, whose required params mean Kotlin can't synthesize one,
-// so Gson falls back to Unsafe field allocation there and needs an explicit no-arg constructor.)
 data class PgmInventoryItem(
     val name: String = "",
     val size: Long = 0,
-    val mtime: String = ""
+    val mtime: Long = 0
 )
 
-// Same reasoning as PgmInventoryItem above: all params default, so Kotlin's synthesized no-arg
-// constructor is enough for Gson.
 data class MixDefinition(
     val name: String = "",
     val job: String = "",
@@ -27,21 +21,18 @@ data class MixDefinition(
 )
 
 data class PgmEditRow(
-    val pgm: String,
+    val name: String,
     val secondPass: String,
     val removePUnload: Boolean
 )
 
 data class PgmEditBatchRequest(
     val requestId: String,
-    val rows: List<PgmEditRow>
+    val files: List<PgmEditRow>
 )
 
-// The per-file identity key in the pgm-edits response is assumed to be `pgm`, mirroring the
-// request row's own field name. The CLI API plan (Task 4) hasn't shipped yet; if the real
-// response uses a different key, only this class needs updating.
 data class PgmEditFileResult(
-    val pgm: String = "",
+    val name: String = "",
     val status: String = "",
     val mixFiles: List<String> = emptyList()
 )
@@ -55,7 +46,7 @@ data class PgmEditBatchResponse(
 
 data class PgmEditCurrentState(
     val mode: String? = null,
-    val removePUnload: Boolean? = null,
+    val punloadRemoved: Boolean? = null,
     val mixFiles: List<String> = emptyList()
 )
 
