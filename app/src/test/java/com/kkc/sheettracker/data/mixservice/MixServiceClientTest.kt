@@ -76,4 +76,54 @@ class MixServiceClientTest {
         assertTrue(recorded.path?.contains("job=648") == true)
         assertTrue(recorded.path?.contains("material=19mm") == true)
     }
+
+    @Test
+    fun `createMix posts name job material programs and parses the created definition`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(201)
+                .setBody("""{"name":"KkcMix","job":"648","material":"19mm Pre_Finished","programs":["R1.pgm"],"mixFilename":"KkcMix.mix"}""")
+        )
+        val result = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"))
+        check(result is MixWriteResult.Success)
+        assertEquals("KkcMix", result.definition.name)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertTrue(recorded.path?.endsWith("/mixes") == true)
+    }
+
+    @Test
+    fun `createMix maps status codes to sealed results`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(409))
+        check(client().createMix("648", "19mm Pre_Finished", "Dup", emptyList()) is MixWriteResult.DuplicateName)
+
+        server.enqueue(MockResponse().setResponseCode(404))
+        check(client().createMix("648", "Unknown", "X", emptyList()) is MixWriteResult.UnknownJobOrMaterial)
+
+        server.enqueue(MockResponse().setResponseCode(400))
+        check(client().createMix("648", "19mm Pre_Finished", "bad*name", emptyList()) is MixWriteResult.InvalidName)
+
+        server.enqueue(MockResponse().setResponseCode(503))
+        check(client().createMix("648", "19mm Pre_Finished", "X", emptyList()) is MixWriteResult.CompileBusy)
+    }
+
+    @Test
+    fun `createMix maps 422 to missing programs`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"missing":["R9.pgm"]}"""))
+        val result = client().createMix("648", "19mm Pre_Finished", "X", listOf("R9.pgm"))
+        check(result is MixWriteResult.MissingPrograms)
+        assertEquals(listOf("R9.pgm"), result.missing)
+    }
+
+    @Test
+    fun `updateMix puts to the named mix path with the new program order`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody("""{"name":"KkcMix","job":"648","material":"19mm Pre_Finished","programs":["R2.pgm","R1.pgm"],"mixFilename":"KkcMix.mix"}""")
+        )
+        val result = client().updateMix("648", "19mm Pre_Finished", "KkcMix", listOf("R2.pgm", "R1.pgm"))
+        check(result is MixWriteResult.Success)
+        assertEquals(listOf("R2.pgm", "R1.pgm"), result.definition.programs)
+        val recorded = server.takeRequest()
+        assertEquals("PUT", recorded.method)
+        assertTrue(recorded.path?.endsWith("/mixes/KkcMix") == true)
+    }
 }

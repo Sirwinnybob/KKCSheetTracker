@@ -8,7 +8,18 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+
+sealed class MixWriteResult {
+    data class Success(val definition: MixDefinition) : MixWriteResult()
+    data class DuplicateName(val name: String) : MixWriteResult()
+    object UnknownJobOrMaterial : MixWriteResult()
+    data class MissingPrograms(val missing: List<String>) : MixWriteResult()
+    object InvalidName : MixWriteResult()
+    object CompileBusy : MixWriteResult()
+    object NetworkError : MixWriteResult()
+}
 
 class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477") {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -58,5 +69,69 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
                 gson.fromJson<List<MixDefinition>>(body, type)
             }
         }.getOrNull()
+    }
+
+    suspend fun createMix(
+        job: String,
+        material: String,
+        name: String,
+        programs: List<String>,
+        overwrite: Boolean = false
+    ): MixWriteResult = writeMix("POST", job, material, name, programs, overwrite)
+
+    suspend fun updateMix(
+        job: String,
+        material: String,
+        name: String,
+        programs: List<String>
+    ): MixWriteResult = writeMix("PUT", job, material, name, programs, overwrite = false)
+
+    private suspend fun writeMix(
+        method: String,
+        job: String,
+        material: String,
+        name: String,
+        programs: List<String>,
+        overwrite: Boolean
+    ): MixWriteResult = withContext(Dispatchers.IO) {
+        val root = baseUrl.trimEnd('/')
+        val url = if (method == "POST") {
+            "$root/mixes".toHttpUrl()
+        } else {
+            "$root/mixes/".toHttpUrl().newBuilder().addPathSegment(name).build()
+        }
+        val payload = mutableMapOf<String, Any?>(
+            "job" to job,
+            "material" to material,
+            "programs" to programs
+        )
+        if (method == "POST") {
+            payload["name"] = name
+            payload["overwrite"] = overwrite
+        }
+        val body = gson.toJson(payload).toRequestBody(jsonMediaType)
+        val request = Request.Builder().url(url).method(method, body).build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                when (response.code) {
+                    200, 201 -> {
+                        val responseBody = response.body?.string() ?: return@use MixWriteResult.NetworkError
+                        MixWriteResult.Success(gson.fromJson(responseBody, MixDefinition::class.java))
+                    }
+                    400 -> MixWriteResult.InvalidName
+                    404 -> MixWriteResult.UnknownJobOrMaterial
+                    409 -> MixWriteResult.DuplicateName(name)
+                    422 -> {
+                        val missing = runCatching {
+                            gson.fromJson(response.body?.string().orEmpty(), com.google.gson.JsonObject::class.java)
+                                ?.getAsJsonArray("missing")?.map { it.asString }
+                        }.getOrNull().orEmpty()
+                        MixWriteResult.MissingPrograms(missing)
+                    }
+                    503 -> MixWriteResult.CompileBusy
+                    else -> MixWriteResult.NetworkError
+                }
+            }
+        }.getOrDefault(MixWriteResult.NetworkError)
     }
 }
