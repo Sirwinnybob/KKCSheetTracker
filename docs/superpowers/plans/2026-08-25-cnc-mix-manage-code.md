@@ -460,6 +460,20 @@ git commit -m "feat(mixservice): add mix create/update writes"
 
 ---
 
+> **Contract correction (post-Task-3):** Tasks 2 and 3's code above assumed a flat wire
+> shape guessed from the design docs. The real Mix Service (verified directly against
+> `C:\Scripts\PGM_BCR_Loader\mix_service\service.py`, `inventory.py`,
+> `second_pass_client.py`, `edit_history_reader.py`) wraps every response in an
+> `{"ok": ..., <key>: ...}` envelope, returns 200 (never 201) on mix writes with the
+> definition nested under `"mix"` and `status` as a sibling field, uses
+> `"missing program: <name>"` text (not a `"missing"` array) for its one 422 case, and
+> `mtime` is a JSON number. This was fixed in commits `ba302d7` and `d492795` — the
+> actual `MixServiceClient.kt`/`MixServiceModels.kt`/`MixServiceClientTest.kt` in the repo
+> reflect the corrected contract, not the code blocks above. Task 4 below has been
+> corrected in place (field names `name`/`files`/`punloadRemoved`, not `pgm`/`rows`/
+> `removePUnload`) before being implemented, using the same verified-against-source
+> approach.
+
 ### Task 4: MixServiceClient — pgm-edits (second pass) reads and writes
 
 **Files:**
