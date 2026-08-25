@@ -35,14 +35,16 @@ class ManageCodeOrchestratorTest {
     fun `buildManageCodeChange builds edit rows only for punload or second pass selections`() {
         val selections = mapOf(
             "R1.pgm" to ManageCodeRowSelection(mix = true, removePUnload = true),
+            "R2Z.pgm" to ManageCodeRowSelection(mix = true),
             "R3.pgm" to ManageCodeRowSelection(mix = true, secondPass = true, superPass = true)
         )
-        val change = buildManageCodeChange(listOf(rows[0], rows[2]), selections, locked = emptySet(), originalPrograms = emptyList())
+        val change = buildManageCodeChange(listOf(rows[0], rows[1], rows[2]), selections, locked = emptySet(), originalPrograms = emptyList())
         val r1 = change.editRows.single { it.name == "R1.pgm" }
         val r3 = change.editRows.single { it.name == "R3.pgm" }
         assertEquals("none", r1.secondPass)
         assertTrue(r1.removePUnload)
         assertEquals("super", r3.secondPass)
+        assertTrue(change.editRows.none { it.name == "R2Z.pgm" })
     }
 
     @Test
