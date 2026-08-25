@@ -12,6 +12,7 @@ class ManageCodeSelectionTest {
         assertTrue(isRowLocked(SheetStatus.COMPLETE))
         assertTrue(isRowLocked(SheetStatus.RE_NESTED))
         assertFalse(isRowLocked(SheetStatus.NOT_STARTED))
+        assertFalse(isRowLocked(SheetStatus.IN_PROGRESS))
         assertFalse(isRowLocked(SheetStatus.SKIPPED))
         assertFalse(isRowLocked(SheetStatus.HAS_BAD_PARTS))
     }
@@ -41,6 +42,17 @@ class ManageCodeSelectionTest {
         val selection = deriveRowSelection("R1.pgm", emptyList(), hasExistingMix = false, editHistory = history)
         assertTrue(selection.secondPass)
         assertTrue(selection.superPass)
+        assertTrue(selection.removePUnload)
+    }
+
+    @Test
+    fun `deriveRowSelection treats unknown ledger mode as not second-pass but still reads punloadRemoved`() {
+        val history = PgmEditHistoryView(
+            files = mapOf("R1.pgm" to PgmEditFileHistory(PgmEditCurrentState(mode = "unknown", punloadRemoved = true)))
+        )
+        val selection = deriveRowSelection("R1.pgm", emptyList(), hasExistingMix = false, editHistory = history)
+        assertFalse(selection.secondPass)
+        assertFalse(selection.superPass)
         assertTrue(selection.removePUnload)
     }
 
