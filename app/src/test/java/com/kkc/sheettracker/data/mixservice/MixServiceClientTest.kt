@@ -3,6 +3,7 @@ package com.kkc.sheettracker.data.mixservice
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -101,6 +102,29 @@ class MixServiceClientTest {
         val recorded = server.takeRequest()
         assertEquals("POST", recorded.method)
         assertTrue(recorded.path?.endsWith("/mixes") == true)
+        val sentBody = JSONObject(recorded.body.readUtf8())
+        assertEquals("648", sentBody.getString("job"))
+        assertEquals("19mm Pre_Finished", sentBody.getString("material"))
+        assertEquals("KkcMix", sentBody.getString("name"))
+        assertFalse(sentBody.getBoolean("overwrite"))
+        val sentPrograms = sentBody.getJSONArray("programs")
+        assertEquals(1, sentPrograms.length())
+        assertEquals("R1.pgm", sentPrograms.getString(0))
+    }
+
+    @Test
+    fun `createMix with overwrite true sends overwrite true on the wire`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody(
+                    """{"ok":true,"mix":{"name":"KkcMix","job":"648","material":"19mm Pre_Finished","programs":["R1.pgm"],"mixFilename":"KkcMix.mix"},"status":"never"}"""
+                )
+        )
+        val result = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"), overwrite = true)
+        check(result is MixWriteResult.Success)
+        val recorded = server.takeRequest()
+        val sentBody = JSONObject(recorded.body.readUtf8())
+        assertTrue(sentBody.getBoolean("overwrite"))
     }
 
     @Test
@@ -162,5 +186,14 @@ class MixServiceClientTest {
         assertEquals("PUT", recorded.method)
         assertTrue(recorded.path?.endsWith("/mixes/KkcMix") == true)
         assertEquals(listOf("R2.pgm", "R1.pgm"), result.definition.programs)
+        val sentBody = JSONObject(recorded.body.readUtf8())
+        assertEquals("648", sentBody.getString("job"))
+        assertEquals("19mm Pre_Finished", sentBody.getString("material"))
+        val sentPrograms = sentBody.getJSONArray("programs")
+        assertEquals(2, sentPrograms.length())
+        assertEquals("R2.pgm", sentPrograms.getString(0))
+        assertEquals("R1.pgm", sentPrograms.getString(1))
+        assertFalse(sentBody.has("name"))
+        assertFalse(sentBody.has("overwrite"))
     }
 }
