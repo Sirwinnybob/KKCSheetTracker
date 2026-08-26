@@ -358,6 +358,8 @@ fun SheetViewerScreen(
     var diagramBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var jobMaterials by remember { mutableStateOf<List<Material>>(emptyList()) }
     var currentMaterial by remember { mutableStateOf<Material?>(null) }
+    val mixServiceClient = remember { com.kkc.sheettracker.data.mixservice.MixServiceClient() }
+    var currentMixPrograms by remember { mutableStateOf<List<String>>(emptyList()) }
     val currentPageMetadata = remember(currentMaterial, currentPage) {
         resolvePageMetadata(currentMaterial, currentPage)
     }
@@ -761,7 +763,14 @@ fun SheetViewerScreen(
         }
 
         currentMaterial = nextMaterial
-        visiblePages = nextMaterial?.visibleSheetPages().orEmpty()
+        val naturalOrder = nextMaterial?.visibleSheetPages().orEmpty()
+        visiblePages = if (nextMaterial == null) naturalOrder else {
+            com.kkc.sheettracker.data.mixservice.reorderVisiblePages(
+                pages = nextMaterial.metadata?.pages.orEmpty(),
+                naturalOrder = naturalOrder,
+                mixPrograms = currentMixPrograms
+            )
+        }
         if (nextMaterial != null) {
             hasBoundInitialMaterial = true
             didRedirectForUnavailableMaterial = false
@@ -798,7 +807,14 @@ fun SheetViewerScreen(
         previousMaterialIdentity = nextIdentity
     }
 
-    LaunchedEffect(currentMaterial, visiblePages, currentPage) {
+    LaunchedEffect(currentMaterial?.materialName) {
+        val materialName = currentMaterial?.materialName
+        currentMixPrograms = if (materialName == null) emptyList() else {
+            mixServiceClient.listMixes(jobFolderName, materialName)?.firstOrNull()?.programs.orEmpty()
+        }
+    }
+
+    LaunchedEffect(currentMaterial, visiblePages, currentPage, currentMixPrograms) {
         val material = currentMaterial ?: return@LaunchedEffect
         if (visiblePages.isEmpty()) return@LaunchedEffect
         if (currentPage in visiblePages) return@LaunchedEffect
