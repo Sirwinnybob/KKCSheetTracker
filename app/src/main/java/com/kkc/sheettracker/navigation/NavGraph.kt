@@ -800,7 +800,7 @@ private fun MultiBackStackNavigation(
                             coordinator.openHardwoodsJobInJobs(folderName)
                         },
                         onOpenSheet = { folderName, pdfFilename, page ->
-                            coordinator.openSheetInJobs(folderName, pdfFilename, page)
+                            coordinator.openSheetInJobs(folderName, pdfFilename, page, mixName = null)
                         }
                     )
                 }
@@ -858,7 +858,7 @@ private fun MultiBackStackNavigation(
                         assemblyStateStore = assemblyStateStore,
                         specialtyStateStore = specialtyStateStore,
                         onCncResultClick = { folderName, pdfFilename, page ->
-                            coordinator.openSheetInJobs(folderName, pdfFilename, page)
+                            coordinator.openSheetInJobs(folderName, pdfFilename, page, mixName = null)
                         },
                         onHardwoodsResultClick = { payload ->
                             val parts = payload.split('|')

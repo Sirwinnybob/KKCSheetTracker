@@ -108,14 +108,14 @@ class NavigationCoordinator(
         }
     }
 
-    fun openSheetInJobs(jobFolderName: String, pdfFilename: String, page: Int) {
-        val targetRoute = viewerRoute(jobFolderName, pdfFilename, page)
+    fun openSheetInJobs(jobFolderName: String, pdfFilename: String, page: Int, mixName: String? = null) {
+        val targetRoute = viewerRoute(jobFolderName, pdfFilename, page, mixName)
         if (getSelectedTab() != TopLevelTab.JOBS) {
             setSelectedTab(TopLevelTab.JOBS)
             AppLog.d(NAV_TAG, "sheet_open_tab_switch target=jobs")
         }
         val controller = jobsNavController
-        if (isCurrentViewerTarget(controller, jobFolderName, pdfFilename, page)) {
+        if (isCurrentViewerTarget(controller, jobFolderName, pdfFilename, page, mixName)) {
             AppLog.d(NAV_TAG, "sheet_open_dedup route=$targetRoute")
             return
         }
@@ -214,15 +214,12 @@ class NavigationCoordinator(
         activity.finish()
     }
 
-    private fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int): String {
-        return "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
-    }
-
     private fun isCurrentViewerTarget(
         controller: NavHostController,
         jobFolderName: String,
         pdfFilename: String,
-        page: Int
+        page: Int,
+        mixName: String?
     ): Boolean {
         val backStackEntry = controller.currentBackStackEntry ?: return false
         val route = backStackEntry.destination.route ?: return false
@@ -231,6 +228,32 @@ class NavigationCoordinator(
         val currentFolder = args.getString("folderName") ?: return false
         val currentPdf = args.getString("pdfFilename") ?: return false
         val currentPage = args.getInt("startPage")
-        return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page
+        val currentMixName = args.getString("mixName")
+        return viewerTargetMatches(
+            currentFolder = currentFolder,
+            currentPdf = currentPdf,
+            currentPage = currentPage,
+            currentMixName = currentMixName,
+            targetFolder = jobFolderName,
+            targetPdf = pdfFilename,
+            targetPage = page,
+            targetMixName = mixName
+        )
     }
+}
+
+internal fun viewerTargetMatches(
+    currentFolder: String,
+    currentPdf: String,
+    currentPage: Int,
+    currentMixName: String?,
+    targetFolder: String,
+    targetPdf: String,
+    targetPage: Int,
+    targetMixName: String?
+): Boolean {
+    return currentFolder == targetFolder &&
+        currentPdf == targetPdf &&
+        currentPage == targetPage &&
+        currentMixName == targetMixName
 }
