@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.data.mixservice
 
+import com.google.gson.annotations.SerializedName
+
 data class PgmInventoryItem(
     val name: String = "",
     val size: Long = 0,
@@ -57,3 +59,42 @@ data class PgmEditFileHistory(
 data class PgmEditHistoryView(
     val files: Map<String, PgmEditFileHistory> = emptyMap()
 )
+
+enum class MixLifecycle {
+    @SerializedName("active") ACTIVE,
+    @SerializedName("history") HISTORY,
+    @SerializedName("external") EXTERNAL
+}
+
+data class MixCatalogEntry(
+    val name: String = "",
+    val mixFilename: String = "",
+    val lifecycle: MixLifecycle = MixLifecycle.ACTIVE,
+    val programs: List<String> = emptyList(),
+    val status: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val lastCompiledAt: String? = null,
+    val lastCompileOk: Boolean? = null,
+    val lastCompileError: String? = null
+)
+
+data class MixCatalogSnapshot(
+    val job: String,
+    val material: String,
+    val revision: Long,
+    val entries: List<MixCatalogEntry>
+)
+
+sealed class MixCatalogFetchResult {
+    data class Success(val snapshot: MixCatalogSnapshot) : MixCatalogFetchResult()
+    object NetworkError : MixCatalogFetchResult()
+}
+
+sealed class MixCatalogMutationResult {
+    data class Success(val snapshot: MixCatalogSnapshot) : MixCatalogMutationResult()
+    object CatalogChanged : MixCatalogMutationResult()
+    object ExternalMixesPresent : MixCatalogMutationResult()
+    data class BadRequest(val message: String) : MixCatalogMutationResult()
+    object NetworkError : MixCatalogMutationResult()
+}

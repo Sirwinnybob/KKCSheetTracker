@@ -57,6 +57,15 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     private data class ErrorEnvelope(val ok: Boolean = false, val code: String? = null, val error: String? = null)
     private data class MixLookupEnvelope(val ok: Boolean = false, val mix: MixDefinition? = null, val status: String? = null)
     private data class MixConflictEnvelope(val ok: Boolean = false, val code: String? = null, val names: List<String> = emptyList())
+    private data class MixCatalogEnvelope(
+        val ok: Boolean = false,
+        val revision: Long? = null,
+        val entries: List<MixCatalogEntry> = emptyList()
+    )
+    private data class MixCatalogMutationEnvelope(
+        val ok: Boolean = false,
+        val catalog: MixCatalogEnvelope? = null
+    )
     // A history-sync-failure error body's own "mix" field is the *whole* completed-mutation
     // envelope (i.e. another {ok, mix, status}), not a bare MixDefinition -- the server nests it
     // because it's literally the same result object the 200 success path would have returned.
@@ -274,4 +283,91 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
             }
         }.getOrDefault(PgmEditSubmitResult.NetworkError)
     }
+
+    suspend fun getMixCatalog(job: String, material: String): MixCatalogFetchResult = withContext(Dispatchers.IO) {
+        val url = materialUrl(job, material).newBuilder()
+            .addPathSegment("mix-catalog")
+            .build()
+        val request = Request.Builder().url(url).get().build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                if (response.code != 200) return@use MixCatalogFetchResult.NetworkError
+                val envelope = gson.fromJson(response.body?.string().orEmpty(), MixCatalogEnvelope::class.java)
+                    ?: return@use MixCatalogFetchResult.NetworkError
+                val revision = envelope.revision ?: return@use MixCatalogFetchResult.NetworkError
+                MixCatalogFetchResult.Success(MixCatalogSnapshot(job, material, revision, envelope.entries))
+            }
+        }.getOrDefault(MixCatalogFetchResult.NetworkError)
+    }
+
+    suspend fun replaceMix(
+        job: String,
+        material: String,
+        name: String,
+        programs: List<String>,
+        expectedRevision: Long
+    ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
+        val url = materialUrl(job, material).newBuilder()
+            .addPathSegment("mixes")
+            .addPathSegment(name)
+            .addPathSegment("replace")
+            .build()
+        val body = gson.toJson(
+            mapOf("programs" to programs, "expectedRevision" to expectedRevision)
+        ).toRequestBody(jsonMediaType)
+        val request = Request.Builder().url(url).post(body).build()
+        executeCatalogMutation(request, job, material)
+    }
+
+    suspend fun deleteExternalMix(
+        job: String,
+        material: String,
+        filename: String,
+        expectedRevision: Long
+    ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
+        val url = materialUrl(job, material).newBuilder()
+            .addPathSegment("external-mixes")
+            .addPathSegment(filename)
+            .addQueryParameter("expectedRevision", expectedRevision.toString())
+            .build()
+        val request = Request.Builder().url(url).delete().build()
+        executeCatalogMutation(request, job, material)
+    }
+
+    private fun executeCatalogMutation(
+        request: Request,
+        job: String,
+        material: String
+    ): MixCatalogMutationResult = runCatching {
+        client.newCall(request).execute().use { response ->
+            when (response.code) {
+                200 -> {
+                    val envelope = gson.fromJson(
+                        response.body?.string().orEmpty(),
+                        MixCatalogMutationEnvelope::class.java
+                    ) ?: return@use MixCatalogMutationResult.NetworkError
+                    val catalog = envelope.catalog ?: return@use MixCatalogMutationResult.NetworkError
+                    val revision = catalog.revision ?: return@use MixCatalogMutationResult.NetworkError
+                    MixCatalogMutationResult.Success(MixCatalogSnapshot(job, material, revision, catalog.entries))
+                }
+                409 -> when (errorCode(response)) {
+                    "catalog_changed" -> MixCatalogMutationResult.CatalogChanged
+                    "external_mixes_present" -> MixCatalogMutationResult.ExternalMixesPresent
+                    else -> MixCatalogMutationResult.NetworkError
+                }
+                400, 404, 422 -> MixCatalogMutationResult.BadRequest(errorMessage(response))
+                else -> MixCatalogMutationResult.NetworkError
+            }
+        }
+    }.getOrDefault(MixCatalogMutationResult.NetworkError)
+
+    private fun materialUrl(job: String, material: String) = "$root/jobs/".toHttpUrl().newBuilder()
+        .addPathSegment(job)
+        .addPathSegment("materials")
+        .addPathSegment(material)
+        .build()
+
+    private fun errorCode(response: Response): String =
+        runCatching { gson.fromJson(response.body?.string().orEmpty(), ErrorEnvelope::class.java)?.code }
+            .getOrNull().orEmpty()
 }

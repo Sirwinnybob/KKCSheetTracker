@@ -337,4 +337,69 @@ class MixServiceClientTest {
         server.enqueue(MockResponse().setResponseCode(504))
         check(client().submitPgmEdits("648", "M", "r4", emptyList()) is PgmEditSubmitResult.WinxisoTimeout)
     }
+
+    @Test
+    fun `getMixCatalog parses lifecycle entries and requests encoded catalog route`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R2.pgm"],"status":"compiled"},{"name":"Old","mixFilename":"Old.mix","lifecycle":"history","programs":["R1.pgm"]},{"name":"Manual.mix","mixFilename":"Manual.mix","lifecycle":"external"}]}"""
+            )
+        )
+
+        val result = client().getMixCatalog("100 - Alpha", "19mm Pre_Finished")
+
+        check(result is MixCatalogFetchResult.Success)
+        assertEquals(17L, result.snapshot.revision)
+        assertEquals(listOf(MixLifecycle.ACTIVE, MixLifecycle.HISTORY, MixLifecycle.EXTERNAL), result.snapshot.entries.map { it.lifecycle })
+        assertEquals("compiled", result.snapshot.entries.first().status)
+        assertEquals("/jobs/100%20-%20Alpha/materials/19mm%20Pre_Finished/mix-catalog", server.takeRequest().path)
+    }
+
+    @Test
+    fun `replaceMix posts programs and numeric expected revision then returns catalog`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"catalog":{"revision":19,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R2.pgm"]}]}}"""
+            )
+        )
+
+        val result = client().replaceMix("100 - Alpha", "Mat", "Current", listOf("R2.pgm"), 17L)
+
+        check(result is MixCatalogMutationResult.Success)
+        assertEquals(19L, result.snapshot.revision)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/jobs/100%20-%20Alpha/materials/Mat/mixes/Current/replace", recorded.path)
+        val body = JSONObject(recorded.body.readUtf8())
+        assertEquals(17L, body.getLong("expectedRevision"))
+        assertEquals("R2.pgm", body.getJSONArray("programs").getString(0))
+        assertFalse(body.get("expectedRevision") is String)
+    }
+
+    @Test
+    fun `catalog mutations map catalog changed conflicts distinctly`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"ok":false,"code":"catalog_changed"}"""))
+
+        assertTrue(client().replaceMix("100", "Mat", "Current", listOf("R1.pgm"), 7L) is MixCatalogMutationResult.CatalogChanged)
+    }
+
+    @Test
+    fun `deleteExternalMix sends numeric expected revision query`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"catalog":{"revision":23,"entries":[]}}"""
+            )
+        )
+
+        val result = client().deleteExternalMix("100 - Alpha", "Mat", "Manual.mix", 22L)
+
+        check(result is MixCatalogMutationResult.Success)
+        assertEquals(23L, result.snapshot.revision)
+        val recorded = server.takeRequest()
+        assertEquals("DELETE", recorded.method)
+        assertEquals(
+            "/jobs/100%20-%20Alpha/materials/Mat/external-mixes/Manual.mix?expectedRevision=22",
+            recorded.path
+        )
+    }
 }
