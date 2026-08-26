@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.data.mixservice
 
 import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONObject
@@ -401,5 +402,87 @@ class MixServiceClientTest {
             "/jobs/100%20-%20Alpha/materials/Mat/external-mixes/Manual.mix?expectedRevision=22",
             recorded.path
         )
+    }
+
+    @Test
+    fun `catalog mutation keeps completed history sync failures distinct and includes the catalog`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(503).setBody(
+                """{"ok":false,"code":"compile_busy","mix":{"ok":true,"catalog":{"revision":3,"entries":[]}},"recoveryUrl":"/recovery"}"""
+            )
+        )
+
+        val result = client().replaceMix("100", "Mat", "Current", listOf("R1.pgm"), 2L)
+
+        check(result is MixCatalogMutationResult.SyncFailed)
+        assertEquals("compile_busy", result.code)
+        assertEquals(3L, result.snapshot.revision)
+        assertEquals("/recovery", result.recoveryUrl)
+    }
+
+    @Test
+    fun `catalog mutation maps retryable service outcomes without masking their cause`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"ok":false,"code":"edit_busy"}"""))
+        check(client().replaceMix("100", "Mat", "Current", listOf("R1.pgm"), 2L) is MixCatalogMutationResult.EditBusy)
+
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"ok":false,"code":"compile_busy"}"""))
+        check(client().replaceMix("100", "Mat", "Current", listOf("R1.pgm"), 2L) is MixCatalogMutationResult.CompileBusy)
+
+        server.enqueue(MockResponse().setResponseCode(504).setBody("""{"ok":false,"code":"winxiso_timeout"}"""))
+        check(client().replaceMix("100", "Mat", "Current", listOf("R1.pgm"), 2L) is MixCatalogMutationResult.WinxisoTimeout)
+
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"ok":false,"code":"missing_program","error":"missing program: R9.pgm"}"""))
+        val missing = client().replaceMix("100", "Mat", "Current", listOf("R9.pgm"), 2L)
+        check(missing is MixCatalogMutationResult.MissingProgram)
+        assertEquals("R9.pgm", missing.pgm)
+    }
+
+    @Test
+    fun `catalog mutation maps an uncompleted history sync error distinctly`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(500)
+                .setBody("""{"ok":false,"code":"history_sync_failed","error":"sidecar unavailable"}""")
+        )
+
+        val result = client().deleteExternalMix("100", "Mat", "Manual.mix", 2L)
+
+        check(result is MixCatalogMutationResult.HistorySyncError)
+        assertEquals("sidecar unavailable", result.message)
+    }
+
+    @Test
+    fun `repository persists a successful mutation catalog before returning it`() = runBlocking {
+        val root = Files.createTempDirectory("mix-catalog-repository").toFile()
+        try {
+            server.enqueue(MockResponse().setBody("""{"ok":true,"catalog":{"revision":3,"entries":[]}}"""))
+            val repository = MixCatalogRepository(client(), MixCatalogCache(root))
+
+            val result = repository.deleteExternalMix("100", "Mat", "Manual.mix", 2L)
+
+            check(result is MixCatalogMutationResult.Success)
+            assertEquals(3L, MixCatalogCache(root).read("100", "Mat")?.revision)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `repository persists a completed sync failure catalog before returning it`() = runBlocking {
+        val root = Files.createTempDirectory("mix-catalog-repository").toFile()
+        try {
+            server.enqueue(
+                MockResponse().setResponseCode(503).setBody(
+                    """{"ok":false,"code":"compile_busy","mix":{"ok":true,"catalog":{"revision":3,"entries":[]}}}"""
+                )
+            )
+            val repository = MixCatalogRepository(client(), MixCatalogCache(root))
+
+            val result = repository.deleteExternalMix("100", "Mat", "Manual.mix", 2L)
+
+            check(result is MixCatalogMutationResult.SyncFailed)
+            assertEquals(3L, MixCatalogCache(root).read("100", "Mat")?.revision)
+        } finally {
+            root.deleteRecursively()
+        }
     }
 }

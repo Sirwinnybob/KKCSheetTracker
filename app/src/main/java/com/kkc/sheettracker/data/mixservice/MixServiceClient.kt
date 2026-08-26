@@ -66,6 +66,13 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         val ok: Boolean = false,
         val catalog: MixCatalogEnvelope? = null
     )
+    private data class MixCatalogSyncErrorEnvelope(
+        val ok: Boolean = false,
+        val code: String? = null,
+        val error: String? = null,
+        val mix: MixCatalogMutationEnvelope? = null,
+        val recoveryUrl: String? = null
+    )
     // A history-sync-failure error body's own "mix" field is the *whole* completed-mutation
     // envelope (i.e. another {ok, mix, status}), not a bare MixDefinition -- the server nests it
     // because it's literally the same result object the 200 success path would have returned.
@@ -294,8 +301,8 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
                 if (response.code != 200) return@use MixCatalogFetchResult.NetworkError
                 val envelope = gson.fromJson(response.body?.string().orEmpty(), MixCatalogEnvelope::class.java)
                     ?: return@use MixCatalogFetchResult.NetworkError
-                val revision = envelope.revision ?: return@use MixCatalogFetchResult.NetworkError
-                MixCatalogFetchResult.Success(MixCatalogSnapshot(job, material, revision, envelope.entries))
+                val snapshot = envelope.toSnapshot(job, material) ?: return@use MixCatalogFetchResult.NetworkError
+                MixCatalogFetchResult.Success(snapshot)
             }
         }.getOrDefault(MixCatalogFetchResult.NetworkError)
     }
@@ -340,26 +347,72 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         material: String
     ): MixCatalogMutationResult = runCatching {
         client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
             when (response.code) {
                 200 -> {
                     val envelope = gson.fromJson(
-                        response.body?.string().orEmpty(),
+                        body,
                         MixCatalogMutationEnvelope::class.java
                     ) ?: return@use MixCatalogMutationResult.NetworkError
-                    val catalog = envelope.catalog ?: return@use MixCatalogMutationResult.NetworkError
-                    val revision = catalog.revision ?: return@use MixCatalogMutationResult.NetworkError
-                    MixCatalogMutationResult.Success(MixCatalogSnapshot(job, material, revision, catalog.entries))
+                    envelope.toSnapshot(job, material)?.let(MixCatalogMutationResult::Success)
+                        ?: MixCatalogMutationResult.NetworkError
                 }
-                409 -> when (errorCode(response)) {
-                    "catalog_changed" -> MixCatalogMutationResult.CatalogChanged
-                    "external_mixes_present" -> MixCatalogMutationResult.ExternalMixesPresent
-                    else -> MixCatalogMutationResult.NetworkError
-                }
-                400, 404, 422 -> MixCatalogMutationResult.BadRequest(errorMessage(response))
-                else -> MixCatalogMutationResult.NetworkError
+                else -> parseCatalogMutationFailure(response.code, body, job, material)
             }
         }
     }.getOrDefault(MixCatalogMutationResult.NetworkError)
+
+    private fun parseCatalogMutationFailure(
+        statusCode: Int,
+        body: String,
+        job: String,
+        material: String
+    ): MixCatalogMutationResult {
+        val syncFailure = runCatching {
+            gson.fromJson(body, MixCatalogSyncErrorEnvelope::class.java)
+        }.getOrNull()?.let { envelope ->
+            envelope.mix?.toSnapshot(job, material)?.let { snapshot ->
+                MixCatalogMutationResult.SyncFailed(
+                    snapshot = snapshot,
+                    code = envelope.code ?: "history_sync_failed",
+                    recoveryUrl = envelope.recoveryUrl
+                )
+            }
+        }
+        if (syncFailure != null) return syncFailure
+
+        val error = runCatching { gson.fromJson(body, ErrorEnvelope::class.java) }.getOrNull()
+        val code = error?.code.orEmpty()
+        val message = error?.error.orEmpty()
+        return when (code) {
+            "catalog_changed" -> MixCatalogMutationResult.CatalogChanged
+            "external_mixes_present" -> MixCatalogMutationResult.ExternalMixesPresent
+            "edit_busy" -> MixCatalogMutationResult.EditBusy
+            "compile_busy" -> MixCatalogMutationResult.CompileBusy
+            "winxiso_timeout" -> MixCatalogMutationResult.WinxisoTimeout
+            "missing_program" -> MixCatalogMutationResult.MissingProgram(
+                message.removePrefix("missing program:").trim()
+            )
+            "history_sync_failed" -> MixCatalogMutationResult.HistorySyncError(message)
+            else -> when (statusCode) {
+                400, 404, 422 -> MixCatalogMutationResult.BadRequest(message)
+                else -> MixCatalogMutationResult.NetworkError
+            }
+        }
+    }
+
+    private fun MixCatalogEnvelope.toSnapshot(
+        job: String,
+        material: String,
+        requireOk: Boolean = true
+    ): MixCatalogSnapshot? {
+        if (requireOk && !ok) return null
+        val revision = revision ?: return null
+        return MixCatalogSnapshot(job, material, revision, entries)
+    }
+
+    private fun MixCatalogMutationEnvelope.toSnapshot(job: String, material: String): MixCatalogSnapshot? =
+        if (ok) catalog?.toSnapshot(job, material, requireOk = false) else null
 
     private fun materialUrl(job: String, material: String) = "$root/jobs/".toHttpUrl().newBuilder()
         .addPathSegment(job)
@@ -367,7 +420,4 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         .addPathSegment(material)
         .build()
 
-    private fun errorCode(response: Response): String =
-        runCatching { gson.fromJson(response.body?.string().orEmpty(), ErrorEnvelope::class.java)?.code }
-            .getOrNull().orEmpty()
 }

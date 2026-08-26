@@ -43,11 +43,13 @@ class MixCatalogCacheTest {
         cache.write(snapshot(7L))
         val dataFile = root.listFiles()!!.single()
         dataFile.writeText("not json")
-        assertNull(cache.read("100 - Alpha", "Mat"))
+        assertNull(MixCatalogCache(root).read("100 - Alpha", "Mat"))
 
         cache.write(snapshot(7L))
-        dataFile.writeText("""{"job":"other","material":"Mat","revision":7,"entries":[]}""")
-        assertNull(cache.read("100 - Alpha", "Mat"))
+        dataFile.writeText(
+            """{"fetchedAtMillis":1,"snapshot":{"job":"other","material":"Mat","revision":7,"entries":[]}}"""
+        )
+        assertNull(MixCatalogCache(root).read("100 - Alpha", "Mat"))
     }
 
     @Test
@@ -62,14 +64,54 @@ class MixCatalogCacheTest {
     }
 
     @Test
-    fun `cache replaces a snapshot only when the revision is higher`() {
+    fun `cache replaces a snapshot when a different revision is fetched`() {
         val cache = MixCatalogCache(root)
         cache.write(snapshot(7L, "Current"))
 
-        assertFalse(cache.write(snapshot(6L, "Older")))
+        assertTrue(cache.write(snapshot(6L, "Different")))
         assertTrue(cache.write(snapshot(8L, "Newer")))
         assertEquals(8L, cache.read("100 - Alpha", "Mat")?.revision)
         assertEquals("Newer", cache.read("100 - Alpha", "Mat")?.entries?.single()?.name)
+    }
+
+    @Test
+    fun `cache rejects snapshots with invalid required fields and lifecycles`() {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(7L))
+        val dataFile = root.listFiles()!!.single()
+
+        listOf(
+            """{"fetchedAtMillis":1,"snapshot":{"job":"","material":"Mat","revision":7,"entries":[]}}""",
+            """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":"7","entries":[]}}""",
+            """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":7.5,"entries":[]}}""",
+            """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":7,"entries":null}}""",
+            """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":7,"entries":[null]}}""",
+            """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":7,"entries":[{"name":"","mixFilename":"Current.mix","lifecycle":"active"}]}}""",
+            """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":7,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"unknown"}]}}"""
+        ).forEach { invalid ->
+            dataFile.writeText(invalid)
+            assertNull(MixCatalogCache(root).read("100 - Alpha", "Mat"))
+        }
+    }
+
+    @Test
+    fun `cache keeps a fetched timestamp with the in-memory entry`() {
+        val cache = MixCatalogCache(root, nowMillis = { 1234L })
+        cache.write(snapshot(7L))
+
+        assertEquals(1234L, cache.readCached("100 - Alpha", "Mat")?.fetchedAtMillis)
+    }
+
+    @Test
+    fun `cache reads the fresh in-memory entry before the backing file`() {
+        val cache = MixCatalogCache(root, nowMillis = { 1234L })
+        cache.write(snapshot(7L))
+        root.listFiles()!!.single().delete()
+
+        val cached = cache.readCached("100 - Alpha", "Mat")
+
+        assertEquals(7L, cached?.snapshot?.revision)
+        assertEquals(1234L, cached?.fetchedAtMillis)
     }
 
     private fun snapshot(revision: Long, name: String = "Current") = MixCatalogSnapshot(

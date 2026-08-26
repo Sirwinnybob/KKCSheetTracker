@@ -93,8 +93,19 @@ sealed class MixCatalogFetchResult {
 
 sealed class MixCatalogMutationResult {
     data class Success(val snapshot: MixCatalogSnapshot) : MixCatalogMutationResult()
+    /** The CNC mutation completed; retrying it could duplicate the completed change. */
+    data class SyncFailed(
+        val snapshot: MixCatalogSnapshot,
+        val code: String,
+        val recoveryUrl: String?
+    ) : MixCatalogMutationResult()
     object CatalogChanged : MixCatalogMutationResult()
     object ExternalMixesPresent : MixCatalogMutationResult()
+    object EditBusy : MixCatalogMutationResult()
+    object CompileBusy : MixCatalogMutationResult()
+    object WinxisoTimeout : MixCatalogMutationResult()
+    data class MissingProgram(val pgm: String) : MixCatalogMutationResult()
+    data class HistorySyncError(val message: String) : MixCatalogMutationResult()
     data class BadRequest(val message: String) : MixCatalogMutationResult()
     object NetworkError : MixCatalogMutationResult()
 }
