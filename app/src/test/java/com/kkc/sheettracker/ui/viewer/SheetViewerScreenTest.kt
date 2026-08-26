@@ -4,6 +4,10 @@ import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.kkc.sheettracker.data.IdlePhase
+import com.kkc.sheettracker.data.mixservice.MixCatalogEntry
+import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MixLifecycle
+import com.kkc.sheettracker.data.models.PageMetadata
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -16,6 +20,95 @@ import java.io.File
 import kotlin.math.abs
 
 class SheetViewerScreenTest {
+
+    @Test
+    fun selectedMixDisplayPosition_numbersPhysicalPageWithinFilteredOrder() {
+        assertEquals(
+            SheetViewerDisplayPosition(sheetNumber = 1, totalSheets = 2),
+            resolveSheetViewerDisplayPosition(
+                visiblePages = listOf(2, 4),
+                currentPhysicalPage = 2,
+                fallbackTotal = 8
+            )
+        )
+    }
+
+    @Test
+    fun noSelectedMix_retainsNaturalVisiblePageOrder() {
+        assertEquals(
+            SheetViewerMixPages.Resolved(listOf(1, 3)),
+            resolveSelectedMixVisiblePages(
+                mixName = null,
+                catalog = null,
+                pages = emptyList(),
+                naturalOrder = listOf(1, 3)
+            )
+        )
+    }
+
+    @Test
+    fun selectedActiveMix_usesOnlyItsExactProgramPageOrder() {
+        val result = resolveSelectedMixVisiblePages(
+            mixName = "Alpha",
+            catalog = MixCatalogSnapshot(
+                job = "12345",
+                material = "Maple",
+                revision = 7,
+                entries = listOf(
+                    MixCatalogEntry(
+                        name = "Alpha",
+                        mixFilename = "Alpha.mix",
+                        lifecycle = MixLifecycle.ACTIVE,
+                        programs = listOf("R4.pgm", "R2.pgm")
+                    ),
+                    MixCatalogEntry(
+                        name = "Other",
+                        mixFilename = "Other.mix",
+                        lifecycle = MixLifecycle.ACTIVE,
+                        programs = listOf("R1.pgm", "R3.pgm")
+                    )
+                )
+            ),
+            pages = listOf(
+                PageMetadata(pageNumber = 1, sheetFiles = listOf("R1")),
+                PageMetadata(pageNumber = 2, sheetFiles = listOf("R2")),
+                PageMetadata(pageNumber = 3, sheetFiles = listOf("R3")),
+                PageMetadata(pageNumber = 4, sheetFiles = listOf("R4"))
+            ),
+            naturalOrder = listOf(1, 2, 3, 4)
+        )
+
+        assertEquals(SheetViewerMixPages.Resolved(listOf(4, 2)), result)
+    }
+
+    @Test
+    fun selectedMissingOrInactiveMix_isUnavailableInsteadOfFallingBack() {
+        val pages = listOf(PageMetadata(pageNumber = 1, sheetFiles = listOf("R1")))
+        val catalog = MixCatalogSnapshot(
+            job = "12345",
+            material = "Maple",
+            revision = 7,
+            entries = listOf(
+                MixCatalogEntry(
+                    name = "History",
+                    mixFilename = "History.mix",
+                    lifecycle = MixLifecycle.HISTORY
+                ),
+                MixCatalogEntry(
+                    name = "External",
+                    mixFilename = "External.mix",
+                    lifecycle = MixLifecycle.EXTERNAL
+                )
+            )
+        )
+
+        listOf("Missing", "History", "External").forEach { mixName ->
+            assertEquals(
+                SheetViewerMixPages.Unavailable,
+                resolveSelectedMixVisiblePages(mixName, catalog, pages, naturalOrder = listOf(1))
+            )
+        }
+    }
 
     @Test
     fun shouldInvertCncSheetBitmap_matchesTimeoutAndDarkSheetRules() {

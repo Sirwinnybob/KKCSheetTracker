@@ -119,6 +119,13 @@ import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SheetStatusKey
+import com.kkc.sheettracker.data.mixservice.MixCatalogCache
+import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
+import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
+import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MixLifecycle
+import com.kkc.sheettracker.data.mixservice.MixServiceClient
+import com.kkc.sheettracker.data.mixservice.pagesForMix
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import com.kkc.sheettracker.ui.components.LocalIdlePhase
@@ -277,6 +284,52 @@ internal fun cncSheetViewerTitle(jobNumber: String?, materialName: String): Stri
     return if (number.isBlank()) materialName else "$number - $materialName"
 }
 
+internal data class SheetViewerDisplayPosition(
+    val sheetNumber: Int,
+    val totalSheets: Int
+)
+
+internal fun resolveSheetViewerDisplayPosition(
+    visiblePages: List<Int>,
+    currentPhysicalPage: Int,
+    fallbackTotal: Int
+): SheetViewerDisplayPosition {
+    val currentIndex = visiblePages.indexOf(currentPhysicalPage)
+    return if (currentIndex >= 0) {
+        SheetViewerDisplayPosition(sheetNumber = currentIndex + 1, totalSheets = visiblePages.size)
+    } else {
+        SheetViewerDisplayPosition(
+            sheetNumber = currentPhysicalPage,
+            totalSheets = visiblePages.size.takeIf { it > 0 } ?: fallbackTotal
+        )
+    }
+}
+
+internal sealed class SheetViewerMixPages {
+    data class Resolved(val pages: List<Int>) : SheetViewerMixPages()
+    object AwaitingCatalog : SheetViewerMixPages()
+    object Unavailable : SheetViewerMixPages()
+}
+
+internal fun resolveSelectedMixVisiblePages(
+    mixName: String?,
+    catalog: MixCatalogSnapshot?,
+    pages: List<PageMetadata>,
+    naturalOrder: List<Int>
+): SheetViewerMixPages {
+    if (mixName == null) return SheetViewerMixPages.Resolved(naturalOrder)
+    val selectedMix = catalog?.entries?.firstOrNull { it.name == mixName }
+        ?: return if (catalog == null) SheetViewerMixPages.AwaitingCatalog else SheetViewerMixPages.Unavailable
+    if (selectedMix.lifecycle != MixLifecycle.ACTIVE) return SheetViewerMixPages.Unavailable
+    return SheetViewerMixPages.Resolved(
+        pagesForMix(
+            pages = pages,
+            naturalOrder = naturalOrder,
+            programs = selectedMix.programs
+        )
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SheetViewerScreen(
@@ -318,6 +371,12 @@ fun SheetViewerScreen(
     val appFlags = remember(appStateFlags) { appStateFlags.snapshot() }
     val useAppStateStatus = appFlags.viewerStatusEnabled
     val context = LocalContext.current
+    val mixCatalogRepository = remember(context.applicationContext) {
+        MixCatalogRepository(
+            client = MixServiceClient(),
+            cache = MixCatalogCache.inAppFiles(context.applicationContext)
+        )
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
     val sharedPrefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
@@ -355,12 +414,11 @@ fun SheetViewerScreen(
     var lastPersistedViewAtMs by remember(jobFolderName, pdfFilename) { mutableStateOf(0L) }
     var totalPages by remember { mutableIntStateOf(0) }
     var visiblePages by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var hasResolvedVisiblePages by remember { mutableStateOf(false) }
     var pageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var diagramBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var jobMaterials by remember { mutableStateOf<List<Material>>(emptyList()) }
     var currentMaterial by remember { mutableStateOf<Material?>(null) }
-    val mixServiceClient = remember { com.kkc.sheettracker.data.mixservice.MixServiceClient() }
-    var currentMixPrograms by remember { mutableStateOf<List<String>>(emptyList()) }
     val currentPageMetadata = remember(currentMaterial, currentPage) {
         resolvePageMetadata(currentMaterial, currentPage)
     }
@@ -741,7 +799,41 @@ fun SheetViewerScreen(
         unifiedEngine.getCachedJobInfos().find { it.folderName == jobFolderName }
     }
 
-    LaunchedEffect(jobFolderName, pdfFilename, scanState.snapshot.generation, currentMixPrograms) {
+    fun applySelectedMixPages(
+        material: Material,
+        catalog: MixCatalogSnapshot?
+    ): SheetViewerMixPages {
+        val resolution = resolveSelectedMixVisiblePages(
+            mixName = mixName,
+            catalog = catalog,
+            pages = material.metadata?.pages.orEmpty(),
+            naturalOrder = material.visibleSheetPages()
+        )
+        when (resolution) {
+            is SheetViewerMixPages.Resolved -> {
+                visiblePages = resolution.pages
+                hasResolvedVisiblePages = true
+            }
+            SheetViewerMixPages.AwaitingCatalog -> {
+                visiblePages = emptyList()
+                hasResolvedVisiblePages = false
+            }
+            SheetViewerMixPages.Unavailable -> {
+                visiblePages = emptyList()
+                hasResolvedVisiblePages = false
+            }
+        }
+        return resolution
+    }
+
+    fun redirectForUnavailableSelectedMix() {
+        if (!didRedirectForUnavailableMaterial) {
+            didRedirectForUnavailableMaterial = true
+            onMaterialUnavailable()
+        }
+    }
+
+    LaunchedEffect(jobFolderName, pdfFilename, scanState.snapshot.generation, mixName) {
         val job = withContext(Dispatchers.IO) {
             unifiedEngine.getCncSnapshot(jobFolderName)?.job
         }
@@ -764,24 +856,27 @@ fun SheetViewerScreen(
         }
 
         currentMaterial = nextMaterial
-        val naturalOrder = nextMaterial?.visibleSheetPages().orEmpty()
-        visiblePages = if (nextMaterial == null) naturalOrder else {
-            com.kkc.sheettracker.data.mixservice.reorderVisiblePages(
-                pages = nextMaterial.metadata?.pages.orEmpty(),
-                naturalOrder = naturalOrder,
-                mixPrograms = currentMixPrograms
-            )
+        val cachedCatalog = nextMaterial?.takeIf { mixName != null }?.let { material ->
+            withContext(Dispatchers.IO) {
+                mixCatalogRepository.cached(jobFolderName, material.materialName)
+            }
+        }
+        val pageResolution = nextMaterial?.let { material ->
+            applySelectedMixPages(material, cachedCatalog)
         }
         if (nextMaterial != null) {
             hasBoundInitialMaterial = true
-            didRedirectForUnavailableMaterial = false
+            if (pageResolution == SheetViewerMixPages.Unavailable) {
+                redirectForUnavailableSelectedMix()
+                return@LaunchedEffect
+            }
+            if (pageResolution is SheetViewerMixPages.Resolved) {
+                didRedirectForUnavailableMaterial = false
+            }
             val localTouchPage = progressStore
                 .getLocalMaterialLastTouches(jobFolderName)[pdfFilename]
                 ?.page
-            if (visiblePages.isEmpty()) {
-                val resolved = (localTouchPage ?: startPage).coerceIn(1, nextMaterial.pageCount.coerceAtLeast(1))
-                currentPage = resolved
-            } else {
+            if (pageResolution is SheetViewerMixPages.Resolved && visiblePages.isNotEmpty()) {
                 val requested = nextMaterial.resolveHeadPage(localTouchPage ?: startPage)
                 val identityChanged = oldIdentity != nextIdentity
                 currentPage = when {
@@ -790,6 +885,22 @@ fun SheetViewerScreen(
                     else -> visiblePages.first()
                 }
             }
+
+            if (mixName != null) {
+                scope.launch {
+                    val refreshed = mixCatalogRepository.refresh(jobFolderName, nextMaterial.materialName)
+                    if (refreshed !is MixCatalogFetchResult.Success) return@launch
+                    val currentIdentity = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                    if (currentIdentity != nextIdentity) return@launch
+                    when (applySelectedMixPages(nextMaterial, refreshed.snapshot)) {
+                        SheetViewerMixPages.Unavailable -> redirectForUnavailableSelectedMix()
+                        else -> Unit
+                    }
+                }
+            }
+        } else {
+            visiblePages = emptyList()
+            hasResolvedVisiblePages = false
         }
 
         if (oldIdentity != nextIdentity) {
@@ -808,18 +919,9 @@ fun SheetViewerScreen(
         previousMaterialIdentity = nextIdentity
     }
 
-    LaunchedEffect(currentMaterial?.materialName) {
-        val materialName = currentMaterial?.materialName
-        currentMixPrograms = if (materialName == null) emptyList() else {
-            // TODO: if more than one mix exists for this material, this silently picks the first
-            // rather than surfacing a conflict (design spec Section 7) — matches ManageCodeScreen's
-            // same known gap, not yet handled.
-            mixServiceClient.listMixes(jobFolderName, materialName)?.firstOrNull()?.programs.orEmpty()
-        }
-    }
-
-    LaunchedEffect(currentMaterial, visiblePages, currentPage, currentMixPrograms) {
+    LaunchedEffect(currentMaterial, visiblePages, currentPage, hasResolvedVisiblePages) {
         val material = currentMaterial ?: return@LaunchedEffect
+        if (!hasResolvedVisiblePages) return@LaunchedEffect
         if (visiblePages.isEmpty()) return@LaunchedEffect
         if (currentPage in visiblePages) return@LaunchedEffect
         val headPage = material.resolveHeadPage(currentPage)
@@ -842,16 +944,17 @@ fun SheetViewerScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(currentPage, fileFingerprint) {
+    LaunchedEffect(currentPage, fileFingerprint, visiblePages, hasResolvedVisiblePages) {
         val material = currentMaterial ?: run {
             Log.w(SHEET_RENDER_TAG, "render_guard: currentMaterial=null page=$currentPage fp=$fileFingerprint")
             return@LaunchedEffect
         }
+        if (!hasResolvedVisiblePages) return@LaunchedEffect
         if (fileFingerprint.isBlank()) {
             Log.w(SHEET_RENDER_TAG, "render_guard: fileFingerprint blank page=$currentPage material=${material.pdfFilename}")
             return@LaunchedEffect
         }
-        val pages = visiblePages.ifEmpty { material.visibleSheetPages() }
+        val pages = visiblePages
         if (pages.isEmpty()) {
             Log.w(SHEET_RENDER_TAG, "render_guard: pages empty page=$currentPage material=${material.pdfFilename}")
             return@LaunchedEffect
@@ -919,10 +1022,11 @@ fun SheetViewerScreen(
         diagramBboxes = meta.toSidecarDiagramBounds()
     }
 
-    LaunchedEffect(currentPage, totalPages, fileFingerprint) {
+    LaunchedEffect(currentPage, totalPages, fileFingerprint, visiblePages, hasResolvedVisiblePages) {
         val material = currentMaterial ?: return@LaunchedEffect
+        if (!hasResolvedVisiblePages) return@LaunchedEffect
         if (fileFingerprint.isBlank()) return@LaunchedEffect
-        val pages = visiblePages.ifEmpty { material.visibleSheetPages() }
+        val pages = visiblePages
         if (pages.isEmpty()) return@LaunchedEffect
         val currentIndex = pages.indexOf(currentPage)
         if (currentIndex < 0) return@LaunchedEffect
@@ -1024,10 +1128,15 @@ fun SheetViewerScreen(
             ?.toSet()
             .orEmpty()
     }
-    val effectiveVisiblePages = if (visiblePages.isNotEmpty()) visiblePages else currentMaterial?.visibleSheetPages().orEmpty()
+    val effectiveVisiblePages = if (hasResolvedVisiblePages) visiblePages else emptyList()
     val currentVisibleIndex = effectiveVisiblePages.indexOf(currentPage).let { if (it >= 0) it else 0 }
-    val visibleTotalPages = if (effectiveVisiblePages.isNotEmpty()) effectiveVisiblePages.size else totalPages
-    val displayPageNumber = if (effectiveVisiblePages.isNotEmpty()) currentVisibleIndex + 1 else currentPage
+    val displayPosition = resolveSheetViewerDisplayPosition(
+        visiblePages = effectiveVisiblePages,
+        currentPhysicalPage = currentPage,
+        fallbackTotal = totalPages
+    )
+    val visibleTotalPages = displayPosition.totalSheets
+    val displayPageNumber = displayPosition.sheetNumber
     val tocMetadataPages = currentMaterial?.metadata?.pages.orEmpty()
 
     LaunchedEffect(
@@ -1159,9 +1268,11 @@ fun SheetViewerScreen(
                     // changed between the last push and this tap, those snapshots would lag —
                     // marking one sheet complete while resolving remake parts / reporting the
                     // page number of another. Recomputing from `page` keeps all three in sync.
-                    val displayNo = if (effectiveVisiblePages.isNotEmpty())
-                        effectiveVisiblePages.indexOf(page).let { if (it >= 0) it + 1 else page }
-                    else page
+                    val displayNo = resolveSheetViewerDisplayPosition(
+                        visiblePages = effectiveVisiblePages,
+                        currentPhysicalPage = page,
+                        fallbackTotal = totalPages
+                    ).sheetNumber
                     val remakeParts = resolvePageMetadata(currentMaterial, page)?.remake?.remadeParts
                         ?.mapNotNull { remade -> remade.partNumber.takeIf { it > 0 } }
                         ?.toSet()
