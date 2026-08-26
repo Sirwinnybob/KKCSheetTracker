@@ -427,11 +427,17 @@ fun JobDetailScreen(
                 }
 
                 item(key = "specialty-compact-section") {
-                    val resolvedItems = remember(jobFolderName) { specialtyStateStore.getResolvedItems(jobFolderName) }
-                    val hasSpecialty = com.kkc.sheettracker.ui.specialty.buildSpecialtySectionRows(
-                        resolvedItems,
-                        com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode.CNC
-                    ).isNotEmpty()
+                    val specialtyScanState by specialtyStateStore.scanState.collectAsState()
+                    val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
+                    val resolvedItems = remember(specialtyScanState.snapshot.generation, specialtyProgressVersion, jobFolderName) {
+                        specialtyStateStore.getResolvedItems(jobFolderName)
+                    }
+                    val hasSpecialty = remember(resolvedItems) {
+                        com.kkc.sheettracker.ui.specialty.buildSpecialtySectionRows(
+                            resolvedItems,
+                            SpecialtySurfaceMode.CNC
+                        ).isNotEmpty()
+                    }
                     if (hasSpecialty) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
