@@ -39,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -59,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.AppStateFeatureFlags
@@ -441,7 +443,8 @@ fun JobDetailScreen(
                     if (hasSpecialty) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(com.kkc.sheettracker.ui.theme.KKCSpacing.s)
+                            horizontalArrangement = Arrangement.spacedBy(com.kkc.sheettracker.ui.theme.KKCSpacing.s),
+                            verticalAlignment = Alignment.Top
                         ) {
                             CompactSpecialtySection(
                                 jobFolderName = jobFolderName,
@@ -449,19 +452,50 @@ fun JobDetailScreen(
                                 mode = SpecialtySurfaceMode.CNC,
                                 modifier = Modifier.weight(0.75f)
                             )
-                            Button(
+                            Surface(
                                 onClick = { onOpenManageCode() },
-                                modifier = Modifier.weight(0.25f).fillMaxWidth()
+                                modifier = Modifier.weight(0.25f),
+                                shape = MaterialTheme.shapes.large,
+                                tonalElevation = 3.dp,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             ) {
-                                Text("Manage code")
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = com.kkc.sheettracker.ui.theme.KKCSpacing.s, vertical = com.kkc.sheettracker.ui.theme.KKCSpacing.xxl),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "Manage code",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
                             }
                         }
                     } else {
-                        Button(
+                        Surface(
                             onClick = { onOpenManageCode() },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.large,
+                            tonalElevation = 3.dp,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         ) {
-                            Text("Manage code")
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = com.kkc.sheettracker.ui.theme.KKCSpacing.cardPaddingSmall, vertical = com.kkc.sheettracker.ui.theme.KKCSpacing.xl),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Manage code",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }
