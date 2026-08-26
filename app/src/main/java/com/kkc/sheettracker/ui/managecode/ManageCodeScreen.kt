@@ -396,7 +396,8 @@ fun ManageCodeScreen(
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.weight(1f).padding(12.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 160.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     itemsIndexed(materials, key = { _, m -> m.materialName }) { _, material ->
@@ -446,30 +447,32 @@ fun ManageCodeScreen(
                             Text(label, style = MaterialTheme.typography.labelSmall)
                         }
                     }
-                }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            val next = mutableMapOf<String, ManageCodeMaterialResult>()
-                            for (material in materials) {
-                                if (!(materialStates[material.materialName]?.hasPgmsOnThisCnc ?: false)) continue
-                                val result = generateOne(material.materialName, ignoreDuplicates = false)
-                                next[material.materialName] = result
-                                if (result is ManageCodeMaterialResult.Success) {
-                                    val (state, mixName) = loadMaterialState(material)
-                                    materialStates = materialStates + (material.materialName to state)
-                                    mixNames = mixNames + (material.materialName to mixName)
+                    item {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    busy = true
+                                    val next = mutableMapOf<String, ManageCodeMaterialResult>()
+                                    for (material in materials) {
+                                        if (!(materialStates[material.materialName]?.hasPgmsOnThisCnc ?: false)) continue
+                                        val result = generateOne(material.materialName, ignoreDuplicates = false)
+                                        next[material.materialName] = result
+                                        if (result is ManageCodeMaterialResult.Success) {
+                                            val (state, mixName) = loadMaterialState(material)
+                                            materialStates = materialStates + (material.materialName to state)
+                                            mixNames = mixNames + (material.materialName to mixName)
+                                        }
+                                    }
+                                    results = next
+                                    busy = false
                                 }
-                            }
-                            results = next
-                            busy = false
+                            },
+                            enabled = !busy,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            Text(if (busy) "Generating…" else "Generate mixes and edit code")
                         }
-                    },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth().padding(12.dp)
-                ) {
-                    Text(if (busy) "Generating…" else "Generate mixes and edit code")
+                    }
                 }
             }
         }
