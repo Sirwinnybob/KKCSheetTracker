@@ -1,7 +1,12 @@
 package com.kkc.sheettracker.ui.managecode
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,7 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
@@ -23,6 +27,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -68,7 +74,7 @@ fun ManageCodeMaterialCard(
     onRowsReordered: (List<ManageCodeRow>) -> Unit,
     onSelectionChanged: (editablePgm: String, ManageCodeRowSelection) -> Unit,
     onSelectAll: (field: String, checked: Boolean) -> Unit,
-    thumbnailFor: (pageNumber: Int) -> androidx.compose.ui.graphics.ImageBitmap?
+    loadThumbnail: suspend (ManageCodeRow) -> ImageBitmap?
 ) {
     val rowsState = remember(state.rows) { mutableStateOf(state.rows) }
     val listState = rememberLazyListState()
@@ -94,10 +100,12 @@ fun ManageCodeMaterialCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, label = "chevronRotation")
                     IconButton(onClick = onExpandToggle, enabled = state.hasPgmsOnThisCnc) {
                         Icon(
-                            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = if (expanded) "Collapse" else "Expand"
+                            Icons.Filled.ExpandMore,
+                            contentDescription = if (expanded) "Collapse" else "Expand",
+                            modifier = Modifier.rotate(chevronRotation)
                         )
                     }
                     Text(
@@ -136,7 +144,11 @@ fun ManageCodeMaterialCard(
                 }
             }
 
-            if (expanded && state.hasPgmsOnThisCnc) {
+            AnimatedVisibility(
+                visible = expanded && state.hasPgmsOnThisCnc,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -145,16 +157,17 @@ fun ManageCodeMaterialCard(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
-                    itemsIndexed(rowsState.value, key = { _, row -> "${row.pageNumber}-${row.editablePgm}" }) { _, row ->
+                    itemsIndexed(rowsState.value, key = { _, row -> "${row.pageNumber}-${row.editablePgm}" }) { index, row ->
                         val locked = row.editablePgm in state.locked
                         val selection = state.selections[row.editablePgm] ?: ManageCodeRowSelection()
                         ReorderableItem(reorderState, key = "${row.pageNumber}-${row.editablePgm}") {
                             ManageCodeRowView(
                                 row = row,
                                 locked = locked,
+                                zebra = index % 2 == 1,
                                 selection = selection,
                                 onSelectionChanged = { onSelectionChanged(row.editablePgm, it) },
-                                thumbnail = thumbnailFor(row.pageNumber),
+                                loadThumbnail = loadThumbnail,
                                 dragModifier = if (locked) Modifier else Modifier.draggableHandle(
                                     onDragStopped = { onRowsReordered(rowsState.value) }
                                 )
@@ -171,17 +184,26 @@ fun ManageCodeMaterialCard(
 private fun ManageCodeRowView(
     row: ManageCodeRow,
     locked: Boolean,
+    zebra: Boolean,
     selection: ManageCodeRowSelection,
     onSelectionChanged: (ManageCodeRowSelection) -> Unit,
-    thumbnail: androidx.compose.ui.graphics.ImageBitmap?,
+    loadThumbnail: suspend (ManageCodeRow) -> ImageBitmap?,
     dragModifier: Modifier
 ) {
+    // Only fetched when this row is actually composed -- collapsed cards and rows scrolled
+    // out of the inner LazyColumn's viewport never touch the loader.
+    var thumbnail by remember(row.pageNumber) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(row.pageNumber, row.thumbnailPath) {
+        thumbnail = loadThumbnail(row)
+    }
+    val thumbnailAlpha by animateFloatAsState(if (thumbnail != null) 1f else 0f, label = "thumbnailFadeIn")
+
     // Mirrors SheetViewerScreen's own Sheet Navigator row (thumbnail size, card shape, padding)
     // so Manage Code's list reads as the same kind of sheet-list UI, not a smaller/different one.
     Surface(
         tonalElevation = 1.dp,
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface,
+        color = if (zebra) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -206,11 +228,12 @@ private fun ManageCodeRowView(
                     .background(MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small),
                 contentAlignment = Alignment.Center
             ) {
-                if (thumbnail != null) {
+                val currentThumbnail = thumbnail
+                if (currentThumbnail != null) {
                     androidx.compose.foundation.Image(
-                        bitmap = thumbnail,
+                        bitmap = currentThumbnail,
                         contentDescription = "Sheet ${row.pageNumber} thumbnail",
-                        modifier = Modifier.fillMaxSize().padding(2.dp),
+                        modifier = Modifier.fillMaxSize().padding(2.dp).alpha(thumbnailAlpha),
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                         filterQuality = androidx.compose.ui.graphics.FilterQuality.None
                     )
@@ -424,20 +447,22 @@ fun ManageCodeScreen(
                 ) {
                     itemsIndexed(materials, key = { _, m -> m.materialName }) { _, material ->
                         val state = materialStates[material.materialName] ?: return@itemsIndexed
-                        val thumbnailCache = remember(material.materialName) { mutableStateMapOf<Int, androidx.compose.ui.graphics.ImageBitmap?>() }
-                        LaunchedEffect(state.rows) {
+                        // Cache persists across expand/collapse so re-expanding a card doesn't
+                        // re-fetch; the fetch itself only fires per-row, on first composition of
+                        // that row (see ManageCodeRowView), not eagerly for the whole material.
+                        val thumbnailCache = remember(material.materialName) { mutableStateMapOf<Int, ImageBitmap?>() }
+                        val loadThumbnail: suspend (ManageCodeRow) -> ImageBitmap? = loader@{ row ->
+                            if (thumbnailCache.containsKey(row.pageNumber)) return@loader thumbnailCache[row.pageNumber]
                             val pdfFile = jobRepository.getPdfFile(jobFolderName, material.pdfFilename)
-                            for (row in state.rows) {
-                                if (thumbnailCache.containsKey(row.pageNumber)) continue
-                                val bitmap = withContext(Dispatchers.IO) {
-                                    com.kkc.sheettracker.ui.viewer.loadSheetThumbnailForToc(
-                                        pdfFile,
-                                        row.pageNumber - 1,
-                                        row.thumbnailPath
-                                    )
-                                }
-                                thumbnailCache[row.pageNumber] = bitmap?.asImageBitmap()
-                            }
+                            val bitmap = withContext(Dispatchers.IO) {
+                                com.kkc.sheettracker.ui.viewer.loadSheetThumbnailForToc(
+                                    pdfFile,
+                                    row.pageNumber - 1,
+                                    row.thumbnailPath
+                                )
+                            }?.asImageBitmap()
+                            thumbnailCache[row.pageNumber] = bitmap
+                            bitmap
                         }
                         ManageCodeMaterialCard(
                             state = state,
@@ -459,7 +484,7 @@ fun ManageCodeScreen(
                                 }
                                 materialStates = materialStates + (material.materialName to state.copy(selections = updated))
                             },
-                            thumbnailFor = { pageNumber -> thumbnailCache[pageNumber] }
+                            loadThumbnail = loadThumbnail
                         )
                         results[material.materialName]?.let { result ->
                             val label = when (result) {
