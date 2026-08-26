@@ -288,6 +288,7 @@ fun SheetViewerScreen(
     jobFolderName: String,
     pdfFilename: String,
     startPage: Int,
+    mixName: String? = null,
     isDarkTheme: Boolean,
     useStandardSheets: Boolean,
     isClockedInHere: Boolean = false,

@@ -142,6 +142,7 @@ internal fun ArchiveJobDetailHost(
                 jobFolderName = session.folderName,
                 pdfFilename = pdfFilename,
                 startPage = startPage,
+                mixName = null,
                 isDarkTheme = isDarkTheme && !useStandardSheets,
                 useStandardSheets = useStandardSheets,
                 onOpenReferenceDocument = { docType, page ->
@@ -311,7 +312,7 @@ private fun ArchiveCncDetail(
         specialtyStateStore = session.specialtyStateStore,
         appStateFlags = appStateFlags,
         jobFolderName = session.folderName,
-        onMaterialClick = { material, startPage ->
+        onMaterialClick = { material, startPage, _ ->
             navController.navigate("viewer/${URLEncoder.encode(material.pdfFilename, "UTF-8")}/$startPage")
         },
         onOpenReferenceDocument = { docType, startPage ->

@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,10 +79,16 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.Material
-import com.kkc.sheettracker.data.models.MaterialUiModel
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
+import com.kkc.sheettracker.data.mixservice.MixCatalogCache
+import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
+import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
+import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MixServiceClient
+import com.kkc.sheettracker.data.mixservice.activeMixRows
+import com.kkc.sheettracker.data.mixservice.pagesForMix
 import com.kkc.sheettracker.ui.components.CountStatusChip
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.headerBackground
@@ -93,14 +100,57 @@ import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import java.io.File
 
 private const val DETAIL_PARITY_TAG = "KKC_APP_STATE_PARITY_DETAIL"
 
-private data class LegacyMaterialProgress(
-    val countsByPdfFilename: Map<String, StatusCounts> = emptyMap(),
-    val pendingBadPartsByPdfFilename: Map<String, Int> = emptyMap()
+internal data class JobDetailMaterialCard(
+    val material: Material,
+    val mixName: String?,
+    val title: String,
+    val pages: List<Int>
 )
+
+private data class JobDetailMaterialCardProgress(
+    val counts: StatusCounts,
+    val pendingBadPartCount: Int
+)
+
+internal data class CachedFirstCatalogLoadPlan(
+    val cachedCatalogs: Map<String, MixCatalogSnapshot?>,
+    val refreshMaterials: List<Material>
+)
+
+internal fun cachedFirstCatalogLoadPlan(
+    materials: List<Material>,
+    cachedCatalogFor: (Material) -> MixCatalogSnapshot?
+): CachedFirstCatalogLoadPlan = CachedFirstCatalogLoadPlan(
+    cachedCatalogs = materials.associate { material ->
+        material.pdfFilename to cachedCatalogFor(material)
+    },
+    refreshMaterials = materials
+)
+
+internal fun jobDetailMaterialCards(
+    material: Material,
+    catalog: MixCatalogSnapshot?,
+    trackablePages: List<Int>
+): List<JobDetailMaterialCard> = activeMixRows(material, catalog).map { row ->
+    val activeMix = row.activeMix
+    JobDetailMaterialCard(
+        material = material,
+        mixName = activeMix?.name,
+        title = row.title,
+        pages = activeMix?.let { mix ->
+            pagesForMix(
+                pages = material.metadata?.pages.orEmpty(),
+                naturalOrder = trackablePages,
+                programs = mix.programs
+            )
+        } ?: trackablePages
+    )
+}
 
 internal enum class JobDetailLoadState {
     LOADING,
@@ -129,7 +179,7 @@ fun JobDetailScreen(
     specialtyStateStore: SpecialtyStateStore,
     appStateFlags: AppStateFeatureFlags,
     jobFolderName: String,
-    onMaterialClick: (Material, Int) -> Unit,
+    onMaterialClick: (Material, Int, String?) -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
     onOpenManageCode: () -> Unit = {},
@@ -153,12 +203,18 @@ fun JobDetailScreen(
     }
 
     val scanState by scanCoordinator.state.collectAsState()
+    val context = LocalContext.current
+    val mixCatalogRepository = remember(context.applicationContext) {
+        MixCatalogRepository(
+            client = MixServiceClient(),
+            cache = MixCatalogCache.inAppFiles(context.applicationContext)
+        )
+    }
     val unifiedEngine = remember(scanState.snapshot.basePath) { UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), BuildConfig.DEBUG) }
     val progressVersion by progressStore.progressVersion.collectAsState()
     val appMaterialsByKey by appStateStore.materialUiModels.collectAsState()
     val appUiState by appStateStore.uiState.collectAsState()
     val appFlags = remember(appStateFlags) { appStateFlags.snapshot() }
-    val useAppState = appFlags.detailEnabled
     var loadAttempt by rememberSaveable(jobFolderName) { mutableStateOf(0) }
     val jobLoadResult by produceState(
         initialValue = JobDetailLoadResult(job = null, hasResolved = false),
@@ -178,34 +234,51 @@ fun JobDetailScreen(
         scanCoordinator.refreshJobOnOpen(jobFolderName)
         loadAttempt += 1
     }
-    // The legacy fallback remains available while AppState rolls out, but it must not cold-load
-    // the tracker cache once per material during composition.
-    val legacyMaterialProgress by produceState(
-        initialValue = LegacyMaterialProgress(),
-        job,
-        jobFolderName,
-        progressVersion,
-        useAppState,
-        appMaterialsByKey
-    ) {
-        val currentJob = job
-        val fallbackMaterials = currentJob?.materials.orEmpty().filter { material ->
-            !useAppState ||
-                appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)] == null
+    var mixCatalogs by remember(jobFolderName) { mutableStateOf<Map<String, MixCatalogSnapshot?>>(emptyMap()) }
+    LaunchedEffect(jobFolderName, job?.materials) {
+        val materials = job?.materials.orEmpty()
+        // Read the on-device cache before starting any HTTP work so cards can render immediately.
+        val loadPlan = withContext(Dispatchers.IO) {
+            cachedFirstCatalogLoadPlan(materials) { material ->
+                mixCatalogRepository.cached(jobFolderName, material.materialName)
+            }
         }
-        value = withContext(Dispatchers.IO) {
-            LegacyMaterialProgress(
-                countsByPdfFilename = fallbackMaterials.associate { material ->
-                    material.pdfFilename to progressStore.getMaterialStatusCounts(jobFolderName, material)
-                },
-                pendingBadPartsByPdfFilename = fallbackMaterials.associate { material ->
-                    material.pdfFilename to progressStore.getPendingBadPartsForMaterial(
-                        jobFolderName,
-                        material.pdfFilename,
-                        material.fileFingerprint
-                    )
+        mixCatalogs = loadPlan.cachedCatalogs
+        loadPlan.refreshMaterials.forEach { material ->
+            launch {
+                val result = mixCatalogRepository.refresh(jobFolderName, material.materialName)
+                if (result is MixCatalogFetchResult.Success) {
+                    mixCatalogs = mixCatalogs + (material.pdfFilename to result.snapshot)
                 }
+            }
+        }
+    }
+    val materialCards = remember(job?.materials, mixCatalogs, progressVersion) {
+        job?.materials.orEmpty().flatMap { material ->
+            jobDetailMaterialCards(
+                material = material,
+                catalog = mixCatalogs[material.pdfFilename],
+                trackablePages = progressStore.getMaterialTrackablePages(material)
             )
+        }
+    }
+    val materialCardProgress by produceState(
+        initialValue = emptyMap<JobDetailMaterialCard, JobDetailMaterialCardProgress>(),
+        jobFolderName,
+        materialCards,
+        progressVersion
+    ) {
+        value = withContext(Dispatchers.IO) {
+            materialCards.associateWith { card ->
+                JobDetailMaterialCardProgress(
+                    counts = progressStore.getStatusCountsForPages(jobFolderName, card.material, card.pages),
+                    pendingBadPartCount = progressStore.getPendingBadPartsForMaterial(
+                        jobFolderName,
+                        card.material.pdfFilename,
+                        card.material.fileFingerprint
+                    )
+                )
+            }
         }
     }
     // Document availability loaded async — avoids blocking the composition thread on I/O
@@ -228,8 +301,7 @@ fun JobDetailScreen(
 
     var legacyPageStatuses by remember(jobFolderName) { mutableStateOf<Map<String, Map<Int, SheetStatus>>>(emptyMap()) }
 
-    LaunchedEffect(job, progressVersion, useAppState) {
-        if (useAppState) return@LaunchedEffect
+    LaunchedEffect(job, progressVersion) {
         val currentJob = job ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
             val statuses = mutableMapOf<String, Map<Int, SheetStatus>>()
@@ -515,31 +587,15 @@ fun JobDetailScreen(
                     }
                 }
 
-                items(job?.materials.orEmpty(), key = { it.pdfFilename }) { material ->
+                items(materialCards, key = { card -> "${card.material.pdfFilename}:${card.mixName.orEmpty()}" }) { card ->
+                    val material = card.material
                     val statusColors = KKCThemeColors.statusColors
-                    val appMaterialModel: MaterialUiModel? = appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)]
-                    val counts = if (useAppState && appMaterialModel != null) {
-                        appMaterialModel.counts
-                    } else legacyMaterialProgress.countsByPdfFilename[material.pdfFilename]
-                        ?: StatusCounts(total = material.pageCount)
-                    val trackablePages = remember(
-                        progressVersion,
-                        material.pdfFilename,
-                        material.fileFingerprint,
-                        material.pageCount,
-                        material.metadata
-                    ) {
-                        progressStore.getMaterialTrackablePages(material)
-                    }
-                    val fraction = if (useAppState && appMaterialModel != null) {
-                        appMaterialModel.completionFraction
-                    } else if (counts.total <= 0) 0f
-                    else counts.complete.toFloat() / counts.total.toFloat()
-                    val pendingBadPartCount = if (useAppState && appMaterialModel != null) {
-                        appMaterialModel.pendingBadPartCount
-                    } else legacyMaterialProgress.pendingBadPartsByPdfFilename[material.pdfFilename] ?: 0
+                    val cardProgress = materialCardProgress[card]
+                    val counts = cardProgress?.counts ?: StatusCounts(total = card.pages.size)
+                    val fraction = if (counts.total <= 0) 0f else counts.complete.toFloat() / counts.total.toFloat()
+                    val pendingBadPartCount = cardProgress?.pendingBadPartCount ?: 0
                     ProgressCard(
-                        title = material.materialName,
+                        title = card.title,
                         subtitle = "${counts.complete}/${counts.total} complete",
                         fraction = fraction,
                         expanded = true,
@@ -576,7 +632,7 @@ fun JobDetailScreen(
                         onToggleExpanded = {},
                         onClick = {
                             suppressLeavePrompt = true
-                            onMaterialClick(material, trackablePages.firstOrNull() ?: 1)
+                            onMaterialClick(material, card.pages.firstOrNull() ?: 1, card.mixName)
                         }
                     ) {
                         PageStatusBar(
@@ -585,14 +641,8 @@ fun JobDetailScreen(
                                 .fillMaxWidth()
                                 .height(10.dp),
                             getStatus = { page ->
-                                if (useAppState && appMaterialModel != null) {
-                                    appMaterialModel.pageStatuses
-                                        .getOrNull((page - 1).coerceAtLeast(0))
-                                        ?.status ?: SheetStatus.NOT_STARTED
-                                } else {
-                                    val physicalPage = trackablePages.getOrNull((page - 1).coerceAtLeast(0)) ?: page
-                                    legacyPageStatuses[material.pdfFilename]?.get(physicalPage) ?: SheetStatus.NOT_STARTED
-                                }
+                                val physicalPage = card.pages.getOrNull((page - 1).coerceAtLeast(0)) ?: page
+                                legacyPageStatuses[material.pdfFilename]?.get(physicalPage) ?: SheetStatus.NOT_STARTED
                             }
                         )
                     }

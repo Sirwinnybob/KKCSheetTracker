@@ -1414,9 +1414,9 @@ private fun JobsTabHost(
                         if (!isCncSubScreen) clockInState.triggerPrompt()
                     }
                 },
-                onMaterialClick = { material, startPage ->
+                onMaterialClick = { material, startPage, mixName ->
                     navController.navigate(
-                        "viewer/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(material.pdfFilename, "UTF-8")}/$startPage"
+                        viewerRoute(folderName, material.pdfFilename, startPage, mixName)
                     ) {
                         launchSingleTop = true
                     }
@@ -1573,16 +1573,18 @@ private fun JobsTabHost(
         }
 
         composable(
-            "viewer/{folderName}/{pdfFilename}/{startPage}",
+            "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}",
             arguments = listOf(
                 navArgument("folderName") { type = NavType.StringType },
                 navArgument("pdfFilename") { type = NavType.StringType },
-                navArgument("startPage") { type = NavType.IntType }
+                navArgument("startPage") { type = NavType.IntType },
+                navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
             val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
             val startPage = backStack.arguments?.getInt("startPage") ?: 1
+            val mixName = backStack.arguments?.getString("mixName")?.let { URLDecoder.decode(it, "UTF-8") }
             val isClockedInHere = clockInState.snapshot.isActive &&
                 clockInState.snapshot.folderName == folderName &&
                 clockInState.snapshot.tabType == "cnc"
@@ -1595,6 +1597,7 @@ private fun JobsTabHost(
                 jobFolderName = folderName,
                 pdfFilename = pdfFilename,
                 startPage = startPage,
+                mixName = mixName,
                 isDarkTheme = cncSheetIsDarkTheme,
                 useStandardSheets = useStandardSheets,
                 isClockedInHere = isClockedInHere,
@@ -2285,9 +2288,9 @@ private fun LegacySingleStackNavigation(
             }
         }
     }
-    fun openSheetLegacy(jobFolderName: String, pdfFilename: String, page: Int) {
-        if (isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page)) return
-        navController.navigate(viewerRoute(jobFolderName, pdfFilename, page)) {
+    fun openSheetLegacy(jobFolderName: String, pdfFilename: String, page: Int, mixName: String? = null) {
+        if (isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page, mixName)) return
+        navController.navigate(viewerRoute(jobFolderName, pdfFilename, page, mixName)) {
             launchSingleTop = true
         }
     }
@@ -2514,7 +2517,7 @@ private fun LegacySingleStackNavigation(
                                             }
                                         },
                                         onOpenSheet = { folderName, pdfFilename, page ->
-                                            openSheetLegacy(folderName, pdfFilename, page)
+                                            openSheetLegacy(folderName, pdfFilename, page, mixName = null)
                                         }
                                     )
                                 )
@@ -2692,8 +2695,8 @@ private fun LegacySingleStackNavigation(
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = this,
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
-                        onMaterialClick = { material, startPage ->
-                            openSheetLegacy(folderName, material.pdfFilename, startPage)
+                        onMaterialClick = { material, startPage, mixName ->
+                            openSheetLegacy(folderName, material.pdfFilename, startPage, mixName)
                         },
                         onOpenReferenceDocument = { docType, startPage ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
@@ -2873,16 +2876,18 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable(
-                    "viewer/{folderName}/{pdfFilename}/{startPage}",
+                    "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}",
                     arguments = listOf(
                         navArgument("folderName") { type = NavType.StringType },
                         navArgument("pdfFilename") { type = NavType.StringType },
-                        navArgument("startPage") { type = NavType.IntType }
+                        navArgument("startPage") { type = NavType.IntType },
+                        navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null }
                     )
                 ) { backStack ->
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
                     val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
                     val startPage = backStack.arguments?.getInt("startPage") ?: 1
+                    val mixName = backStack.arguments?.getString("mixName")?.let { URLDecoder.decode(it, "UTF-8") }
                     val isClockedInHere = clockInState.snapshot.isActive &&
                         clockInState.snapshot.folderName == folderName &&
                         clockInState.snapshot.tabType == "cnc"
@@ -2895,6 +2900,7 @@ private fun LegacySingleStackNavigation(
                         jobFolderName = folderName,
                         pdfFilename = pdfFilename,
                         startPage = startPage,
+                        mixName = mixName,
                         isDarkTheme = isDarkTheme,
                         useStandardSheets = useStandardSheets,
                         isClockedInHere = isClockedInHere,
@@ -3157,7 +3163,7 @@ private fun LegacySingleStackNavigation(
                                 jobRepository = jobRepository,
                                 progressStore = progressStore,
                                 onResultClick = { folderName, pdfFilename, page ->
-                                    openSheetLegacy(folderName, pdfFilename, page)
+                                    openSheetLegacy(folderName, pdfFilename, page, mixName = null)
                                 },
                                 onBack = { navController.popBackStack() }
                             )
@@ -3198,7 +3204,7 @@ private fun LegacySingleStackNavigation(
                                 jobRepository = jobRepository,
                                 progressStore = progressStore,
                                 onResultClick = { folderName, pdfFilename, page ->
-                                    openSheetLegacy(folderName, pdfFilename, page)
+                                    openSheetLegacy(folderName, pdfFilename, page, mixName = null)
                                 },
                                 onBack = { navController.popBackStack() }
                             )
@@ -3495,8 +3501,11 @@ private fun LegacySingleStackNavigation(
     } // LocalOnOpenSettings CompositionLocalProvider
 }
 
-internal fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int): String {
-    return "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
+internal fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int, mixName: String? = null): String {
+    val base = "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
+    return mixName?.takeIf(String::isNotBlank)
+        ?.let { "$base?mixName=${URLEncoder.encode(it, "UTF-8")}" }
+        ?: base
 }
 
 internal fun homeTopLevelTabForWorkMode(workMode: WorkMode): TopLevelTab {
@@ -3581,7 +3590,8 @@ private fun isCurrentViewerTarget(
     backStackEntry: androidx.navigation.NavBackStackEntry?,
     jobFolderName: String,
     pdfFilename: String,
-    page: Int
+    page: Int,
+    mixName: String?
 ): Boolean {
     val route = backStackEntry?.destination?.route ?: return false
     if (!route.startsWith("viewer/")) return false
@@ -3589,7 +3599,8 @@ private fun isCurrentViewerTarget(
     val currentFolder = args.getString("folderName") ?: return false
     val currentPdf = args.getString("pdfFilename") ?: return false
     val currentPage = args.getInt("startPage")
-    return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page
+    val currentMixName = args.getString("mixName")
+    return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page && currentMixName == mixName
 }
 
 private data class PendingClockOut(
