@@ -810,6 +810,9 @@ fun SheetViewerScreen(
     LaunchedEffect(currentMaterial?.materialName) {
         val materialName = currentMaterial?.materialName
         currentMixPrograms = if (materialName == null) emptyList() else {
+            // TODO: if more than one mix exists for this material, this silently picks the first
+            // rather than surfacing a conflict (design spec Section 7) — matches ManageCodeScreen's
+            // same known gap, not yet handled.
             mixServiceClient.listMixes(jobFolderName, materialName)?.firstOrNull()?.programs.orEmpty()
         }
     }

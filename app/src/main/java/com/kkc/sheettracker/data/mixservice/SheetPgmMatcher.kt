@@ -14,10 +14,21 @@ fun buildManageCodeRows(pages: List<PageMetadata>): List<ManageCodeRow> =
         .filter { !it.trackingExcluded && !it.hiddenInApp && !it.isPartListContinuation }
         .sortedBy { it.pageNumber }
         .mapNotNull { page ->
-            val files = inferSheetFiles(page).map { stem -> "$stem.pgm" }
+            val files = orderedPgmFiles(inferSheetFiles(page))
             if (files.isEmpty()) null
             else ManageCodeRow(pageNumber = page.pageNumber, pgmFiles = files, editablePgm = files.last())
         }
+
+// inferSheetFiles' single-sheetId fallback branch (SheetViewerScreen.kt) returns [Z, A] order,
+// while its sidecar-array branch preserves whatever order the sidecar itself has (normally A
+// then Z). This app's business rule is A always precedes Z and A is never independently
+// editable, so this always re-sorts any 2-file result so the Z-suffixed stem is last,
+// regardless of which inferSheetFiles branch produced it.
+private fun orderedPgmFiles(stems: List<String>): List<String> {
+    val files = stems.map { "$it.pgm" }
+    if (files.size != 2) return files
+    return files.sortedBy { file -> if (file.substringBeforeLast('.').endsWith("Z", ignoreCase = true)) 1 else 0 }
+}
 
 fun applyExistingOrder(rows: List<ManageCodeRow>, orderedPgms: List<String>): List<ManageCodeRow> {
     val indexOf = orderedPgms.withIndex().associate { (i, pgm) -> pgm to i }

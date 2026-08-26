@@ -46,4 +46,20 @@ class SheetPgmMatcherTest {
         val ordered = applyExistingOrder(rows, listOf("R2.pgm", "R1.pgm"))
         assertEquals(listOf(2, 1, 3), ordered.map { it.pageNumber })
     }
+
+    @Test
+    fun `buildManageCodeRows corrects A-Z order when inferSheetFiles' single-sheetId fallback returns Z first`() {
+        val pages = listOf(PageMetadata(pageNumber = 1, sheetId = "R590402Z"))
+        val rows = buildManageCodeRows(pages)
+        assertEquals(listOf("R590402A.pgm", "R590402Z.pgm"), rows.single().pgmFiles)
+        assertEquals("R590402Z.pgm", rows.single().editablePgm)
+    }
+
+    @Test
+    fun `buildManageCodeRows corrects A-Z order when the single-sheetId fallback is keyed off the A id`() {
+        val pages = listOf(PageMetadata(pageNumber = 1, sheetId = "R590402A"))
+        val rows = buildManageCodeRows(pages)
+        assertEquals(listOf("R590402A.pgm", "R590402Z.pgm"), rows.single().pgmFiles)
+        assertEquals("R590402Z.pgm", rows.single().editablePgm)
+    }
 }
