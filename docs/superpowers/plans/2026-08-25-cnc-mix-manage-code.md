@@ -1427,6 +1427,7 @@ fun ManageCodeScreen(
     var busy by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<Map<String, ManageCodeMaterialResult>>(emptyMap()) }
     var pendingDuplicateWarning by remember { mutableStateOf<Pair<String, List<com.kkc.sheettracker.data.mixservice.DuplicateMixWarning>>?>(null) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(job, reachable) {
         if (job == null || reachable != true) return@LaunchedEffect
@@ -1552,6 +1553,7 @@ fun ManageCodeScreen(
                                         "MIX" -> sel.copy(mix = checked)
                                         "PUNLOAD" -> sel.copy(removePUnload = checked)
                                         "2ND" -> toggleSecondPass(sel, checked)
+                                        "SUPER" -> toggleSuperPass(sel, checked)
                                         else -> sel
                                     }
                                 }
@@ -1568,7 +1570,6 @@ fun ManageCodeScreen(
                         }
                     }
                 }
-                val scope = rememberCoroutineScope()
                 Button(
                     onClick = {
                         scope.launch {
@@ -1600,8 +1601,7 @@ fun ManageCodeScreen(
                 confirmButton = {
                     TextButton(onClick = {
                         pendingDuplicateWarning = null
-                        val scope2 = kotlinx.coroutines.MainScope()
-                        scope2.launch {
+                        scope.launch {
                             results = results + (materialName to generateOne(materialName, ignoreDuplicates = true))
                         }
                     }) { Text("Continue anyway") }
