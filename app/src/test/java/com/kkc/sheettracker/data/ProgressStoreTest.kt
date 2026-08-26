@@ -589,6 +589,24 @@ class ProgressStoreTest {
         assertEquals(null, store.getIndexJobStatusCountsOrNull(jobFolderName))
     }
 
+    @Test
+    fun `scoped status counts keep completion physical when mixes share a page`() {
+        val baseDir = createTempBaseDir()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+        val material = Material("A.pdf", "19mm", pageCount = 3, fileFingerprint = "fp1")
+        store.markSheetComplete(jobFolderName, material.pdfFilename, 2, material.fileFingerprint)
+
+        val firstMixCounts = store.getStatusCountsForPages(jobFolderName, material, listOf(1, 2))
+        val secondMixCounts = store.getStatusCountsForPages(jobFolderName, material, listOf(2, 3))
+
+        assertEquals(2, firstMixCounts.total)
+        assertEquals(1, firstMixCounts.complete)
+        assertEquals(1, firstMixCounts.notStarted)
+        assertEquals(2, secondMixCounts.total)
+        assertEquals(1, secondMixCounts.complete)
+        assertEquals(1, secondMixCounts.notStarted)
+    }
+
     private fun trackerAction(
         file: String,
         page: Int,

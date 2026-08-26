@@ -40,4 +40,22 @@ class SheetOrderResolverTest {
         val ordered = reorderVisiblePages(pagesWithOneUnresolvable, naturalOrder = listOf(1, 2, 3, 4), mixPrograms = listOf("R2.pgm", "R1.pgm", "R3.pgm"))
         assertEquals(listOf(2, 1, 3, 4), ordered)
     }
+
+    @Test
+    fun `exact mix pages preserve program order and exclude unmapped hidden and duplicate physical pages`() {
+        val pagesWithCombinedRow = listOf(
+            PageMetadata(pageNumber = 1, sheetFiles = listOf("R1")),
+            PageMetadata(pageNumber = 2, sheetFiles = listOf("R2A", "R2Z")),
+            PageMetadata(pageNumber = 3, sheetFiles = listOf("R3")),
+            PageMetadata(pageNumber = 4, sheetFiles = listOf("R4"))
+        )
+
+        val ordered = pagesForMix(
+            pages = pagesWithCombinedRow,
+            naturalOrder = listOf(1, 2, 3),
+            programs = listOf("R2Z.pgm", "R1.pgm", "R2A.pgm", "R4.pgm", "Missing.pgm")
+        )
+
+        assertEquals(listOf(2, 1), ordered)
+    }
 }

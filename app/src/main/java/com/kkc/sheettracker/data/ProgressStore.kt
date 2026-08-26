@@ -983,7 +983,11 @@ class ProgressStore(
         return if (visibleFromMetadata.isNotEmpty()) visibleFromMetadata else (1..material.pageCount).toList()
     }
 
-    fun getMaterialStatusCounts(jobFolderName: String, material: Material): StatusCounts {
+    fun getMaterialStatusCounts(jobFolderName: String, material: Material): StatusCounts =
+        getStatusCountsForPages(jobFolderName, material, getMaterialTrackablePages(material))
+
+    /** Returns status counts for an explicit set of physical pages in one material. */
+    fun getStatusCountsForPages(jobFolderName: String, material: Material, pages: List<Int>): StatusCounts {
         var complete = 0
         var bad = 0
         var skipped = 0
@@ -991,8 +995,8 @@ class ProgressStore(
         var reNested = 0
 
         val index = ensureJobIndex(jobFolderName)
-        val visiblePages = getMaterialTrackablePages(material)
-        for (page in visiblePages) {
+        val scopedPages = pages.distinct()
+        for (page in scopedPages) {
             val entry = index.sheets[SheetKey(material.pdfFilename, page)]
             val isComplete = resolveComplete(entry, material.fileFingerprint)
             val isSkipped = resolveSkipped(entry, material.fileFingerprint)
@@ -1012,7 +1016,7 @@ class ProgressStore(
         }
 
         return StatusCounts(
-            total = visiblePages.size,
+            total = scopedPages.size,
             complete = complete,
             bad = bad,
             skipped = skipped,
