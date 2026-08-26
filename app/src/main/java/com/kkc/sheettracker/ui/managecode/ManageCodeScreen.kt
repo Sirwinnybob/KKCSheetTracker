@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,13 +41,20 @@ import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.mixservice.ManageCodeRow
 import com.kkc.sheettracker.data.mixservice.ManageCodeRowSelection
 import com.kkc.sheettracker.data.mixservice.MixServiceClient
-import com.kkc.sheettracker.data.mixservice.MixWriteResult
+import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
+import com.kkc.sheettracker.data.mixservice.MixCatalogMutationResult
+import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
+import com.kkc.sheettracker.data.mixservice.MixCatalogCache
+import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MixGenerationTarget
 import com.kkc.sheettracker.data.mixservice.PgmEditSubmitResult
 import com.kkc.sheettracker.data.mixservice.buildManageCodeChange
 import com.kkc.sheettracker.data.mixservice.buildManageCodeRows
 import com.kkc.sheettracker.data.mixservice.deriveRowSelection
 import com.kkc.sheettracker.data.mixservice.findCrossMixDuplicates
 import com.kkc.sheettracker.data.mixservice.isRowLocked
+import com.kkc.sheettracker.data.mixservice.defaultMixName
+import com.kkc.sheettracker.data.mixservice.resolveMixGenerationTarget
 import com.kkc.sheettracker.data.mixservice.toggleSecondPass
 import com.kkc.sheettracker.data.mixservice.toggleSuperPass
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
@@ -304,6 +312,17 @@ sealed class ManageCodeMaterialResult {
     data class Blocked(val reason: String) : ManageCodeMaterialResult()
 }
 
+private data class PendingMixAction(
+    val materialName: String,
+    val catalog: MixCatalogSnapshot
+)
+
+private data class PendingDuplicateMixAction(
+    val materialName: String,
+    val target: MixGenerationTarget,
+    val duplicates: List<com.kkc.sheettracker.data.mixservice.DuplicateMixWarning>
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageCodeScreen(
@@ -315,6 +334,10 @@ fun ManageCodeScreen(
     onBack: () -> Unit,
     client: MixServiceClient = remember { MixServiceClient() }
 ) {
+    val appContext = LocalContext.current.applicationContext
+    val mixCatalogRepository = remember(client, appContext) {
+        MixCatalogRepository(client, MixCatalogCache.inAppFiles(appContext))
+    }
     val scanState by scanCoordinator.state.collectAsState()
     val unifiedEngine = remember(scanState.snapshot.basePath) {
         UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), com.kkc.sheettracker.BuildConfig.DEBUG)
@@ -327,21 +350,25 @@ fun ManageCodeScreen(
 
     val materials = job?.materials.orEmpty().filter { onlyMaterialName == null || it.materialName == onlyMaterialName }
     var materialStates by remember { mutableStateOf<Map<String, ManageCodeMaterialState>>(emptyMap()) }
-    var mixNames by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
+    var materialCatalogs by remember { mutableStateOf<Map<String, MixCatalogSnapshot>>(emptyMap()) }
     var expandedMaterial by remember { mutableStateOf(onlyMaterialName) }
     var busy by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<Map<String, ManageCodeMaterialResult>>(emptyMap()) }
-    var pendingDuplicateWarning by remember { mutableStateOf<Pair<String, List<com.kkc.sheettracker.data.mixservice.DuplicateMixWarning>>?>(null) }
+    var pendingMixAction by remember { mutableStateOf<PendingMixAction?>(null) }
+    var pendingDuplicateWarning by remember { mutableStateOf<PendingDuplicateMixAction?>(null) }
     val scope = rememberCoroutineScope()
 
-    suspend fun loadMaterialState(material: com.kkc.sheettracker.data.models.Material): Pair<ManageCodeMaterialState, String?> {
+    suspend fun loadMaterialState(
+        material: com.kkc.sheettracker.data.models.Material,
+        catalog: MixCatalogSnapshot?
+    ): ManageCodeMaterialState {
         val pgms = client.listPgms(jobFolderName, material.materialName)
         val hasPgms = pgms.isNotEmpty()
         val pages = material.metadata?.pages.orEmpty()
         var rows = buildManageCodeRows(pages)
-        val mixLookup = client.getMix(jobFolderName, material.materialName)
-        val existingMix = (mixLookup as? com.kkc.sheettracker.data.mixservice.MixLookupResult.Found)?.definition
-        val mixConflict = (mixLookup as? com.kkc.sheettracker.data.mixservice.MixLookupResult.Conflict)?.names.orEmpty()
+        val existingMix = catalog?.entries
+            ?.filter { it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.ACTIVE }
+            ?.singleOrNull()
         if (existingMix != null) {
             rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(rows, existingMix.programs)
         }
@@ -363,22 +390,24 @@ fun ManageCodeScreen(
             rows = rows,
             locked = locked,
             selections = selections,
-            mixConflict = mixConflict
+            mixConflict = emptyList()
         )
-        return state to existingMix?.name
+        return state
     }
 
     LaunchedEffect(job, reachable) {
         if (job == null || reachable != true) return@LaunchedEffect
-        val nextStates = mutableMapOf<String, ManageCodeMaterialState>()
-        val nextNames = mutableMapOf<String, String?>()
         for (material in materials) {
-            val (state, mixName) = loadMaterialState(material)
-            nextStates[material.materialName] = state
-            nextNames[material.materialName] = mixName
+            mixCatalogRepository.cached(jobFolderName, material.materialName)?.let { cached ->
+                materialCatalogs = materialCatalogs + (material.materialName to cached)
+                materialStates = materialStates + (material.materialName to loadMaterialState(material, cached))
+            }
+            val refreshed = mixCatalogRepository.refresh(jobFolderName, material.materialName)
+            if (refreshed is MixCatalogFetchResult.Success) {
+                materialCatalogs = materialCatalogs + (material.materialName to refreshed.snapshot)
+                materialStates = materialStates + (material.materialName to loadMaterialState(material, refreshed.snapshot))
+            }
         }
-        materialStates = nextStates
-        mixNames = nextNames
     }
 
     fun updateSelection(materialName: String, editablePgm: String, selection: ManageCodeRowSelection) {
@@ -393,40 +422,60 @@ fun ManageCodeScreen(
         materialStates = materialStates + (materialName to state.copy(rows = rows))
     }
 
-    suspend fun generateOne(materialName: String, ignoreDuplicates: Boolean): ManageCodeMaterialResult {
+    suspend fun refreshMaterialCatalog(materialName: String): MixCatalogSnapshot? {
+        val material = materials.firstOrNull { it.materialName == materialName } ?: return null
+        val refreshed = mixCatalogRepository.refresh(jobFolderName, materialName)
+        if (refreshed !is MixCatalogFetchResult.Success) return null
+        materialCatalogs = materialCatalogs + (materialName to refreshed.snapshot)
+        materialStates = materialStates + (materialName to loadMaterialState(material, refreshed.snapshot))
+        return refreshed.snapshot
+    }
+
+    suspend fun applyMutationCatalog(materialName: String, snapshot: MixCatalogSnapshot) {
+        val material = materials.firstOrNull { it.materialName == materialName } ?: return
+        materialCatalogs = materialCatalogs + (materialName to snapshot)
+        materialStates = materialStates + (materialName to loadMaterialState(material, snapshot))
+    }
+
+    suspend fun generateOne(
+        materialName: String,
+        target: MixGenerationTarget,
+        ignoreDuplicates: Boolean
+    ): ManageCodeMaterialResult {
         val state = materialStates[materialName] ?: return ManageCodeMaterialResult.Blocked("No data")
-        if (state.mixConflict.isNotEmpty()) {
-            return ManageCodeMaterialResult.Blocked("Multiple mixes already exist — resolve on the CNC first")
-        }
-        val existingName = mixNames[materialName]
+        val catalog = materialCatalogs[materialName]
+            ?: return ManageCodeMaterialResult.Blocked("Mix catalog unavailable — refresh and try again")
+        val plan = resolveMixGenerationTarget(target, catalog, materialName)
+            ?: return ManageCodeMaterialResult.Blocked("Mix catalog changed or has external files — choose an action again")
         val change = buildManageCodeChange(
             rows = state.rows,
             selections = state.selections,
             locked = state.locked,
-            originalPrograms = client.listMixes(jobFolderName, materialName)?.firstOrNull { it.name == existingName }?.programs.orEmpty()
+            originalPrograms = plan.programsBaseline
         )
         if (change.orderOrMembershipChanged && !ignoreDuplicates) {
             val allOtherMixes = client.listMixes(jobFolderName).orEmpty()
-            val duplicates = findCrossMixDuplicates(change.programs, existingName ?: "", allOtherMixes)
+            val duplicates = findCrossMixDuplicates(change.programs, plan.name, allOtherMixes)
             if (duplicates.isNotEmpty()) {
-                pendingDuplicateWarning = materialName to duplicates
+                pendingDuplicateWarning = PendingDuplicateMixAction(materialName, target, duplicates)
                 return ManageCodeMaterialResult.Blocked("Duplicate PGM membership — confirm to continue")
             }
         }
         if (change.orderOrMembershipChanged) {
-            val name = existingName ?: "${materialName.replace(Regex("[^A-Za-z0-9 _-]"), "")}Mix"
-            val writeResult = if (existingName != null) {
-                client.updateMix(jobFolderName, materialName, name, change.programs)
-            } else {
-                client.createMix(jobFolderName, materialName, name, change.programs)
-            }
-            // SyncFailed means the mix itself was created/updated successfully -- only the
-            // sidecar history write failed afterward. Treating it as a failure would make the
-            // caller retry, and a retry against an already-created mix name is a real
-            // DuplicateName. Not blocking here; loadMaterialState()'s post-Generate refresh
-            // re-reads the mix from the service's own store either way.
-            if (writeResult !is MixWriteResult.Success && writeResult !is MixWriteResult.SyncFailed) {
-                return ManageCodeMaterialResult.Blocked("Mix write failed: ${mixWriteErrorMessage(writeResult)}")
+            when (val mutation = mixCatalogRepository.replaceMix(
+                job = jobFolderName,
+                material = materialName,
+                name = plan.name,
+                programs = change.programs,
+                expectedRevision = plan.expectedRevision
+            )) {
+                is MixCatalogMutationResult.Success -> applyMutationCatalog(materialName, mutation.snapshot)
+                is MixCatalogMutationResult.SyncFailed -> applyMutationCatalog(materialName, mutation.snapshot)
+                MixCatalogMutationResult.CatalogChanged -> {
+                    refreshMaterialCatalog(materialName)?.let { pendingMixAction = PendingMixAction(materialName, it) }
+                    return ManageCodeMaterialResult.Blocked("Mix catalog changed — choose an action again")
+                }
+                else -> return ManageCodeMaterialResult.Blocked("Mix write failed: ${mixMutationErrorMessage(mutation)}")
             }
         }
         if (change.editRows.isNotEmpty()) {
@@ -516,15 +565,25 @@ fun ManageCodeScreen(
                                     val next = mutableMapOf<String, ManageCodeMaterialResult>()
                                     for (material in materials) {
                                         if (!(materialStates[material.materialName]?.hasPgmsOnThisCnc ?: false)) continue
-                                        val result = generateOne(material.materialName, ignoreDuplicates = false)
-                                        next[material.materialName] = result
-                                        if (result is ManageCodeMaterialResult.Success) {
-                                            val (state, mixName) = loadMaterialState(material)
-                                            materialStates = materialStates + (material.materialName to state)
-                                            mixNames = mixNames + (material.materialName to mixName)
+                                        val catalog = materialCatalogs[material.materialName]
+                                        if (catalog == null) {
+                                            next[material.materialName] = ManageCodeMaterialResult.Blocked(
+                                                "Mix catalog unavailable — refresh and try again"
+                                            )
+                                            continue
                                         }
+                                        val automaticTarget = mixActionDialogContent(catalog).automaticTarget
+                                        if (automaticTarget == null) {
+                                            pendingMixAction = PendingMixAction(material.materialName, catalog)
+                                            break
+                                        }
+                                        next[material.materialName] = generateOne(
+                                            material.materialName,
+                                            automaticTarget,
+                                            ignoreDuplicates = false
+                                        )
                                     }
-                                    results = next
+                                    results = results + next
                                     busy = false
                                 }
                             },
@@ -538,26 +597,71 @@ fun ManageCodeScreen(
             }
         }
 
-        pendingDuplicateWarning?.let { (materialName, duplicates) ->
+        pendingMixAction?.let { pending ->
+            val originalName = pending.catalog.entries
+                .firstOrNull { it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.ACTIVE }
+                ?.name ?: defaultMixName(pending.materialName)
+            MixActionDialog(
+                catalog = pending.catalog,
+                originalName = originalName,
+                onDismiss = { pendingMixAction = null },
+                onTargetSelected = { target ->
+                    pendingMixAction = null
+                    scope.launch {
+                        busy = true
+                        val result = generateOne(pending.materialName, target, ignoreDuplicates = false)
+                        results = results + (pending.materialName to result)
+                        busy = false
+                    }
+                },
+                onDeleteExternal = { filename ->
+                    pendingMixAction = null
+                    scope.launch {
+                        busy = true
+                        val result = when (val mutation = mixCatalogRepository.deleteExternalMix(
+                            job = jobFolderName,
+                            material = pending.materialName,
+                            filename = filename,
+                            expectedRevision = pending.catalog.revision
+                        )) {
+                            is MixCatalogMutationResult.Success -> {
+                                applyMutationCatalog(pending.materialName, mutation.snapshot)
+                                ManageCodeMaterialResult.Success
+                            }
+                            is MixCatalogMutationResult.SyncFailed -> {
+                                applyMutationCatalog(pending.materialName, mutation.snapshot)
+                                ManageCodeMaterialResult.Success
+                            }
+                            MixCatalogMutationResult.CatalogChanged -> {
+                                refreshMaterialCatalog(pending.materialName)?.let {
+                                    pendingMixAction = PendingMixAction(pending.materialName, it)
+                                }
+                                ManageCodeMaterialResult.Blocked("Mix catalog changed — choose an action again")
+                            }
+                            else -> ManageCodeMaterialResult.Blocked(
+                                "External mix deletion failed: ${mixMutationErrorMessage(mutation)}"
+                            )
+                        }
+                        results = results + (pending.materialName to result)
+                        busy = false
+                    }
+                }
+            )
+        }
+
+        pendingDuplicateWarning?.let { pending ->
             AlertDialog(
                 onDismissRequest = { pendingDuplicateWarning = null },
                 title = { Text("Already in another mix") },
                 text = {
-                    Text(duplicates.joinToString("\n") { "${it.pgm} is already in ${it.otherMixName}" })
+                    Text(pending.duplicates.joinToString("\n") { "${it.pgm} is already in ${it.otherMixName}" })
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         pendingDuplicateWarning = null
                         scope.launch {
-                            val result = generateOne(materialName, ignoreDuplicates = true)
-                            results = results + (materialName to result)
-                            if (result is ManageCodeMaterialResult.Success) {
-                                materials.firstOrNull { it.materialName == materialName }?.let { material ->
-                                    val (state, mixName) = loadMaterialState(material)
-                                    materialStates = materialStates + (materialName to state)
-                                    mixNames = mixNames + (materialName to mixName)
-                                }
-                            }
+                            val result = generateOne(pending.materialName, pending.target, ignoreDuplicates = true)
+                            results = results + (pending.materialName to result)
                         }
                     }) { Text("Continue anyway") }
                 },
@@ -569,16 +673,17 @@ fun ManageCodeScreen(
     }
 }
 
-private fun mixWriteErrorMessage(result: MixWriteResult): String = when (result) {
-    is MixWriteResult.Success -> ""
-    is MixWriteResult.SyncFailed -> "Mix saved, but history sync failed (${result.code})"
-    is MixWriteResult.DuplicateName -> "A mix named \"${result.name}\" already exists"
-    MixWriteResult.UnknownJobOrMaterial -> "Job or material not found on the CNC"
-    is MixWriteResult.MissingProgram -> "PGM file missing: ${result.pgm}"
-    is MixWriteResult.BadRequest -> result.message.ifBlank { "Invalid mix request" }
-    MixWriteResult.CompileBusy -> "CNC is busy compiling another mix — try again"
-    MixWriteResult.WinxisoTimeout -> "Compile timed out — try again"
-    MixWriteResult.NetworkError -> "Could not reach the mix service"
+private fun mixMutationErrorMessage(result: MixCatalogMutationResult): String = when (result) {
+    is MixCatalogMutationResult.Success, is MixCatalogMutationResult.SyncFailed -> ""
+    MixCatalogMutationResult.CatalogChanged -> "Mix catalog changed"
+    MixCatalogMutationResult.ExternalMixesPresent -> "External mix files must be removed first"
+    MixCatalogMutationResult.EditBusy -> "Another edit is in progress — try again"
+    MixCatalogMutationResult.CompileBusy -> "CNC is busy compiling another mix — try again"
+    MixCatalogMutationResult.WinxisoTimeout -> "Compile timed out — try again"
+    is MixCatalogMutationResult.MissingProgram -> "PGM file missing: ${result.pgm}"
+    is MixCatalogMutationResult.HistorySyncError -> result.message.ifBlank { "History sync failed" }
+    is MixCatalogMutationResult.BadRequest -> result.message.ifBlank { "Invalid mix request" }
+    MixCatalogMutationResult.NetworkError -> "Could not reach the mix service"
 }
 
 private fun pgmEditErrorMessage(result: PgmEditSubmitResult): String = when (result) {

@@ -69,4 +69,79 @@ class ManageCodeOrchestratorTest {
         val warnings = findCrossMixDuplicates(listOf("R1.pgm", "R3.pgm"), thisMixName = "ThisMix", otherMixes = others)
         assertEquals(listOf(DuplicateMixWarning("R1.pgm", "OtherMix")), warnings)
     }
+
+    @Test
+    fun `first default generation resolves an empty baseline only for a catalog without active or external entries`() {
+        val emptyCatalog = catalog(entries = emptyList())
+
+        assertEquals(
+            MixGenerationPlan(name = "19mmMix", programsBaseline = emptyList(), expectedRevision = 7L),
+            resolveMixGenerationTarget(MixGenerationTarget.FirstDefault, emptyCatalog, "19mm")
+        )
+        assertEquals(
+            null,
+            resolveMixGenerationTarget(
+                MixGenerationTarget.FirstDefault,
+                catalog(entries = listOf(active("Current", "R1.pgm"))),
+                "19mm"
+            )
+        )
+    }
+
+    @Test
+    fun `additional mix target accepts only a valid unique active name`() {
+        val snapshot = catalog(entries = listOf(active("Current", "R1.pgm")))
+
+        assertEquals(
+            MixGenerationPlan(name = "Second", programsBaseline = emptyList(), expectedRevision = 7L),
+            resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("Second"), snapshot, "19mm")
+        )
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("Current"), snapshot, "19mm"))
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("bad/name"), snapshot, "19mm"))
+    }
+
+    @Test
+    fun `replace target requires the exact active name and current revision while preserving its programs baseline`() {
+        val snapshot = catalog(entries = listOf(active("Current", "R2.pgm", "R1.pgm")))
+
+        assertEquals(
+            MixGenerationPlan(name = "Current", programsBaseline = listOf("R2.pgm", "R1.pgm"), expectedRevision = 7L),
+            resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Current", expectedRevision = 7L), snapshot, "19mm")
+        )
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Old", 7L), snapshot, "19mm"))
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Current", 6L), snapshot, "19mm"))
+    }
+
+    @Test
+    fun `external catalog entry blocks every generation target`() {
+        val snapshot = catalog(entries = listOf(external("Manual.mix")))
+
+        listOf(
+            MixGenerationTarget.FirstDefault,
+            MixGenerationTarget.CreateAdditional("Second"),
+            MixGenerationTarget.ReplaceActive("Current", 7L)
+        ).forEach { target ->
+            assertEquals(null, resolveMixGenerationTarget(target, snapshot, "19mm"))
+        }
+    }
+
+    private fun catalog(entries: List<MixCatalogEntry>) = MixCatalogSnapshot(
+        job = "100 - Alpha",
+        material = "19mm",
+        revision = 7L,
+        entries = entries
+    )
+
+    private fun active(name: String, vararg programs: String) = MixCatalogEntry(
+        name = name,
+        mixFilename = "$name.mix",
+        lifecycle = MixLifecycle.ACTIVE,
+        programs = programs.toList()
+    )
+
+    private fun external(filename: String) = MixCatalogEntry(
+        name = filename,
+        mixFilename = filename,
+        lifecycle = MixLifecycle.EXTERNAL
+    )
 }
