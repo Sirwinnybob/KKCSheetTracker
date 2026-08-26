@@ -160,6 +160,48 @@ class MixServiceClientTest {
     }
 
     @Test
+    fun `createMix maps a history-sync failure to SyncFailed, unwrapping the nested completed mix`() = runBlocking {
+        // Verified shape: the error body's "mix" field is itself a full {ok, mix, status}
+        // envelope, the same object the 200 success path would have returned -- not a bare
+        // MixDefinition. See mix_service/service.py's _history_sync_error_body/_create_mix.
+        server.enqueue(
+            MockResponse().setResponseCode(409)
+                .setBody(
+                    """{"ok":false,"code":"edit_busy","error":"ledger locked",""" +
+                        """"mix":{"ok":true,"mix":{"name":"KkcMix","job":"648",""" +
+                        """"material":"19mm Pre_Finished","programs":["R1.pgm"],""" +
+                        """"mixFilename":"KkcMix.mix"},"status":"compiled"},""" +
+                        """"recoveryUrl":"/jobs/648/materials/19mm Pre_Finished/mix-history/sync"}"""
+                )
+        )
+        val result = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"))
+        check(result is MixWriteResult.SyncFailed)
+        assertEquals("KkcMix", result.definition.name)
+        assertEquals("compiled", result.definition.status)
+        assertEquals("edit_busy", result.code)
+        assertEquals("/jobs/648/materials/19mm Pre_Finished/mix-history/sync", result.recoveryUrl)
+    }
+
+    @Test
+    fun `createMix maps 500 with a completed mix to SyncFailed, and plain 500 to NetworkError`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(500)
+                .setBody(
+                    """{"ok":false,"code":"history_sync_failed","error":"disk full",""" +
+                        """"mix":{"ok":true,"mix":{"name":"KkcMix","job":"648",""" +
+                        """"material":"19mm Pre_Finished","programs":["R1.pgm"]},"status":"never"}}"""
+                )
+        )
+        val syncFailed = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"))
+        check(syncFailed is MixWriteResult.SyncFailed)
+        assertEquals("history_sync_failed", syncFailed.code)
+
+        server.enqueue(MockResponse().setResponseCode(500).setBody("""{"ok":false,"code":"internal","error":"boom"}"""))
+        val plainError = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"))
+        check(plainError is MixWriteResult.NetworkError)
+    }
+
+    @Test
     fun `createMix maps 422 missing-program error text to MissingProgram`() = runBlocking {
         server.enqueue(
             MockResponse().setResponseCode(422)

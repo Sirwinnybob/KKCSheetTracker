@@ -13,6 +13,11 @@ import java.util.concurrent.TimeUnit
 
 sealed class MixWriteResult {
     data class Success(val definition: MixDefinition) : MixWriteResult()
+    // The mix mutation itself succeeded (defn is real and already in the service's store) but
+    // writing that outcome into the material's .pgm_edit_history.json sidecar failed. Not a
+    // failed write -- callers must not retry the mutation on this result, since retrying
+    // create/update against an already-created mix name produces a real DuplicateName.
+    data class SyncFailed(val definition: MixDefinition, val code: String, val recoveryUrl: String?) : MixWriteResult()
     data class DuplicateName(val name: String) : MixWriteResult()
     object UnknownJobOrMaterial : MixWriteResult()
     data class MissingProgram(val pgm: String) : MixWriteResult()
@@ -40,6 +45,16 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     private data class MixListEnvelope(val ok: Boolean = false, val mixes: List<MixDefinition> = emptyList())
     private data class MixWriteEnvelope(val ok: Boolean = false, val mix: MixDefinition? = null, val status: String? = null)
     private data class ErrorEnvelope(val ok: Boolean = false, val code: String? = null, val error: String? = null)
+    // A history-sync-failure error body's own "mix" field is the *whole* completed-mutation
+    // envelope (i.e. another {ok, mix, status}), not a bare MixDefinition -- the server nests it
+    // because it's literally the same result object the 200 success path would have returned.
+    private data class MixSyncErrorEnvelope(
+        val ok: Boolean = false,
+        val code: String? = null,
+        val error: String? = null,
+        val mix: MixWriteEnvelope? = null,
+        val recoveryUrl: String? = null
+    )
 
     companion object {
         private val client = OkHttpClient.Builder()
@@ -134,7 +149,7 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
                         MixWriteResult.Success(definition.copy(status = envelope.status ?: definition.status))
                     }
                     404 -> MixWriteResult.UnknownJobOrMaterial
-                    409 -> MixWriteResult.DuplicateName(name)
+                    409 -> parseSyncFailure(response) ?: MixWriteResult.DuplicateName(name)
                     422 -> {
                         val message = errorMessage(response)
                         val prefix = "missing program: "
@@ -142,8 +157,9 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
                         else MixWriteResult.BadRequest(message)
                     }
                     400 -> MixWriteResult.BadRequest(errorMessage(response))
-                    503 -> MixWriteResult.CompileBusy
-                    504 -> MixWriteResult.WinxisoTimeout
+                    500 -> parseSyncFailure(response) ?: MixWriteResult.NetworkError
+                    503 -> parseSyncFailure(response) ?: MixWriteResult.CompileBusy
+                    504 -> parseSyncFailure(response) ?: MixWriteResult.WinxisoTimeout
                     else -> MixWriteResult.NetworkError
                 }
             }
@@ -153,6 +169,17 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     private fun errorMessage(response: Response): String =
         runCatching { gson.fromJson(response.body?.string().orEmpty(), ErrorEnvelope::class.java)?.error }
             .getOrNull().orEmpty()
+
+    // Reads the response body once. Returns null (no sync-failure shape found) rather than
+    // throwing, so callers can fall back to their normal per-status-code result.
+    private fun parseSyncFailure(response: Response): MixWriteResult.SyncFailed? {
+        val envelope = runCatching {
+            gson.fromJson(response.body?.string().orEmpty(), MixSyncErrorEnvelope::class.java)
+        }.getOrNull() ?: return null
+        val definition = envelope.mix?.mix ?: return null
+        val merged = definition.copy(status = envelope.mix.status ?: definition.status)
+        return MixWriteResult.SyncFailed(merged, envelope.code ?: "history_sync_failed", envelope.recoveryUrl)
+    }
 
     suspend fun listPgmEdits(job: String, material: String, historyLimit: Int = 20): PgmEditHistoryView? =
         withContext(Dispatchers.IO) {

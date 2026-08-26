@@ -323,7 +323,12 @@ fun ManageCodeScreen(
             } else {
                 client.createMix(jobFolderName, materialName, name, change.programs)
             }
-            if (writeResult !is MixWriteResult.Success) {
+            // SyncFailed means the mix itself was created/updated successfully -- only the
+            // sidecar history write failed afterward. Treating it as a failure would make the
+            // caller retry, and a retry against an already-created mix name is a real
+            // DuplicateName. Not blocking here; loadMaterialState()'s post-Generate refresh
+            // re-reads the mix from the service's own store either way.
+            if (writeResult !is MixWriteResult.Success && writeResult !is MixWriteResult.SyncFailed) {
                 return ManageCodeMaterialResult.Blocked("Mix write failed: ${mixWriteErrorMessage(writeResult)}")
             }
         }
@@ -457,6 +462,7 @@ fun ManageCodeScreen(
 
 private fun mixWriteErrorMessage(result: MixWriteResult): String = when (result) {
     is MixWriteResult.Success -> ""
+    is MixWriteResult.SyncFailed -> "Mix saved, but history sync failed (${result.code})"
     is MixWriteResult.DuplicateName -> "A mix named \"${result.name}\" already exists"
     MixWriteResult.UnknownJobOrMaterial -> "Job or material not found on the CNC"
     is MixWriteResult.MissingProgram -> "PGM file missing: ${result.pgm}"
