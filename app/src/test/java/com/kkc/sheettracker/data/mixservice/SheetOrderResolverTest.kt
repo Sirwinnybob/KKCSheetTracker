@@ -33,4 +33,11 @@ class SheetOrderResolverTest {
         val ordered = reorderVisiblePages(pages, naturalOrder = listOf(1, 3), mixPrograms = listOf("R2.pgm", "R3.pgm", "R1.pgm"))
         assertEquals(listOf(3, 1), ordered)
     }
+
+    @Test
+    fun `a page with no resolvable sheet file is appended rather than dropped`() {
+        val pagesWithOneUnresolvable = pages + PageMetadata(pageNumber = 4, sheetFiles = emptyList(), sheetId = "")
+        val ordered = reorderVisiblePages(pagesWithOneUnresolvable, naturalOrder = listOf(1, 2, 3, 4), mixPrograms = listOf("R2.pgm", "R1.pgm", "R3.pgm"))
+        assertEquals(listOf(2, 1, 3, 4), ordered)
+    }
 }
