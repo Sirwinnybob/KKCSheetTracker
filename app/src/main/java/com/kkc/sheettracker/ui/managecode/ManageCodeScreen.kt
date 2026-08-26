@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.managecode
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
@@ -134,8 +136,8 @@ fun ManageCodeMaterialCard(
                     state = listState,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = (rowsState.value.size.coerceAtMost(6) * 72).dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                        .heightIn(max = (rowsState.value.size.coerceAtMost(4) * 132).dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     itemsIndexed(rowsState.value, key = { _, row -> "${row.pageNumber}-${row.editablePgm}" }) { _, row ->
@@ -169,30 +171,66 @@ private fun ManageCodeRowView(
     thumbnail: androidx.compose.ui.graphics.ImageBitmap?,
     dragModifier: Modifier
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    // Mirrors SheetViewerScreen's own Sheet Navigator row (thumbnail size, card shape, padding)
+    // so Manage Code's list reads as the same kind of sheet-list UI, not a smaller/different one.
+    Surface(
+        tonalElevation = 1.dp,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        if (locked) {
-            Icon(Icons.Filled.Lock, contentDescription = "Locked", modifier = Modifier.size(16.dp))
-        } else {
-            Icon(Icons.Filled.DragHandle, contentDescription = "Drag to reorder", modifier = Modifier.size(20.dp).then(dragModifier))
-        }
-        Box(modifier = Modifier.size(34.dp)) {
-            if (thumbnail != null) {
-                androidx.compose.foundation.Image(bitmap = thumbnail, contentDescription = null)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (locked) {
+                Icon(Icons.Filled.Lock, contentDescription = "Locked", modifier = Modifier.size(20.dp))
+            } else {
+                Icon(
+                    Icons.Filled.DragHandle,
+                    contentDescription = "Drag to reorder",
+                    modifier = Modifier.size(24.dp).then(dragModifier)
+                )
             }
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(row.pgmFiles.joinToString(" + "), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-        }
-        if (!locked) {
-            LabeledCheckbox("MIX", selection.mix) { onSelectionChanged(selection.copy(mix = it)) }
-            LabeledCheckbox("PUN", selection.removePUnload) { onSelectionChanged(selection.copy(removePUnload = it)) }
-            LabeledCheckbox("2ND", selection.secondPass) { onSelectionChanged(toggleSecondPass(selection, it)) }
-            if (selection.secondPass) {
-                LabeledCheckbox("SUP", selection.superPass) { onSelectionChanged(toggleSuperPass(selection, it)) }
+            Box(
+                modifier = Modifier
+                    .size(width = 148.dp, height = 100.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small),
+                contentAlignment = Alignment.Center
+            ) {
+                if (thumbnail != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = thumbnail,
+                        contentDescription = "Sheet ${row.pageNumber} thumbnail",
+                        modifier = Modifier.fillMaxSize().padding(2.dp),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        filterQuality = androidx.compose.ui.graphics.FilterQuality.None
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Image,
+                        contentDescription = "Image icon",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    row.pgmFiles.joinToString(" + "),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            if (!locked) {
+                LabeledCheckbox("MIX", selection.mix) { onSelectionChanged(selection.copy(mix = it)) }
+                LabeledCheckbox("PUN", selection.removePUnload) { onSelectionChanged(selection.copy(removePUnload = it)) }
+                LabeledCheckbox("2ND", selection.secondPass) { onSelectionChanged(toggleSecondPass(selection, it)) }
+                if (selection.secondPass) {
+                    LabeledCheckbox("SUP", selection.superPass) { onSelectionChanged(toggleSuperPass(selection, it)) }
+                }
             }
         }
     }
@@ -368,7 +406,14 @@ fun ManageCodeScreen(
                             val pdfFile = jobRepository.getPdfFile(jobFolderName, material.pdfFilename)
                             for (row in state.rows) {
                                 if (thumbnailCache.containsKey(row.pageNumber)) continue
-                                thumbnailCache[row.pageNumber] = renderManageCodeThumbnail(pdfFile, row.pageNumber)?.asImageBitmap()
+                                val bitmap = withContext(Dispatchers.IO) {
+                                    com.kkc.sheettracker.ui.viewer.loadSheetThumbnailForToc(
+                                        pdfFile,
+                                        row.pageNumber - 1,
+                                        row.thumbnailPath
+                                    )
+                                }
+                                thumbnailCache[row.pageNumber] = bitmap?.asImageBitmap()
                             }
                         }
                         ManageCodeMaterialCard(

@@ -7,9 +7,9 @@ import org.junit.Test
 
 class ManageCodeOrchestratorTest {
     private val rows = listOf(
-        ManageCodeRow(pageNumber = 1, pgmFiles = listOf("R1.pgm"), editablePgm = "R1.pgm"),
-        ManageCodeRow(pageNumber = 2, pgmFiles = listOf("R2A.pgm", "R2Z.pgm"), editablePgm = "R2Z.pgm"),
-        ManageCodeRow(pageNumber = 3, pgmFiles = listOf("R3.pgm"), editablePgm = "R3.pgm")
+        ManageCodeRow(pageNumber = 1, pgmFiles = listOf("R1.pgm"), editablePgm = "R1.pgm", thumbnailPath = null),
+        ManageCodeRow(pageNumber = 2, pgmFiles = listOf("R2A.pgm", "R2Z.pgm"), editablePgm = "R2Z.pgm", thumbnailPath = null),
+        ManageCodeRow(pageNumber = 3, pgmFiles = listOf("R3.pgm"), editablePgm = "R3.pgm", thumbnailPath = null)
     )
 
     @Test

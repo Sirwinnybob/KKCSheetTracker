@@ -2446,7 +2446,7 @@ internal fun resolveCncSidecarFile(
     return if (candidate.isAbsolute) candidate else File(pdfFile.parentFile, trimmed)
 }
 
-private fun loadSheetThumbnailForToc(
+internal fun loadSheetThumbnailForToc(
     pdfFile: File,
     pageIndex: Int,
     thumbnailPath: String?

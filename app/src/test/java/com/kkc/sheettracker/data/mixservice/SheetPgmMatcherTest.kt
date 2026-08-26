@@ -39,12 +39,21 @@ class SheetPgmMatcherTest {
     @Test
     fun `applyExistingOrder reorders matched rows and appends unmapped ones in original order`() {
         val rows = listOf(
-            ManageCodeRow(pageNumber = 1, pgmFiles = listOf("R1.pgm"), editablePgm = "R1.pgm"),
-            ManageCodeRow(pageNumber = 2, pgmFiles = listOf("R2.pgm"), editablePgm = "R2.pgm"),
-            ManageCodeRow(pageNumber = 3, pgmFiles = listOf("R3.pgm"), editablePgm = "R3.pgm")
+            ManageCodeRow(pageNumber = 1, pgmFiles = listOf("R1.pgm"), editablePgm = "R1.pgm", thumbnailPath = null),
+            ManageCodeRow(pageNumber = 2, pgmFiles = listOf("R2.pgm"), editablePgm = "R2.pgm", thumbnailPath = null),
+            ManageCodeRow(pageNumber = 3, pgmFiles = listOf("R3.pgm"), editablePgm = "R3.pgm", thumbnailPath = null)
         )
         val ordered = applyExistingOrder(rows, listOf("R2.pgm", "R1.pgm"))
         assertEquals(listOf(2, 1, 3), ordered.map { it.pageNumber })
+    }
+
+    @Test
+    fun `buildManageCodeRows carries the sidecar thumbnail path through`() {
+        val pages = listOf(
+            PageMetadata(pageNumber = 1, sheetFiles = listOf("R1"), thumbnailPath = ".metadata/.thumbs/p1.png")
+        )
+        val rows = buildManageCodeRows(pages)
+        assertEquals(".metadata/.thumbs/p1.png", rows.single().thumbnailPath)
     }
 
     @Test

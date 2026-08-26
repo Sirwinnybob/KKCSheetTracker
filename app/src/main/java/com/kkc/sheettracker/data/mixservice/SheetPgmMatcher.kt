@@ -6,7 +6,8 @@ import com.kkc.sheettracker.ui.viewer.inferSheetFiles
 data class ManageCodeRow(
     val pageNumber: Int,
     val pgmFiles: List<String>,
-    val editablePgm: String
+    val editablePgm: String,
+    val thumbnailPath: String?
 )
 
 fun buildManageCodeRows(pages: List<PageMetadata>): List<ManageCodeRow> =
@@ -16,7 +17,12 @@ fun buildManageCodeRows(pages: List<PageMetadata>): List<ManageCodeRow> =
         .mapNotNull { page ->
             val files = orderedPgmFiles(inferSheetFiles(page))
             if (files.isEmpty()) null
-            else ManageCodeRow(pageNumber = page.pageNumber, pgmFiles = files, editablePgm = files.last())
+            else ManageCodeRow(
+                pageNumber = page.pageNumber,
+                pgmFiles = files,
+                editablePgm = files.last(),
+                thumbnailPath = page.thumbnailPath
+            )
         }
 
 // inferSheetFiles' single-sheetId fallback branch (SheetViewerScreen.kt) returns [Z, A] order,
