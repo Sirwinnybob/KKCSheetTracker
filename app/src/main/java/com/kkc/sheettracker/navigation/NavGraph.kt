@@ -2052,6 +2052,7 @@ private fun StandardsTabHost(
                 onBack = onBack,
                 onOpenMolding = { navController.navigate("standards/molding") { launchSingleTop = true } },
                 onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } },
+                onOpenArchive = { navController.navigate("standards/archive") { launchSingleTop = true } },
                 safetyNotificationCount = safetyNotificationCount
             )
         }
@@ -2070,6 +2071,20 @@ private fun StandardsTabHost(
             com.kkc.sheettracker.ui.standards.SafetyDocumentsScreen(
                 basePath = basePath,
                 onBack = { navController.popBackStack() }
+            )
+        }
+        composable("standards/archive") {
+            ArchiveLibraryHost(
+                tabletId = tabletId,
+                isDebugBuild = isDebugBuild,
+                isDarkTheme = isDarkTheme,
+                useStandardSheets = useStandardSheets,
+                continuousScrollDefault = continuousScrollDefault,
+                specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
+                workMode = workMode,
+                appStateFlags = appStateFlags,
+                active = active,
+                onExitArchive = { navController.popBackStack() },
             )
         }
     }
@@ -2096,6 +2111,70 @@ private fun SupplyTabHost(
                 employeeName = employeeName,
                 subscriptionManager = subscriptionManager,
                 active = active
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArchiveLibraryHost
+(
+    tabletId: String,
+    isDebugBuild: Boolean,
+    isDarkTheme: Boolean,
+    useStandardSheets: Boolean,
+    continuousScrollDefault: Boolean,
+    specialtyViewerDefaultsStore: com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore,
+    workMode: WorkMode,
+    appStateFlags: AppStateFeatureFlags,
+    active: Boolean = true,
+    onExitArchive: () -> Unit,
+) {
+    val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val context = LocalContext.current
+    NavHost(
+        navController = navController,
+        startDestination = "archive",
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        composable("archive") {
+            com.kkc.sheettracker.ui.archive.ArchiveLibraryScreen(
+                tabletId = tabletId,
+                isDebugBuild = isDebugBuild,
+                active = active && backStackEntry?.destination?.route == "archive",
+                onOpenArchiveJob = { archiveJobId, folderName, contentVersion ->
+                    navController.navigate(
+                        "archive/job/${URLEncoder.encode(archiveJobId, "UTF-8")}/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(contentVersion, "UTF-8")}"
+                    ) { launchSingleTop = true }
+                },
+            )
+        }
+        composable(
+            "archive/job/{archiveJobId}/{folderName}/{contentVersion}",
+            arguments = listOf(
+                navArgument("archiveJobId") { type = NavType.StringType },
+                navArgument("folderName") { type = NavType.StringType },
+                navArgument("contentVersion") { type = NavType.StringType },
+            ),
+        ) { backStackEntry ->
+            val archiveJobId = URLDecoder.decode(backStackEntry.arguments?.getString("archiveJobId").orEmpty(), "UTF-8")
+            val folderName = URLDecoder.decode(backStackEntry.arguments?.getString("folderName").orEmpty(), "UTF-8")
+            val contentVersion = URLDecoder.decode(backStackEntry.arguments?.getString("contentVersion").orEmpty(), "UTF-8")
+            ArchiveJobDetailHost(
+                archiveJobId = archiveJobId,
+                folderName = folderName,
+                contentVersion = contentVersion,
+                cacheJobParentDir = File(context.cacheDir, "archive-cache/$archiveJobId"),
+                tabletId = tabletId,
+                isDebugBuild = isDebugBuild,
+                isDarkTheme = isDarkTheme,
+                useStandardSheets = useStandardSheets,
+                continuousScrollDefault = continuousScrollDefault,
+                specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
+                workMode = workMode,
+                appStateFlags = appStateFlags,
+                onExitArchive = onExitArchive,
             )
         }
     }
@@ -3250,6 +3329,7 @@ private fun LegacySingleStackNavigation(
                         onBack = { navController.popBackStack() },
                         onOpenMolding = { navController.navigate("standards/molding") { launchSingleTop = true } },
                         onOpenSafety = { navController.navigate("standards/safety") { launchSingleTop = true } },
+                        onOpenArchive = { navController.navigate("standards/archive") { launchSingleTop = true } },
                         safetyNotificationCount = safetyNotificationCount
                     )
                 }
@@ -3282,6 +3362,21 @@ private fun LegacySingleStackNavigation(
                         onBack = { navController.popBackStack() }
                     )
                 }
+                composable("standards/archive") {
+                    ArchiveLibraryHost(
+                        tabletId = tabletId,
+                        isDebugBuild = isDebugBuild,
+                        isDarkTheme = isDarkTheme,
+                        useStandardSheets = useStandardSheets,
+                        continuousScrollDefault = continuousScrollDefault,
+                        specialtyViewerDefaultsStore = legacySpecialtyViewerDefaultsStore,
+                        workMode = workMode,
+                        appStateFlags = appStateFlags,
+                        active = currentNavDest == NavDestination.STANDARDS && currentRoute == "standards/archive",
+                        onExitArchive = { navController.popBackStack() },
+                    )
+                }
+
                 }
                 }
 
