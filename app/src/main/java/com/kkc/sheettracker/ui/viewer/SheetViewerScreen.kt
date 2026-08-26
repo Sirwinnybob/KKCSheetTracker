@@ -123,9 +123,9 @@ import com.kkc.sheettracker.data.mixservice.MixCatalogCache
 import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
 import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
 import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
-import com.kkc.sheettracker.data.mixservice.MixLifecycle
 import com.kkc.sheettracker.data.mixservice.MixServiceClient
 import com.kkc.sheettracker.data.mixservice.pagesForMix
+import com.kkc.sheettracker.data.mixservice.resolveSelectedActiveMix
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import com.kkc.sheettracker.ui.components.LocalIdlePhase
@@ -148,7 +148,9 @@ import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
@@ -169,6 +171,7 @@ private const val VIEWER_PARITY_TAG = "KKC_APP_STATE_PARITY_VIEWER"
 private const val VIEWER_PREPARED_TAG = "KKC_PREPARED_STATE"
 private const val RENDER_CACHE_MAX_PAGES = 6
 private const val RENDER_PREWARM_RADIUS = 2
+private val viewerMixCatalogRefreshScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 private val SHEET_BITMAP_INVERSION_COLOR_MATRIX = ColorMatrix(
     floatArrayOf(
         -1f, 0f, 0f, 0f, 255f,
@@ -311,6 +314,22 @@ internal sealed class SheetViewerMixPages {
     object Unavailable : SheetViewerMixPages()
 }
 
+internal data class SheetViewerMixCatalogPlan(
+    val pageResolution: SheetViewerMixPages,
+    val refreshInBackground: Boolean
+)
+
+internal fun resolveSelectedMixCatalog(
+    mixName: String?,
+    catalog: MixCatalogSnapshot?,
+    pages: List<PageMetadata>,
+    naturalOrder: List<Int>
+): SheetViewerMixCatalogPlan = SheetViewerMixCatalogPlan(
+    pageResolution = resolveSelectedMixVisiblePages(mixName, catalog, pages, naturalOrder),
+    // A stale cache must not suppress the revalidation that can restore a selected active mix.
+    refreshInBackground = mixName != null
+)
+
 internal fun resolveSelectedMixVisiblePages(
     mixName: String?,
     catalog: MixCatalogSnapshot?,
@@ -318,16 +337,16 @@ internal fun resolveSelectedMixVisiblePages(
     naturalOrder: List<Int>
 ): SheetViewerMixPages {
     if (mixName == null) return SheetViewerMixPages.Resolved(naturalOrder)
-    val selectedMix = catalog?.entries?.firstOrNull { it.name == mixName }
-        ?: return if (catalog == null) SheetViewerMixPages.AwaitingCatalog else SheetViewerMixPages.Unavailable
-    if (selectedMix.lifecycle != MixLifecycle.ACTIVE) return SheetViewerMixPages.Unavailable
-    return SheetViewerMixPages.Resolved(
-        pagesForMix(
-            pages = pages,
-            naturalOrder = naturalOrder,
-            programs = selectedMix.programs
-        )
+    if (catalog == null) return SheetViewerMixPages.AwaitingCatalog
+    val selectedMix = resolveSelectedActiveMix(catalog, mixName) ?: return SheetViewerMixPages.Unavailable
+    val selectedPages = pagesForMix(
+        pages = pages,
+        naturalOrder = naturalOrder,
+        programs = selectedMix.programs
     )
+    return selectedPages.takeIf { it.isNotEmpty() }
+        ?.let(SheetViewerMixPages::Resolved)
+        ?: SheetViewerMixPages.Unavailable
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -415,6 +434,7 @@ fun SheetViewerScreen(
     var totalPages by remember { mutableIntStateOf(0) }
     var visiblePages by remember { mutableStateOf<List<Int>>(emptyList()) }
     var hasResolvedVisiblePages by remember { mutableStateOf(false) }
+    var isViewerActive by remember { mutableStateOf(true) }
     var pageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var diagramBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var jobMaterials by remember { mutableStateOf<List<Material>>(emptyList()) }
@@ -802,14 +822,14 @@ fun SheetViewerScreen(
     fun applySelectedMixPages(
         material: Material,
         catalog: MixCatalogSnapshot?
-    ): SheetViewerMixPages {
-        val resolution = resolveSelectedMixVisiblePages(
+    ): SheetViewerMixCatalogPlan {
+        val plan = resolveSelectedMixCatalog(
             mixName = mixName,
             catalog = catalog,
             pages = material.metadata?.pages.orEmpty(),
             naturalOrder = material.visibleSheetPages()
         )
-        when (resolution) {
+        when (val resolution = plan.pageResolution) {
             is SheetViewerMixPages.Resolved -> {
                 visiblePages = resolution.pages
                 hasResolvedVisiblePages = true
@@ -823,7 +843,7 @@ fun SheetViewerScreen(
                 hasResolvedVisiblePages = false
             }
         }
-        return resolution
+        return plan
     }
 
     fun redirectForUnavailableSelectedMix() {
@@ -861,41 +881,42 @@ fun SheetViewerScreen(
                 mixCatalogRepository.cached(jobFolderName, material.materialName)
             }
         }
-        val pageResolution = nextMaterial?.let { material ->
+        val catalogPlan = nextMaterial?.let { material ->
             applySelectedMixPages(material, cachedCatalog)
         }
         if (nextMaterial != null) {
             hasBoundInitialMaterial = true
-            if (pageResolution == SheetViewerMixPages.Unavailable) {
-                redirectForUnavailableSelectedMix()
-                return@LaunchedEffect
+            if (catalogPlan?.refreshInBackground == true) {
+                viewerMixCatalogRefreshScope.launch {
+                    val refreshed = mixCatalogRepository.refresh(jobFolderName, nextMaterial.materialName)
+                    if (refreshed !is MixCatalogFetchResult.Success) return@launch
+                    if (!isViewerActive) return@launch
+                    val currentIdentity = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                    if (currentIdentity != nextIdentity) return@launch
+                    when (applySelectedMixPages(nextMaterial, refreshed.snapshot).pageResolution) {
+                        SheetViewerMixPages.Unavailable -> redirectForUnavailableSelectedMix()
+                        else -> Unit
+                    }
+                }
             }
-            if (pageResolution is SheetViewerMixPages.Resolved) {
-                didRedirectForUnavailableMaterial = false
+            when (catalogPlan?.pageResolution) {
+                SheetViewerMixPages.Unavailable -> {
+                    redirectForUnavailableSelectedMix()
+                    return@LaunchedEffect
+                }
+                is SheetViewerMixPages.Resolved -> didRedirectForUnavailableMaterial = false
+                else -> Unit
             }
             val localTouchPage = progressStore
                 .getLocalMaterialLastTouches(jobFolderName)[pdfFilename]
                 ?.page
-            if (pageResolution is SheetViewerMixPages.Resolved && visiblePages.isNotEmpty()) {
+            if (catalogPlan?.pageResolution is SheetViewerMixPages.Resolved && visiblePages.isNotEmpty()) {
                 val requested = nextMaterial.resolveHeadPage(localTouchPage ?: startPage)
                 val identityChanged = oldIdentity != nextIdentity
                 currentPage = when {
                     !identityChanged && currentPage in visiblePages -> currentPage
                     requested in visiblePages -> requested
                     else -> visiblePages.first()
-                }
-            }
-
-            if (mixName != null) {
-                scope.launch {
-                    val refreshed = mixCatalogRepository.refresh(jobFolderName, nextMaterial.materialName)
-                    if (refreshed !is MixCatalogFetchResult.Success) return@launch
-                    val currentIdentity = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                    if (currentIdentity != nextIdentity) return@launch
-                    when (applySelectedMixPages(nextMaterial, refreshed.snapshot)) {
-                        SheetViewerMixPages.Unavailable -> redirectForUnavailableSelectedMix()
-                        else -> Unit
-                    }
                 }
             }
         } else {
@@ -942,6 +963,10 @@ fun SheetViewerScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { isViewerActive = false }
     }
 
     LaunchedEffect(currentPage, fileFingerprint, visiblePages, hasResolvedVisiblePages) {

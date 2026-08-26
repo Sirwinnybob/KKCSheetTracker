@@ -111,6 +111,99 @@ class SheetViewerScreenTest {
     }
 
     @Test
+    fun staleUnavailableSelectedMix_stillSchedulesRefreshAndCanRecoverToActive() {
+        val pages = listOf(PageMetadata(pageNumber = 2, sheetFiles = listOf("R2")))
+        val staleCatalog = MixCatalogSnapshot(
+            job = "12345",
+            material = "Maple",
+            revision = 7,
+            entries = listOf(
+                MixCatalogEntry(
+                    name = "Alpha",
+                    mixFilename = "Alpha.mix",
+                    lifecycle = MixLifecycle.HISTORY
+                )
+            )
+        )
+
+        val stalePlan = resolveSelectedMixCatalog(
+            mixName = "Alpha",
+            catalog = staleCatalog,
+            pages = pages,
+            naturalOrder = listOf(2)
+        )
+        assertTrue(stalePlan.refreshInBackground)
+        assertEquals(SheetViewerMixPages.Unavailable, stalePlan.pageResolution)
+
+        val refreshedPlan = resolveSelectedMixCatalog(
+            mixName = "Alpha",
+            catalog = staleCatalog.copy(
+                revision = 8,
+                entries = listOf(
+                    MixCatalogEntry(
+                        name = "Alpha",
+                        mixFilename = "Alpha.mix",
+                        lifecycle = MixLifecycle.ACTIVE,
+                        programs = listOf("R2.pgm")
+                    )
+                )
+            ),
+            pages = pages,
+            naturalOrder = listOf(2)
+        )
+        assertEquals(SheetViewerMixPages.Resolved(listOf(2)), refreshedPlan.pageResolution)
+    }
+
+    @Test
+    fun selectedMix_usesCanonicalActiveEntryWhenDuplicateNameIncludesHistory() {
+        val result = resolveSelectedMixVisiblePages(
+            mixName = "Alpha",
+            catalog = MixCatalogSnapshot(
+                job = "12345",
+                material = "Maple",
+                revision = 7,
+                entries = listOf(
+                    MixCatalogEntry("Alpha", "old.mix", lifecycle = MixLifecycle.HISTORY),
+                    MixCatalogEntry(
+                        "Alpha",
+                        "Alpha.mix",
+                        lifecycle = MixLifecycle.ACTIVE,
+                        programs = listOf("R2.pgm")
+                    )
+                )
+            ),
+            pages = listOf(PageMetadata(pageNumber = 2, sheetFiles = listOf("R2"))),
+            naturalOrder = listOf(2)
+        )
+
+        assertEquals(SheetViewerMixPages.Resolved(listOf(2)), result)
+    }
+
+    @Test
+    fun selectedActiveMixWithoutVisiblePages_isUnavailable() {
+        val result = resolveSelectedMixVisiblePages(
+            mixName = "Alpha",
+            catalog = MixCatalogSnapshot(
+                job = "12345",
+                material = "Maple",
+                revision = 7,
+                entries = listOf(
+                    MixCatalogEntry(
+                        name = "Alpha",
+                        mixFilename = "Alpha.mix",
+                        lifecycle = MixLifecycle.ACTIVE,
+                        programs = listOf("NotMapped.pgm")
+                    )
+                )
+            ),
+            pages = listOf(PageMetadata(pageNumber = 2, sheetFiles = listOf("R2"))),
+            naturalOrder = listOf(2)
+        )
+
+        assertEquals(SheetViewerMixPages.Unavailable, result)
+    }
+
+    @Test
     fun shouldInvertCncSheetBitmap_matchesTimeoutAndDarkSheetRules() {
         assertTrue(shouldInvertCncSheetBitmap(IdlePhase.DIMMED, false, true))
         assertTrue(shouldInvertCncSheetBitmap(IdlePhase.SYNC_PAUSED, false, true))
