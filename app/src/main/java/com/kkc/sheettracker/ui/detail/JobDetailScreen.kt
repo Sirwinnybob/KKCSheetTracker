@@ -51,6 +51,7 @@ import com.kkc.sheettracker.ui.components.ClockInButton
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -59,6 +60,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -441,6 +444,8 @@ fun JobDetailScreen(
                         ).isNotEmpty()
                     }
                     if (hasSpecialty) {
+                        var specialtyHeightPx by remember { mutableIntStateOf(0) }
+                        val density = LocalDensity.current
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(com.kkc.sheettracker.ui.theme.KKCSpacing.s),
@@ -450,11 +455,21 @@ fun JobDetailScreen(
                                 jobFolderName = jobFolderName,
                                 specialtyStateStore = specialtyStateStore,
                                 mode = SpecialtySurfaceMode.CNC,
-                                modifier = Modifier.weight(0.75f)
+                                modifier = Modifier
+                                    .weight(0.75f)
+                                    .onSizeChanged { specialtyHeightPx = it.height }
                             )
                             Surface(
                                 onClick = { onOpenManageCode() },
-                                modifier = Modifier.weight(0.25f),
+                                modifier = Modifier
+                                    .weight(0.25f)
+                                    .then(
+                                        if (specialtyHeightPx > 0) {
+                                            Modifier.height(with(density) { specialtyHeightPx.toDp() })
+                                        } else {
+                                            Modifier
+                                        }
+                                    ),
                                 shape = MaterialTheme.shapes.large,
                                 tonalElevation = 3.dp,
                                 color = MaterialTheme.colorScheme.primaryContainer,
@@ -462,8 +477,8 @@ fun JobDetailScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = com.kkc.sheettracker.ui.theme.KKCSpacing.s, vertical = com.kkc.sheettracker.ui.theme.KKCSpacing.xxl),
+                                        .fillMaxSize()
+                                        .padding(horizontal = com.kkc.sheettracker.ui.theme.KKCSpacing.s),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
