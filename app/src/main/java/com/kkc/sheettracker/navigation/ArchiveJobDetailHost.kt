@@ -337,6 +337,9 @@ private fun ArchiveCncDetail(
             )
         },
         onBack = onExitArchive,
+        tabletId = session.tabletId,
+        archiveClientFactory = { null },
+        onArchiveCompleted = {},
     )
 }
 

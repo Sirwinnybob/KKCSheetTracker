@@ -468,20 +468,8 @@ private fun RestoreButton(
                 return@launch
             }
             val client = ArchiveAdminClient(serverUrl)
-            // Deliberately minimal collision handling for this first pass: a detected collision
-            // is always resolved by restoring under a timestamp-suffixed name rather than
-            // presenting a rename/overwrite dialog (a fuller collision-resolution UI is out of
-            // scope here, matching the design's "first release" scoping) -- but the preview
-            // result is still surfaced to the user so a silent rename isn't a surprise, rather
-            // than being fetched and discarded.
-            val collision = client.previewRestoreCollision(entry.folderName)?.collision == true
-            if (collision) status = "Naming conflict — will restore under a new name"
-            val operationId = client.triggerRestore(entry.folderName, tabletId, "timestamp")
-            status = when {
-                operationId != null && collision -> "Restore queued (renamed)"
-                operationId != null -> "Restore queued"
-                else -> "Restore failed to queue"
-            }
+            val operationId = client.triggerRestore(entry.folderName, tabletId)
+            status = if (operationId != null) "Restore queued" else "Restore failed to queue"
         }
     }) {
         Text(status ?: "Restore")
