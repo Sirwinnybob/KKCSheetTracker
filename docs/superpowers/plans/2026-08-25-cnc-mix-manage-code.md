@@ -1363,6 +1363,15 @@ git commit -m "feat(managecode): add material card and row UI with drag reorder"
 
 - [ ] **Step 1: Add the top-level screen composable**
 
+> **Correction (pre-implementation review):** the code below has two bugs, fixed in commit
+> `ed2307c` (see the actual `ManageCodeScreen.kt` for the corrected version): (1) the
+> `onSelectAll` `when (field)` block is missing a `"SUPER" -> toggleSuperPass(sel, checked)`
+> case, so the header's SUPER select-all checkbox (added in Task 10's `f16d6bb`) would silently
+> do nothing; (2) the duplicate-warning dialog's confirm button creates an untracked
+> `kotlinx.coroutines.MainScope()` per click instead of reusing a composition-scoped
+> `rememberCoroutineScope()` — fixed by hoisting one `scope` to the top of the composable and
+> using it in both the Generate button and the dialog.
+
 Append to `ManageCodeScreen.kt`:
 
 ```kotlin
