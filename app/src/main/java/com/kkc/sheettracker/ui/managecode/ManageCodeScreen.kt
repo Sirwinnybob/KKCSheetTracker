@@ -6,10 +6,14 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,10 +21,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.ProgressStore
+import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.mixservice.ManageCodeRow
 import com.kkc.sheettracker.data.mixservice.ManageCodeRowSelection
+import com.kkc.sheettracker.data.mixservice.MixServiceClient
+import com.kkc.sheettracker.data.mixservice.MixWriteResult
+import com.kkc.sheettracker.data.mixservice.PgmEditSubmitResult
+import com.kkc.sheettracker.data.mixservice.buildManageCodeChange
+import com.kkc.sheettracker.data.mixservice.buildManageCodeRows
+import com.kkc.sheettracker.data.mixservice.deriveRowSelection
+import com.kkc.sheettracker.data.mixservice.findCrossMixDuplicates
+import com.kkc.sheettracker.data.mixservice.isRowLocked
 import com.kkc.sheettracker.data.mixservice.toggleSecondPass
 import com.kkc.sheettracker.data.mixservice.toggleSuperPass
+import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
+import java.io.File
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -182,5 +203,225 @@ private fun LabeledCheckbox(label: String, checked: Boolean, onCheckedChange: (B
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Checkbox(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.size(24.dp))
         Text(label, style = MaterialTheme.typography.labelSmall, fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp))
+    }
+}
+
+sealed class ManageCodeMaterialResult {
+    object Success : ManageCodeMaterialResult()
+    data class Blocked(val reason: String) : ManageCodeMaterialResult()
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManageCodeScreen(
+    scanCoordinator: ScanCoordinator,
+    jobRepository: JobRepository,
+    progressStore: ProgressStore,
+    jobFolderName: String,
+    onlyMaterialName: String?,
+    onBack: () -> Unit,
+    client: MixServiceClient = remember { MixServiceClient() }
+) {
+    val scanState by scanCoordinator.state.collectAsState()
+    val unifiedEngine = remember(scanState.snapshot.basePath) {
+        UnifiedMetadataEngineRegistry.getOrCreate(File(scanState.snapshot.basePath), com.kkc.sheettracker.BuildConfig.DEBUG)
+    }
+    val job by produceState<com.kkc.sheettracker.data.models.Job?>(initialValue = null, unifiedEngine, jobFolderName) {
+        value = withContext(Dispatchers.IO) { unifiedEngine.getCncSnapshot(jobFolderName)?.job }
+    }
+    var reachable by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(Unit) { reachable = client.isReachable() }
+
+    val materials = job?.materials.orEmpty().filter { onlyMaterialName == null || it.materialName == onlyMaterialName }
+    var materialStates by remember { mutableStateOf<Map<String, ManageCodeMaterialState>>(emptyMap()) }
+    var mixNames by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
+    var expandedMaterial by remember { mutableStateOf(onlyMaterialName) }
+    var busy by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<Map<String, ManageCodeMaterialResult>>(emptyMap()) }
+    var pendingDuplicateWarning by remember { mutableStateOf<Pair<String, List<com.kkc.sheettracker.data.mixservice.DuplicateMixWarning>>?>(null) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(job, reachable) {
+        if (job == null || reachable != true) return@LaunchedEffect
+        val nextStates = mutableMapOf<String, ManageCodeMaterialState>()
+        val nextNames = mutableMapOf<String, String?>()
+        for (material in materials) {
+            val pgms = client.listPgms(jobFolderName, material.materialName)
+            val hasPgms = pgms.isNotEmpty()
+            val pages = material.metadata?.pages.orEmpty()
+            var rows = buildManageCodeRows(pages)
+            val existingMixes = client.listMixes(jobFolderName, material.materialName)
+            val existingMix = existingMixes?.firstOrNull()
+            nextNames[material.materialName] = existingMix?.name
+            if (existingMix != null) {
+                rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(rows, existingMix.programs)
+            }
+            val editHistory = client.listPgmEdits(jobFolderName, material.materialName)
+            val locked = rows.filter { row ->
+                isRowLocked(progressStore.getSheetStatus(jobFolderName, material.pdfFilename, row.pageNumber, material.fileFingerprint))
+            }.map { it.editablePgm }.toSet()
+            val selections = rows.associate { row ->
+                row.editablePgm to deriveRowSelection(
+                    row.editablePgm,
+                    existingMix?.programs.orEmpty(),
+                    hasExistingMix = existingMix != null,
+                    editHistory = editHistory
+                )
+            }
+            nextStates[material.materialName] = ManageCodeMaterialState(
+                materialName = material.materialName,
+                hasPgmsOnThisCnc = hasPgms,
+                rows = rows,
+                locked = locked,
+                selections = selections
+            )
+        }
+        materialStates = nextStates
+        mixNames = nextNames
+    }
+
+    fun updateSelection(materialName: String, editablePgm: String, selection: ManageCodeRowSelection) {
+        val state = materialStates[materialName] ?: return
+        materialStates = materialStates + (materialName to state.copy(
+            selections = state.selections + (editablePgm to selection)
+        ))
+    }
+
+    fun updateRows(materialName: String, rows: List<ManageCodeRow>) {
+        val state = materialStates[materialName] ?: return
+        materialStates = materialStates + (materialName to state.copy(rows = rows))
+    }
+
+    suspend fun generateOne(materialName: String, ignoreDuplicates: Boolean): ManageCodeMaterialResult {
+        val state = materialStates[materialName] ?: return ManageCodeMaterialResult.Blocked("No data")
+        val existingName = mixNames[materialName]
+        val change = buildManageCodeChange(
+            rows = state.rows,
+            selections = state.selections,
+            locked = state.locked,
+            originalPrograms = client.listMixes(jobFolderName, materialName)?.firstOrNull { it.name == existingName }?.programs.orEmpty()
+        )
+        if (change.orderOrMembershipChanged && !ignoreDuplicates) {
+            val allOtherMixes = client.listMixes(jobFolderName, materialName).orEmpty()
+            val duplicates = findCrossMixDuplicates(change.programs, existingName ?: "", allOtherMixes)
+            if (duplicates.isNotEmpty()) {
+                pendingDuplicateWarning = materialName to duplicates
+                return ManageCodeMaterialResult.Blocked("Duplicate PGM membership — confirm to continue")
+            }
+        }
+        if (change.orderOrMembershipChanged) {
+            val name = existingName ?: "${materialName.replace(Regex("[^A-Za-z0-9 _-]"), "")}Mix"
+            val writeResult = if (existingName != null) {
+                client.updateMix(jobFolderName, materialName, name, change.programs)
+            } else {
+                client.createMix(jobFolderName, materialName, name, change.programs)
+            }
+            if (writeResult !is MixWriteResult.Success) {
+                return ManageCodeMaterialResult.Blocked("Mix write failed: $writeResult")
+            }
+        }
+        if (change.editRows.isNotEmpty()) {
+            val submitResult = client.submitPgmEdits(jobFolderName, materialName, UUID.randomUUID().toString(), change.editRows)
+            if (submitResult !is PgmEditSubmitResult.Success) {
+                return ManageCodeMaterialResult.Blocked("Second-pass edit failed: $submitResult")
+            }
+        }
+        return ManageCodeMaterialResult.Success
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (onlyMaterialName != null) "Manage code — $onlyMaterialName" else "Manage code") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                }
+            )
+        }
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (reachable == false) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Mix service unreachable", color = MaterialTheme.colorScheme.error)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(materials, key = { _, m -> m.materialName }) { _, material ->
+                        val state = materialStates[material.materialName] ?: return@itemsIndexed
+                        ManageCodeMaterialCard(
+                            state = state,
+                            expanded = expandedMaterial == material.materialName,
+                            onExpandToggle = {
+                                expandedMaterial = if (expandedMaterial == material.materialName) null else material.materialName
+                            },
+                            onRowsReordered = { updateRows(material.materialName, it) },
+                            onSelectionChanged = { pgm, sel -> updateSelection(material.materialName, pgm, sel) },
+                            onSelectAll = { field, checked ->
+                                val updated = state.selections.mapValues { (pgm, sel) ->
+                                    if (pgm in state.locked) sel else when (field) {
+                                        "MIX" -> sel.copy(mix = checked)
+                                        "PUNLOAD" -> sel.copy(removePUnload = checked)
+                                        "2ND" -> toggleSecondPass(sel, checked)
+                                        "SUPER" -> toggleSuperPass(sel, checked)
+                                        else -> sel
+                                    }
+                                }
+                                materialStates = materialStates + (material.materialName to state.copy(selections = updated))
+                            },
+                            thumbnailFor = { null }
+                        )
+                        results[material.materialName]?.let { result ->
+                            val label = when (result) {
+                                ManageCodeMaterialResult.Success -> "Done"
+                                is ManageCodeMaterialResult.Blocked -> result.reason
+                            }
+                            Text(label, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+                Button(
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            val next = mutableMapOf<String, ManageCodeMaterialResult>()
+                            for (material in materials) {
+                                if (!(materialStates[material.materialName]?.hasPgmsOnThisCnc ?: false)) continue
+                                next[material.materialName] = generateOne(material.materialName, ignoreDuplicates = false)
+                            }
+                            results = next
+                            busy = false
+                        }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().padding(12.dp)
+                ) {
+                    Text(if (busy) "Generating…" else "Generate mixes and edit code")
+                }
+            }
+        }
+
+        pendingDuplicateWarning?.let { (materialName, duplicates) ->
+            AlertDialog(
+                onDismissRequest = { pendingDuplicateWarning = null },
+                title = { Text("Already in another mix") },
+                text = {
+                    Text(duplicates.joinToString("\n") { "${it.pgm} is already in ${it.otherMixName}" })
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pendingDuplicateWarning = null
+                        scope.launch {
+                            results = results + (materialName to generateOne(materialName, ignoreDuplicates = true))
+                        }
+                    }) { Text("Continue anyway") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingDuplicateWarning = null }) { Text("Go back and edit") }
+                }
+            )
+        }
     }
 }
