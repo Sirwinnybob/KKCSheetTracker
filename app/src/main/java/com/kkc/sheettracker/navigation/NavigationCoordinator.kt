@@ -4,6 +4,7 @@ import android.app.Activity
 import androidx.navigation.NavHostController
 import com.kkc.sheettracker.logging.AppLog
 import com.kkc.sheettracker.ui.components.NavDestination
+import java.net.URLDecoder
 import java.net.URLEncoder
 
 private const val NAV_TAG = "KKC_NAV"
@@ -252,8 +253,12 @@ internal fun viewerTargetMatches(
     targetPage: Int,
     targetMixName: String?
 ): Boolean {
+    val normalizedCurrentMixName = currentMixName
+        ?.let { URLDecoder.decode(it, "UTF-8") }
+        ?.takeIf(String::isNotBlank)
+    val normalizedTargetMixName = targetMixName?.takeIf(String::isNotBlank)
     return currentFolder == targetFolder &&
         currentPdf == targetPdf &&
         currentPage == targetPage &&
-        currentMixName == targetMixName
+        normalizedCurrentMixName == normalizedTargetMixName
 }
