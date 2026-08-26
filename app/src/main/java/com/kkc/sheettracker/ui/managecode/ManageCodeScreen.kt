@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.managecode
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,9 +22,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
@@ -228,8 +233,8 @@ private fun ManageCodeRowView(
                 LabeledCheckbox("MIX", selection.mix) { onSelectionChanged(selection.copy(mix = it)) }
                 LabeledCheckbox("PUN", selection.removePUnload) { onSelectionChanged(selection.copy(removePUnload = it)) }
                 LabeledCheckbox("2ND", selection.secondPass) { onSelectionChanged(toggleSecondPass(selection, it)) }
-                if (selection.secondPass) {
-                    LabeledCheckbox("SUP", selection.superPass) { onSelectionChanged(toggleSuperPass(selection, it)) }
+                LabeledCheckbox("SUP", selection.superPass, visible = selection.secondPass) {
+                    onSelectionChanged(toggleSuperPass(selection, it))
                 }
             }
         }
@@ -237,10 +242,27 @@ private fun ManageCodeRowView(
 }
 
 @Composable
-private fun LabeledCheckbox(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Checkbox(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.size(24.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp))
+private fun LabeledCheckbox(
+    label: String,
+    checked: Boolean,
+    visible: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    // `visible` never removes this from composition -- SUP always reserves its slot so
+    // MIX/PUN/2ND don't shift left when it fades in on 2ND being checked.
+    val alpha by animateFloatAsState(if (visible) 1f else 0f, label = "checkboxVisibility")
+    val scale by animateFloatAsState(
+        if (checked) 1.1f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f),
+        label = "checkboxPop"
+    )
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(44.dp).alpha(alpha)) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = if (visible) onCheckedChange else ({}),
+            modifier = Modifier.size(32.dp).graphicsLayer(scaleX = scale, scaleY = scale)
+        )
+        Text(label, style = MaterialTheme.typography.labelSmall, fontSize = 10.sp)
     }
 }
 
