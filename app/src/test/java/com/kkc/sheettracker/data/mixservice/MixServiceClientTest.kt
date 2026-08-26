@@ -97,6 +97,38 @@ class MixServiceClientTest {
     }
 
     @Test
+    fun `getMix parses the single definition and requests the singular route`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"mix":{"name":"KkcMix","job":"648","material":"19mm Pre_Finished","programs":["R1.pgm"],"mixFilename":"KkcMix.mix"},"status":"compiled"}"""
+            )
+        )
+        val result = client().getMix("648", "19mm Pre_Finished")
+        check(result is MixLookupResult.Found)
+        assertEquals("KkcMix", result.definition.name)
+        assertEquals("compiled", result.definition.status)
+        val recorded = server.takeRequest()
+        assertEquals("/jobs/648/materials/19mm%20Pre_Finished/mix", recorded.path)
+    }
+
+    @Test
+    fun `getMix maps 404 to NotFound`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(404))
+        check(client().getMix("648", "Unknown") is MixLookupResult.NotFound)
+    }
+
+    @Test
+    fun `getMix maps 409 to Conflict with the sorted mix names`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(409)
+                .setBody("""{"ok":false,"code":"multiple_mixes","names":["First","Second"]}""")
+        )
+        val result = client().getMix("648", "19mm Pre_Finished")
+        check(result is MixLookupResult.Conflict)
+        assertEquals(listOf("First", "Second"), result.names)
+    }
+
+    @Test
     fun `createMix posts name job material programs and unwraps the mix envelope`() = runBlocking {
         server.enqueue(
             MockResponse().setResponseCode(200)

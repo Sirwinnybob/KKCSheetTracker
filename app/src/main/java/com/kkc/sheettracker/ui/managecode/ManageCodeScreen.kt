@@ -63,7 +63,8 @@ data class ManageCodeMaterialState(
     val hasPgmsOnThisCnc: Boolean,
     val rows: List<ManageCodeRow>,
     val locked: Set<String>,
-    val selections: Map<String, ManageCodeRowSelection>
+    val selections: Map<String, ManageCodeRowSelection>,
+    val mixConflict: List<String> = emptyList()
 )
 
 @Composable
@@ -142,6 +143,15 @@ fun ManageCodeMaterialCard(
                         }
                     }
                 }
+            }
+
+            if (state.mixConflict.isNotEmpty()) {
+                Text(
+                    text = "Multiple mixes already exist for this material (${state.mixConflict.joinToString()}) — resolve on the CNC before generating",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
             }
 
             AnimatedVisibility(
@@ -329,9 +339,9 @@ fun ManageCodeScreen(
         val hasPgms = pgms.isNotEmpty()
         val pages = material.metadata?.pages.orEmpty()
         var rows = buildManageCodeRows(pages)
-        val existingMixes = client.listMixes(jobFolderName, material.materialName)
-        // TODO: if existingMixes has more than one entry, this silently picks the first rather than surfacing a conflict (design spec Section 7) — not handled yet.
-        val existingMix = existingMixes?.firstOrNull()
+        val mixLookup = client.getMix(jobFolderName, material.materialName)
+        val existingMix = (mixLookup as? com.kkc.sheettracker.data.mixservice.MixLookupResult.Found)?.definition
+        val mixConflict = (mixLookup as? com.kkc.sheettracker.data.mixservice.MixLookupResult.Conflict)?.names.orEmpty()
         if (existingMix != null) {
             rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(rows, existingMix.programs)
         }
@@ -352,7 +362,8 @@ fun ManageCodeScreen(
             hasPgmsOnThisCnc = hasPgms,
             rows = rows,
             locked = locked,
-            selections = selections
+            selections = selections,
+            mixConflict = mixConflict
         )
         return state to existingMix?.name
     }
@@ -384,6 +395,9 @@ fun ManageCodeScreen(
 
     suspend fun generateOne(materialName: String, ignoreDuplicates: Boolean): ManageCodeMaterialResult {
         val state = materialStates[materialName] ?: return ManageCodeMaterialResult.Blocked("No data")
+        if (state.mixConflict.isNotEmpty()) {
+            return ManageCodeMaterialResult.Blocked("Multiple mixes already exist — resolve on the CNC first")
+        }
         val existingName = mixNames[materialName]
         val change = buildManageCodeChange(
             rows = state.rows,

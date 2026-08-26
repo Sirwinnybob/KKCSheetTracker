@@ -27,6 +27,16 @@ sealed class MixWriteResult {
     object NetworkError : MixWriteResult()
 }
 
+// Result of the singular current-mix lookup (GET .../mix). Conflict means more than one mix
+// definition already exists for this job+material -- the caller must not guess which one is
+// "the" mix (that was the previous client-side bug: silently taking listMixes().firstOrNull()).
+sealed class MixLookupResult {
+    data class Found(val definition: MixDefinition) : MixLookupResult()
+    object NotFound : MixLookupResult()
+    data class Conflict(val names: List<String>) : MixLookupResult()
+    object NetworkError : MixLookupResult()
+}
+
 sealed class PgmEditSubmitResult {
     data class Success(val response: PgmEditBatchResponse) : PgmEditSubmitResult()
     object Disabled : PgmEditSubmitResult()
@@ -45,6 +55,8 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     private data class MixListEnvelope(val ok: Boolean = false, val mixes: List<MixDefinition> = emptyList())
     private data class MixWriteEnvelope(val ok: Boolean = false, val mix: MixDefinition? = null, val status: String? = null)
     private data class ErrorEnvelope(val ok: Boolean = false, val code: String? = null, val error: String? = null)
+    private data class MixLookupEnvelope(val ok: Boolean = false, val mix: MixDefinition? = null, val status: String? = null)
+    private data class MixConflictEnvelope(val ok: Boolean = false, val code: String? = null, val names: List<String> = emptyList())
     // A history-sync-failure error body's own "mix" field is the *whole* completed-mutation
     // envelope (i.e. another {ok, mix, status}), not a bare MixDefinition -- the server nests it
     // because it's literally the same result object the 200 success path would have returned.
@@ -98,6 +110,38 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
                 gson.fromJson(body, MixListEnvelope::class.java)?.mixes
             }
         }.getOrNull()
+    }
+
+    // Singular current-mix lookup. Distinct from listMixes(job, material), which returns every
+    // matching definition -- this reports 409 Conflict when more than one exists instead of
+    // leaving the caller to guess which is "the" mix.
+    suspend fun getMix(job: String, material: String): MixLookupResult = withContext(Dispatchers.IO) {
+        val url = "$root/jobs/".toHttpUrl().newBuilder()
+            .addPathSegment(job)
+            .addPathSegment("materials")
+            .addPathSegment(material)
+            .addPathSegment("mix")
+            .build()
+        val request = Request.Builder().url(url).get().build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                when (response.code) {
+                    200 -> {
+                        val body = response.body?.string() ?: return@use MixLookupResult.NetworkError
+                        val envelope = gson.fromJson(body, MixLookupEnvelope::class.java)
+                        val definition = envelope?.mix ?: return@use MixLookupResult.NetworkError
+                        MixLookupResult.Found(definition.copy(status = envelope.status ?: definition.status))
+                    }
+                    404 -> MixLookupResult.NotFound
+                    409 -> {
+                        val body = response.body?.string() ?: return@use MixLookupResult.NetworkError
+                        val envelope = gson.fromJson(body, MixConflictEnvelope::class.java)
+                        MixLookupResult.Conflict(envelope?.names.orEmpty())
+                    }
+                    else -> MixLookupResult.NetworkError
+                }
+            }
+        }.getOrDefault(MixLookupResult.NetworkError)
     }
 
     suspend fun createMix(
