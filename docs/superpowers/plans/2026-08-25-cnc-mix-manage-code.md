@@ -1077,6 +1077,14 @@ Expected: FAIL — file doesn't exist.
 
 - [ ] **Step 3: Implement**
 
+> **Correction (post-implementation):** the code below has a real bug — `buildManageCodeRows`
+> silently drops a page when it can't resolve any sheet file for it (blank `sheetId` and empty
+> `sheetFiles`), but `naturalOrder` has no such filter, so this function could return fewer
+> pages than `naturalOrder` contains, contradicting its own doc comment and the design spec's
+> "rather than dropped" requirement (Section 12). Fixed in commit `0bf9a46` — see the actual
+> `SheetOrderResolver.kt` in the repo for the corrected version (adds a union step that appends
+> any `naturalOrder` page missing from the result, in its original position).
+
 ```kotlin
 package com.kkc.sheettracker.data.mixservice
 
