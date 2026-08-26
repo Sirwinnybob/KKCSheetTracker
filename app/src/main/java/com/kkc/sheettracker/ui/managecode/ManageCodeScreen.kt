@@ -56,7 +56,6 @@ import com.kkc.sheettracker.data.mixservice.findCrossMixDuplicates
 import com.kkc.sheettracker.data.mixservice.isRowLocked
 import com.kkc.sheettracker.data.mixservice.defaultMixName
 import com.kkc.sheettracker.data.mixservice.resolveMixGenerationTarget
-import com.kkc.sheettracker.data.mixservice.rebindManageCodeForActiveMix
 import com.kkc.sheettracker.data.mixservice.toggleSecondPass
 import com.kkc.sheettracker.data.mixservice.toggleSuperPass
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
@@ -74,8 +73,55 @@ data class ManageCodeMaterialState(
     val rows: List<ManageCodeRow>,
     val locked: Set<String>,
     val selections: Map<String, ManageCodeRowSelection>,
+    /** Set only by an operator row reorder or MIX toggle, never by target hydration. */
+    val mixLayoutDirty: Boolean = false,
     val mixConflict: List<String> = emptyList()
 )
+
+internal fun updateMixLayoutSelection(
+    state: ManageCodeMaterialState,
+    editablePgm: String,
+    selection: ManageCodeRowSelection
+): ManageCodeMaterialState {
+    val mixChanged = state.selections[editablePgm]?.mix != selection.mix
+    return state.copy(
+        selections = state.selections + (editablePgm to selection),
+        mixLayoutDirty = state.mixLayoutDirty || mixChanged
+    )
+}
+
+internal fun updateMixLayoutSelections(
+    state: ManageCodeMaterialState,
+    selections: Map<String, ManageCodeRowSelection>
+): ManageCodeMaterialState {
+    val mixChanged = selections.any { (pgm, selection) -> state.selections[pgm]?.mix != selection.mix }
+    return state.copy(
+        selections = selections,
+        mixLayoutDirty = state.mixLayoutDirty || mixChanged
+    )
+}
+
+internal fun updateMixLayoutRows(
+    state: ManageCodeMaterialState,
+    rows: List<ManageCodeRow>
+): ManageCodeMaterialState {
+    val orderChanged = state.rows.map { it.editablePgm } != rows.map { it.editablePgm }
+    return state.copy(rows = rows, mixLayoutDirty = state.mixLayoutDirty || orderChanged)
+}
+
+/** Seeds an untouched multi-active screen from the chosen target without replacing operator edits. */
+internal fun selectReplacementTarget(
+    state: ManageCodeMaterialState,
+    target: MixGenerationTarget.ReplaceActive
+): ManageCodeMaterialState {
+    if (state.mixLayoutDirty) return state
+    val rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(state.rows, target.programsBaseline)
+    val selections = rows.associate { row ->
+        val existing = state.selections[row.editablePgm] ?: ManageCodeRowSelection()
+        row.editablePgm to existing.copy(mix = row.editablePgm in target.programsBaseline)
+    }
+    return state.copy(rows = rows, selections = selections)
+}
 
 @Composable
 fun ManageCodeMaterialCard(
@@ -414,14 +460,12 @@ fun ManageCodeScreen(
 
     fun updateSelection(materialName: String, editablePgm: String, selection: ManageCodeRowSelection) {
         val state = materialStates[materialName] ?: return
-        materialStates = materialStates + (materialName to state.copy(
-            selections = state.selections + (editablePgm to selection)
-        ))
+        materialStates = materialStates + (materialName to updateMixLayoutSelection(state, editablePgm, selection))
     }
 
     fun updateRows(materialName: String, rows: List<ManageCodeRow>) {
         val state = materialStates[materialName] ?: return
-        materialStates = materialStates + (materialName to state.copy(rows = rows))
+        materialStates = materialStates + (materialName to updateMixLayoutRows(state, rows))
     }
 
     suspend fun refreshMaterialCatalog(materialName: String): MixCatalogSnapshot? {
@@ -446,19 +490,6 @@ fun ManageCodeScreen(
     ): ManageCodeMaterialResult {
         val catalog = materialCatalogs[materialName]
             ?: return ManageCodeMaterialResult.Blocked("Mix catalog unavailable — refresh and try again")
-        if (target is MixGenerationTarget.ReplaceActive) {
-            catalog.entries.firstOrNull {
-                it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.ACTIVE && it.name == target.name
-            }?.let { active ->
-                materialStates[materialName]?.let { current ->
-                    val rebound = rebindManageCodeForActiveMix(current.rows, current.selections, active.programs)
-                    materialStates = materialStates + (materialName to current.copy(
-                        rows = rebound.rows,
-                        selections = rebound.selections
-                    ))
-                }
-            }
-        }
         val state = materialStates[materialName] ?: return ManageCodeMaterialResult.Blocked("No data")
         val plan = resolveMixGenerationTarget(target, catalog, materialName)
             ?: return ManageCodeMaterialResult.Blocked("Mix catalog changed or has external files — choose an action again")
@@ -569,7 +600,9 @@ fun ManageCodeScreen(
                                         else -> sel
                                     }
                                 }
-                                materialStates = materialStates + (material.materialName to state.copy(selections = updated))
+                                materialStates = materialStates + (
+                                    material.materialName to updateMixLayoutSelections(state, updated)
+                                )
                             },
                             loadThumbnail = loadThumbnail
                         )
@@ -631,6 +664,13 @@ fun ManageCodeScreen(
                 onDismiss = { pendingMixAction = null },
                 onTargetSelected = { target ->
                     pendingMixAction = null
+                    if (target is MixGenerationTarget.ReplaceActive) {
+                        materialStates[pending.materialName]?.let { current ->
+                            materialStates = materialStates + (
+                                pending.materialName to selectReplacementTarget(current, target)
+                            )
+                        }
+                    }
                     scope.launch {
                         busy = true
                         val result = generateOne(pending.materialName, target, ignoreDuplicates = false)
@@ -697,13 +737,15 @@ fun ManageCodeScreen(
     }
 }
 
-private fun mixMutationErrorMessage(result: MixCatalogMutationResult): String = when (result) {
+internal fun mixMutationErrorMessage(result: MixCatalogMutationResult): String = when (result) {
     is MixCatalogMutationResult.Success, is MixCatalogMutationResult.SyncFailed -> ""
     MixCatalogMutationResult.CatalogChanged -> "Mix catalog changed"
     MixCatalogMutationResult.ExternalMixesPresent -> "External mix files must be removed first"
     MixCatalogMutationResult.EditBusy -> "Another edit is in progress — try again"
     MixCatalogMutationResult.CompileBusy -> "CNC is busy compiling another mix — try again"
     MixCatalogMutationResult.WinxisoTimeout -> "Compile timed out — try again"
+    is MixCatalogMutationResult.DuplicateName ->
+        "A mix named ${result.name} already exists. Mix names are case-insensitive and must be unique across all definitions."
     is MixCatalogMutationResult.MissingProgram -> "PGM file missing: ${result.pgm}"
     is MixCatalogMutationResult.HistorySyncError -> result.message.ifBlank { "History sync failed" }
     is MixCatalogMutationResult.BadRequest -> result.message.ifBlank { "Invalid mix request" }

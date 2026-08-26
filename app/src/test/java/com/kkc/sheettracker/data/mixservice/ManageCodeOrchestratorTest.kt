@@ -82,29 +82,34 @@ class ManageCodeOrchestratorTest {
     }
 
     @Test
-    fun `rebinding a selected active mix preserves only its disjoint membership and saved order`() {
+    fun `replace target uses the selected mix baseline without overwriting unsaved operator edits`() {
         val rows = listOf(
             ManageCodeRow(1, listOf("R1.pgm"), "R1.pgm", null),
             ManageCodeRow(2, listOf("R2.pgm"), "R2.pgm", null),
             ManageCodeRow(3, listOf("R4.pgm"), "R4.pgm", null),
             ManageCodeRow(4, listOf("R3.pgm"), "R3.pgm", null)
         )
-        val rebound = rebindManageCodeForActiveMix(
-            rows = rows,
-            selections = rows.associate { it.editablePgm to ManageCodeRowSelection(mix = true) },
-            programs = listOf("R3.pgm", "R4.pgm")
+        val target = MixGenerationTarget.ReplaceActive(
+            name = "Current",
+            expectedRevision = 7L,
+            programsBaseline = listOf("R3.pgm", "R4.pgm")
         )
+        val plan = resolveMixGenerationTarget(target, catalog(entries = listOf(active("Current", "R3.pgm", "R4.pgm"))), "19mm")!!
 
         val change = buildManageCodeChange(
-            rows = rebound.rows,
-            selections = rebound.selections,
+            rows = rows,
+            selections = mapOf(
+                "R1.pgm" to ManageCodeRowSelection(mix = true),
+                "R2.pgm" to ManageCodeRowSelection(mix = false),
+                "R4.pgm" to ManageCodeRowSelection(mix = false),
+                "R3.pgm" to ManageCodeRowSelection(mix = true)
+            ),
             locked = emptySet(),
-            originalPrograms = listOf("R3.pgm", "R4.pgm")
+            originalPrograms = plan.programsBaseline
         )
 
-        assertEquals(listOf("R3.pgm", "R4.pgm"), rebound.rows.map { it.editablePgm }.take(2))
-        assertEquals(listOf("R3.pgm", "R4.pgm"), change.programs)
-        assertFalse(change.orderOrMembershipChanged)
+        assertEquals(listOf("R1.pgm", "R3.pgm"), change.programs)
+        assertTrue(change.orderOrMembershipChanged)
     }
 
     @Test
@@ -151,10 +156,11 @@ class ManageCodeOrchestratorTest {
 
         assertEquals(
             MixGenerationPlan(name = "Current", programsBaseline = listOf("R2.pgm", "R1.pgm"), expectedRevision = 7L, mutation = MixCatalogMutation.REPLACE),
-            resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Current", expectedRevision = 7L), snapshot, "19mm")
+            resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Current", expectedRevision = 7L, programsBaseline = listOf("R2.pgm", "R1.pgm")), snapshot, "19mm")
         )
-        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Old", 7L), snapshot, "19mm"))
-        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Current", 6L), snapshot, "19mm"))
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Old", 7L, emptyList()), snapshot, "19mm"))
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Current", 6L, listOf("R2.pgm", "R1.pgm")), snapshot, "19mm"))
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Current", 7L, listOf("R1.pgm", "R2.pgm")), snapshot, "19mm"))
     }
 
     @Test
@@ -164,7 +170,7 @@ class ManageCodeOrchestratorTest {
         listOf(
             MixGenerationTarget.FirstDefault,
             MixGenerationTarget.CreateAdditional("Second"),
-            MixGenerationTarget.ReplaceActive("Current", 7L)
+            MixGenerationTarget.ReplaceActive("Current", 7L, emptyList())
         ).forEach { target ->
             assertEquals(null, resolveMixGenerationTarget(target, snapshot, "19mm"))
         }

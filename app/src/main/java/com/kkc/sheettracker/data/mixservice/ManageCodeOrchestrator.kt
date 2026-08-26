@@ -38,7 +38,11 @@ data class DuplicateMixWarning(val pgm: String, val otherMixName: String)
 sealed interface MixGenerationTarget {
     data object FirstDefault : MixGenerationTarget
     data class CreateAdditional(val name: String) : MixGenerationTarget
-    data class ReplaceActive(val name: String, val expectedRevision: Long) : MixGenerationTarget
+    data class ReplaceActive(
+        val name: String,
+        val expectedRevision: Long,
+        val programsBaseline: List<String>
+    ) : MixGenerationTarget
 }
 
 data class MixGenerationPlan(
@@ -47,27 +51,6 @@ data class MixGenerationPlan(
     val expectedRevision: Long,
     val mutation: MixCatalogMutation
 )
-
-data class ReboundManageCodeState(
-    val rows: List<ManageCodeRow>,
-    val selections: Map<String, ManageCodeRowSelection>
-)
-
-/** Rebinds a multi-active material to the operator-selected active mix before generation. */
-fun rebindManageCodeForActiveMix(
-    rows: List<ManageCodeRow>,
-    selections: Map<String, ManageCodeRowSelection>,
-    programs: List<String>
-): ReboundManageCodeState {
-    val orderedRows = applyExistingOrder(rows, programs)
-    return ReboundManageCodeState(
-        rows = orderedRows,
-        selections = orderedRows.associate { row ->
-            val existing = selections[row.editablePgm] ?: ManageCodeRowSelection()
-            row.editablePgm to existing.copy(mix = row.editablePgm in programs)
-        }
-    )
-}
 
 enum class MixCatalogMutation { CREATE, REPLACE }
 
@@ -86,24 +69,25 @@ fun resolveMixGenerationTarget(
     return when (target) {
         MixGenerationTarget.FirstDefault -> {
             val name = defaultMixName(materialName)
-            if (active.isNotEmpty() || !isAvailableMixName(name, catalog)) null
+            if (active.isNotEmpty() || !isCatalogMixNameAvailable(name, catalog)) null
             else MixGenerationPlan(name, emptyList(), catalog.revision, MixCatalogMutation.CREATE)
         }
         is MixGenerationTarget.CreateAdditional -> {
             val name = target.name
-            if (!isAvailableMixName(name, catalog)) null
+            if (!isCatalogMixNameAvailable(name, catalog)) null
             else MixGenerationPlan(name, emptyList(), catalog.revision, MixCatalogMutation.CREATE)
         }
         is MixGenerationTarget.ReplaceActive -> {
             if (target.expectedRevision != catalog.revision) null
             else active.firstOrNull { it.name == target.name }?.let { entry ->
-                MixGenerationPlan(entry.name, entry.programs, catalog.revision, MixCatalogMutation.REPLACE)
+                if (entry.programs != target.programsBaseline) null
+                else MixGenerationPlan(entry.name, target.programsBaseline, catalog.revision, MixCatalogMutation.REPLACE)
             }
         }
     }
 }
 
-private fun isAvailableMixName(name: String, catalog: MixCatalogSnapshot): Boolean =
+fun isCatalogMixNameAvailable(name: String, catalog: MixCatalogSnapshot): Boolean =
     isValidMixName(name) && catalog.entries.none { it.name.equals(name, ignoreCase = true) }
 
 private val windowsReservedMixNames = setOf(

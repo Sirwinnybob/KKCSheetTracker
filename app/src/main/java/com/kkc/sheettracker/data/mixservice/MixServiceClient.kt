@@ -333,17 +333,18 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         programs: List<String>,
         expectedRevision: Long
     ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
+        val url = materialUrl(job, material).newBuilder()
+            .addPathSegment("mixes")
+            .build()
         val body = gson.toJson(
             mapOf(
-                "job" to job,
-                "material" to material,
                 "name" to name,
                 "programs" to programs,
                 "expectedRevision" to expectedRevision
             )
         ).toRequestBody(jsonMediaType)
-        val request = Request.Builder().url("$root/mixes".toHttpUrl()).post(body).build()
-        executeCatalogMutation(request, job, material)
+        val request = Request.Builder().url(url).post(body).build()
+        executeCatalogMutation(request, job, material, duplicateName = name)
     }
 
     suspend fun deleteExternalMix(
@@ -364,7 +365,8 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     private fun executeCatalogMutation(
         request: Request,
         job: String,
-        material: String
+        material: String,
+        duplicateName: String? = null
     ): MixCatalogMutationResult = runCatching {
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
@@ -377,7 +379,7 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
                     envelope.toSnapshot(job, material)?.let(MixCatalogMutationResult::Success)
                         ?: MixCatalogMutationResult.NetworkError
                 }
-                else -> parseCatalogMutationFailure(response.code, body, job, material)
+                else -> parseCatalogMutationFailure(response.code, body, job, material, duplicateName)
             }
         }
     }.getOrDefault(MixCatalogMutationResult.NetworkError)
@@ -386,7 +388,8 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         statusCode: Int,
         body: String,
         job: String,
-        material: String
+        material: String,
+        duplicateName: String?
     ): MixCatalogMutationResult {
         val syncFailure = runCatching {
             gson.fromJson(body, MixCatalogSyncErrorEnvelope::class.java)
@@ -410,6 +413,7 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
             "edit_busy" -> MixCatalogMutationResult.EditBusy
             "compile_busy" -> MixCatalogMutationResult.CompileBusy
             "winxiso_timeout" -> MixCatalogMutationResult.WinxisoTimeout
+            "duplicate_mix" -> MixCatalogMutationResult.DuplicateName(duplicateName ?: message)
             "missing_program" -> MixCatalogMutationResult.MissingProgram(
                 message.removePrefix("missing program:").trim()
             )

@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.managecode
 
 import com.kkc.sheettracker.data.mixservice.MixCatalogEntry
 import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MixCatalogMutationResult
 import com.kkc.sheettracker.data.mixservice.MixGenerationTarget
 import com.kkc.sheettracker.data.mixservice.MixLifecycle
 import org.junit.Assert.assertEquals
@@ -21,6 +22,24 @@ class MixActionDialogTest {
     }
 
     @Test
+    fun `history collision prompts for a distinct name instead of offering a blocked default`() {
+        val snapshot = catalog(history("19mmMix"))
+
+        assertNull(mixActionDialogContent(snapshot).automaticTarget)
+        assertFalse(isAdditionalMixNameReady("19mmMix", "19mmMix", snapshot))
+        assertTrue(isAdditionalMixNameReady("19mmMix", "19mmMix 2", snapshot))
+    }
+
+    @Test
+    fun `duplicate catalog name feedback explains service wide case insensitive uniqueness`() {
+        val message = mixMutationErrorMessage(MixCatalogMutationResult.DuplicateName("New Mix"))
+
+        assertTrue(message.contains("New Mix"))
+        assertTrue(message.contains("case-insensitive"))
+        assertTrue(message.contains("all definitions"))
+    }
+
+    @Test
     fun `active mixes are selectable while history remains display only`() {
         val content = mixActionDialogContent(catalog(active("Current"), history("Old")))
 
@@ -28,6 +47,17 @@ class MixActionDialogTest {
         assertEquals(listOf("Current"), content.activeMixes.map { it.name })
         assertEquals(listOf("Old"), content.historyMixes.map { it.name })
         assertFalse(content.generationBlockedByExternal)
+    }
+
+    @Test
+    fun `active replacement selection captures its revision and saved programs as the baseline`() {
+        val entry = active("Current").copy(programs = listOf("R2.pgm", "R1.pgm"))
+        val snapshot = catalog(entry)
+
+        assertEquals(
+            MixGenerationTarget.ReplaceActive("Current", 7L, listOf("R2.pgm", "R1.pgm")),
+            replacementTarget(entry, snapshot)
+        )
     }
 
     @Test

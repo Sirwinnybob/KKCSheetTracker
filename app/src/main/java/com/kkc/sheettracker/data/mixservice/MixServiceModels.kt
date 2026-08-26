@@ -104,6 +104,7 @@ sealed class MixCatalogMutationResult {
     object EditBusy : MixCatalogMutationResult()
     object CompileBusy : MixCatalogMutationResult()
     object WinxisoTimeout : MixCatalogMutationResult()
+    data class DuplicateName(val name: String) : MixCatalogMutationResult()
     data class MissingProgram(val pgm: String) : MixCatalogMutationResult()
     data class HistorySyncError(val message: String) : MixCatalogMutationResult()
     data class BadRequest(val message: String) : MixCatalogMutationResult()

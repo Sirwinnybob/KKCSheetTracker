@@ -23,7 +23,8 @@ import com.kkc.sheettracker.data.mixservice.MixCatalogEntry
 import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
 import com.kkc.sheettracker.data.mixservice.MixGenerationTarget
 import com.kkc.sheettracker.data.mixservice.MixLifecycle
-import com.kkc.sheettracker.data.mixservice.isValidMixName
+import com.kkc.sheettracker.data.mixservice.defaultMixName
+import com.kkc.sheettracker.data.mixservice.isCatalogMixNameAvailable
 
 data class MixActionDialogContent(
     val activeMixes: List<MixCatalogEntry>,
@@ -41,14 +42,24 @@ fun mixActionDialogContent(catalog: MixCatalogSnapshot): MixActionDialogContent 
         activeMixes = active,
         historyMixes = history,
         externalMixes = external,
-        automaticTarget = if (active.isEmpty() && external.isEmpty()) MixGenerationTarget.FirstDefault else null,
+        automaticTarget = if (active.isEmpty() && external.isEmpty() &&
+            isCatalogMixNameAvailable(defaultMixName(catalog.material), catalog)
+        ) MixGenerationTarget.FirstDefault else null,
         generationBlockedByExternal = external.isNotEmpty()
     )
 }
 
 fun isAdditionalMixNameReady(originalName: String, draft: String, catalog: MixCatalogSnapshot): Boolean =
-    draft != originalName && isValidMixName(draft) && catalog.entries
-        .none { it.name.equals(draft, ignoreCase = true) }
+    draft != originalName && isCatalogMixNameAvailable(draft, catalog)
+
+fun replacementTarget(
+    entry: MixCatalogEntry,
+    catalog: MixCatalogSnapshot
+): MixGenerationTarget.ReplaceActive = MixGenerationTarget.ReplaceActive(
+    name = entry.name,
+    expectedRevision = catalog.revision,
+    programsBaseline = entry.programs
+)
 
 /** Returns only an exact external filename, never a display name or case-insensitive approximation. */
 fun externalDeletionFilename(catalog: MixCatalogSnapshot, requestedFilename: String): String? =
@@ -97,7 +108,7 @@ fun MixActionDialog(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    onTargetSelected(MixGenerationTarget.ReplaceActive(replacement.name, catalog.revision))
+                    onTargetSelected(replacementTarget(replacement, catalog))
                     pendingReplacement = null
                 }) { Text("Replace and archive") }
             },
