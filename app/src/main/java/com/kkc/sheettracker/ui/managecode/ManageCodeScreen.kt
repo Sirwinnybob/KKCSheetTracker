@@ -46,6 +46,7 @@ import com.kkc.sheettracker.data.mixservice.MixCatalogMutationResult
 import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
 import com.kkc.sheettracker.data.mixservice.MixCatalogCache
 import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MixCatalogMutation
 import com.kkc.sheettracker.data.mixservice.MixGenerationTarget
 import com.kkc.sheettracker.data.mixservice.PgmEditSubmitResult
 import com.kkc.sheettracker.data.mixservice.buildManageCodeChange
@@ -55,6 +56,7 @@ import com.kkc.sheettracker.data.mixservice.findCrossMixDuplicates
 import com.kkc.sheettracker.data.mixservice.isRowLocked
 import com.kkc.sheettracker.data.mixservice.defaultMixName
 import com.kkc.sheettracker.data.mixservice.resolveMixGenerationTarget
+import com.kkc.sheettracker.data.mixservice.rebindManageCodeForActiveMix
 import com.kkc.sheettracker.data.mixservice.toggleSecondPass
 import com.kkc.sheettracker.data.mixservice.toggleSuperPass
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
@@ -442,9 +444,22 @@ fun ManageCodeScreen(
         target: MixGenerationTarget,
         ignoreDuplicates: Boolean
     ): ManageCodeMaterialResult {
-        val state = materialStates[materialName] ?: return ManageCodeMaterialResult.Blocked("No data")
         val catalog = materialCatalogs[materialName]
             ?: return ManageCodeMaterialResult.Blocked("Mix catalog unavailable — refresh and try again")
+        if (target is MixGenerationTarget.ReplaceActive) {
+            catalog.entries.firstOrNull {
+                it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.ACTIVE && it.name == target.name
+            }?.let { active ->
+                materialStates[materialName]?.let { current ->
+                    val rebound = rebindManageCodeForActiveMix(current.rows, current.selections, active.programs)
+                    materialStates = materialStates + (materialName to current.copy(
+                        rows = rebound.rows,
+                        selections = rebound.selections
+                    ))
+                }
+            }
+        }
+        val state = materialStates[materialName] ?: return ManageCodeMaterialResult.Blocked("No data")
         val plan = resolveMixGenerationTarget(target, catalog, materialName)
             ?: return ManageCodeMaterialResult.Blocked("Mix catalog changed or has external files — choose an action again")
         val change = buildManageCodeChange(
@@ -454,21 +469,30 @@ fun ManageCodeScreen(
             originalPrograms = plan.programsBaseline
         )
         if (change.orderOrMembershipChanged && !ignoreDuplicates) {
-            val allOtherMixes = client.listMixes(jobFolderName).orEmpty()
-            val duplicates = findCrossMixDuplicates(change.programs, plan.name, allOtherMixes)
+            val duplicates = findCrossMixDuplicates(change.programs, plan.name, catalog)
             if (duplicates.isNotEmpty()) {
                 pendingDuplicateWarning = PendingDuplicateMixAction(materialName, target, duplicates)
                 return ManageCodeMaterialResult.Blocked("Duplicate PGM membership — confirm to continue")
             }
         }
         if (change.orderOrMembershipChanged) {
-            when (val mutation = mixCatalogRepository.replaceMix(
-                job = jobFolderName,
-                material = materialName,
-                name = plan.name,
-                programs = change.programs,
-                expectedRevision = plan.expectedRevision
-            )) {
+            val mutationResult = when (plan.mutation) {
+                MixCatalogMutation.CREATE -> mixCatalogRepository.createMix(
+                    job = jobFolderName,
+                    material = materialName,
+                    name = plan.name,
+                    programs = change.programs,
+                    expectedRevision = plan.expectedRevision
+                )
+                MixCatalogMutation.REPLACE -> mixCatalogRepository.replaceMix(
+                    job = jobFolderName,
+                    material = materialName,
+                    name = plan.name,
+                    programs = change.programs,
+                    expectedRevision = plan.expectedRevision
+                )
+            }
+            when (val mutation = mutationResult) {
                 is MixCatalogMutationResult.Success -> applyMutationCatalog(materialName, mutation.snapshot)
                 is MixCatalogMutationResult.SyncFailed -> applyMutationCatalog(materialName, mutation.snapshot)
                 MixCatalogMutationResult.CatalogChanged -> {

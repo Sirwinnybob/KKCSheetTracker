@@ -326,6 +326,26 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         executeCatalogMutation(request, job, material)
     }
 
+    suspend fun createCatalogMix(
+        job: String,
+        material: String,
+        name: String,
+        programs: List<String>,
+        expectedRevision: Long
+    ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
+        val body = gson.toJson(
+            mapOf(
+                "job" to job,
+                "material" to material,
+                "name" to name,
+                "programs" to programs,
+                "expectedRevision" to expectedRevision
+            )
+        ).toRequestBody(jsonMediaType)
+        val request = Request.Builder().url("$root/mixes".toHttpUrl()).post(body).build()
+        executeCatalogMutation(request, job, material)
+    }
+
     suspend fun deleteExternalMix(
         job: String,
         material: String,

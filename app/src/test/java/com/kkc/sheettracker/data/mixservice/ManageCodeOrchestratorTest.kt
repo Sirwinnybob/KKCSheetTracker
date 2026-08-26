@@ -71,11 +71,48 @@ class ManageCodeOrchestratorTest {
     }
 
     @Test
+    fun `catalog duplicate warning considers active entries and ignores archived membership`() {
+        val warnings = findCrossMixDuplicates(
+            programs = listOf("R1.pgm"),
+            thisMixName = "New",
+            catalog = catalog(entries = listOf(history("Old", "R1.pgm"), active("Live", "R2.pgm")))
+        )
+
+        assertTrue(warnings.isEmpty())
+    }
+
+    @Test
+    fun `rebinding a selected active mix preserves only its disjoint membership and saved order`() {
+        val rows = listOf(
+            ManageCodeRow(1, listOf("R1.pgm"), "R1.pgm", null),
+            ManageCodeRow(2, listOf("R2.pgm"), "R2.pgm", null),
+            ManageCodeRow(3, listOf("R4.pgm"), "R4.pgm", null),
+            ManageCodeRow(4, listOf("R3.pgm"), "R3.pgm", null)
+        )
+        val rebound = rebindManageCodeForActiveMix(
+            rows = rows,
+            selections = rows.associate { it.editablePgm to ManageCodeRowSelection(mix = true) },
+            programs = listOf("R3.pgm", "R4.pgm")
+        )
+
+        val change = buildManageCodeChange(
+            rows = rebound.rows,
+            selections = rebound.selections,
+            locked = emptySet(),
+            originalPrograms = listOf("R3.pgm", "R4.pgm")
+        )
+
+        assertEquals(listOf("R3.pgm", "R4.pgm"), rebound.rows.map { it.editablePgm }.take(2))
+        assertEquals(listOf("R3.pgm", "R4.pgm"), change.programs)
+        assertFalse(change.orderOrMembershipChanged)
+    }
+
+    @Test
     fun `first default generation resolves an empty baseline only for a catalog without active or external entries`() {
         val emptyCatalog = catalog(entries = emptyList())
 
         assertEquals(
-            MixGenerationPlan(name = "19mmMix", programsBaseline = emptyList(), expectedRevision = 7L),
+            MixGenerationPlan(name = "19mmMix", programsBaseline = emptyList(), expectedRevision = 7L, mutation = MixCatalogMutation.CREATE),
             resolveMixGenerationTarget(MixGenerationTarget.FirstDefault, emptyCatalog, "19mm")
         )
         assertEquals(
@@ -93,11 +130,19 @@ class ManageCodeOrchestratorTest {
         val snapshot = catalog(entries = listOf(active("Current", "R1.pgm")))
 
         assertEquals(
-            MixGenerationPlan(name = "Second", programsBaseline = emptyList(), expectedRevision = 7L),
+            MixGenerationPlan(name = "Second", programsBaseline = emptyList(), expectedRevision = 7L, mutation = MixCatalogMutation.CREATE),
             resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("Second"), snapshot, "19mm")
         )
         assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("Current"), snapshot, "19mm"))
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional(" Second "), snapshot, "19mm"))
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("   "), snapshot, "19mm"))
         assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("bad/name"), snapshot, "19mm"))
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("CON"), snapshot, "19mm"))
+        assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("Old"), catalog(entries = listOf(history("Old"))), "19mm"))
+        assertEquals(
+            "Kitchen — (2)",
+            resolveMixGenerationTarget(MixGenerationTarget.CreateAdditional("Kitchen — (2)"), snapshot, "19mm")?.name
+        )
     }
 
     @Test
@@ -105,7 +150,7 @@ class ManageCodeOrchestratorTest {
         val snapshot = catalog(entries = listOf(active("Current", "R2.pgm", "R1.pgm")))
 
         assertEquals(
-            MixGenerationPlan(name = "Current", programsBaseline = listOf("R2.pgm", "R1.pgm"), expectedRevision = 7L),
+            MixGenerationPlan(name = "Current", programsBaseline = listOf("R2.pgm", "R1.pgm"), expectedRevision = 7L, mutation = MixCatalogMutation.REPLACE),
             resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Current", expectedRevision = 7L), snapshot, "19mm")
         )
         assertEquals(null, resolveMixGenerationTarget(MixGenerationTarget.ReplaceActive("Old", 7L), snapshot, "19mm"))
@@ -143,5 +188,12 @@ class ManageCodeOrchestratorTest {
         name = filename,
         mixFilename = filename,
         lifecycle = MixLifecycle.EXTERNAL
+    )
+
+    private fun history(name: String, vararg programs: String) = MixCatalogEntry(
+        name = name,
+        mixFilename = "$name.mix",
+        lifecycle = MixLifecycle.HISTORY,
+        programs = programs.toList()
     )
 }

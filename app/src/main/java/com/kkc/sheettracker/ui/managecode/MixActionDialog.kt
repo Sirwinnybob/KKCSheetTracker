@@ -48,7 +48,6 @@ fun mixActionDialogContent(catalog: MixCatalogSnapshot): MixActionDialogContent 
 
 fun isAdditionalMixNameReady(originalName: String, draft: String, catalog: MixCatalogSnapshot): Boolean =
     draft != originalName && isValidMixName(draft) && catalog.entries
-        .filter { it.lifecycle == MixLifecycle.ACTIVE }
         .none { it.name.equals(draft, ignoreCase = true) }
 
 /** Returns only an exact external filename, never a display name or case-insensitive approximation. */

@@ -212,6 +212,15 @@ class MixCatalogRepository(
     ): MixCatalogMutationResult = client.replaceMix(job, material, name, programs, expectedRevision)
         .also { result -> result.snapshotOrNull()?.let(cache::write) }
 
+    suspend fun createMix(
+        job: String,
+        material: String,
+        name: String,
+        programs: List<String>,
+        expectedRevision: Long
+    ): MixCatalogMutationResult = client.createCatalogMix(job, material, name, programs, expectedRevision)
+        .also { result -> result.snapshotOrNull()?.let(cache::write) }
+
     suspend fun deleteExternalMix(
         job: String,
         material: String,

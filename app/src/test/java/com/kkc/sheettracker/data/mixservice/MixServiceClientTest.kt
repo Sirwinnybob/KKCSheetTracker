@@ -378,6 +378,34 @@ class MixServiceClientTest {
     }
 
     @Test
+    fun `createCatalogMix posts to mixes with expected revision and repository caches its returned catalog`() = runBlocking {
+        val root = Files.createTempDirectory("mix-catalog-create").toFile()
+        try {
+            server.enqueue(
+                MockResponse().setBody(
+                    """{"ok":true,"catalog":{"revision":18,"entries":[{"name":"New","mixFilename":"New.mix","lifecycle":"active","programs":["R2.pgm"]}]}}"""
+                )
+            )
+            val repository = MixCatalogRepository(client(), MixCatalogCache(root))
+
+            val result = repository.createMix("100 - Alpha", "Mat", "New", listOf("R2.pgm"), 17L)
+
+            check(result is MixCatalogMutationResult.Success)
+            assertEquals(18L, repository.cached("100 - Alpha", "Mat")?.revision)
+            val recorded = server.takeRequest()
+            assertEquals("POST", recorded.method)
+            assertEquals("/mixes", recorded.path)
+            val body = JSONObject(recorded.body.readUtf8())
+            assertEquals("100 - Alpha", body.getString("job"))
+            assertEquals("Mat", body.getString("material"))
+            assertEquals("New", body.getString("name"))
+            assertEquals(17L, body.getLong("expectedRevision"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `catalog mutations map catalog changed conflicts distinctly`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(409).setBody("""{"ok":false,"code":"catalog_changed"}"""))
 

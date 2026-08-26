@@ -37,6 +37,9 @@ class MixActionDialogTest {
         assertFalse(isAdditionalMixNameReady(originalName = "Current", draft = "Current", catalog = snapshot))
         assertFalse(isAdditionalMixNameReady(originalName = "Current", draft = "Current!", catalog = snapshot))
         assertFalse(isAdditionalMixNameReady(originalName = "Current", draft = "Current 2", catalog = catalog(active("Current 2"))))
+        assertFalse(isAdditionalMixNameReady(originalName = "Current", draft = "   ", catalog = snapshot))
+        assertFalse(isAdditionalMixNameReady(originalName = "Current", draft = " Current 2 ", catalog = snapshot))
+        assertFalse(isAdditionalMixNameReady(originalName = "Current", draft = "CON", catalog = snapshot))
         assertTrue(isAdditionalMixNameReady(originalName = "Current", draft = "Current 2", catalog = snapshot))
     }
 
