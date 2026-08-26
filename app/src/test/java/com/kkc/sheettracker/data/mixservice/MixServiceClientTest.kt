@@ -88,6 +88,15 @@ class MixServiceClientTest {
     }
 
     @Test
+    fun `listMixes without material queries only by job`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"ok":true,"mixes":[]}"""))
+        client().listMixes("648")
+        val recorded = server.takeRequest()
+        assertTrue(recorded.path?.contains("job=648") == true)
+        assertFalse(recorded.path?.contains("material=") == true)
+    }
+
+    @Test
     fun `createMix posts name job material programs and unwraps the mix envelope`() = runBlocking {
         server.enqueue(
             MockResponse().setResponseCode(200)

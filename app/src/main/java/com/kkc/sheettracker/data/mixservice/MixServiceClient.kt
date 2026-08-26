@@ -70,11 +70,11 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         }.getOrDefault(emptyList())
     }
 
-    suspend fun listMixes(job: String, material: String): List<MixDefinition>? = withContext(Dispatchers.IO) {
-        val url = "$root/mixes".toHttpUrl().newBuilder()
+    suspend fun listMixes(job: String, material: String? = null): List<MixDefinition>? = withContext(Dispatchers.IO) {
+        val urlBuilder = "$root/mixes".toHttpUrl().newBuilder()
             .addQueryParameter("job", job)
-            .addQueryParameter("material", material)
-            .build()
+        if (material != null) urlBuilder.addQueryParameter("material", material)
+        val url = urlBuilder.build()
         val request = Request.Builder().url(url).get().build()
         runCatching {
             client.newCall(request).execute().use { response ->

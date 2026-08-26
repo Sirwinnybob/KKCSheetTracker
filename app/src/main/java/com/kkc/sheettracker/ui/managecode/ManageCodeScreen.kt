@@ -241,40 +241,47 @@ fun ManageCodeScreen(
     var pendingDuplicateWarning by remember { mutableStateOf<Pair<String, List<com.kkc.sheettracker.data.mixservice.DuplicateMixWarning>>?>(null) }
     val scope = rememberCoroutineScope()
 
+    suspend fun loadMaterialState(material: com.kkc.sheettracker.data.models.Material): Pair<ManageCodeMaterialState, String?> {
+        val pgms = client.listPgms(jobFolderName, material.materialName)
+        val hasPgms = pgms.isNotEmpty()
+        val pages = material.metadata?.pages.orEmpty()
+        var rows = buildManageCodeRows(pages)
+        val existingMixes = client.listMixes(jobFolderName, material.materialName)
+        // TODO: if existingMixes has more than one entry, this silently picks the first rather than surfacing a conflict (design spec Section 7) — not handled yet.
+        val existingMix = existingMixes?.firstOrNull()
+        if (existingMix != null) {
+            rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(rows, existingMix.programs)
+        }
+        val editHistory = client.listPgmEdits(jobFolderName, material.materialName)
+        val locked = rows.filter { row ->
+            isRowLocked(progressStore.getSheetStatus(jobFolderName, material.pdfFilename, row.pageNumber, material.fileFingerprint))
+        }.map { it.editablePgm }.toSet()
+        val selections = rows.associate { row ->
+            row.editablePgm to deriveRowSelection(
+                row.editablePgm,
+                existingMix?.programs.orEmpty(),
+                hasExistingMix = existingMix != null,
+                editHistory = editHistory
+            )
+        }
+        val state = ManageCodeMaterialState(
+            materialName = material.materialName,
+            hasPgmsOnThisCnc = hasPgms,
+            rows = rows,
+            locked = locked,
+            selections = selections
+        )
+        return state to existingMix?.name
+    }
+
     LaunchedEffect(job, reachable) {
         if (job == null || reachable != true) return@LaunchedEffect
         val nextStates = mutableMapOf<String, ManageCodeMaterialState>()
         val nextNames = mutableMapOf<String, String?>()
         for (material in materials) {
-            val pgms = client.listPgms(jobFolderName, material.materialName)
-            val hasPgms = pgms.isNotEmpty()
-            val pages = material.metadata?.pages.orEmpty()
-            var rows = buildManageCodeRows(pages)
-            val existingMixes = client.listMixes(jobFolderName, material.materialName)
-            val existingMix = existingMixes?.firstOrNull()
-            nextNames[material.materialName] = existingMix?.name
-            if (existingMix != null) {
-                rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(rows, existingMix.programs)
-            }
-            val editHistory = client.listPgmEdits(jobFolderName, material.materialName)
-            val locked = rows.filter { row ->
-                isRowLocked(progressStore.getSheetStatus(jobFolderName, material.pdfFilename, row.pageNumber, material.fileFingerprint))
-            }.map { it.editablePgm }.toSet()
-            val selections = rows.associate { row ->
-                row.editablePgm to deriveRowSelection(
-                    row.editablePgm,
-                    existingMix?.programs.orEmpty(),
-                    hasExistingMix = existingMix != null,
-                    editHistory = editHistory
-                )
-            }
-            nextStates[material.materialName] = ManageCodeMaterialState(
-                materialName = material.materialName,
-                hasPgmsOnThisCnc = hasPgms,
-                rows = rows,
-                locked = locked,
-                selections = selections
-            )
+            val (state, mixName) = loadMaterialState(material)
+            nextStates[material.materialName] = state
+            nextNames[material.materialName] = mixName
         }
         materialStates = nextStates
         mixNames = nextNames
@@ -302,7 +309,7 @@ fun ManageCodeScreen(
             originalPrograms = client.listMixes(jobFolderName, materialName)?.firstOrNull { it.name == existingName }?.programs.orEmpty()
         )
         if (change.orderOrMembershipChanged && !ignoreDuplicates) {
-            val allOtherMixes = client.listMixes(jobFolderName, materialName).orEmpty()
+            val allOtherMixes = client.listMixes(jobFolderName).orEmpty()
             val duplicates = findCrossMixDuplicates(change.programs, existingName ?: "", allOtherMixes)
             if (duplicates.isNotEmpty()) {
                 pendingDuplicateWarning = materialName to duplicates
@@ -317,13 +324,13 @@ fun ManageCodeScreen(
                 client.createMix(jobFolderName, materialName, name, change.programs)
             }
             if (writeResult !is MixWriteResult.Success) {
-                return ManageCodeMaterialResult.Blocked("Mix write failed: $writeResult")
+                return ManageCodeMaterialResult.Blocked("Mix write failed: ${mixWriteErrorMessage(writeResult)}")
             }
         }
         if (change.editRows.isNotEmpty()) {
             val submitResult = client.submitPgmEdits(jobFolderName, materialName, UUID.randomUUID().toString(), change.editRows)
             if (submitResult !is PgmEditSubmitResult.Success) {
-                return ManageCodeMaterialResult.Blocked("Second-pass edit failed: $submitResult")
+                return ManageCodeMaterialResult.Blocked("Second-pass edit failed: ${pgmEditErrorMessage(submitResult)}")
             }
         }
         return ManageCodeMaterialResult.Success
@@ -389,7 +396,13 @@ fun ManageCodeScreen(
                             val next = mutableMapOf<String, ManageCodeMaterialResult>()
                             for (material in materials) {
                                 if (!(materialStates[material.materialName]?.hasPgmsOnThisCnc ?: false)) continue
-                                next[material.materialName] = generateOne(material.materialName, ignoreDuplicates = false)
+                                val result = generateOne(material.materialName, ignoreDuplicates = false)
+                                next[material.materialName] = result
+                                if (result is ManageCodeMaterialResult.Success) {
+                                    val (state, mixName) = loadMaterialState(material)
+                                    materialStates = materialStates + (material.materialName to state)
+                                    mixNames = mixNames + (material.materialName to mixName)
+                                }
                             }
                             results = next
                             busy = false
@@ -414,7 +427,15 @@ fun ManageCodeScreen(
                     TextButton(onClick = {
                         pendingDuplicateWarning = null
                         scope.launch {
-                            results = results + (materialName to generateOne(materialName, ignoreDuplicates = true))
+                            val result = generateOne(materialName, ignoreDuplicates = true)
+                            results = results + (materialName to result)
+                            if (result is ManageCodeMaterialResult.Success) {
+                                materials.firstOrNull { it.materialName == materialName }?.let { material ->
+                                    val (state, mixName) = loadMaterialState(material)
+                                    materialStates = materialStates + (materialName to state)
+                                    mixNames = mixNames + (materialName to mixName)
+                                }
+                            }
                         }
                     }) { Text("Continue anyway") }
                 },
@@ -424,4 +445,24 @@ fun ManageCodeScreen(
             )
         }
     }
+}
+
+private fun mixWriteErrorMessage(result: MixWriteResult): String = when (result) {
+    is MixWriteResult.Success -> ""
+    is MixWriteResult.DuplicateName -> "A mix named \"${result.name}\" already exists"
+    MixWriteResult.UnknownJobOrMaterial -> "Job or material not found on the CNC"
+    is MixWriteResult.MissingProgram -> "PGM file missing: ${result.pgm}"
+    is MixWriteResult.BadRequest -> result.message.ifBlank { "Invalid mix request" }
+    MixWriteResult.CompileBusy -> "CNC is busy compiling another mix — try again"
+    MixWriteResult.WinxisoTimeout -> "Compile timed out — try again"
+    MixWriteResult.NetworkError -> "Could not reach the mix service"
+}
+
+private fun pgmEditErrorMessage(result: PgmEditSubmitResult): String = when (result) {
+    is PgmEditSubmitResult.Success -> ""
+    PgmEditSubmitResult.Disabled -> "Second-pass editing is disabled on this CNC"
+    PgmEditSubmitResult.EditBusy -> "Another edit is in progress — try again"
+    PgmEditSubmitResult.CompileBusy -> "CNC is busy compiling — try again"
+    PgmEditSubmitResult.WinxisoTimeout -> "Edit timed out — try again"
+    PgmEditSubmitResult.NetworkError -> "Could not reach the mix service"
 }
