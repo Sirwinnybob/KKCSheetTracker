@@ -127,6 +127,7 @@ fun JobDetailScreen(
     onMaterialClick: (Material, Int) -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
+    onOpenManageCode: () -> Unit = {},
     onBack: () -> Unit,
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
@@ -426,11 +427,37 @@ fun JobDetailScreen(
                 }
 
                 item(key = "specialty-compact-section") {
-                    CompactSpecialtySection(
-                        jobFolderName = jobFolderName,
-                        specialtyStateStore = specialtyStateStore,
-                        mode = SpecialtySurfaceMode.CNC
-                    )
+                    val resolvedItems = remember(jobFolderName) { specialtyStateStore.getResolvedItems(jobFolderName) }
+                    val hasSpecialty = com.kkc.sheettracker.ui.specialty.buildSpecialtySectionRows(
+                        resolvedItems,
+                        com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode.CNC
+                    ).isNotEmpty()
+                    if (hasSpecialty) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(com.kkc.sheettracker.ui.theme.KKCSpacing.s)
+                        ) {
+                            CompactSpecialtySection(
+                                jobFolderName = jobFolderName,
+                                specialtyStateStore = specialtyStateStore,
+                                mode = SpecialtySurfaceMode.CNC,
+                                modifier = Modifier.weight(0.75f)
+                            )
+                            Button(
+                                onClick = { onOpenManageCode() },
+                                modifier = Modifier.weight(0.25f).fillMaxWidth()
+                            ) {
+                                Text("Manage code")
+                            }
+                        }
+                    } else {
+                        Button(
+                            onClick = { onOpenManageCode() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Manage code")
+                        }
+                    }
                 }
 
                 items(job?.materials.orEmpty(), key = { it.pdfFilename }) { material ->

@@ -294,6 +294,7 @@ fun SheetViewerScreen(
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
+    onOpenManageCode: (materialName: String) -> Unit = {},
     onBack: () -> Unit,
     onMaterialUnavailable: () -> Unit = onBack,
     onUiVisibilityChanged: (Boolean) -> Unit = {},
@@ -1326,6 +1327,12 @@ fun SheetViewerScreen(
                                 tint = if (markupEnabled) MaterialTheme.colorScheme.primary else topBarTextColor
                             )
                         }
+                    }
+                    Button(
+                        onClick = { currentMaterial?.let { onOpenManageCode(it.materialName) } },
+                        enabled = currentMaterial != null
+                    ) {
+                        Text("Manage code")
                     }
                     Box {
                         IconButton(onClick = { showViewerMenu = true }) {

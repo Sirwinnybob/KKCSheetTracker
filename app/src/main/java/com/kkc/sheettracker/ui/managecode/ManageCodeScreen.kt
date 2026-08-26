@@ -358,6 +358,14 @@ fun ManageCodeScreen(
                 ) {
                     itemsIndexed(materials, key = { _, m -> m.materialName }) { _, material ->
                         val state = materialStates[material.materialName] ?: return@itemsIndexed
+                        val thumbnailCache = remember(material.materialName) { mutableStateMapOf<Int, androidx.compose.ui.graphics.ImageBitmap?>() }
+                        LaunchedEffect(state.rows) {
+                            val pdfFile = jobRepository.getPdfFile(jobFolderName, material.pdfFilename)
+                            for (row in state.rows) {
+                                if (thumbnailCache.containsKey(row.pageNumber)) continue
+                                thumbnailCache[row.pageNumber] = renderManageCodeThumbnail(pdfFile, row.pageNumber)?.asImageBitmap()
+                            }
+                        }
                         ManageCodeMaterialCard(
                             state = state,
                             expanded = expandedMaterial == material.materialName,
@@ -378,7 +386,7 @@ fun ManageCodeScreen(
                                 }
                                 materialStates = materialStates + (material.materialName to state.copy(selections = updated))
                             },
-                            thumbnailFor = { null }
+                            thumbnailFor = { pageNumber -> thumbnailCache[pageNumber] }
                         )
                         results[material.materialName]?.let { result ->
                             val label = when (result) {

@@ -1440,6 +1440,11 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
+                onOpenManageCode = {
+                    navController.navigate("manage_code/${URLEncoder.encode(folderName, "UTF-8")}") {
+                        launchSingleTop = true
+                    }
+                },
                 onSubmitPendingBadParts = { material ->
                     progressStore.submitPendingBadParts(
                         jobFolderName = folderName,
@@ -1620,8 +1625,32 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
+                onOpenManageCode = { materialName ->
+                    navController.navigate(
+                        "manage_code/${URLEncoder.encode(folderName, "UTF-8")}?material=${URLEncoder.encode(materialName, "UTF-8")}"
+                    ) { launchSingleTop = true }
+                },
                 onBack = { navController.popBackStack() },
                 onUiVisibilityChanged = onUiVisibilityChanged
+            )
+        }
+
+        composable(
+            "manage_code/{folderName}?material={material}",
+            arguments = listOf(
+                navArgument("folderName") { type = NavType.StringType },
+                navArgument("material") { type = NavType.StringType; nullable = true; defaultValue = null }
+            )
+        ) { backStack ->
+            val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+            val material = backStack.arguments?.getString("material")?.let { URLDecoder.decode(it, "UTF-8") }
+            com.kkc.sheettracker.ui.managecode.ManageCodeScreen(
+                scanCoordinator = scanCoordinator,
+                jobRepository = jobRepository,
+                progressStore = progressStore,
+                jobFolderName = folderName,
+                onlyMaterialName = material,
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -2606,6 +2635,11 @@ private fun LegacySingleStackNavigation(
                                 launchSingleTop = true
                             }
                         },
+                        onOpenManageCode = {
+                            navController.navigate("manage_code/${URLEncoder.encode(folderName, "UTF-8")}") {
+                                launchSingleTop = true
+                            }
+                        },
                         onSubmitPendingBadParts = { material ->
                             progressStore.submitPendingBadParts(
                                 jobFolderName = folderName,
@@ -2812,8 +2846,32 @@ private fun LegacySingleStackNavigation(
                                 launchSingleTop = true
                             }
                         },
+                        onOpenManageCode = { materialName ->
+                            navController.navigate(
+                                "manage_code/${URLEncoder.encode(folderName, "UTF-8")}?material=${URLEncoder.encode(materialName, "UTF-8")}"
+                            ) { launchSingleTop = true }
+                        },
                         onBack = { navController.popBackStack() },
                         onUiVisibilityChanged = { viewerUiVisible = it }
+                    )
+                }
+
+                composable(
+                    "manage_code/{folderName}?material={material}",
+                    arguments = listOf(
+                        navArgument("folderName") { type = NavType.StringType },
+                        navArgument("material") { type = NavType.StringType; nullable = true; defaultValue = null }
+                    )
+                ) { backStack ->
+                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
+                    val material = backStack.arguments?.getString("material")?.let { URLDecoder.decode(it, "UTF-8") }
+                    com.kkc.sheettracker.ui.managecode.ManageCodeScreen(
+                        scanCoordinator = scanCoordinator,
+                        jobRepository = jobRepository,
+                        progressStore = progressStore,
+                        jobFolderName = folderName,
+                        onlyMaterialName = material,
+                        onBack = { navController.popBackStack() }
                     )
                 }
 
