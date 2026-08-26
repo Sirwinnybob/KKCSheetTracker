@@ -740,7 +740,7 @@ fun SheetViewerScreen(
         unifiedEngine.getCachedJobInfos().find { it.folderName == jobFolderName }
     }
 
-    LaunchedEffect(jobFolderName, pdfFilename, scanState.snapshot.generation) {
+    LaunchedEffect(jobFolderName, pdfFilename, scanState.snapshot.generation, currentMixPrograms) {
         val job = withContext(Dispatchers.IO) {
             unifiedEngine.getCncSnapshot(jobFolderName)?.job
         }
