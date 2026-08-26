@@ -24,6 +24,8 @@ Each active or history entry exposes its display name, filename, ordered PGM pro
 
 The catalog includes a stable material revision/ETag that changes whenever the service's definitions or discovered `.mix` files for that job/material change.
 
+Archive names use the Windows-safe em dash character shown in this specification. The service's mix-name validator must accept that character while continuing to reject path separators, reserved names, and every other unsafe filename value.
+
 ## Service contract
 
 Add a material-scoped catalog endpoint, for example `GET /jobs/{job}/materials/{material}/mix-catalog`. It returns the catalog entries and revision in one response. It supersedes Android's independent combination of `GET /mixes` and folder inventory for this feature.
