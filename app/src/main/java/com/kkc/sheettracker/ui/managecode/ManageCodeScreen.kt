@@ -21,7 +21,6 @@ import com.kkc.sheettracker.data.mixservice.ManageCodeRow
 import com.kkc.sheettracker.data.mixservice.ManageCodeRowSelection
 import com.kkc.sheettracker.data.mixservice.toggleSecondPass
 import com.kkc.sheettracker.data.mixservice.toggleSuperPass
-import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -68,7 +67,10 @@ fun ManageCodeMaterialCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IconButton(onClick = onExpandToggle, enabled = state.hasPgmsOnThisCnc) {
-                        Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
+                        Icon(
+                            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (expanded) "Collapse" else "Expand"
+                        )
                     }
                     Text(
                         text = state.materialName,
@@ -83,9 +85,24 @@ fun ManageCodeMaterialCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("MIX", "PUNLOAD", "2ND").forEach { label ->
-                            AssistChip(onClick = { onSelectAll(label, true) }, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("MIX", "PUNLOAD", "2ND", "SUPER").forEach { field ->
+                            val unlocked = state.rows.filter { it.editablePgm !in state.locked }
+                            val allChecked = unlocked.isNotEmpty() && unlocked.all { row ->
+                                val selection = state.selections[row.editablePgm] ?: ManageCodeRowSelection()
+                                when (field) {
+                                    "MIX" -> selection.mix
+                                    "PUNLOAD" -> selection.removePUnload
+                                    "2ND" -> selection.secondPass
+                                    "SUPER" -> selection.superPass
+                                    else -> false
+                                }
+                            }
+                            LabeledCheckbox(
+                                label = if (field == "PUNLOAD") "PUN" else if (field == "SUPER") "SUP" else field,
+                                checked = allChecked,
+                                onCheckedChange = { onSelectAll(field, !allChecked) }
+                            )
                         }
                     }
                 }
@@ -100,10 +117,10 @@ fun ManageCodeMaterialCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
-                    itemsIndexed(rowsState.value, key = { _, row -> row.editablePgm }) { _, row ->
+                    itemsIndexed(rowsState.value, key = { _, row -> "${row.pageNumber}-${row.editablePgm}" }) { _, row ->
                         val locked = row.editablePgm in state.locked
                         val selection = state.selections[row.editablePgm] ?: ManageCodeRowSelection()
-                        ReorderableItem(reorderState, key = row.editablePgm) {
+                        ReorderableItem(reorderState, key = "${row.pageNumber}-${row.editablePgm}") {
                             ManageCodeRowView(
                                 row = row,
                                 locked = locked,
@@ -150,12 +167,20 @@ private fun ManageCodeRowView(
             Text(row.pgmFiles.joinToString(" + "), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
         }
         if (!locked) {
-            Checkbox(checked = selection.mix, onCheckedChange = { onSelectionChanged(selection.copy(mix = it)) }, modifier = Modifier.size(24.dp))
-            Checkbox(checked = selection.removePUnload, onCheckedChange = { onSelectionChanged(selection.copy(removePUnload = it)) }, modifier = Modifier.size(24.dp))
-            Checkbox(checked = selection.secondPass, onCheckedChange = { onSelectionChanged(toggleSecondPass(selection, it)) }, modifier = Modifier.size(24.dp))
+            LabeledCheckbox("MIX", selection.mix) { onSelectionChanged(selection.copy(mix = it)) }
+            LabeledCheckbox("PUN", selection.removePUnload) { onSelectionChanged(selection.copy(removePUnload = it)) }
+            LabeledCheckbox("2ND", selection.secondPass) { onSelectionChanged(toggleSecondPass(selection, it)) }
             if (selection.secondPass) {
-                Checkbox(checked = selection.superPass, onCheckedChange = { onSelectionChanged(toggleSuperPass(selection, it)) }, modifier = Modifier.size(24.dp))
+                LabeledCheckbox("SUP", selection.superPass) { onSelectionChanged(toggleSuperPass(selection, it)) }
             }
         }
+    }
+}
+
+@Composable
+private fun LabeledCheckbox(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Checkbox(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.size(24.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp))
     }
 }
