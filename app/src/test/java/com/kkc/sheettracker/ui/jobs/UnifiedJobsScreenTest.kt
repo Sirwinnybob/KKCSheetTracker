@@ -23,17 +23,19 @@ class UnifiedJobsScreenTest {
     }
 
     @Test
-    fun deliveryScheduleForJobsScreen_preservesSuppliedFridayAmJob() {
+    fun deliverySchedulePresentation_preservesSuppliedFridayAmJobForBannerAndDialog() {
         val supplied = DeliverySchedule(
             slots = mapOf(
                 "friday_am" to DeliverySlot(jobs = listOf(DeliveryJob(jobNumber = "FRI-123")))
             )
         )
 
-        val presentation = deliveryScheduleForJobsScreen(supplied)
+        val presentation = deliverySchedulePresentationForJobsScreen(supplied)
 
-        assertSame(supplied, presentation)
-        assertEquals("FRI-123", presentation.slot("friday", "am").jobs.single().jobNumber)
+        assertSame(supplied, presentation.bannerSchedule)
+        assertSame(supplied, presentation.dialogSchedule)
+        assertEquals("FRI-123", presentation.bannerSchedule.slot("friday", "am").jobs.single().jobNumber)
+        assertEquals("FRI-123", presentation.dialogSchedule.slot("friday", "am").jobs.single().jobNumber)
     }
 
     @Test
@@ -45,8 +47,17 @@ class UnifiedJobsScreenTest {
         )
         var received: DeliverySchedule? = null
 
-        applyCanonicalDeliverySchedule(canonical) { received = it }
+        assertTrue(applyCanonicalDeliverySchedule(canonical) { received = it })
 
         assertSame(canonical, received)
+    }
+
+    @Test
+    fun applyCanonicalDeliverySchedule_doesNotNotifyOwnerWhenAdminResponseMissing() {
+        var callbackCount = 0
+
+        assertFalse(applyCanonicalDeliverySchedule(null) { callbackCount += 1 })
+
+        assertEquals(0, callbackCount)
     }
 }

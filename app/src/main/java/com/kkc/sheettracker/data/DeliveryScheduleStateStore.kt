@@ -36,6 +36,9 @@ class DeliveryScheduleStateStore(
     /** Guards every combined read/write of [_schedule] and [liveConnected] so they change atomically together. */
     private val lock = Any()
 
+    /** Monotonic mutation token used to reject fallback data read before a newer UI/live update. */
+    private var mutationVersion = 0L
+
     private val _schedule = MutableStateFlow(initialSchedule ?: fallbackLoader())
     val schedule: StateFlow<DeliverySchedule> = _schedule.asStateFlow()
 
@@ -48,6 +51,7 @@ class DeliveryScheduleStateStore(
         synchronized(lock) {
             _schedule.value = schedule
             liveConnected = true
+            mutationVersion += 1
         }
     }
 
@@ -55,9 +59,22 @@ class DeliveryScheduleStateStore(
     fun setLiveConnected(value: Boolean) {
         synchronized(lock) {
             liveConnected = value
+            mutationVersion += 1
         }
         if (!value) {
             refreshFallback()
+        }
+    }
+
+    /**
+     * Marks the live stream disconnected without reading the fallback file. Callers that are on
+     * the main thread (for example, a Compose effect's disposal callback) can use this to publish
+     * the state transition immediately, then schedule [refreshFallback] on an I/O dispatcher.
+     */
+    fun markLiveDisconnected() {
+        synchronized(lock) {
+            liveConnected = false
+            mutationVersion += 1
         }
     }
 
@@ -71,11 +88,15 @@ class DeliveryScheduleStateStore(
      * already in flight when a concurrent [applyLive] lands will not overwrite the live schedule.
      */
     fun refreshFallback() {
-        if (liveConnected) return
+        val loadVersion = synchronized(lock) {
+            if (liveConnected) return
+            mutationVersion
+        }
         val loaded = fallbackLoader()
         synchronized(lock) {
-            if (liveConnected) return
+            if (liveConnected || mutationVersion != loadVersion) return
             _schedule.value = loaded
+            mutationVersion += 1
         }
     }
 
@@ -86,6 +107,7 @@ class DeliveryScheduleStateStore(
     fun applyImmediate(schedule: DeliverySchedule) {
         synchronized(lock) {
             _schedule.value = schedule
+            mutationVersion += 1
         }
     }
 }

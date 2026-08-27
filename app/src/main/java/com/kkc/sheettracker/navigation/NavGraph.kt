@@ -100,6 +100,7 @@ import com.kkc.sheettracker.data.TabletSpecialtyItemsStore
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.data.DeliveryScheduleLiveClient
 import com.kkc.sheettracker.data.DeliveryScheduleStateStore
+import com.kkc.sheettracker.data.DeliveryScheduleLifecycleGate
 import com.kkc.sheettracker.data.TrackerChangeMonitor
 import com.kkc.sheettracker.data.StaticCachePoller
 import com.kkc.sheettracker.data.models.HardwoodDocType
@@ -162,6 +163,8 @@ import java.net.URLEncoder
 import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.background
@@ -359,18 +362,53 @@ fun AppNavigation(
             onConnectionState = deliveryScheduleStore::setLiveConnected
         )
     }
+    val deliveryScheduleLifecycleGate = remember { DeliveryScheduleLifecycleGate() }
     val deliveryScheduleScope = rememberCoroutineScope()
     DisposableEffect(lifecycleOwner, deliveryScheduleClient, deliveryScheduleStore) {
+        val sourceToken = deliveryScheduleLifecycleGate.bindSource()
+        var lifecycleJob: Job? = null
+
+        fun cancelLifecycleJob() {
+            lifecycleJob?.cancel()
+            lifecycleJob = null
+        }
+
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> deliveryScheduleScope.launch(Dispatchers.IO) {
-                    deliveryScheduleStore.refreshFallback()
-                    deliveryScheduleClient.start()
+                Lifecycle.Event.ON_START -> {
+                    val startToken = deliveryScheduleLifecycleGate.begin(sourceToken)
+                    if (startToken != 0L) {
+                        cancelLifecycleJob()
+                        lifecycleJob = deliveryScheduleScope.launch(Dispatchers.IO) {
+                            if (!deliveryScheduleLifecycleGate.isCurrent(sourceToken, startToken)) {
+                                return@launch
+                            }
+                            deliveryScheduleStore.refreshFallback()
+                            if (!kotlinx.coroutines.currentCoroutineContext().isActive ||
+                                !deliveryScheduleLifecycleGate.isCurrent(sourceToken, startToken)
+                            ) {
+                                return@launch
+                            }
+                            deliveryScheduleLifecycleGate.runIfCurrent(sourceToken, startToken) {
+                                deliveryScheduleClient.start()
+                            }
+                        }
+                    }
                 }
                 Lifecycle.Event.ON_STOP -> {
+                    val stopToken = deliveryScheduleLifecycleGate.stop(sourceToken)
+                    cancelLifecycleJob()
                     deliveryScheduleClient.stop()
-                    deliveryScheduleScope.launch(Dispatchers.IO) {
-                        deliveryScheduleStore.setLiveConnected(false)
+                    if (stopToken != 0L) {
+                        // Publish the disconnected state synchronously (without file I/O) so a
+                        // rapid ON_START or client replacement cannot treat the old live payload
+                        // as authoritative. The fallback read remains on Dispatchers.IO.
+                        deliveryScheduleStore.markLiveDisconnected()
+                        lifecycleJob = deliveryScheduleScope.launch(Dispatchers.IO) {
+                            if (deliveryScheduleLifecycleGate.isCurrent(sourceToken, stopToken)) {
+                                deliveryScheduleStore.refreshFallback()
+                            }
+                        }
                     }
                 }
                 else -> Unit
@@ -379,7 +417,20 @@ fun AppNavigation(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            cancelLifecycleJob()
+            val cleanupToken = deliveryScheduleLifecycleGate.dispose(sourceToken)
             deliveryScheduleClient.stop()
+            if (cleanupToken != 0L) {
+                // Disposal runs on the Compose thread; only the state transition is synchronous.
+                // Keep the fallback read off-main, and let a replacement source supersede this
+                // cleanup through the gate before it can publish stale data.
+                deliveryScheduleStore.markLiveDisconnected()
+                deliveryScheduleScope.launch(Dispatchers.IO) {
+                    if (deliveryScheduleLifecycleGate.isCleanupCurrent(cleanupToken)) {
+                        deliveryScheduleStore.refreshFallback()
+                    }
+                }
+            }
         }
     }
     LaunchedEffect(watcherRefreshEpoch, deliveryScheduleStore) {

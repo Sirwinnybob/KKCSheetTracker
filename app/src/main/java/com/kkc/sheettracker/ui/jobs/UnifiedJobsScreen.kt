@@ -124,11 +124,30 @@ internal fun shouldLoadUnifiedJobsLabels(active: Boolean): Boolean = active
 
 internal fun deliveryScheduleForJobsScreen(schedule: DeliverySchedule): DeliverySchedule = schedule
 
+internal data class UnifiedJobsDeliverySchedulePresentation(
+    val bannerSchedule: DeliverySchedule,
+    val dialogSchedule: DeliverySchedule
+)
+
+internal fun deliverySchedulePresentationForJobsScreen(
+    schedule: DeliverySchedule
+): UnifiedJobsDeliverySchedulePresentation {
+    val presentationSchedule = deliveryScheduleForJobsScreen(schedule)
+    return UnifiedJobsDeliverySchedulePresentation(
+        bannerSchedule = presentationSchedule,
+        dialogSchedule = presentationSchedule
+    )
+}
+
 internal fun applyCanonicalDeliverySchedule(
-    schedule: DeliverySchedule,
+    schedule: DeliverySchedule?,
     callback: (DeliverySchedule) -> Unit
-) {
-    callback(schedule)
+): Boolean {
+    if (schedule != null) {
+        callback(schedule)
+        return true
+    }
+    return false
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -220,7 +239,7 @@ fun UnifiedJobsScreen(
     val scanGeneration by spec.scanGeneration.collectAsState()
     val progressVersion by spec.progressVersion.collectAsState()
     
-    val presentationDeliverySchedule = deliveryScheduleForJobsScreen(deliverySchedule)
+    val deliverySchedulePresentation = deliverySchedulePresentationForJobsScreen(deliverySchedule)
 
     val badgeCache = remember(scanGeneration) { mutableStateMapOf<String, Set<JobBadge>>() }
     var localJobEdits by remember { mutableStateOf<Map<String, LocalJobEdit>>(emptyMap()) }
@@ -460,7 +479,7 @@ fun UnifiedJobsScreen(
                             }
                             item(key = "header_deliveries_widget") {
                                 DeliveryScheduleBanner(
-                                    schedule = presentationDeliverySchedule,
+                                    schedule = deliverySchedulePresentation.bannerSchedule,
                                     isAdminMode = adminMode,
                                     onEditRequested = { showScheduleDialog = true },
                                     showWhenEmpty = adminMode,
@@ -509,7 +528,7 @@ fun UnifiedJobsScreen(
                             }
                             item(key = "header_deliveries_widget", span = { GridItemSpan(maxLineSpan) }) {
                                 DeliveryScheduleBanner(
-                                    schedule = presentationDeliverySchedule,
+                                    schedule = deliverySchedulePresentation.bannerSchedule,
                                     isAdminMode = adminMode,
                                     onEditRequested = { showScheduleDialog = true },
                                     showWhenEmpty = adminMode,
@@ -595,7 +614,7 @@ fun UnifiedJobsScreen(
                             }
                             item(key = "header_deliveries_widget") {
                                 DeliveryScheduleBanner(
-                                    schedule = presentationDeliverySchedule,
+                                    schedule = deliverySchedulePresentation.bannerSchedule,
                                     isAdminMode = adminMode,
                                     onEditRequested = { showScheduleDialog = true },
                                     showWhenEmpty = adminMode,
@@ -743,7 +762,7 @@ fun UnifiedJobsScreen(
 
     if (showScheduleDialog) {
         DeliveryScheduleDialog(
-            schedule = presentationDeliverySchedule,
+            schedule = deliverySchedulePresentation.dialogSchedule,
             onDismiss = { showScheduleDialog = false },
             isAdminMode = adminMode,
             availableJobs = deliveryPickerJobs,
@@ -758,9 +777,7 @@ fun UnifiedJobsScreen(
                             )
                         )
                     )
-                    if (applied != null) {
-                        applyCanonicalDeliverySchedule(applied, onDeliveryScheduleApplied)
-                    } else {
+                    if (!applyCanonicalDeliverySchedule(applied, onDeliveryScheduleApplied)) {
                         withContext(Dispatchers.IO) {
                             deliveryScheduleRequestStore.queueSlotEdit(slot, jobs, tabletId)
                         }
@@ -776,9 +793,7 @@ fun UnifiedJobsScreen(
                             resetAll = true
                         )
                     )
-                    if (applied != null) {
-                        applyCanonicalDeliverySchedule(applied, onDeliveryScheduleApplied)
-                    } else {
+                    if (!applyCanonicalDeliverySchedule(applied, onDeliveryScheduleApplied)) {
                         withContext(Dispatchers.IO) {
                             deliveryScheduleRequestStore.queueReset(tabletId)
                         }

@@ -170,4 +170,35 @@ class DeliveryScheduleStateStoreTest {
         assertEquals("live", store.schedule.value.slot("friday", "am").jobs.single().jobNumber)
         assertTrue(store.liveConnected)
     }
+
+    /**
+     * A fallback read that started while offline must not overwrite the canonical response from
+     * a successful direct admin edit that lands before the file read completes.
+     */
+    @Test
+    fun refreshFallback_doesNotOverwriteScheduleFromConcurrentApplyImmediate() {
+        val fallbackThreadStartedLoading = CountDownLatch(1)
+        val releaseFallbackLoader = CountDownLatch(1)
+        val store = DeliveryScheduleStateStore {
+            if (Thread.currentThread().name == "fallback-refresh-thread") {
+                fallbackThreadStartedLoading.countDown()
+                assertTrue(releaseFallbackLoader.await(5, TimeUnit.SECONDS))
+            }
+            scheduleWith("stale-fallback")
+        }
+
+        val fallbackThread = Thread({ store.refreshFallback() }, "fallback-refresh-thread")
+        fallbackThread.start()
+        assertTrue(fallbackThreadStartedLoading.await(5, TimeUnit.SECONDS))
+
+        val canonical = scheduleWith("canonical-edit")
+        store.applyImmediate(canonical)
+        releaseFallbackLoader.countDown()
+        fallbackThread.join(5000)
+
+        assertEquals(
+            "canonical-edit",
+            store.schedule.value.slot("friday", "am").jobs.single().jobNumber
+        )
+    }
 }
