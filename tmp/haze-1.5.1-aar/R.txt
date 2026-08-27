@@ -1,0 +1,1 @@
+int drawable haze_noise 0x0

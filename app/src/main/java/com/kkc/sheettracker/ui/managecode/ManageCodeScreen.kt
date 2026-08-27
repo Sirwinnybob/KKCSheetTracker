@@ -406,8 +406,10 @@ fun ManageCodeScreen(
             originalPrograms = client.listMixes(jobFolderName, materialName)?.firstOrNull { it.name == existingName }?.programs.orEmpty()
         )
         if (change.orderOrMembershipChanged && !ignoreDuplicates) {
-            val allOtherMixes = client.listMixes(jobFolderName).orEmpty()
-            val duplicates = findCrossMixDuplicates(change.programs, existingName ?: "", allOtherMixes)
+            // Server check is job-wide (scope=job) same as the client-side fallback below --
+            // a .pgm filename can collide with a mix under a different material in this job.
+            val duplicates = client.getPgmConflicts(jobFolderName, materialName, change.programs, existingName)
+                ?: findCrossMixDuplicates(change.programs, existingName ?: "", client.listMixes(jobFolderName).orEmpty())
             if (duplicates.isNotEmpty()) {
                 pendingDuplicateWarning = materialName to duplicates
                 return ManageCodeMaterialResult.Blocked("Duplicate PGM membership — confirm to continue")

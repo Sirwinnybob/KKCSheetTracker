@@ -17,15 +17,12 @@ data class SupplyTabItem(
 
 fun buildSupplyTabsList(
     categories: List<SupplyCategory>,
-    isAdminMode: Boolean,
     savedTabOrder: List<String>
 ): List<SupplyTabItem> {
     val availableTabs = mutableListOf<SupplyTabItem>()
     availableTabs.add(SupplyTabItem("updates", SupplyTabType.Updates, "Updates"))
     availableTabs.add(SupplyTabItem("needs_attention", SupplyTabType.NeedsAttention, "Needs Attention"))
-    if (isAdminMode) {
-        availableTabs.add(SupplyTabItem("to_order", SupplyTabType.ToOrder, "To Order"))
-    }
+    availableTabs.add(SupplyTabItem("to_order", SupplyTabType.ToOrder, "To Order"))
     categories.forEach { category ->
         availableTabs.add(SupplyTabItem(category.id, SupplyTabType.CategoryTab(category), category.name))
     }

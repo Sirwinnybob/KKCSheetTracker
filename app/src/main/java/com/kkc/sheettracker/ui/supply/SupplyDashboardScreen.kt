@@ -214,25 +214,22 @@ fun SupplyDashboardScreen(
     var notifications by remember { mutableStateOf<List<SupplyNotificationItem>>(emptyList()) }
     val categoryMap = remember(categories) { categories.associateBy { it.id } }
 
-    // Admin-only "To Order" tab: cross-job aggregation of specialty/checklist TO_ORDER items,
-    // mirroring the Hours Tracker web "To Order" tab. Placed next to the Needs Attention tab.
+    // "To Order" tab: cross-job aggregation of specialty/checklist TO_ORDER items, mirroring the
+    // Hours Tracker web "To Order" tab. Placed next to the Needs Attention tab. Visible to every
+    // user; only admin mode can check items off or edit them (see ToOrderPage `editable`).
     val isAdminMode by AdminModeController.enabled.collectAsState()
     val preferencesStore = remember(context) { UiPreferencesStore(context) }
     var savedTabOrder by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(context) {
         savedTabOrder = preferencesStore.getSupplyTabOrder()
     }
-    val supplyTabs = remember(categories, isAdminMode, savedTabOrder) {
+    val supplyTabs = remember(categories, savedTabOrder) {
         // Ensure utility tabs are always at the beginning of the savedTabOrder
-        val utilityIds = listOfNotNull(
-            "updates",
-            "needs_attention",
-            if (isAdminMode) "to_order" else null
-        )
+        val utilityIds = listOf("updates", "needs_attention", "to_order")
         val cleanOrder = utilityIds + savedTabOrder.filter { it !in utilityIds }
-        buildSupplyTabsList(categories, isAdminMode, cleanOrder)
+        buildSupplyTabsList(categories, cleanOrder)
     }
-    val boardPageIndex = if (isAdminMode) 3 else 2
+    val boardPageIndex = 3
     val pagerState = rememberPagerState(pageCount = { boardPageIndex + 1 })
     val boardScrollState = rememberLazyListState()
 
@@ -277,12 +274,10 @@ fun SupplyDashboardScreen(
     var toOrderGroups by remember { mutableStateOf<List<ToOrderGroup>>(emptyList()) }
     var toOrderLoading by remember { mutableStateOf(false) }
     var editingToOrderItem by remember { mutableStateOf<Pair<String, SpecialtyResolvedItem>?>(null) }
-    LaunchedEffect(isAdminMode) {
-        if (isAdminMode) {
-            toOrderLoading = true
-            toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
-            toOrderLoading = false
-        }
+    LaunchedEffect(Unit) {
+        toOrderLoading = true
+        toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
+        toOrderLoading = false
     }
 
     // Categories can reload smaller/empty while the pager still points at a former category page.
@@ -609,6 +604,7 @@ fun SupplyDashboardScreen(
                                 SupplyTabType.ToOrder -> ToOrderPage(
                                     groups = toOrderGroups,
                                     loading = toOrderLoading,
+                                    editable = isAdminMode,
                                     onToggleComplete = { jobFolder, resolvedItem, completed ->
                                         scope.launch {
                                             withContext(Dispatchers.IO) {
@@ -844,13 +840,9 @@ fun SupplyDashboardScreen(
                         val selectedTabId = supplyTabs.getOrNull(selectedTabIndex)?.id
                         savedTabOrder = newOrder
                         if (selectedTabId != null) {
-                            val utilityIds = listOfNotNull(
-                                "updates",
-                                "needs_attention",
-                                if (isAdminMode) "to_order" else null
-                            )
+                            val utilityIds = listOf("updates", "needs_attention", "to_order")
                             val cleanOrder = utilityIds + newOrder.filter { it !in utilityIds }
-                            val nextTabs = buildSupplyTabsList(categories, isAdminMode, cleanOrder)
+                            val nextTabs = buildSupplyTabsList(categories, cleanOrder)
                             val newIndex = nextTabs.indexOfFirst { it.id == selectedTabId }
                             if (newIndex >= 0) {
                                 scope.launch {
@@ -1358,13 +1350,15 @@ private fun NeedsAttentionPage(
 }
 
 /**
- * Admin-only cross-job "To Order" view: one section per job, listing that job's specialty +
- * checklist items flagged TO_ORDER. Fully editable.
+ * Cross-job "To Order" view: one section per job, listing that job's specialty + checklist items
+ * flagged TO_ORDER. Visible to all users; only editable (check off / edit item) when [editable]
+ * (admin mode) is true — everyone else gets a read-only view.
  */
 @Composable
 private fun ToOrderPage(
     groups: List<ToOrderGroup>,
     loading: Boolean,
+    editable: Boolean,
     onToggleComplete: (jobFolderName: String, item: SpecialtyResolvedItem, completed: Boolean) -> Unit,
     onEditItem: (jobFolderName: String, item: SpecialtyResolvedItem) -> Unit,
     modifier: Modifier = Modifier
@@ -1410,6 +1404,7 @@ private fun ToOrderPage(
         buildToOrderJobSections(groups, collapsedJobIds).forEach { section ->
             ToOrderJobSectionCard(
                 section = section,
+                editable = editable,
                 onToggleCollapsed = {
                     collapsedJobIds = toggleToOrderJobCollapse(collapsedJobIds, section.group.folderName)
                 },
@@ -1461,6 +1456,7 @@ internal fun buildToOrderJobSections(
 @Composable
 private fun ToOrderJobSectionCard(
     section: ToOrderJobSection,
+    editable: Boolean,
     onToggleCollapsed: () -> Unit,
     onToggleComplete: (jobFolderName: String, item: SpecialtyResolvedItem, completed: Boolean) -> Unit,
     onEditItem: (jobFolderName: String, item: SpecialtyResolvedItem) -> Unit
@@ -1526,6 +1522,7 @@ private fun ToOrderJobSectionCard(
                         ToOrderItemRow(
                             jobFolderName = section.group.folderName,
                             resolvedItem = resolvedItem,
+                            editable = editable,
                             onEditItem = onEditItem,
                             onToggleComplete = onToggleComplete
                         )
@@ -1546,6 +1543,7 @@ private fun ToOrderJobSectionCard(
                         ToOrderItemRow(
                             jobFolderName = section.group.folderName,
                             resolvedItem = resolvedItem,
+                            editable = editable,
                             onEditItem = onEditItem,
                             onToggleComplete = onToggleComplete
                         )
@@ -1560,6 +1558,7 @@ private fun ToOrderJobSectionCard(
 private fun ToOrderItemRow(
     jobFolderName: String,
     resolvedItem: SpecialtyResolvedItem,
+    editable: Boolean,
     onEditItem: (jobFolderName: String, item: SpecialtyResolvedItem) -> Unit,
     onToggleComplete: (jobFolderName: String, item: SpecialtyResolvedItem, completed: Boolean) -> Unit
 ) {
@@ -1572,22 +1571,37 @@ private fun ToOrderItemRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(
-                onClick = { onEditItem(jobFolderName, resolvedItem) },
-                onLongClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
-            )
+            .let { base ->
+                if (editable) {
+                    base.combinedClickable(
+                        onClick = { onEditItem(jobFolderName, resolvedItem) },
+                        onLongClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
+                    )
+                } else {
+                    base
+                }
+            }
             .background(DashboardSurfaceDefaults.accentWash(accent))
             .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
-            onClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
-        ) {
+        if (editable) {
+            IconButton(
+                onClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
+            ) {
+                Icon(
+                    imageVector = if (resolvedItem.isComplete) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                    contentDescription = if (resolvedItem.isComplete) "Mark not ordered" else "Mark ordered",
+                    tint = supplyStatusColor(tier)
+                )
+            }
+        } else {
             Icon(
                 imageVector = if (resolvedItem.isComplete) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
-                contentDescription = if (resolvedItem.isComplete) "Mark not ordered" else "Mark ordered",
-                tint = supplyStatusColor(tier)
+                contentDescription = if (resolvedItem.isComplete) "Ordered" else "Not yet ordered",
+                tint = supplyStatusColor(tier),
+                modifier = Modifier.padding(12.dp)
             )
         }
         Column(

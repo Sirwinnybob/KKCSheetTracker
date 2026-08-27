@@ -1,0 +1,3457 @@
+Compiled from "HazeEffectNode.kt"
+public final class dev.chrisbanes.haze.HazeEffectNode extends androidx.compose.ui.Modifier$Node implements androidx.compose.ui.node.CompositionLocalConsumerModifierNode,androidx.compose.ui.node.GlobalPositionAwareModifierNode,androidx.compose.ui.node.LayoutAwareModifierNode,androidx.compose.ui.node.ObserverModifierNode,androidx.compose.ui.node.DrawModifierNode,androidx.compose.ui.node.TraversableNode,dev.chrisbanes.haze.HazeEffectScope {
+  public static final dev.chrisbanes.haze.HazeEffectNode$Companion Companion;
+
+  private dev.chrisbanes.haze.HazeState state;
+
+  private kotlin.jvm.functions.Function1<? super dev.chrisbanes.haze.HazeEffectScope, kotlin.Unit> block;
+
+  private final boolean shouldAutoInvalidate;
+
+  private androidx.compose.ui.graphics.RenderEffect renderEffect;
+
+  private int dirtyTracker;
+
+  private boolean blurEnabled;
+
+  private dev.chrisbanes.haze.HazeInputScale inputScale;
+
+  private dev.chrisbanes.haze.HazeStyle compositionLocalStyle;
+
+  private dev.chrisbanes.haze.HazeStyle style;
+
+  private long positionOnScreen;
+
+  private java.util.Map<dev.chrisbanes.haze.HazeArea, androidx.compose.ui.geometry.Offset> areaOffsets;
+
+  private long forcedInvalidationTick;
+
+  private long size;
+
+  private long layerSize;
+
+  private long layerOffset;
+
+  private float blurRadius;
+
+  private float noiseFactor;
+
+  private androidx.compose.ui.graphics.Brush mask;
+
+  private long backgroundColor;
+
+  private java.util.List<dev.chrisbanes.haze.HazeTint> tints;
+
+  private dev.chrisbanes.haze.HazeTint fallbackTint;
+
+  private float alpha;
+
+  private dev.chrisbanes.haze.HazeProgressive progressive;
+
+  private java.util.List<dev.chrisbanes.haze.HazeArea> areas;
+
+  private kotlin.jvm.functions.Function1<? super dev.chrisbanes.haze.HazeArea, java.lang.Boolean> canDrawArea;
+
+  public static final int $stable;
+
+  public static final java.lang.String TAG;
+
+  public dev.chrisbanes.haze.HazeEffectNode(dev.chrisbanes.haze.HazeState, dev.chrisbanes.haze.HazeStyle, kotlin.jvm.functions.Function1<? super dev.chrisbanes.haze.HazeEffectScope, kotlin.Unit>);
+    Code:
+       0: aload_1
+       1: ldc           #25                 // String state
+       3: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #33                 // String style
+       9: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_0
+      13: invokespecial #36                 // Method androidx/compose/ui/Modifier$Node."<init>":()V
+      16: aload_0
+      17: aload_1
+      18: putfield      #39                 // Field state:Ldev/chrisbanes/haze/HazeState;
+      21: aload_0
+      22: aload_3
+      23: putfield      #43                 // Field block:Lkotlin/jvm/functions/Function1;
+      26: aload_0
+      27: iconst_0
+      28: iconst_1
+      29: aconst_null
+      30: invokestatic  #49                 // Method dev/chrisbanes/haze/Bitmask."constructor-impl$default":(IILkotlin/jvm/internal/DefaultConstructorMarker;)I
+      33: putfield      #53                 // Field dirtyTracker:I
+      36: aload_0
+      37: getstatic     #59                 // Field dev/chrisbanes/haze/HazeDefaults.INSTANCE:Ldev/chrisbanes/haze/HazeDefaults;
+      40: invokevirtual #63                 // Method dev/chrisbanes/haze/HazeDefaults.blurEnabled:()Z
+      43: putfield      #66                 // Field blurEnabled:Z
+      46: aload_0
+      47: getstatic     #72                 // Field dev/chrisbanes/haze/HazeInputScale.Companion:Ldev/chrisbanes/haze/HazeInputScale$Companion;
+      50: invokevirtual #78                 // Method dev/chrisbanes/haze/HazeInputScale$Companion.getDefault:()Ldev/chrisbanes/haze/HazeInputScale;
+      53: putfield      #82                 // Field inputScale:Ldev/chrisbanes/haze/HazeInputScale;
+      56: aload_0
+      57: getstatic     #87                 // Field dev/chrisbanes/haze/HazeStyle.Companion:Ldev/chrisbanes/haze/HazeStyle$Companion;
+      60: invokevirtual #93                 // Method dev/chrisbanes/haze/HazeStyle$Companion.getUnspecified:()Ldev/chrisbanes/haze/HazeStyle;
+      63: putfield      #97                 // Field compositionLocalStyle:Ldev/chrisbanes/haze/HazeStyle;
+      66: aload_0
+      67: aload_2
+      68: putfield      #99                 // Field style:Ldev/chrisbanes/haze/HazeStyle;
+      71: aload_0
+      72: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+      75: invokevirtual #110                // Method androidx/compose/ui/geometry/Offset$Companion."getUnspecified-F1C5BW0":()J
+      78: putfield      #114                // Field positionOnScreen:J
+      81: aload_0
+      82: invokestatic  #120                // Method kotlin/collections/MapsKt.emptyMap:()Ljava/util/Map;
+      85: putfield      #124                // Field areaOffsets:Ljava/util/Map;
+      88: aload_0
+      89: getstatic     #129                // Field androidx/compose/ui/geometry/Size.Companion:Landroidx/compose/ui/geometry/Size$Companion;
+      92: invokevirtual #134                // Method androidx/compose/ui/geometry/Size$Companion."getUnspecified-NH-jbRc":()J
+      95: putfield      #137                // Field size:J
+      98: aload_0
+      99: getstatic     #129                // Field androidx/compose/ui/geometry/Size.Companion:Landroidx/compose/ui/geometry/Size$Companion;
+     102: invokevirtual #134                // Method androidx/compose/ui/geometry/Size$Companion."getUnspecified-NH-jbRc":()J
+     105: putfield      #140                // Field layerSize:J
+     108: aload_0
+     109: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+     112: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+     115: putfield      #146                // Field layerOffset:J
+     118: aload_0
+     119: getstatic     #151                // Field androidx/compose/ui/unit/Dp.Companion:Landroidx/compose/ui/unit/Dp$Companion;
+     122: invokevirtual #157                // Method androidx/compose/ui/unit/Dp$Companion."getUnspecified-D9Ej5fM":()F
+     125: putfield      #161                // Field blurRadius:F
+     128: aload_0
+     129: ldc           #162                // float -1.0f
+     131: putfield      #165                // Field noiseFactor:F
+     134: aload_0
+     135: getstatic     #170                // Field androidx/compose/ui/graphics/Color.Companion:Landroidx/compose/ui/graphics/Color$Companion;
+     138: invokevirtual #175                // Method androidx/compose/ui/graphics/Color$Companion."getUnspecified-0d7_KjU":()J
+     141: putfield      #178                // Field backgroundColor:J
+     144: aload_0
+     145: invokestatic  #184                // Method kotlin/collections/CollectionsKt.emptyList:()Ljava/util/List;
+     148: putfield      #188                // Field tints:Ljava/util/List;
+     151: aload_0
+     152: getstatic     #193                // Field dev/chrisbanes/haze/HazeTint.Companion:Ldev/chrisbanes/haze/HazeTint$Companion;
+     155: invokevirtual #198                // Method dev/chrisbanes/haze/HazeTint$Companion.getUnspecified:()Ldev/chrisbanes/haze/HazeTint;
+     158: putfield      #202                // Field fallbackTint:Ldev/chrisbanes/haze/HazeTint;
+     161: aload_0
+     162: fconst_1
+     163: putfield      #205                // Field alpha:F
+     166: aload_0
+     167: invokestatic  #184                // Method kotlin/collections/CollectionsKt.emptyList:()Ljava/util/List;
+     170: putfield      #208                // Field areas:Ljava/util/List;
+     173: return
+
+  public dev.chrisbanes.haze.HazeEffectNode(dev.chrisbanes.haze.HazeState, dev.chrisbanes.haze.HazeStyle, kotlin.jvm.functions.Function1, int, kotlin.jvm.internal.DefaultConstructorMarker);
+    Code:
+       0: iload         4
+       2: iconst_2
+       3: iand
+       4: ifeq          14
+       7: getstatic     #87                 // Field dev/chrisbanes/haze/HazeStyle.Companion:Ldev/chrisbanes/haze/HazeStyle$Companion;
+      10: invokevirtual #93                 // Method dev/chrisbanes/haze/HazeStyle$Companion.getUnspecified:()Ldev/chrisbanes/haze/HazeStyle;
+      13: astore_2
+      14: iload         4
+      16: iconst_4
+      17: iand
+      18: ifeq          23
+      21: aconst_null
+      22: astore_3
+      23: aload_0
+      24: aload_1
+      25: aload_2
+      26: aload_3
+      27: invokespecial #213                // Method "<init>":(Ldev/chrisbanes/haze/HazeState;Ldev/chrisbanes/haze/HazeStyle;Lkotlin/jvm/functions/Function1;)V
+      30: return
+
+  public final dev.chrisbanes.haze.HazeState getState();
+    Code:
+       0: aload_0
+       1: getfield      #39                 // Field state:Ldev/chrisbanes/haze/HazeState;
+       4: areturn
+
+  public final void setState(dev.chrisbanes.haze.HazeState);
+    Code:
+       0: aload_1
+       1: ldc           #219                // String <set-?>
+       3: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_0
+       7: aload_1
+       8: putfield      #39                 // Field state:Ldev/chrisbanes/haze/HazeState;
+      11: return
+
+  public final kotlin.jvm.functions.Function1<dev.chrisbanes.haze.HazeEffectScope, kotlin.Unit> getBlock();
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field block:Lkotlin/jvm/functions/Function1;
+       4: areturn
+
+  public final void setBlock(kotlin.jvm.functions.Function1<? super dev.chrisbanes.haze.HazeEffectScope, kotlin.Unit>);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: putfield      #43                 // Field block:Lkotlin/jvm/functions/Function1;
+       5: return
+
+  public java.lang.Object getTraverseKey();
+    Code:
+       0: getstatic     #233                // Field dev/chrisbanes/haze/HazeTraversableNodeKeys.Effect:Ldev/chrisbanes/haze/HazeTraversableNodeKeys;
+       3: areturn
+
+  public boolean getShouldAutoInvalidate();
+    Code:
+       0: aload_0
+       1: getfield      #237                // Field shouldAutoInvalidate:Z
+       4: ireturn
+
+  public boolean getBlurEnabled();
+    Code:
+       0: aload_0
+       1: getfield      #66                 // Field blurEnabled:Z
+       4: ireturn
+
+  public void setBlurEnabled(boolean);
+    Code:
+       0: iload_1
+       1: aload_0
+       2: getfield      #66                 // Field blurEnabled:Z
+       5: if_icmpeq     40
+       8: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      11: ldc           #247                // String HazeEffect
+      13: aload_0
+      14: iload_1
+      15: invokedynamic #266,  0            // InvokeDynamic #0:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Z)Lkotlin/jvm/functions/Function0;
+      20: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      23: aload_0
+      24: iload_1
+      25: putfield      #66                 // Field blurEnabled:Z
+      28: aload_0
+      29: aload_0
+      30: getfield      #53                 // Field dirtyTracker:I
+      33: iconst_1
+      34: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      37: putfield      #53                 // Field dirtyTracker:I
+      40: return
+
+  public dev.chrisbanes.haze.HazeInputScale getInputScale();
+    Code:
+       0: aload_0
+       1: getfield      #82                 // Field inputScale:Ldev/chrisbanes/haze/HazeInputScale;
+       4: areturn
+
+  public void setInputScale(dev.chrisbanes.haze.HazeInputScale);
+    Code:
+       0: aload_1
+       1: ldc_w         #279                // String value
+       4: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       7: aload_1
+       8: aload_0
+       9: getfield      #82                 // Field inputScale:Ldev/chrisbanes/haze/HazeInputScale;
+      12: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      15: ifne          50
+      18: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      21: ldc           #247                // String HazeEffect
+      23: aload_0
+      24: aload_1
+      25: invokedynamic #291,  0            // InvokeDynamic #1:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Ldev/chrisbanes/haze/HazeInputScale;)Lkotlin/jvm/functions/Function0;
+      30: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      33: aload_0
+      34: aload_1
+      35: putfield      #82                 // Field inputScale:Ldev/chrisbanes/haze/HazeInputScale;
+      38: aload_0
+      39: aload_0
+      40: getfield      #53                 // Field dirtyTracker:I
+      43: iconst_2
+      44: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      47: putfield      #53                 // Field dirtyTracker:I
+      50: return
+
+  public final dev.chrisbanes.haze.HazeStyle getCompositionLocalStyle$haze_release();
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field compositionLocalStyle:Ldev/chrisbanes/haze/HazeStyle;
+       4: areturn
+
+  public final void setCompositionLocalStyle$haze_release(dev.chrisbanes.haze.HazeStyle);
+    Code:
+       0: aload_1
+       1: ldc_w         #279                // String value
+       4: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       7: aload_0
+       8: getfield      #97                 // Field compositionLocalStyle:Ldev/chrisbanes/haze/HazeStyle;
+      11: aload_1
+      12: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      15: ifne          47
+      18: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      21: ldc           #247                // String HazeEffect
+      23: aload_0
+      24: aload_1
+      25: invokedynamic #302,  0            // InvokeDynamic #2:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Ldev/chrisbanes/haze/HazeStyle;)Lkotlin/jvm/functions/Function0;
+      30: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      33: aload_0
+      34: aload_0
+      35: getfield      #97                 // Field compositionLocalStyle:Ldev/chrisbanes/haze/HazeStyle;
+      38: aload_1
+      39: invokespecial #306                // Method onStyleChanged:(Ldev/chrisbanes/haze/HazeStyle;Ldev/chrisbanes/haze/HazeStyle;)V
+      42: aload_0
+      43: aload_1
+      44: putfield      #97                 // Field compositionLocalStyle:Ldev/chrisbanes/haze/HazeStyle;
+      47: return
+
+  public dev.chrisbanes.haze.HazeStyle getStyle();
+    Code:
+       0: aload_0
+       1: getfield      #99                 // Field style:Ldev/chrisbanes/haze/HazeStyle;
+       4: areturn
+
+  public void setStyle(dev.chrisbanes.haze.HazeStyle);
+    Code:
+       0: aload_1
+       1: ldc_w         #279                // String value
+       4: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       7: aload_0
+       8: getfield      #99                 // Field style:Ldev/chrisbanes/haze/HazeStyle;
+      11: aload_1
+      12: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      15: ifne          47
+      18: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      21: ldc           #247                // String HazeEffect
+      23: aload_0
+      24: aload_1
+      25: invokedynamic #313,  0            // InvokeDynamic #3:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Ldev/chrisbanes/haze/HazeStyle;)Lkotlin/jvm/functions/Function0;
+      30: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      33: aload_0
+      34: aload_0
+      35: getfield      #99                 // Field style:Ldev/chrisbanes/haze/HazeStyle;
+      38: aload_1
+      39: invokespecial #306                // Method onStyleChanged:(Ldev/chrisbanes/haze/HazeStyle;Ldev/chrisbanes/haze/HazeStyle;)V
+      42: aload_0
+      43: aload_1
+      44: putfield      #99                 // Field style:Ldev/chrisbanes/haze/HazeStyle;
+      47: return
+
+  private final void setPositionOnScreen-k-4lQ0M(long);
+    Code:
+       0: lload_1
+       1: aload_0
+       2: getfield      #114                // Field positionOnScreen:J
+       5: invokestatic  #319                // Method androidx/compose/ui/geometry/Offset."equals-impl0":(JJ)Z
+       8: ifne          43
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: lload_1
+      18: invokedynamic #327,  0            // InvokeDynamic #4:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;J)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: iconst_4
+      32: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      35: putfield      #53                 // Field dirtyTracker:I
+      38: aload_0
+      39: lload_1
+      40: putfield      #114                // Field positionOnScreen:J
+      43: return
+
+  private final void setAreaOffsets(java.util.Map<dev.chrisbanes.haze.HazeArea, androidx.compose.ui.geometry.Offset>);
+    Code:
+       0: aload_1
+       1: aload_0
+       2: getfield      #124                // Field areaOffsets:Ljava/util/Map;
+       5: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+       8: ifne          44
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: aload_1
+      18: invokedynamic #338,  0            // InvokeDynamic #5:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Ljava/util/Map;)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: bipush        8
+      33: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      36: putfield      #53                 // Field dirtyTracker:I
+      39: aload_0
+      40: aload_1
+      41: putfield      #124                // Field areaOffsets:Ljava/util/Map;
+      44: return
+
+  private final void setForcedInvalidationTick(long);
+    Code:
+       0: lload_1
+       1: aload_0
+       2: getfield      #342                // Field forcedInvalidationTick:J
+       5: lcmp
+       6: ifeq          43
+       9: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      12: ldc           #247                // String HazeEffect
+      14: aload_0
+      15: lload_1
+      16: invokedynamic #347,  0            // InvokeDynamic #6:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;J)Lkotlin/jvm/functions/Function0;
+      21: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      24: aload_0
+      25: aload_0
+      26: getfield      #53                 // Field dirtyTracker:I
+      29: sipush        16384
+      32: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      35: putfield      #53                 // Field dirtyTracker:I
+      38: aload_0
+      39: lload_1
+      40: putfield      #342                // Field forcedInvalidationTick:J
+      43: return
+
+  private final boolean isValid();
+    Code:
+       0: aload_0
+       1: getfield      #137                // Field size:J
+       4: lstore_1
+       5: iconst_0
+       6: istore_3
+       7: lload_1
+       8: ldc2_w        #349                // long 9205357640488583168l
+      11: lcmp
+      12: ifeq          19
+      15: iconst_1
+      16: goto          20
+      19: iconst_0
+      20: ifeq          73
+      23: aload_0
+      24: getfield      #140                // Field layerSize:J
+      27: lstore_1
+      28: iconst_0
+      29: istore_3
+      30: lload_1
+      31: ldc2_w        #349                // long 9205357640488583168l
+      34: lcmp
+      35: ifeq          42
+      38: iconst_1
+      39: goto          43
+      42: iconst_0
+      43: ifeq          73
+      46: aload_0
+      47: getfield      #208                // Field areas:Ljava/util/List;
+      50: checkcast     #352                // class java/util/Collection
+      53: invokeinterface #355,  1          // InterfaceMethod java/util/Collection.isEmpty:()Z
+      58: ifne          65
+      61: iconst_1
+      62: goto          66
+      65: iconst_0
+      66: ifeq          73
+      69: iconst_1
+      70: goto          74
+      73: iconst_0
+      74: ireturn
+
+  public final long getSize-NH-jbRc$haze_release();
+    Code:
+       0: aload_0
+       1: getfield      #137                // Field size:J
+       4: lreturn
+
+  public final void setSize-uvyYCjk$haze_release(long);
+    Code:
+       0: lload_1
+       1: aload_0
+       2: getfield      #137                // Field size:J
+       5: invokestatic  #360                // Method androidx/compose/ui/geometry/Size."equals-impl0":(JJ)Z
+       8: ifne          44
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: lload_1
+      18: invokedynamic #365,  0            // InvokeDynamic #7:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;J)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: bipush        16
+      33: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      36: putfield      #53                 // Field dirtyTracker:I
+      39: aload_0
+      40: lload_1
+      41: putfield      #137                // Field size:J
+      44: return
+
+  private final void setLayerSize-uvyYCjk(long);
+    Code:
+       0: lload_1
+       1: aload_0
+       2: getfield      #140                // Field layerSize:J
+       5: invokestatic  #360                // Method androidx/compose/ui/geometry/Size."equals-impl0":(JJ)Z
+       8: ifne          45
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: lload_1
+      18: invokedynamic #371,  0            // InvokeDynamic #8:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;J)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: ldc_w         #372                // int 32768
+      34: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      37: putfield      #53                 // Field dirtyTracker:I
+      40: aload_0
+      41: lload_1
+      42: putfield      #140                // Field layerSize:J
+      45: return
+
+  public final long getLayerOffset-F1C5BW0$haze_release();
+    Code:
+       0: aload_0
+       1: getfield      #146                // Field layerOffset:J
+       4: lreturn
+
+  public final void setLayerOffset-k-4lQ0M$haze_release(long);
+    Code:
+       0: lload_1
+       1: aload_0
+       2: getfield      #146                // Field layerOffset:J
+       5: invokestatic  #319                // Method androidx/compose/ui/geometry/Offset."equals-impl0":(JJ)Z
+       8: ifne          45
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: lload_1
+      18: invokedynamic #379,  0            // InvokeDynamic #9:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;J)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: ldc_w         #380                // int 65536
+      34: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      37: putfield      #53                 // Field dirtyTracker:I
+      40: aload_0
+      41: lload_1
+      42: putfield      #146                // Field layerOffset:J
+      45: return
+
+  public float getBlurRadius-D9Ej5fM();
+    Code:
+       0: aload_0
+       1: getfield      #161                // Field blurRadius:F
+       4: freturn
+
+  public void setBlurRadius-0680j_4(float);
+    Code:
+       0: fload_1
+       1: aload_0
+       2: getfield      #161                // Field blurRadius:F
+       5: invokestatic  #386                // Method androidx/compose/ui/unit/Dp."equals-impl0":(FF)Z
+       8: ifne          44
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: fload_1
+      18: invokedynamic #394,  0            // InvokeDynamic #10:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;F)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: bipush        32
+      33: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      36: putfield      #53                 // Field dirtyTracker:I
+      39: aload_0
+      40: fload_1
+      41: putfield      #161                // Field blurRadius:F
+      44: return
+
+  public float getNoiseFactor();
+    Code:
+       0: aload_0
+       1: getfield      #165                // Field noiseFactor:F
+       4: freturn
+
+  public void setNoiseFactor(float);
+    Code:
+       0: fload_1
+       1: aload_0
+       2: getfield      #165                // Field noiseFactor:F
+       5: fcmpg
+       6: ifne          13
+       9: iconst_1
+      10: goto          14
+      13: iconst_0
+      14: ifne          50
+      17: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      20: ldc           #247                // String HazeEffect
+      22: aload_0
+      23: fload_1
+      24: invokedynamic #401,  0            // InvokeDynamic #11:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;F)Lkotlin/jvm/functions/Function0;
+      29: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      32: aload_0
+      33: aload_0
+      34: getfield      #53                 // Field dirtyTracker:I
+      37: bipush        64
+      39: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      42: putfield      #53                 // Field dirtyTracker:I
+      45: aload_0
+      46: fload_1
+      47: putfield      #165                // Field noiseFactor:F
+      50: return
+
+  public androidx.compose.ui.graphics.Brush getMask();
+    Code:
+       0: aload_0
+       1: getfield      #407                // Field mask:Landroidx/compose/ui/graphics/Brush;
+       4: areturn
+
+  public void setMask(androidx.compose.ui.graphics.Brush);
+    Code:
+       0: aload_1
+       1: aload_0
+       2: getfield      #407                // Field mask:Landroidx/compose/ui/graphics/Brush;
+       5: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+       8: ifne          45
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: aload_1
+      18: invokedynamic #417,  0            // InvokeDynamic #12:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Landroidx/compose/ui/graphics/Brush;)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: sipush        128
+      34: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      37: putfield      #53                 // Field dirtyTracker:I
+      40: aload_0
+      41: aload_1
+      42: putfield      #407                // Field mask:Landroidx/compose/ui/graphics/Brush;
+      45: return
+
+  public long getBackgroundColor-0d7_KjU();
+    Code:
+       0: aload_0
+       1: getfield      #178                // Field backgroundColor:J
+       4: lreturn
+
+  public void setBackgroundColor-8_81llA(long);
+    Code:
+       0: lload_1
+       1: aload_0
+       2: getfield      #178                // Field backgroundColor:J
+       5: invokestatic  #420                // Method androidx/compose/ui/graphics/Color."equals-impl0":(JJ)Z
+       8: ifne          45
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: lload_1
+      18: invokedynamic #425,  0            // InvokeDynamic #13:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;J)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: sipush        256
+      34: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      37: putfield      #53                 // Field dirtyTracker:I
+      40: aload_0
+      41: lload_1
+      42: putfield      #178                // Field backgroundColor:J
+      45: return
+
+  public java.util.List<dev.chrisbanes.haze.HazeTint> getTints();
+    Code:
+       0: aload_0
+       1: getfield      #188                // Field tints:Ljava/util/List;
+       4: areturn
+
+  public void setTints(java.util.List<dev.chrisbanes.haze.HazeTint>);
+    Code:
+       0: aload_1
+       1: ldc_w         #279                // String value
+       4: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       7: aload_1
+       8: aload_0
+       9: getfield      #188                // Field tints:Ljava/util/List;
+      12: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      15: ifne          52
+      18: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      21: ldc           #247                // String HazeEffect
+      23: aload_0
+      24: aload_1
+      25: invokedynamic #438,  0            // InvokeDynamic #14:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Ljava/util/List;)Lkotlin/jvm/functions/Function0;
+      30: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      33: aload_0
+      34: aload_0
+      35: getfield      #53                 // Field dirtyTracker:I
+      38: sipush        512
+      41: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      44: putfield      #53                 // Field dirtyTracker:I
+      47: aload_0
+      48: aload_1
+      49: putfield      #188                // Field tints:Ljava/util/List;
+      52: return
+
+  public dev.chrisbanes.haze.HazeTint getFallbackTint();
+    Code:
+       0: aload_0
+       1: getfield      #202                // Field fallbackTint:Ldev/chrisbanes/haze/HazeTint;
+       4: areturn
+
+  public void setFallbackTint(dev.chrisbanes.haze.HazeTint);
+    Code:
+       0: aload_1
+       1: ldc_w         #279                // String value
+       4: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       7: aload_1
+       8: aload_0
+       9: getfield      #202                // Field fallbackTint:Ldev/chrisbanes/haze/HazeTint;
+      12: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      15: ifne          52
+      18: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      21: ldc           #247                // String HazeEffect
+      23: aload_0
+      24: aload_1
+      25: invokedynamic #449,  0            // InvokeDynamic #15:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Ldev/chrisbanes/haze/HazeTint;)Lkotlin/jvm/functions/Function0;
+      30: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      33: aload_0
+      34: aload_0
+      35: getfield      #53                 // Field dirtyTracker:I
+      38: sipush        1024
+      41: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      44: putfield      #53                 // Field dirtyTracker:I
+      47: aload_0
+      48: aload_1
+      49: putfield      #202                // Field fallbackTint:Ldev/chrisbanes/haze/HazeTint;
+      52: return
+
+  public float getAlpha();
+    Code:
+       0: aload_0
+       1: getfield      #205                // Field alpha:F
+       4: freturn
+
+  public void setAlpha(float);
+    Code:
+       0: fload_1
+       1: aload_0
+       2: getfield      #205                // Field alpha:F
+       5: fcmpg
+       6: ifne          13
+       9: iconst_1
+      10: goto          14
+      13: iconst_0
+      14: ifne          51
+      17: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      20: ldc           #247                // String HazeEffect
+      22: aload_0
+      23: fload_1
+      24: invokedynamic #456,  0            // InvokeDynamic #16:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;F)Lkotlin/jvm/functions/Function0;
+      29: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      32: aload_0
+      33: aload_0
+      34: getfield      #53                 // Field dirtyTracker:I
+      37: sipush        2048
+      40: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      43: putfield      #53                 // Field dirtyTracker:I
+      46: aload_0
+      47: fload_1
+      48: putfield      #205                // Field alpha:F
+      51: return
+
+  public dev.chrisbanes.haze.HazeProgressive getProgressive();
+    Code:
+       0: aload_0
+       1: getfield      #462                // Field progressive:Ldev/chrisbanes/haze/HazeProgressive;
+       4: areturn
+
+  public void setProgressive(dev.chrisbanes.haze.HazeProgressive);
+    Code:
+       0: aload_1
+       1: aload_0
+       2: getfield      #462                // Field progressive:Ldev/chrisbanes/haze/HazeProgressive;
+       5: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+       8: ifne          45
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: aload_1
+      18: invokedynamic #472,  0            // InvokeDynamic #17:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Ldev/chrisbanes/haze/HazeProgressive;)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: sipush        4096
+      34: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      37: putfield      #53                 // Field dirtyTracker:I
+      40: aload_0
+      41: aload_1
+      42: putfield      #462                // Field progressive:Ldev/chrisbanes/haze/HazeProgressive;
+      45: return
+
+  private final void setAreas(java.util.List<dev.chrisbanes.haze.HazeArea>);
+    Code:
+       0: aload_1
+       1: aload_0
+       2: getfield      #208                // Field areas:Ljava/util/List;
+       5: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+       8: ifne          45
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: aload_1
+      18: invokedynamic #479,  0            // InvokeDynamic #18:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Ljava/util/List;)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_0
+      28: getfield      #53                 // Field dirtyTracker:I
+      31: sipush        8192
+      34: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      37: putfield      #53                 // Field dirtyTracker:I
+      40: aload_0
+      41: aload_1
+      42: putfield      #208                // Field areas:Ljava/util/List;
+      45: return
+
+  public kotlin.jvm.functions.Function1<dev.chrisbanes.haze.HazeArea, java.lang.Boolean> getCanDrawArea();
+    Code:
+       0: aload_0
+       1: getfield      #484                // Field canDrawArea:Lkotlin/jvm/functions/Function1;
+       4: areturn
+
+  public void setCanDrawArea(kotlin.jvm.functions.Function1<? super dev.chrisbanes.haze.HazeArea, java.lang.Boolean>);
+    Code:
+       0: aload_1
+       1: aload_0
+       2: getfield      #484                // Field canDrawArea:Lkotlin/jvm/functions/Function1;
+       5: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+       8: ifne          31
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: aload_0
+      17: aload_1
+      18: invokedynamic #494,  0            // InvokeDynamic #19:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Lkotlin/jvm/functions/Function1;)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: aload_0
+      27: aload_1
+      28: putfield      #484                // Field canDrawArea:Lkotlin/jvm/functions/Function1;
+      31: return
+
+  private final void onStyleChanged(dev.chrisbanes.haze.HazeStyle, dev.chrisbanes.haze.HazeStyle);
+    Code:
+       0: aload_1
+       1: dup
+       2: ifnull        11
+       5: invokevirtual #496                // Method dev/chrisbanes/haze/HazeStyle.getTints:()Ljava/util/List;
+       8: goto          13
+      11: pop
+      12: aconst_null
+      13: aload_2
+      14: dup
+      15: ifnull        24
+      18: invokevirtual #496                // Method dev/chrisbanes/haze/HazeStyle.getTints:()Ljava/util/List;
+      21: goto          26
+      24: pop
+      25: aconst_null
+      26: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      29: ifne          46
+      32: aload_0
+      33: aload_0
+      34: getfield      #53                 // Field dirtyTracker:I
+      37: sipush        512
+      40: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      43: putfield      #53                 // Field dirtyTracker:I
+      46: aload_1
+      47: dup
+      48: ifnull        57
+      51: invokevirtual #498                // Method dev/chrisbanes/haze/HazeStyle.getFallbackTint:()Ldev/chrisbanes/haze/HazeTint;
+      54: goto          59
+      57: pop
+      58: aconst_null
+      59: aload_2
+      60: dup
+      61: ifnull        70
+      64: invokevirtual #498                // Method dev/chrisbanes/haze/HazeStyle.getFallbackTint:()Ldev/chrisbanes/haze/HazeTint;
+      67: goto          72
+      70: pop
+      71: aconst_null
+      72: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      75: ifne          92
+      78: aload_0
+      79: aload_0
+      80: getfield      #53                 // Field dirtyTracker:I
+      83: sipush        512
+      86: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+      89: putfield      #53                 // Field dirtyTracker:I
+      92: aload_1
+      93: dup
+      94: ifnull        106
+      97: invokevirtual #500                // Method dev/chrisbanes/haze/HazeStyle."getBackgroundColor-0d7_KjU":()J
+     100: invokestatic  #504                // Method androidx/compose/ui/graphics/Color."box-impl":(J)Landroidx/compose/ui/graphics/Color;
+     103: goto          108
+     106: pop
+     107: aconst_null
+     108: aload_2
+     109: dup
+     110: ifnull        122
+     113: invokevirtual #500                // Method dev/chrisbanes/haze/HazeStyle."getBackgroundColor-0d7_KjU":()J
+     116: invokestatic  #504                // Method androidx/compose/ui/graphics/Color."box-impl":(J)Landroidx/compose/ui/graphics/Color;
+     119: goto          124
+     122: pop
+     123: aconst_null
+     124: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+     127: ifne          144
+     130: aload_0
+     131: aload_0
+     132: getfield      #53                 // Field dirtyTracker:I
+     135: sipush        256
+     138: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+     141: putfield      #53                 // Field dirtyTracker:I
+     144: aload_1
+     145: dup
+     146: ifnull        158
+     149: invokevirtual #506                // Method dev/chrisbanes/haze/HazeStyle.getNoiseFactor:()F
+     152: invokestatic  #512                // Method java/lang/Float.valueOf:(F)Ljava/lang/Float;
+     155: goto          160
+     158: pop
+     159: aconst_null
+     160: aload_2
+     161: dup
+     162: ifnull        174
+     165: invokevirtual #506                // Method dev/chrisbanes/haze/HazeStyle.getNoiseFactor:()F
+     168: invokestatic  #512                // Method java/lang/Float.valueOf:(F)Ljava/lang/Float;
+     171: goto          176
+     174: pop
+     175: aconst_null
+     176: invokestatic  #515                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Float;Ljava/lang/Float;)Z
+     179: ifne          195
+     182: aload_0
+     183: aload_0
+     184: getfield      #53                 // Field dirtyTracker:I
+     187: bipush        64
+     189: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+     192: putfield      #53                 // Field dirtyTracker:I
+     195: aload_1
+     196: dup
+     197: ifnull        209
+     200: invokevirtual #517                // Method dev/chrisbanes/haze/HazeStyle."getBlurRadius-D9Ej5fM":()F
+     203: invokestatic  #520                // Method androidx/compose/ui/unit/Dp."box-impl":(F)Landroidx/compose/ui/unit/Dp;
+     206: goto          211
+     209: pop
+     210: aconst_null
+     211: aload_2
+     212: dup
+     213: ifnull        225
+     216: invokevirtual #517                // Method dev/chrisbanes/haze/HazeStyle."getBlurRadius-D9Ej5fM":()F
+     219: invokestatic  #520                // Method androidx/compose/ui/unit/Dp."box-impl":(F)Landroidx/compose/ui/unit/Dp;
+     222: goto          227
+     225: pop
+     226: aconst_null
+     227: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+     230: ifne          246
+     233: aload_0
+     234: aload_0
+     235: getfield      #53                 // Field dirtyTracker:I
+     238: bipush        32
+     240: invokestatic  #274                // Method dev/chrisbanes/haze/Bitmask."plus-HWHKK88":(II)I
+     243: putfield      #53                 // Field dirtyTracker:I
+     246: return
+
+  public final void update$haze_release();
+    Code:
+       0: aload_0
+       1: invokevirtual #528                // Method onObservedReadsChanged:()V
+       4: return
+
+  public void onAttach();
+    Code:
+       0: aload_0
+       1: invokevirtual #531                // Method update$haze_release:()V
+       4: return
+
+  public void onObservedReadsChanged();
+    Code:
+       0: aload_0
+       1: checkcast     #4                  // class androidx/compose/ui/Modifier$Node
+       4: new           #533                // class dev/chrisbanes/haze/HazeEffectNode$onObservedReadsChanged$1
+       7: dup
+       8: aload_0
+       9: invokespecial #536                // Method dev/chrisbanes/haze/HazeEffectNode$onObservedReadsChanged$1."<init>":(Ljava/lang/Object;)V
+      12: checkcast     #538                // class kotlin/jvm/functions/Function0
+      15: invokestatic  #544                // Method androidx/compose/ui/node/ObserverModifierNodeKt.observeReads:(Landroidx/compose/ui/Modifier$Node;Lkotlin/jvm/functions/Function0;)V
+      18: return
+
+  public void onPlaced(androidx.compose.ui.layout.LayoutCoordinates);
+    Code:
+       0: aload_1
+       1: ldc_w         #548                // String coordinates
+       4: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       7: aload_0
+       8: getfield      #114                // Field positionOnScreen:J
+      11: invokestatic  #554                // Method androidx/compose/ui/geometry/OffsetKt."isUnspecified-k-4lQ0M":(J)Z
+      14: ifeq          25
+      17: aload_0
+      18: aload_1
+      19: ldc_w         #555                // String onPlaced
+      22: invokespecial #559                // Method onPositioned:(Landroidx/compose/ui/layout/LayoutCoordinates;Ljava/lang/String;)V
+      25: return
+
+  public void onGloballyPositioned(androidx.compose.ui.layout.LayoutCoordinates);
+    Code:
+       0: aload_1
+       1: ldc_w         #548                // String coordinates
+       4: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       7: aload_0
+       8: aload_1
+       9: ldc_w         #562                // String onGloballyPositioned
+      12: invokespecial #559                // Method onPositioned:(Landroidx/compose/ui/layout/LayoutCoordinates;Ljava/lang/String;)V
+      15: return
+
+  private final void onPositioned(androidx.compose.ui.layout.LayoutCoordinates, java.lang.String);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokestatic  #568                // Method dev/chrisbanes/haze/Utils_androidKt.positionForHaze:(Landroidx/compose/ui/layout/LayoutCoordinates;)J
+       5: invokespecial #570                // Method "setPositionOnScreen-k-4lQ0M":(J)V
+       8: aload_0
+       9: aload_1
+      10: invokeinterface #575,  1          // InterfaceMethod androidx/compose/ui/layout/LayoutCoordinates."getSize-YbymL2g":()J
+      15: invokestatic  #581                // Method androidx/compose/ui/unit/IntSizeKt."toSize-ozmzZPI":(J)J
+      18: invokevirtual #583                // Method "setSize-uvyYCjk$haze_release":(J)V
+      21: aload_0
+      22: checkcast     #6                  // class androidx/compose/ui/node/CompositionLocalConsumerModifierNode
+      25: invokestatic  #589                // Method androidx/compose/ui/platform/CompositionLocalsKt.getLocalDensity:()Landroidx/compose/runtime/ProvidableCompositionLocal;
+      28: checkcast     #591                // class androidx/compose/runtime/CompositionLocal
+      31: invokestatic  #597                // Method androidx/compose/ui/node/CompositionLocalConsumerModifierNodeKt.currentValueOf:(Landroidx/compose/ui/node/CompositionLocalConsumerModifierNode;Landroidx/compose/runtime/CompositionLocal;)Ljava/lang/Object;
+      34: checkcast     #599                // class androidx/compose/ui/unit/Density
+      37: astore        5
+      39: iconst_0
+      40: istore        6
+      42: aload         5
+      44: aload_0
+      45: invokestatic  #605                // Method dev/chrisbanes/haze/HazeEffectNodeKt.resolveBlurRadius:(Ldev/chrisbanes/haze/HazeEffectNode;)F
+      48: fstore        7
+      50: iconst_0
+      51: istore        8
+      53: fload         7
+      55: fstore        9
+      57: iconst_0
+      58: istore        10
+      60: fload         9
+      62: invokestatic  #609                // Method java/lang/Float.isNaN:(F)Z
+      65: ifne          72
+      68: iconst_1
+      69: goto          73
+      72: iconst_0
+      73: nop
+      74: ifeq          82
+      77: fload         7
+      79: goto          109
+      82: astore        11
+      84: iconst_0
+      85: istore        12
+      87: iconst_0
+      88: istore        13
+      90: iconst_0
+      91: istore        14
+      93: iload         13
+      95: i2f
+      96: invokestatic  #613                // Method androidx/compose/ui/unit/Dp."constructor-impl":(F)F
+      99: nop
+     100: invokestatic  #520                // Method androidx/compose/ui/unit/Dp."box-impl":(F)Landroidx/compose/ui/unit/Dp;
+     103: aload         11
+     105: swap
+     106: invokevirtual #616                // Method androidx/compose/ui/unit/Dp."unbox-impl":()F
+     109: invokeinterface #619,  2          // InterfaceMethod androidx/compose/ui/unit/Density."toPx-0680j_4":(F)F
+     114: nop
+     115: fstore_3
+     116: aload_0
+     117: getfield      #114                // Field positionOnScreen:J
+     120: aload_0
+     121: getfield      #137                // Field size:J
+     124: invokestatic  #625                // Method androidx/compose/ui/geometry/RectKt."Rect-tz77jQw":(JJ)Landroidx/compose/ui/geometry/Rect;
+     127: astore        4
+     129: aload_0
+     130: getfield      #39                 // Field state:Ldev/chrisbanes/haze/HazeState;
+     133: invokevirtual #630                // Method dev/chrisbanes/haze/HazeState.getAreas:()Ljava/util/List;
+     136: checkcast     #632                // class java/lang/Iterable
+     139: astore        6
+     141: getstatic     #637                // Field androidx/compose/ui/geometry/Rect.Companion:Landroidx/compose/ui/geometry/Rect$Companion;
+     144: invokevirtual #643                // Method androidx/compose/ui/geometry/Rect$Companion.getZero:()Landroidx/compose/ui/geometry/Rect;
+     147: astore        7
+     149: iconst_0
+     150: istore        8
+     152: aload         7
+     154: astore        9
+     156: aload         6
+     158: invokeinterface #647,  1          // InterfaceMethod java/lang/Iterable.iterator:()Ljava/util/Iterator;
+     163: astore        10
+     165: aload         10
+     167: invokeinterface #652,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+     172: ifeq          224
+     175: aload         10
+     177: invokeinterface #655,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+     182: astore        11
+     184: aload         9
+     186: aload         11
+     188: checkcast     #657                // class dev/chrisbanes/haze/HazeArea
+     191: astore        12
+     193: astore        13
+     195: iconst_0
+     196: istore        14
+     198: aload         13
+     200: aload         12
+     202: invokevirtual #660                // Method dev/chrisbanes/haze/HazeArea.getBounds$haze_release:()Landroidx/compose/ui/geometry/Rect;
+     205: dup
+     206: ifnonnull     216
+     209: pop
+     210: getstatic     #637                // Field androidx/compose/ui/geometry/Rect.Companion:Landroidx/compose/ui/geometry/Rect$Companion;
+     213: invokevirtual #643                // Method androidx/compose/ui/geometry/Rect$Companion.getZero:()Landroidx/compose/ui/geometry/Rect;
+     216: invokestatic  #666                // Method dev/chrisbanes/haze/UtilsKt.expandToInclude:(Landroidx/compose/ui/geometry/Rect;Landroidx/compose/ui/geometry/Rect;)Landroidx/compose/ui/geometry/Rect;
+     219: astore        9
+     221: goto          165
+     224: aload         9
+     226: astore        5
+     228: aload         4
+     230: fload_3
+     231: invokevirtual #670                // Method androidx/compose/ui/geometry/Rect.inflate:(F)Landroidx/compose/ui/geometry/Rect;
+     234: aload         5
+     236: invokevirtual #674                // Method androidx/compose/ui/geometry/Rect.intersect:(Landroidx/compose/ui/geometry/Rect;)Landroidx/compose/ui/geometry/Rect;
+     239: astore        6
+     241: aload_0
+     242: aload         6
+     244: invokevirtual #677                // Method androidx/compose/ui/geometry/Rect."getSize-NH-jbRc":()J
+     247: invokespecial #679                // Method "setLayerSize-uvyYCjk":(J)V
+     250: aload_0
+     251: aload_0
+     252: getfield      #114                // Field positionOnScreen:J
+     255: aload         6
+     257: invokevirtual #682                // Method androidx/compose/ui/geometry/Rect."getTopLeft-F1C5BW0":()J
+     260: invokestatic  #686                // Method androidx/compose/ui/geometry/Offset."minus-MK-Hz9U":(JJ)J
+     263: invokevirtual #688                // Method "setLayerOffset-k-4lQ0M$haze_release":(J)V
+     266: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+     269: ldc           #247                // String HazeEffect
+     271: aload_2
+     272: aload_0
+     273: invokedynamic #696,  0            // InvokeDynamic #20:invoke:(Ljava/lang/String;Ldev/chrisbanes/haze/HazeEffectNode;)Lkotlin/jvm/functions/Function0;
+     278: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+     281: aload_0
+     282: invokespecial #699                // Method updateEffect:()V
+     285: return
+
+  public void draw(androidx.compose.ui.graphics.drawscope.ContentDrawScope);
+    Code:
+       0: aload_1
+       1: ldc_w         #735                // String <this>
+       4: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       7: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      10: ldc           #247                // String HazeEffect
+      12: invokedynamic #742,  0            // InvokeDynamic #21:invoke:()Lkotlin/jvm/functions/Function0;
+      17: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      20: aload_0
+      21: invokespecial #744                // Method isValid:()Z
+      24: ifeq          66
+      27: aload_0
+      28: invokevirtual #746                // Method getBlurEnabled:()Z
+      31: ifeq          55
+      34: aload_1
+      35: checkcast     #748                // class androidx/compose/ui/graphics/drawscope/DrawScope
+      38: invokestatic  #754                // Method dev/chrisbanes/haze/RenderEffect_androidKt.canUseGraphicLayers:(Landroidx/compose/ui/graphics/drawscope/DrawScope;)Z
+      41: ifeq          55
+      44: aload_0
+      45: aload_1
+      46: checkcast     #748                // class androidx/compose/ui/graphics/drawscope/DrawScope
+      49: invokespecial #758                // Method drawEffectWithGraphicsLayer:(Landroidx/compose/ui/graphics/drawscope/DrawScope;)V
+      52: goto          79
+      55: aload_0
+      56: aload_1
+      57: checkcast     #748                // class androidx/compose/ui/graphics/drawscope/DrawScope
+      60: invokespecial #761                // Method drawEffectWithScrim:(Landroidx/compose/ui/graphics/drawscope/DrawScope;)V
+      63: goto          79
+      66: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      69: ldc           #247                // String HazeEffect
+      71: invokedynamic #766,  0            // InvokeDynamic #22:invoke:()Lkotlin/jvm/functions/Function0;
+      76: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      79: aload_1
+      80: invokeinterface #771,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/ContentDrawScope.drawContent:()V
+      85: aload_0
+      86: invokespecial #774                // Method onPostDraw:()V
+      89: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      92: ldc           #247                // String HazeEffect
+      94: invokedynamic #779,  0            // InvokeDynamic #23:invoke:()Lkotlin/jvm/functions/Function0;
+      99: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+     102: return
+
+  private final void updateEffect();
+    Code:
+       0: aload_0
+       1: aload_0
+       2: checkcast     #6                  // class androidx/compose/ui/node/CompositionLocalConsumerModifierNode
+       5: invokestatic  #786                // Method dev/chrisbanes/haze/HazeStyleKt.getLocalHazeStyle:()Landroidx/compose/runtime/ProvidableCompositionLocal;
+       8: checkcast     #591                // class androidx/compose/runtime/CompositionLocal
+      11: invokestatic  #597                // Method androidx/compose/ui/node/CompositionLocalConsumerModifierNodeKt.currentValueOf:(Landroidx/compose/ui/node/CompositionLocalConsumerModifierNode;Landroidx/compose/runtime/CompositionLocal;)Ljava/lang/Object;
+      14: checkcast     #84                 // class dev/chrisbanes/haze/HazeStyle
+      17: invokevirtual #788                // Method setCompositionLocalStyle$haze_release:(Ldev/chrisbanes/haze/HazeStyle;)V
+      20: aload_0
+      21: getfield      #43                 // Field block:Lkotlin/jvm/functions/Function1;
+      24: dup
+      25: ifnull        38
+      28: aload_0
+      29: invokeinterface #793,  2          // InterfaceMethod kotlin/jvm/functions/Function1.invoke:(Ljava/lang/Object;)Ljava/lang/Object;
+      34: pop
+      35: goto          39
+      38: pop
+      39: aload_0
+      40: checkcast     #795                // class androidx/compose/ui/node/DelegatableNode
+      43: getstatic     #798                // Field dev/chrisbanes/haze/HazeTraversableNodeKeys.Source:Ldev/chrisbanes/haze/HazeTraversableNodeKeys;
+      46: invokestatic  #804                // Method androidx/compose/ui/node/TraversableNodeKt.findNearestAncestor:(Landroidx/compose/ui/node/DelegatableNode;Ljava/lang/Object;)Landroidx/compose/ui/node/TraversableNode;
+      49: astore_3
+      50: aload_3
+      51: instanceof    #806                // class dev/chrisbanes/haze/HazeSourceNode
+      54: ifeq          64
+      57: aload_3
+      58: checkcast     #806                // class dev/chrisbanes/haze/HazeSourceNode
+      61: goto          65
+      64: aconst_null
+      65: astore_2
+      66: aload_2
+      67: ifnull        101
+      70: aload_2
+      71: astore_3
+      72: aload_3
+      73: astore        4
+      75: iconst_0
+      76: istore        5
+      78: aload         4
+      80: invokevirtual #808                // Method dev/chrisbanes/haze/HazeSourceNode.getState:()Ldev/chrisbanes/haze/HazeState;
+      83: aload_0
+      84: getfield      #39                 // Field state:Ldev/chrisbanes/haze/HazeState;
+      87: invokestatic  #283                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      90: ifeq          97
+      93: aload_3
+      94: goto          102
+      97: aconst_null
+      98: goto          102
+     101: aconst_null
+     102: astore_1
+     103: aload_0
+     104: aload_0
+     105: getfield      #39                 // Field state:Ldev/chrisbanes/haze/HazeState;
+     108: invokevirtual #630                // Method dev/chrisbanes/haze/HazeState.getAreas:()Ljava/util/List;
+     111: astore_2
+     112: aload_2
+     113: astore_3
+     114: astore        11
+     116: iconst_0
+     117: istore        4
+     119: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+     122: ldc           #247                // String HazeEffect
+     124: aload_3
+     125: invokedynamic #816,  0            // InvokeDynamic #24:invoke:(Ljava/util/List;)Lkotlin/jvm/functions/Function0;
+     130: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+     133: nop
+     134: aload         11
+     136: aload_2
+     137: checkcast     #632                // class java/lang/Iterable
+     140: invokestatic  #820                // Method kotlin/collections/CollectionsKt.asSequence:(Ljava/lang/Iterable;)Lkotlin/sequences/Sequence;
+     143: aload_0
+     144: aload_1
+     145: invokedynamic #831,  0            // InvokeDynamic #25:invoke:(Ldev/chrisbanes/haze/HazeEffectNode;Ldev/chrisbanes/haze/HazeSourceNode;)Lkotlin/jvm/functions/Function1;
+     150: invokestatic  #837                // Method kotlin/sequences/SequencesKt.filter:(Lkotlin/sequences/Sequence;Lkotlin/jvm/functions/Function1;)Lkotlin/sequences/Sequence;
+     153: invokestatic  #841                // Method kotlin/sequences/SequencesKt.toMutableList:(Lkotlin/sequences/Sequence;)Ljava/util/List;
+     156: astore_2
+     157: aload_2
+     158: astore_3
+     159: astore        11
+     161: iconst_0
+     162: istore        4
+     164: aload_3
+     165: astore        5
+     167: iconst_0
+     168: istore        6
+     170: aload         5
+     172: invokeinterface #844,  1          // InterfaceMethod java/util/List.size:()I
+     177: iconst_1
+     178: if_icmple     196
+     181: aload         5
+     183: new           #846                // class dev/chrisbanes/haze/HazeEffectNode$updateEffect$lambda$33$$inlined$sortBy$1
+     186: dup
+     187: invokespecial #847                // Method dev/chrisbanes/haze/HazeEffectNode$updateEffect$lambda$33$$inlined$sortBy$1."<init>":()V
+     190: checkcast     #849                // class java/util/Comparator
+     193: invokestatic  #853                // Method kotlin/collections/CollectionsKt.sortWith:(Ljava/util/List;Ljava/util/Comparator;)V
+     196: nop
+     197: nop
+     198: aload         11
+     200: aload_2
+     201: invokespecial #855                // Method setAreas:(Ljava/util/List;)V
+     204: aload_0
+     205: aload_0
+     206: getfield      #208                // Field areas:Ljava/util/List;
+     209: checkcast     #632                // class java/lang/Iterable
+     212: astore_2
+     213: astore        11
+     215: iconst_0
+     216: istore_3
+     217: new           #857                // class java/util/LinkedHashMap
+     220: dup
+     221: aload_2
+     222: bipush        10
+     224: invokestatic  #861                // Method kotlin/collections/CollectionsKt.collectionSizeOrDefault:(Ljava/lang/Iterable;I)I
+     227: invokestatic  #865                // Method kotlin/collections/MapsKt.mapCapacity:(I)I
+     230: bipush        16
+     232: invokestatic  #870                // Method kotlin/ranges/RangesKt.coerceAtLeast:(II)I
+     235: invokespecial #873                // Method java/util/LinkedHashMap."<init>":(I)V
+     238: astore        4
+     240: aload_2
+     241: astore        5
+     243: iconst_0
+     244: istore        6
+     246: aload         5
+     248: invokeinterface #647,  1          // InterfaceMethod java/lang/Iterable.iterator:()Ljava/util/Iterator;
+     253: astore        7
+     255: aload         7
+     257: invokeinterface #652,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+     262: ifeq          327
+     265: aload         7
+     267: invokeinterface #655,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+     272: astore        8
+     274: aload         4
+     276: checkcast     #875                // class java/util/Map
+     279: aload         8
+     281: aload         8
+     283: checkcast     #657                // class dev/chrisbanes/haze/HazeArea
+     286: astore        9
+     288: astore        13
+     290: astore        12
+     292: iconst_0
+     293: istore        10
+     295: aload_0
+     296: getfield      #114                // Field positionOnScreen:J
+     299: aload         9
+     301: invokevirtual #878                // Method dev/chrisbanes/haze/HazeArea."getPositionOnScreen-F1C5BW0":()J
+     304: invokestatic  #686                // Method androidx/compose/ui/geometry/Offset."minus-MK-Hz9U":(JJ)J
+     307: invokestatic  #881                // Method androidx/compose/ui/geometry/Offset."box-impl":(J)Landroidx/compose/ui/geometry/Offset;
+     310: astore        14
+     312: aload         12
+     314: aload         13
+     316: aload         14
+     318: invokeinterface #885,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+     323: pop
+     324: goto          255
+     327: aload         4
+     329: checkcast     #875                // class java/util/Map
+     332: nop
+     333: aload         11
+     335: swap
+     336: invokespecial #887                // Method setAreaOffsets:(Ljava/util/Map;)V
+     339: aload_0
+     340: aload_0
+     341: getfield      #208                // Field areas:Ljava/util/List;
+     344: checkcast     #632                // class java/lang/Iterable
+     347: astore_2
+     348: astore        11
+     350: lconst_0
+     351: lstore_3
+     352: aload_2
+     353: invokeinterface #647,  1          // InterfaceMethod java/lang/Iterable.iterator:()Ljava/util/Iterator;
+     358: astore        5
+     360: aload         5
+     362: invokeinterface #652,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+     367: ifeq          409
+     370: aload         5
+     372: invokeinterface #655,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+     377: astore        6
+     379: lload_3
+     380: aload         6
+     382: checkcast     #657                // class dev/chrisbanes/haze/HazeArea
+     385: astore        7
+     387: lstore        12
+     389: iconst_0
+     390: istore        8
+     392: aload         7
+     394: invokevirtual #890                // Method dev/chrisbanes/haze/HazeArea.getForcedInvalidationTick$haze_release:()I
+     397: i2l
+     398: lstore        14
+     400: lload         12
+     402: lload         14
+     404: ladd
+     405: lstore_3
+     406: goto          360
+     409: lload_3
+     410: lstore        12
+     412: aload         11
+     414: lload         12
+     416: invokespecial #892                // Method setForcedInvalidationTick:(J)V
+     419: aload_0
+     420: invokespecial #895                // Method invalidateIfNeeded:()V
+     423: return
+
+  private final void drawEffectWithGraphicsLayer(androidx.compose.ui.graphics.drawscope.DrawScope);
+    Code:
+       0: aload_0
+       1: fconst_0
+       2: iconst_1
+       3: aconst_null
+       4: invokestatic  #917                // Method dev/chrisbanes/haze/HazeEffectNodeKt."calculateInputScaleFactor-3ABfNKs$default":(Ldev/chrisbanes/haze/HazeEffectNode;FILjava/lang/Object;)F
+       7: fstore_2
+       8: aload_0
+       9: getfield      #140                // Field layerSize:J
+      12: fload_2
+      13: invokestatic  #921                // Method androidx/compose/ui/geometry/Size."times-7Ah8Wj8":(JF)J
+      16: invokestatic  #924                // Method androidx/compose/ui/unit/IntSizeKt."roundToIntSize-uvyYCjk":(J)J
+      19: lstore_3
+      20: aload_0
+      21: getfield      #146                // Field layerOffset:J
+      24: lstore        5
+      26: lload_3
+      27: invokestatic  #930                // Method androidx/compose/ui/unit/IntSize."getWidth-impl":(J)I
+      30: ifle          40
+      33: lload_3
+      34: invokestatic  #933                // Method androidx/compose/ui/unit/IntSize."getHeight-impl":(J)I
+      37: ifgt          41
+      40: return
+      41: aload_0
+      42: invokestatic  #937                // Method dev/chrisbanes/haze/HazeEffectNodeKt.resolveBackgroundColor:(Ldev/chrisbanes/haze/HazeEffectNode;)J
+      45: lstore        7
+      47: lload         7
+      49: lstore        9
+      51: iconst_0
+      52: istore        11
+      54: lload         9
+      56: ldc2_w        #938                // long 16l
+      59: lcmp
+      60: ifeq          67
+      63: iconst_1
+      64: goto          68
+      67: iconst_0
+      68: ifne          92
+      71: iconst_0
+      72: istore        10
+      74: ldc_w         #941                // String backgroundColor not specified. Please provide a color.
+      77: astore        10
+      79: new           #943                // class java/lang/IllegalArgumentException
+      82: dup
+      83: aload         10
+      85: invokevirtual #946                // Method java/lang/Object.toString:()Ljava/lang/String;
+      88: invokespecial #949                // Method java/lang/IllegalArgumentException."<init>":(Ljava/lang/String;)V
+      91: athrow
+      92: aload_0
+      93: checkcast     #6                  // class androidx/compose/ui/node/CompositionLocalConsumerModifierNode
+      96: invokestatic  #952                // Method androidx/compose/ui/platform/CompositionLocalsKt.getLocalGraphicsContext:()Landroidx/compose/runtime/ProvidableCompositionLocal;
+      99: checkcast     #591                // class androidx/compose/runtime/CompositionLocal
+     102: invokestatic  #597                // Method androidx/compose/ui/node/CompositionLocalConsumerModifierNodeKt.currentValueOf:(Landroidx/compose/ui/node/CompositionLocalConsumerModifierNode;Landroidx/compose/runtime/CompositionLocal;)Ljava/lang/Object;
+     105: checkcast     #954                // class androidx/compose/ui/graphics/GraphicsContext
+     108: astore        9
+     110: aload         9
+     112: invokeinterface #958,  1          // InterfaceMethod androidx/compose/ui/graphics/GraphicsContext.createGraphicsLayer:()Landroidx/compose/ui/graphics/layer/GraphicsLayer;
+     117: astore        10
+     119: aload_1
+     120: aload         10
+     122: lload_3
+     123: lload         7
+     125: fload_2
+     126: lload         5
+     128: aload_0
+     129: invokedynamic #968,  0            // InvokeDynamic #26:invoke:(JFJLdev/chrisbanes/haze/HazeEffectNode;)Lkotlin/jvm/functions/Function1;
+     134: invokeinterface #972,  5          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."record-JVtK1S4":(Landroidx/compose/ui/graphics/layer/GraphicsLayer;JLkotlin/jvm/functions/Function1;)V
+     139: aload_1
+     140: astore        11
+     142: fconst_0
+     143: fstore        12
+     145: fconst_0
+     146: fstore        13
+     148: aload         11
+     150: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+     155: invokestatic  #976                // Method androidx/compose/ui/geometry/Size."getWidth-impl":(J)F
+     158: fstore        14
+     160: aload         11
+     162: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+     167: invokestatic  #978                // Method androidx/compose/ui/geometry/Size."getHeight-impl":(J)F
+     170: fstore        15
+     172: getstatic     #983                // Field androidx/compose/ui/graphics/ClipOp.Companion:Landroidx/compose/ui/graphics/ClipOp$Companion;
+     175: invokevirtual #988                // Method androidx/compose/ui/graphics/ClipOp$Companion."getIntersect-rtfAjoo":()I
+     178: istore        16
+     180: iconst_0
+     181: istore        17
+     183: aload         11
+     185: astore        18
+     187: iconst_0
+     188: istore        19
+     190: aload         18
+     192: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     197: astore        20
+     199: iconst_0
+     200: istore        21
+     202: aload         20
+     204: invokeinterface #995,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."getSize-NH-jbRc":()J
+     209: lstore        22
+     211: aload         20
+     213: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     218: invokeinterface #1004,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.save:()V
+     223: nop
+     224: aload         20
+     226: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     231: astore        24
+     233: iconst_0
+     234: istore        25
+     236: aload         24
+     238: fload         12
+     240: fload         13
+     242: fload         14
+     244: fload         15
+     246: iload         16
+     248: invokeinterface #1014,  6         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform."clipRect-N_I0leg":(FFFFI)V
+     253: nop
+     254: aload         18
+     256: astore        26
+     258: iconst_0
+     259: istore        27
+     261: aload         26
+     263: astore        28
+     265: lload         5
+     267: invokestatic  #1017               // Method androidx/compose/ui/geometry/Offset."unaryMinus-F1C5BW0":(J)J
+     270: lstore        29
+     272: iconst_0
+     273: istore        31
+     275: lload         29
+     277: invokestatic  #1020               // Method androidx/compose/ui/geometry/OffsetKt."isFinite-k-4lQ0M":(J)Z
+     280: ifeq          610
+     283: lload         29
+     285: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+     288: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+     291: invokestatic  #319                // Method androidx/compose/ui/geometry/Offset."equals-impl0":(JJ)Z
+     294: ifne          610
+     297: aload         28
+     299: astore        32
+     301: lload         29
+     303: invokestatic  #1023               // Method androidx/compose/ui/geometry/Offset."getX-impl":(J)F
+     306: fstore        33
+     308: lload         29
+     310: invokestatic  #1026               // Method androidx/compose/ui/geometry/Offset."getY-impl":(J)F
+     313: fstore        34
+     315: iconst_0
+     316: istore        35
+     318: aload         32
+     320: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     325: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     330: fload         33
+     332: fload         34
+     334: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+     339: nop
+     340: aload         32
+     342: astore        36
+     344: iconst_0
+     345: istore        37
+     347: aload         36
+     349: astore        38
+     351: fconst_1
+     352: fload_2
+     353: fdiv
+     354: fstore        39
+     356: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+     359: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+     362: lstore        40
+     364: iconst_0
+     365: istore        42
+     367: aload         38
+     369: astore        43
+     371: iconst_0
+     372: istore        44
+     374: aload         43
+     376: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     381: astore        45
+     383: iconst_0
+     384: istore        46
+     386: aload         45
+     388: invokeinterface #995,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."getSize-NH-jbRc":()J
+     393: lstore        47
+     395: aload         45
+     397: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     402: invokeinterface #1004,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.save:()V
+     407: nop
+     408: aload         45
+     410: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     415: astore        49
+     417: iconst_0
+     418: istore        50
+     420: aload         49
+     422: fload         39
+     424: fload         39
+     426: lload         40
+     428: invokeinterface #1034,  5         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform."scale-0AR0LA0":(FFJ)V
+     433: nop
+     434: aload         43
+     436: astore        51
+     438: iconst_0
+     439: istore        52
+     441: aload_0
+     442: invokevirtual #1036               // Method getProgressive:()Ldev/chrisbanes/haze/HazeProgressive;
+     445: astore        53
+     447: aload         53
+     449: ifnull        465
+     452: aload_0
+     453: aload         51
+     455: aload         53
+     457: aload         10
+     459: invokestatic  #1042               // Method dev/chrisbanes/haze/HazeChildNode_androidKt.drawProgressiveEffect:(Ldev/chrisbanes/haze/HazeEffectNode;Landroidx/compose/ui/graphics/drawscope/DrawScope;Ldev/chrisbanes/haze/HazeProgressive;Landroidx/compose/ui/graphics/layer/GraphicsLayer;)V
+     462: goto          494
+     465: aload_0
+     466: invokespecial #1045               // Method updateRenderEffectIfDirty:()V
+     469: aload         10
+     471: aload_0
+     472: getfield      #1049               // Field renderEffect:Landroidx/compose/ui/graphics/RenderEffect;
+     475: invokevirtual #1055               // Method androidx/compose/ui/graphics/layer/GraphicsLayer.setRenderEffect:(Landroidx/compose/ui/graphics/RenderEffect;)V
+     478: aload         10
+     480: aload_0
+     481: invokevirtual #1057               // Method getAlpha:()F
+     484: invokevirtual #1059               // Method androidx/compose/ui/graphics/layer/GraphicsLayer.setAlpha:(F)V
+     487: aload         51
+     489: aload         10
+     491: invokestatic  #1065               // Method androidx/compose/ui/graphics/layer/GraphicsLayerKt.drawLayer:(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/layer/GraphicsLayer;)V
+     494: nop
+     495: nop
+     496: aload         45
+     498: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     503: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     508: aload         45
+     510: lload         47
+     512: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+     517: goto          546
+     520: astore        54
+     522: aload         45
+     524: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     529: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     534: aload         45
+     536: lload         47
+     538: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+     543: aload         54
+     545: athrow
+     546: nop
+     547: nop
+     548: nop
+     549: nop
+     550: nop
+     551: nop
+     552: aload         32
+     554: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     559: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     564: fload         33
+     566: fneg
+     567: fload         34
+     569: fneg
+     570: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+     575: goto          606
+     578: astore        55
+     580: aload         32
+     582: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     587: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     592: fload         33
+     594: fneg
+     595: fload         34
+     597: fneg
+     598: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+     603: aload         55
+     605: athrow
+     606: nop
+     607: goto          822
+     610: aload         28
+     612: astore        36
+     614: iconst_0
+     615: istore        37
+     617: aload         36
+     619: astore        38
+     621: fconst_1
+     622: fload_2
+     623: fdiv
+     624: fstore        39
+     626: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+     629: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+     632: lstore        40
+     634: iconst_0
+     635: istore        42
+     637: aload         38
+     639: astore        43
+     641: iconst_0
+     642: istore        44
+     644: aload         43
+     646: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     651: astore        45
+     653: iconst_0
+     654: istore        46
+     656: aload         45
+     658: invokeinterface #995,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."getSize-NH-jbRc":()J
+     663: lstore        47
+     665: aload         45
+     667: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     672: invokeinterface #1004,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.save:()V
+     677: nop
+     678: aload         45
+     680: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     685: astore        49
+     687: iconst_0
+     688: istore        50
+     690: aload         49
+     692: fload         39
+     694: fload         39
+     696: lload         40
+     698: invokeinterface #1034,  5         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform."scale-0AR0LA0":(FFJ)V
+     703: nop
+     704: aload         43
+     706: astore        51
+     708: iconst_0
+     709: istore        52
+     711: aload_0
+     712: invokevirtual #1036               // Method getProgressive:()Ldev/chrisbanes/haze/HazeProgressive;
+     715: astore        53
+     717: aload         53
+     719: ifnull        735
+     722: aload_0
+     723: aload         51
+     725: aload         53
+     727: aload         10
+     729: invokestatic  #1042               // Method dev/chrisbanes/haze/HazeChildNode_androidKt.drawProgressiveEffect:(Ldev/chrisbanes/haze/HazeEffectNode;Landroidx/compose/ui/graphics/drawscope/DrawScope;Ldev/chrisbanes/haze/HazeProgressive;Landroidx/compose/ui/graphics/layer/GraphicsLayer;)V
+     732: goto          764
+     735: aload_0
+     736: invokespecial #1045               // Method updateRenderEffectIfDirty:()V
+     739: aload         10
+     741: aload_0
+     742: getfield      #1049               // Field renderEffect:Landroidx/compose/ui/graphics/RenderEffect;
+     745: invokevirtual #1055               // Method androidx/compose/ui/graphics/layer/GraphicsLayer.setRenderEffect:(Landroidx/compose/ui/graphics/RenderEffect;)V
+     748: aload         10
+     750: aload_0
+     751: invokevirtual #1057               // Method getAlpha:()F
+     754: invokevirtual #1059               // Method androidx/compose/ui/graphics/layer/GraphicsLayer.setAlpha:(F)V
+     757: aload         51
+     759: aload         10
+     761: invokestatic  #1065               // Method androidx/compose/ui/graphics/layer/GraphicsLayerKt.drawLayer:(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/layer/GraphicsLayer;)V
+     764: nop
+     765: nop
+     766: aload         45
+     768: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     773: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     778: aload         45
+     780: lload         47
+     782: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+     787: goto          816
+     790: astore        54
+     792: aload         45
+     794: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     799: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     804: aload         45
+     806: lload         47
+     808: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+     813: aload         54
+     815: athrow
+     816: nop
+     817: nop
+     818: nop
+     819: nop
+     820: nop
+     821: nop
+     822: nop
+     823: nop
+     824: nop
+     825: aload         20
+     827: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     832: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     837: aload         20
+     839: lload         22
+     841: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+     846: goto          875
+     849: astore        56
+     851: aload         20
+     853: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     858: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     863: aload         20
+     865: lload         22
+     867: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+     872: aload         56
+     874: athrow
+     875: nop
+     876: nop
+     877: nop
+     878: nop
+     879: aload         9
+     881: aload         10
+     883: invokeinterface #1075,  2         // InterfaceMethod androidx/compose/ui/graphics/GraphicsContext.releaseGraphicsLayer:(Landroidx/compose/ui/graphics/layer/GraphicsLayer;)V
+     888: return
+    Exception table:
+       from    to  target type
+         407   496   520   any
+         520   522   520   any
+         339   552   578   any
+         578   580   578   any
+         677   766   790   any
+         790   792   790   any
+         223   825   849   any
+         849   851   849   any
+
+  private final void drawEffectWithScrim(androidx.compose.ui.graphics.drawscope.DrawScope);
+    Code:
+       0: aload_0
+       1: invokestatic  #1131               // Method dev/chrisbanes/haze/HazeEffectNodeKt.resolveFallbackTint:(Ldev/chrisbanes/haze/HazeEffectNode;)Ldev/chrisbanes/haze/HazeTint;
+       4: astore        4
+       6: aload         4
+       8: astore        5
+      10: iconst_0
+      11: istore        6
+      13: aload         5
+      15: invokevirtual #1134               // Method dev/chrisbanes/haze/HazeTint.isSpecified:()Z
+      18: ifeq          26
+      21: aload         4
+      23: goto          27
+      26: aconst_null
+      27: dup
+      28: ifnonnull     123
+      31: pop
+      32: aload_0
+      33: invokestatic  #1138               // Method dev/chrisbanes/haze/HazeEffectNodeKt.resolveTints:(Ldev/chrisbanes/haze/HazeEffectNode;)Ljava/util/List;
+      36: invokestatic  #1142               // Method kotlin/collections/CollectionsKt.firstOrNull:(Ljava/util/List;)Ljava/lang/Object;
+      39: checkcast     #190                // class dev/chrisbanes/haze/HazeTint
+      42: dup
+      43: ifnull        115
+      46: aload_0
+      47: invokestatic  #605                // Method dev/chrisbanes/haze/HazeEffectNodeKt.resolveBlurRadius:(Ldev/chrisbanes/haze/HazeEffectNode;)F
+      50: fstore        6
+      52: iconst_0
+      53: istore        7
+      55: fload         6
+      57: fstore        8
+      59: iconst_0
+      60: istore        9
+      62: fload         8
+      64: invokestatic  #609                // Method java/lang/Float.isNaN:(F)Z
+      67: ifne          74
+      70: iconst_1
+      71: goto          75
+      74: iconst_0
+      75: nop
+      76: ifeq          84
+      79: fload         6
+      81: goto          109
+      84: astore        14
+      86: iconst_0
+      87: istore        10
+      89: iconst_0
+      90: istore        11
+      92: iconst_0
+      93: istore        12
+      95: iload         11
+      97: i2f
+      98: invokestatic  #613                // Method androidx/compose/ui/unit/Dp."constructor-impl":(F)F
+     101: nop
+     102: fstore        15
+     104: aload         14
+     106: fload         15
+     108: nop
+     109: invokestatic  #1148               // Method dev/chrisbanes/haze/HazeSourceNodeKt."boostForFallback-3ABfNKs":(Ldev/chrisbanes/haze/HazeTint;F)Ldev/chrisbanes/haze/HazeTint;
+     112: goto          117
+     115: pop
+     116: aconst_null
+     117: dup
+     118: ifnonnull     123
+     121: pop
+     122: return
+     123: astore_2
+     124: aload_0
+     125: invokevirtual #1057               // Method getAlpha:()F
+     128: fconst_1
+     129: fcmpg
+     130: ifne          137
+     133: iconst_1
+     134: goto          138
+     137: iconst_0
+     138: ifne          282
+     141: invokestatic  #1154               // Method dev/chrisbanes/haze/PaintKt.getPaintPool:()Ldev/chrisbanes/haze/Pool;
+     144: astore_3
+     145: iconst_0
+     146: istore        4
+     148: aload_3
+     149: invokestatic  #1158               // Method dev/chrisbanes/haze/PaintKt.getOrCreate:(Ldev/chrisbanes/haze/Pool;)Landroidx/compose/ui/graphics/Paint;
+     152: astore        5
+     154: nop
+     155: aload         5
+     157: astore        6
+     159: iconst_0
+     160: istore        7
+     162: aload         6
+     164: aload_0
+     165: invokevirtual #1057               // Method getAlpha:()F
+     168: invokeinterface #1161,  2         // InterfaceMethod androidx/compose/ui/graphics/Paint.setAlpha:(F)V
+     173: aload_1
+     174: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     179: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     184: astore        8
+     186: aload_1
+     187: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+     192: invokestatic  #1167               // Method androidx/compose/ui/geometry/SizeKt."toRect-uvyYCjk":(J)Landroidx/compose/ui/geometry/Rect;
+     195: astore        9
+     197: iconst_0
+     198: istore        10
+     200: nop
+     201: aload         8
+     203: aload         9
+     205: aload         6
+     207: invokeinterface #1171,  3         // InterfaceMethod androidx/compose/ui/graphics/Canvas.saveLayer:(Landroidx/compose/ui/geometry/Rect;Landroidx/compose/ui/graphics/Paint;)V
+     212: iconst_0
+     213: istore        11
+     215: aload_0
+     216: aload_1
+     217: aload_2
+     218: invokestatic  #1175               // Method drawEffectWithScrim$scrim:(Ldev/chrisbanes/haze/HazeEffectNode;Landroidx/compose/ui/graphics/drawscope/DrawScope;Ldev/chrisbanes/haze/HazeTint;)V
+     221: nop
+     222: nop
+     223: aload         8
+     225: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     230: goto          245
+     233: astore        12
+     235: aload         8
+     237: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     242: aload         12
+     244: athrow
+     245: nop
+     246: nop
+     247: nop
+     248: aload         5
+     250: invokestatic  #1181               // Method dev/chrisbanes/haze/Paint_androidKt.reset:(Landroidx/compose/ui/graphics/Paint;)V
+     253: aload_3
+     254: aload         5
+     256: invokevirtual #1186               // Method dev/chrisbanes/haze/Pool.release:(Ljava/lang/Object;)V
+     259: goto          278
+     262: astore        13
+     264: aload         5
+     266: invokestatic  #1181               // Method dev/chrisbanes/haze/Paint_androidKt.reset:(Landroidx/compose/ui/graphics/Paint;)V
+     269: aload_3
+     270: aload         5
+     272: invokevirtual #1186               // Method dev/chrisbanes/haze/Pool.release:(Ljava/lang/Object;)V
+     275: aload         13
+     277: athrow
+     278: nop
+     279: goto          288
+     282: aload_0
+     283: aload_1
+     284: aload_2
+     285: invokestatic  #1175               // Method drawEffectWithScrim$scrim:(Ldev/chrisbanes/haze/HazeEffectNode;Landroidx/compose/ui/graphics/drawscope/DrawScope;Ldev/chrisbanes/haze/HazeTint;)V
+     288: return
+    Exception table:
+       from    to  target type
+         200   223   233   any
+         233   235   233   any
+         154   248   262   any
+         262   264   262   any
+
+  private final void updateRenderEffectIfDirty();
+    Code:
+       0: aload_0
+       1: getfield      #1049               // Field renderEffect:Landroidx/compose/ui/graphics/RenderEffect;
+       4: ifnull        20
+       7: aload_0
+       8: getfield      #53                 // Field dirtyTracker:I
+      11: ldc_w         #1203               // int 120563
+      14: invokestatic  #1207               // Method dev/chrisbanes/haze/Bitmask."any-impl":(II)Z
+      17: ifeq          41
+      20: aload_0
+      21: aload_0
+      22: fconst_0
+      23: fconst_0
+      24: fconst_0
+      25: aconst_null
+      26: fconst_0
+      27: lconst_0
+      28: lconst_0
+      29: aconst_null
+      30: aconst_null
+      31: sipush        511
+      34: aconst_null
+      35: invokestatic  #1211               // Method dev/chrisbanes/haze/HazeEffectNodeKt."getOrCreateRenderEffect-NXZB3nA$default":(Ldev/chrisbanes/haze/HazeEffectNode;FFFLjava/util/List;FJJLandroidx/compose/ui/graphics/Brush;Ldev/chrisbanes/haze/HazeProgressive;ILjava/lang/Object;)Landroidx/compose/ui/graphics/RenderEffect;
+      38: putfield      #1049               // Field renderEffect:Landroidx/compose/ui/graphics/RenderEffect;
+      41: return
+
+  private final void onPostDraw();
+    Code:
+       0: aload_0
+       1: iconst_0
+       2: iconst_1
+       3: aconst_null
+       4: invokestatic  #49                 // Method dev/chrisbanes/haze/Bitmask."constructor-impl$default":(IILkotlin/jvm/internal/DefaultConstructorMarker;)I
+       7: putfield      #53                 // Field dirtyTracker:I
+      10: return
+
+  private final void invalidateIfNeeded();
+    Code:
+       0: aload_0
+       1: getfield      #53                 // Field dirtyTracker:I
+       4: ldc_w         #1212               // int 131067
+       7: invokestatic  #1207               // Method dev/chrisbanes/haze/Bitmask."any-impl":(II)Z
+      10: istore_1
+      11: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      14: ldc           #247                // String HazeEffect
+      16: iload_1
+      17: aload_0
+      18: invokedynamic #1220,  0           // InvokeDynamic #27:invoke:(ZLdev/chrisbanes/haze/HazeEffectNode;)Lkotlin/jvm/functions/Function0;
+      23: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      26: iload_1
+      27: ifeq          37
+      30: aload_0
+      31: checkcast     #14                 // class androidx/compose/ui/node/DrawModifierNode
+      34: invokestatic  #1226               // Method androidx/compose/ui/node/DrawModifierNodeKt.invalidateDraw:(Landroidx/compose/ui/node/DrawModifierNode;)V
+      37: return
+
+  private static final java.lang.String _set_blurEnabled_$lambda$0(dev.chrisbanes.haze.HazeEffectNode, boolean);
+    Code:
+       0: aload_0
+       1: getfield      #66                 // Field blurEnabled:Z
+       4: iload_1
+       5: invokedynamic #1239,  0           // InvokeDynamic #28:makeConcatWithConstants:(ZZ)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_inputScale_$lambda$1(dev.chrisbanes.haze.HazeEffectNode, dev.chrisbanes.haze.HazeInputScale);
+    Code:
+       0: aload_0
+       1: getfield      #82                 // Field inputScale:Ldev/chrisbanes/haze/HazeInputScale;
+       4: aload_1
+       5: invokedynamic #1246,  0           // InvokeDynamic #29:makeConcatWithConstants:(Ldev/chrisbanes/haze/HazeInputScale;Ldev/chrisbanes/haze/HazeInputScale;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_compositionLocalStyle_$lambda$2(dev.chrisbanes.haze.HazeEffectNode, dev.chrisbanes.haze.HazeStyle);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field compositionLocalStyle:Ldev/chrisbanes/haze/HazeStyle;
+       4: aload_1
+       5: invokedynamic #1251,  0           // InvokeDynamic #30:makeConcatWithConstants:(Ldev/chrisbanes/haze/HazeStyle;Ldev/chrisbanes/haze/HazeStyle;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_style_$lambda$3(dev.chrisbanes.haze.HazeEffectNode, dev.chrisbanes.haze.HazeStyle);
+    Code:
+       0: aload_0
+       1: getfield      #99                 // Field style:Ldev/chrisbanes/haze/HazeStyle;
+       4: aload_1
+       5: invokedynamic #1254,  0           // InvokeDynamic #31:makeConcatWithConstants:(Ldev/chrisbanes/haze/HazeStyle;Ldev/chrisbanes/haze/HazeStyle;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String setPositionOnScreen_k_4lQ0M$lambda$4(dev.chrisbanes.haze.HazeEffectNode, long);
+    Code:
+       0: aload_0
+       1: getfield      #114                // Field positionOnScreen:J
+       4: invokestatic  #1258               // Method androidx/compose/ui/geometry/Offset."toString-impl":(J)Ljava/lang/String;
+       7: lload_1
+       8: invokestatic  #1258               // Method androidx/compose/ui/geometry/Offset."toString-impl":(J)Ljava/lang/String;
+      11: invokedynamic #1263,  0           // InvokeDynamic #32:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      16: areturn
+
+  private static final java.lang.String _set_areaOffsets_$lambda$5(dev.chrisbanes.haze.HazeEffectNode, java.util.Map);
+    Code:
+       0: aload_0
+       1: getfield      #124                // Field areaOffsets:Ljava/util/Map;
+       4: aload_1
+       5: invokedynamic #1268,  0           // InvokeDynamic #33:makeConcatWithConstants:(Ljava/util/Map;Ljava/util/Map;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_forcedInvalidationTick_$lambda$6(dev.chrisbanes.haze.HazeEffectNode, long);
+    Code:
+       0: aload_0
+       1: getfield      #342                // Field forcedInvalidationTick:J
+       4: lload_1
+       5: invokedynamic #1273,  0           // InvokeDynamic #34:makeConcatWithConstants:(JJ)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String setSize_uvyYCjk$lambda$7(dev.chrisbanes.haze.HazeEffectNode, long);
+    Code:
+       0: aload_0
+       1: getfield      #137                // Field size:J
+       4: invokestatic  #1274               // Method androidx/compose/ui/geometry/Size."toString-impl":(J)Ljava/lang/String;
+       7: lload_1
+       8: invokestatic  #1274               // Method androidx/compose/ui/geometry/Size."toString-impl":(J)Ljava/lang/String;
+      11: invokedynamic #1277,  0           // InvokeDynamic #35:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      16: areturn
+
+  private static final java.lang.String setLayerSize_uvyYCjk$lambda$8(dev.chrisbanes.haze.HazeEffectNode, long);
+    Code:
+       0: aload_0
+       1: getfield      #140                // Field layerSize:J
+       4: invokestatic  #1274               // Method androidx/compose/ui/geometry/Size."toString-impl":(J)Ljava/lang/String;
+       7: lload_1
+       8: invokestatic  #1274               // Method androidx/compose/ui/geometry/Size."toString-impl":(J)Ljava/lang/String;
+      11: invokedynamic #1280,  0           // InvokeDynamic #36:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      16: areturn
+
+  private static final java.lang.String setLayerOffset_k_4lQ0M$lambda$9(dev.chrisbanes.haze.HazeEffectNode, long);
+    Code:
+       0: aload_0
+       1: getfield      #146                // Field layerOffset:J
+       4: invokestatic  #1258               // Method androidx/compose/ui/geometry/Offset."toString-impl":(J)Ljava/lang/String;
+       7: lload_1
+       8: invokestatic  #1258               // Method androidx/compose/ui/geometry/Offset."toString-impl":(J)Ljava/lang/String;
+      11: invokedynamic #1283,  0           // InvokeDynamic #37:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      16: areturn
+
+  private static final java.lang.String setBlurRadius_0680j_4$lambda$10(dev.chrisbanes.haze.HazeEffectNode, float);
+    Code:
+       0: aload_0
+       1: getfield      #161                // Field blurRadius:F
+       4: invokestatic  #1286               // Method androidx/compose/ui/unit/Dp."toString-impl":(F)Ljava/lang/String;
+       7: fload_1
+       8: invokestatic  #1286               // Method androidx/compose/ui/unit/Dp."toString-impl":(F)Ljava/lang/String;
+      11: invokedynamic #1289,  0           // InvokeDynamic #38:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      16: areturn
+
+  private static final java.lang.String _set_noiseFactor_$lambda$11(dev.chrisbanes.haze.HazeEffectNode, float);
+    Code:
+       0: aload_0
+       1: getfield      #165                // Field noiseFactor:F
+       4: fload_1
+       5: invokedynamic #1294,  0           // InvokeDynamic #39:makeConcatWithConstants:(FF)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_mask_$lambda$12(dev.chrisbanes.haze.HazeEffectNode, androidx.compose.ui.graphics.Brush);
+    Code:
+       0: aload_0
+       1: getfield      #407                // Field mask:Landroidx/compose/ui/graphics/Brush;
+       4: aload_1
+       5: invokedynamic #1299,  0           // InvokeDynamic #40:makeConcatWithConstants:(Landroidx/compose/ui/graphics/Brush;Landroidx/compose/ui/graphics/Brush;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String setBackgroundColor_8_81llA$lambda$13(dev.chrisbanes.haze.HazeEffectNode, long);
+    Code:
+       0: aload_0
+       1: getfield      #178                // Field backgroundColor:J
+       4: invokestatic  #1300               // Method androidx/compose/ui/graphics/Color."toString-impl":(J)Ljava/lang/String;
+       7: lload_1
+       8: invokestatic  #1300               // Method androidx/compose/ui/graphics/Color."toString-impl":(J)Ljava/lang/String;
+      11: invokedynamic #1303,  0           // InvokeDynamic #41:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      16: areturn
+
+  private static final java.lang.String _set_tints_$lambda$14(dev.chrisbanes.haze.HazeEffectNode, java.util.List);
+    Code:
+       0: aload_0
+       1: getfield      #188                // Field tints:Ljava/util/List;
+       4: aload_1
+       5: invokedynamic #1308,  0           // InvokeDynamic #42:makeConcatWithConstants:(Ljava/util/List;Ljava/util/List;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_fallbackTint_$lambda$15(dev.chrisbanes.haze.HazeEffectNode, dev.chrisbanes.haze.HazeTint);
+    Code:
+       0: aload_0
+       1: getfield      #202                // Field fallbackTint:Ldev/chrisbanes/haze/HazeTint;
+       4: aload_1
+       5: invokedynamic #1313,  0           // InvokeDynamic #43:makeConcatWithConstants:(Ldev/chrisbanes/haze/HazeTint;Ldev/chrisbanes/haze/HazeTint;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_alpha_$lambda$16(dev.chrisbanes.haze.HazeEffectNode, float);
+    Code:
+       0: aload_0
+       1: getfield      #205                // Field alpha:F
+       4: fload_1
+       5: invokedynamic #1316,  0           // InvokeDynamic #44:makeConcatWithConstants:(FF)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_progressive_$lambda$17(dev.chrisbanes.haze.HazeEffectNode, dev.chrisbanes.haze.HazeProgressive);
+    Code:
+       0: aload_0
+       1: getfield      #462                // Field progressive:Ldev/chrisbanes/haze/HazeProgressive;
+       4: aload_1
+       5: invokedynamic #1321,  0           // InvokeDynamic #45:makeConcatWithConstants:(Ldev/chrisbanes/haze/HazeProgressive;Ldev/chrisbanes/haze/HazeProgressive;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_areas_$lambda$18(dev.chrisbanes.haze.HazeEffectNode, java.util.List);
+    Code:
+       0: aload_0
+       1: getfield      #208                // Field areas:Ljava/util/List;
+       4: aload_1
+       5: invokedynamic #1324,  0           // InvokeDynamic #46:makeConcatWithConstants:(Ljava/util/List;Ljava/util/List;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String _set_canDrawArea_$lambda$19(dev.chrisbanes.haze.HazeEffectNode, kotlin.jvm.functions.Function1);
+    Code:
+       0: aload_0
+       1: getfield      #484                // Field canDrawArea:Lkotlin/jvm/functions/Function1;
+       4: aload_1
+       5: invokedynamic #1329,  0           // InvokeDynamic #47:makeConcatWithConstants:(Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;)Ljava/lang/String;
+      10: areturn
+
+  private static final java.lang.String onPositioned$lambda$23(java.lang.String, dev.chrisbanes.haze.HazeEffectNode);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getfield      #114                // Field positionOnScreen:J
+       5: invokestatic  #1258               // Method androidx/compose/ui/geometry/Offset."toString-impl":(J)Ljava/lang/String;
+       8: aload_1
+       9: getfield      #137                // Field size:J
+      12: invokestatic  #1274               // Method androidx/compose/ui/geometry/Size."toString-impl":(J)Ljava/lang/String;
+      15: aload_1
+      16: getfield      #140                // Field layerSize:J
+      19: invokestatic  #1274               // Method androidx/compose/ui/geometry/Size."toString-impl":(J)Ljava/lang/String;
+      22: aload_1
+      23: getfield      #146                // Field layerOffset:J
+      26: invokestatic  #1258               // Method androidx/compose/ui/geometry/Offset."toString-impl":(J)Ljava/lang/String;
+      29: invokedynamic #1334,  0           // InvokeDynamic #48:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      34: areturn
+
+  private static final java.lang.String draw$lambda$24();
+    Code:
+       0: ldc_w         #1337               // String -> HazeChild. start draw()
+       3: areturn
+
+  private static final java.lang.String draw$lambda$25();
+    Code:
+       0: ldc_w         #1339               // String -> HazeChild. Draw. State not valid, so no need to draw effect.
+       3: areturn
+
+  private static final java.lang.String draw$lambda$26();
+    Code:
+       0: ldc_w         #1341               // String -> HazeChild. end draw()
+       3: areturn
+
+  private static final java.lang.String updateEffect$lambda$29$lambda$28(java.util.List);
+    Code:
+       0: aload_0
+       1: invokedynamic #1345,  0           // InvokeDynamic #49:makeConcatWithConstants:(Ljava/util/List;)Ljava/lang/String;
+       6: areturn
+
+  private static final java.lang.String updateEffect$lambda$32$lambda$31$lambda$30(dev.chrisbanes.haze.HazeArea, boolean);
+    Code:
+       0: aload_0
+       1: iload_1
+       2: invokedynamic #1352,  0           // InvokeDynamic #50:makeConcatWithConstants:(Ldev/chrisbanes/haze/HazeArea;Z)Ljava/lang/String;
+       7: areturn
+
+  private static final boolean updateEffect$lambda$32(dev.chrisbanes.haze.HazeEffectNode, dev.chrisbanes.haze.HazeSourceNode, dev.chrisbanes.haze.HazeArea);
+    Code:
+       0: aload_2
+       1: ldc_w         #1355               // String area
+       4: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       7: aload_0
+       8: invokevirtual #1357               // Method getCanDrawArea:()Lkotlin/jvm/functions/Function1;
+      11: astore_3
+      12: nop
+      13: aload_3
+      14: dup
+      15: ifnull        33
+      18: aload_2
+      19: invokeinterface #793,  2          // InterfaceMethod kotlin/jvm/functions/Function1.invoke:(Ljava/lang/Object;)Ljava/lang/Object;
+      24: checkcast     #1359               // class java/lang/Boolean
+      27: invokevirtual #1362               // Method java/lang/Boolean.booleanValue:()Z
+      30: goto          59
+      33: pop
+      34: aload_1
+      35: ifnull        58
+      38: aload_2
+      39: invokevirtual #1365               // Method dev/chrisbanes/haze/HazeArea.getZIndex:()F
+      42: aload_1
+      43: invokevirtual #1366               // Method dev/chrisbanes/haze/HazeSourceNode.getZIndex:()F
+      46: fcmpg
+      47: ifge          54
+      50: iconst_1
+      51: goto          59
+      54: iconst_0
+      55: goto          59
+      58: iconst_1
+      59: istore        4
+      61: iload         4
+      63: istore        5
+      65: iconst_0
+      66: istore        6
+      68: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+      71: ldc           #247                // String HazeEffect
+      73: aload_2
+      74: iload         5
+      76: invokedynamic #1372,  0           // InvokeDynamic #51:invoke:(Ldev/chrisbanes/haze/HazeArea;Z)Lkotlin/jvm/functions/Function0;
+      81: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+      84: nop
+      85: iload         4
+      87: ireturn
+
+  private static final java.lang.String drawEffectWithGraphicsLayer$lambda$49$lambda$48$lambda$47$lambda$46$lambda$39(dev.chrisbanes.haze.HazeArea);
+    Code:
+       0: aload_0
+       1: invokedynamic #1381,  0           // InvokeDynamic #52:makeConcatWithConstants:(Ldev/chrisbanes/haze/HazeArea;)Ljava/lang/String;
+       6: areturn
+
+  private static final java.lang.String drawEffectWithGraphicsLayer$lambda$49$lambda$48$lambda$47$lambda$46$lambda$45$lambda$43(androidx.compose.ui.graphics.layer.GraphicsLayer);
+    Code:
+       0: aload_0
+       1: invokedynamic #1387,  0           // InvokeDynamic #53:makeConcatWithConstants:(Landroidx/compose/ui/graphics/layer/GraphicsLayer;)Ljava/lang/String;
+       6: areturn
+
+  private static final java.lang.String drawEffectWithGraphicsLayer$lambda$49$lambda$48$lambda$47$lambda$46$lambda$45$lambda$44();
+    Code:
+       0: ldc_w         #1391               // String HazeArea GraphicsLayer is not valid
+       3: areturn
+
+  private static final kotlin.Unit drawEffectWithGraphicsLayer$lambda$49(long, float, long, dev.chrisbanes.haze.HazeEffectNode, androidx.compose.ui.graphics.drawscope.DrawScope);
+    Code:
+       0: aload         6
+       2: ldc_w         #1393               // String $this$record
+       5: invokestatic  #31                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       8: aload         6
+      10: lload_0
+      11: lconst_0
+      12: lconst_0
+      13: fconst_0
+      14: aconst_null
+      15: aconst_null
+      16: iconst_0
+      17: bipush        126
+      19: aconst_null
+      20: invokestatic  #1397               // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."drawRect-n-J9OG0$default":(Landroidx/compose/ui/graphics/drawscope/DrawScope;JJJFLandroidx/compose/ui/graphics/drawscope/DrawStyle;Landroidx/compose/ui/graphics/ColorFilter;IILjava/lang/Object;)V
+      23: aload         6
+      25: astore        7
+      27: fconst_0
+      28: fstore        8
+      30: fconst_0
+      31: fstore        9
+      33: aload         7
+      35: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+      40: invokestatic  #976                // Method androidx/compose/ui/geometry/Size."getWidth-impl":(J)F
+      43: fstore        10
+      45: aload         7
+      47: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+      52: invokestatic  #978                // Method androidx/compose/ui/geometry/Size."getHeight-impl":(J)F
+      55: fstore        11
+      57: getstatic     #983                // Field androidx/compose/ui/graphics/ClipOp.Companion:Landroidx/compose/ui/graphics/ClipOp$Companion;
+      60: invokevirtual #988                // Method androidx/compose/ui/graphics/ClipOp$Companion."getIntersect-rtfAjoo":()I
+      63: istore        12
+      65: iconst_0
+      66: istore        13
+      68: aload         7
+      70: astore        14
+      72: iconst_0
+      73: istore        15
+      75: aload         14
+      77: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+      82: astore        16
+      84: iconst_0
+      85: istore        17
+      87: aload         16
+      89: invokeinterface #995,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."getSize-NH-jbRc":()J
+      94: lstore        18
+      96: aload         16
+      98: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     103: invokeinterface #1004,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.save:()V
+     108: nop
+     109: aload         16
+     111: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     116: astore        20
+     118: iconst_0
+     119: istore        21
+     121: aload         20
+     123: fload         8
+     125: fload         9
+     127: fload         10
+     129: fload         11
+     131: iload         12
+     133: invokeinterface #1014,  6         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform."clipRect-N_I0leg":(FFFFI)V
+     138: nop
+     139: aload         14
+     141: astore        22
+     143: iconst_0
+     144: istore        23
+     146: aload         22
+     148: astore        24
+     150: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+     153: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+     156: lstore        25
+     158: iconst_0
+     159: istore        27
+     161: aload         24
+     163: astore        28
+     165: iconst_0
+     166: istore        29
+     168: aload         28
+     170: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     175: astore        30
+     177: iconst_0
+     178: istore        31
+     180: aload         30
+     182: invokeinterface #995,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."getSize-NH-jbRc":()J
+     187: lstore        32
+     189: aload         30
+     191: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     196: invokeinterface #1004,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.save:()V
+     201: nop
+     202: aload         30
+     204: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     209: astore        34
+     211: iconst_0
+     212: istore        35
+     214: aload         34
+     216: fload_2
+     217: fload_2
+     218: lload         25
+     220: invokeinterface #1034,  5         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform."scale-0AR0LA0":(FFJ)V
+     225: nop
+     226: aload         28
+     228: astore        36
+     230: iconst_0
+     231: istore        37
+     233: aload         36
+     235: astore        38
+     237: lload_3
+     238: aload         5
+     240: getfield      #114                // Field positionOnScreen:J
+     243: invokestatic  #686                // Method androidx/compose/ui/geometry/Offset."minus-MK-Hz9U":(JJ)J
+     246: lstore        39
+     248: iconst_0
+     249: istore        41
+     251: lload         39
+     253: invokestatic  #1020               // Method androidx/compose/ui/geometry/OffsetKt."isFinite-k-4lQ0M":(J)Z
+     256: ifeq          1146
+     259: lload         39
+     261: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+     264: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+     267: invokestatic  #319                // Method androidx/compose/ui/geometry/Offset."equals-impl0":(JJ)Z
+     270: ifne          1146
+     273: aload         38
+     275: astore        42
+     277: lload         39
+     279: invokestatic  #1023               // Method androidx/compose/ui/geometry/Offset."getX-impl":(J)F
+     282: fstore        43
+     284: lload         39
+     286: invokestatic  #1026               // Method androidx/compose/ui/geometry/Offset."getY-impl":(J)F
+     289: fstore        44
+     291: iconst_0
+     292: istore        45
+     294: aload         42
+     296: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     301: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     306: fload         43
+     308: fload         44
+     310: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+     315: nop
+     316: aload         42
+     318: astore        46
+     320: iconst_0
+     321: istore        47
+     323: aload         5
+     325: getfield      #208                // Field areas:Ljava/util/List;
+     328: invokeinterface #1398,  1         // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+     333: astore        48
+     335: aload         48
+     337: invokeinterface #652,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+     342: ifeq          1086
+     345: aload         48
+     347: invokeinterface #655,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+     352: checkcast     #657                // class dev/chrisbanes/haze/HazeArea
+     355: astore        49
+     357: aload         49
+     359: invokevirtual #1401               // Method dev/chrisbanes/haze/HazeArea.getContentDrawing$haze_release:()Z
+     362: ifne          369
+     365: iconst_1
+     366: goto          370
+     369: iconst_0
+     370: ifne          395
+     373: iconst_0
+     374: istore        50
+     376: ldc_w         #1403               // String Modifier.haze nodes can not draw Modifier.hazeChild nodes. This should not happen if you are providing correct values for zIndex on Modifier.haze. Alternatively you can use can `canDrawArea` to to filter out parent areas.
+     379: nop
+     380: astore        50
+     382: new           #943                // class java/lang/IllegalArgumentException
+     385: dup
+     386: aload         50
+     388: invokevirtual #946                // Method java/lang/Object.toString:()Ljava/lang/String;
+     391: invokespecial #949                // Method java/lang/IllegalArgumentException."<init>":(Ljava/lang/String;)V
+     394: athrow
+     395: aload         5
+     397: getfield      #114                // Field positionOnScreen:J
+     400: aload         46
+     402: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+     407: invokestatic  #625                // Method androidx/compose/ui/geometry/RectKt."Rect-tz77jQw":(JJ)Landroidx/compose/ui/geometry/Rect;
+     410: astore        51
+     412: getstatic     #1408               // Field androidx/compose/runtime/snapshots/Snapshot.Companion:Landroidx/compose/runtime/snapshots/Snapshot$Companion;
+     415: astore        52
+     417: iconst_0
+     418: istore        53
+     420: nop
+     421: aload         52
+     423: invokevirtual #1414               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.getCurrentThreadSnapshot:()Landroidx/compose/runtime/snapshots/Snapshot;
+     426: astore        54
+     428: aload         54
+     430: dup
+     431: ifnull        440
+     434: invokevirtual #1417               // Method androidx/compose/runtime/snapshots/Snapshot.getReadObserver:()Lkotlin/jvm/functions/Function1;
+     437: goto          442
+     440: pop
+     441: aconst_null
+     442: astore        55
+     444: aload         52
+     446: aload         54
+     448: invokevirtual #1421               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.makeCurrentNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;)Landroidx/compose/runtime/snapshots/Snapshot;
+     451: astore        56
+     453: nop
+     454: iconst_0
+     455: istore        57
+     457: aload         49
+     459: invokevirtual #660                // Method dev/chrisbanes/haze/HazeArea.getBounds$haze_release:()Landroidx/compose/ui/geometry/Rect;
+     462: astore        57
+     464: aload         52
+     466: aload         54
+     468: aload         56
+     470: aload         55
+     472: invokevirtual #1425               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.restoreNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;Landroidx/compose/runtime/snapshots/Snapshot;Lkotlin/jvm/functions/Function1;)V
+     475: aload         57
+     477: goto          496
+     480: astore        57
+     482: aload         52
+     484: aload         54
+     486: aload         56
+     488: aload         55
+     490: invokevirtual #1425               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.restoreNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;Landroidx/compose/runtime/snapshots/Snapshot;Lkotlin/jvm/functions/Function1;)V
+     493: aload         57
+     495: athrow
+     496: astore        50
+     498: aload         50
+     500: ifnull        513
+     503: aload         51
+     505: aload         50
+     507: invokevirtual #1429               // Method androidx/compose/ui/geometry/Rect.overlaps:(Landroidx/compose/ui/geometry/Rect;)Z
+     510: ifne          531
+     513: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+     516: ldc           #247                // String HazeEffect
+     518: aload         49
+     520: invokedynamic #1435,  0           // InvokeDynamic #54:invoke:(Ldev/chrisbanes/haze/HazeArea;)Lkotlin/jvm/functions/Function0;
+     525: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+     528: goto          335
+     531: getstatic     #1408               // Field androidx/compose/runtime/snapshots/Snapshot.Companion:Landroidx/compose/runtime/snapshots/Snapshot$Companion;
+     534: astore        54
+     536: iconst_0
+     537: istore        55
+     539: nop
+     540: aload         54
+     542: invokevirtual #1414               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.getCurrentThreadSnapshot:()Landroidx/compose/runtime/snapshots/Snapshot;
+     545: astore        56
+     547: aload         56
+     549: dup
+     550: ifnull        559
+     553: invokevirtual #1417               // Method androidx/compose/runtime/snapshots/Snapshot.getReadObserver:()Lkotlin/jvm/functions/Function1;
+     556: goto          561
+     559: pop
+     560: aconst_null
+     561: astore        57
+     563: aload         54
+     565: aload         56
+     567: invokevirtual #1421               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.makeCurrentNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;)Landroidx/compose/runtime/snapshots/Snapshot;
+     570: astore        58
+     572: nop
+     573: iconst_0
+     574: istore        59
+     576: aload         49
+     578: invokevirtual #878                // Method dev/chrisbanes/haze/HazeArea."getPositionOnScreen-F1C5BW0":()J
+     581: lstore        61
+     583: iconst_0
+     584: istore        63
+     586: lload         61
+     588: lstore        64
+     590: iconst_0
+     591: istore        66
+     593: lload         64
+     595: invokestatic  #1438               // Method androidx/compose/ui/geometry/OffsetKt."isSpecified-k-4lQ0M":(J)Z
+     598: ifeq          606
+     601: lload         64
+     603: goto          616
+     606: iconst_0
+     607: istore        67
+     609: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+     612: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+     615: nop
+     616: nop
+     617: nop
+     618: lstore        59
+     620: aload         54
+     622: aload         56
+     624: aload         58
+     626: aload         57
+     628: invokevirtual #1425               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.restoreNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;Landroidx/compose/runtime/snapshots/Snapshot;Lkotlin/jvm/functions/Function1;)V
+     631: lload         59
+     633: goto          652
+     636: astore        59
+     638: aload         54
+     640: aload         56
+     642: aload         58
+     644: aload         57
+     646: invokevirtual #1425               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.restoreNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;Landroidx/compose/runtime/snapshots/Snapshot;Lkotlin/jvm/functions/Function1;)V
+     649: aload         59
+     651: athrow
+     652: lstore        68
+     654: aload         46
+     656: astore        54
+     658: iconst_0
+     659: istore        55
+     661: lload         68
+     663: invokestatic  #1020               // Method androidx/compose/ui/geometry/OffsetKt."isFinite-k-4lQ0M":(J)Z
+     666: ifeq          933
+     669: lload         68
+     671: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+     674: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+     677: invokestatic  #319                // Method androidx/compose/ui/geometry/Offset."equals-impl0":(JJ)Z
+     680: ifne          933
+     683: aload         54
+     685: astore        56
+     687: lload         68
+     689: invokestatic  #1023               // Method androidx/compose/ui/geometry/Offset."getX-impl":(J)F
+     692: fstore        57
+     694: lload         68
+     696: invokestatic  #1026               // Method androidx/compose/ui/geometry/Offset."getY-impl":(J)F
+     699: fstore        58
+     701: iconst_0
+     702: istore        59
+     704: aload         56
+     706: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     711: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     716: fload         57
+     718: fload         58
+     720: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+     725: nop
+     726: aload         56
+     728: astore        70
+     730: iconst_0
+     731: istore        71
+     733: aload         49
+     735: invokevirtual #1441               // Method dev/chrisbanes/haze/HazeArea.getContentLayer:()Landroidx/compose/ui/graphics/layer/GraphicsLayer;
+     738: astore        63
+     740: aload         63
+     742: ifnull        827
+     745: aload         63
+     747: astore        72
+     749: aload         72
+     751: astore        73
+     753: iconst_0
+     754: istore        66
+     756: aload         73
+     758: invokevirtual #1444               // Method androidx/compose/ui/graphics/layer/GraphicsLayer.isReleased:()Z
+     761: ifne          769
+     764: aload         72
+     766: goto          770
+     769: aconst_null
+     770: astore        67
+     772: aload         67
+     774: ifnull        827
+     777: aload         67
+     779: astore        72
+     781: aload         72
+     783: astore        73
+     785: iconst_0
+     786: istore        66
+     788: aload         73
+     790: invokevirtual #1445               // Method androidx/compose/ui/graphics/layer/GraphicsLayer."getSize-YbymL2g":()J
+     793: invokestatic  #930                // Method androidx/compose/ui/unit/IntSize."getWidth-impl":(J)I
+     796: ifle          810
+     799: aload         73
+     801: invokevirtual #1445               // Method androidx/compose/ui/graphics/layer/GraphicsLayer."getSize-YbymL2g":()J
+     804: invokestatic  #933                // Method androidx/compose/ui/unit/IntSize."getHeight-impl":(J)I
+     807: ifgt          814
+     810: iconst_1
+     811: goto          815
+     814: iconst_0
+     815: ifne          823
+     818: aload         72
+     820: goto          828
+     823: aconst_null
+     824: goto          828
+     827: aconst_null
+     828: astore        74
+     830: aload         74
+     832: ifnull        860
+     835: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+     838: ldc           #247                // String HazeEffect
+     840: aload         74
+     842: invokedynamic #1451,  0           // InvokeDynamic #55:invoke:(Landroidx/compose/ui/graphics/layer/GraphicsLayer;)Lkotlin/jvm/functions/Function0;
+     847: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+     850: aload         70
+     852: aload         74
+     854: invokestatic  #1065               // Method androidx/compose/ui/graphics/layer/GraphicsLayerKt.drawLayer:(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/layer/GraphicsLayer;)V
+     857: goto          873
+     860: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+     863: ldc           #247                // String HazeEffect
+     865: invokedynamic #1455,  0           // InvokeDynamic #56:invoke:()Lkotlin/jvm/functions/Function0;
+     870: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+     873: nop
+     874: nop
+     875: aload         56
+     877: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     882: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     887: fload         57
+     889: fneg
+     890: fload         58
+     892: fneg
+     893: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+     898: goto          929
+     901: astore        75
+     903: aload         56
+     905: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     910: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+     915: fload         57
+     917: fneg
+     918: fload         58
+     920: fneg
+     921: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+     926: aload         75
+     928: athrow
+     929: nop
+     930: goto          1082
+     933: aload         54
+     935: astore        70
+     937: iconst_0
+     938: istore        71
+     940: aload         49
+     942: invokevirtual #1441               // Method dev/chrisbanes/haze/HazeArea.getContentLayer:()Landroidx/compose/ui/graphics/layer/GraphicsLayer;
+     945: astore        63
+     947: aload         63
+     949: ifnull        1034
+     952: aload         63
+     954: astore        72
+     956: aload         72
+     958: astore        73
+     960: iconst_0
+     961: istore        66
+     963: aload         73
+     965: invokevirtual #1444               // Method androidx/compose/ui/graphics/layer/GraphicsLayer.isReleased:()Z
+     968: ifne          976
+     971: aload         72
+     973: goto          977
+     976: aconst_null
+     977: astore        67
+     979: aload         67
+     981: ifnull        1034
+     984: aload         67
+     986: astore        72
+     988: aload         72
+     990: astore        73
+     992: iconst_0
+     993: istore        66
+     995: aload         73
+     997: invokevirtual #1445               // Method androidx/compose/ui/graphics/layer/GraphicsLayer."getSize-YbymL2g":()J
+    1000: invokestatic  #930                // Method androidx/compose/ui/unit/IntSize."getWidth-impl":(J)I
+    1003: ifle          1017
+    1006: aload         73
+    1008: invokevirtual #1445               // Method androidx/compose/ui/graphics/layer/GraphicsLayer."getSize-YbymL2g":()J
+    1011: invokestatic  #933                // Method androidx/compose/ui/unit/IntSize."getHeight-impl":(J)I
+    1014: ifgt          1021
+    1017: iconst_1
+    1018: goto          1022
+    1021: iconst_0
+    1022: ifne          1030
+    1025: aload         72
+    1027: goto          1035
+    1030: aconst_null
+    1031: goto          1035
+    1034: aconst_null
+    1035: astore        74
+    1037: aload         74
+    1039: ifnull        1067
+    1042: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+    1045: ldc           #247                // String HazeEffect
+    1047: aload         74
+    1049: invokedynamic #1451,  0           // InvokeDynamic #55:invoke:(Landroidx/compose/ui/graphics/layer/GraphicsLayer;)Lkotlin/jvm/functions/Function0;
+    1054: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+    1057: aload         70
+    1059: aload         74
+    1061: invokestatic  #1065               // Method androidx/compose/ui/graphics/layer/GraphicsLayerKt.drawLayer:(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/layer/GraphicsLayer;)V
+    1064: goto          1080
+    1067: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+    1070: ldc           #247                // String HazeEffect
+    1072: invokedynamic #1455,  0           // InvokeDynamic #56:invoke:()Lkotlin/jvm/functions/Function0;
+    1077: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+    1080: nop
+    1081: nop
+    1082: nop
+    1083: goto          335
+    1086: nop
+    1087: nop
+    1088: aload         42
+    1090: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+    1095: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+    1100: fload         43
+    1102: fneg
+    1103: fload         44
+    1105: fneg
+    1106: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+    1111: goto          1142
+    1114: astore        76
+    1116: aload         42
+    1118: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+    1123: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+    1128: fload         43
+    1130: fneg
+    1131: fload         44
+    1133: fneg
+    1134: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+    1139: aload         76
+    1141: athrow
+    1142: nop
+    1143: goto          1918
+    1146: aload         38
+    1148: astore        46
+    1150: iconst_0
+    1151: istore        47
+    1153: aload         5
+    1155: getfield      #208                // Field areas:Ljava/util/List;
+    1158: invokeinterface #1398,  1         // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+    1163: astore        48
+    1165: aload         48
+    1167: invokeinterface #652,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+    1172: ifeq          1916
+    1175: aload         48
+    1177: invokeinterface #655,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+    1182: checkcast     #657                // class dev/chrisbanes/haze/HazeArea
+    1185: astore        49
+    1187: aload         49
+    1189: invokevirtual #1401               // Method dev/chrisbanes/haze/HazeArea.getContentDrawing$haze_release:()Z
+    1192: ifne          1199
+    1195: iconst_1
+    1196: goto          1200
+    1199: iconst_0
+    1200: ifne          1225
+    1203: iconst_0
+    1204: istore        50
+    1206: ldc_w         #1403               // String Modifier.haze nodes can not draw Modifier.hazeChild nodes. This should not happen if you are providing correct values for zIndex on Modifier.haze. Alternatively you can use can `canDrawArea` to to filter out parent areas.
+    1209: nop
+    1210: astore        50
+    1212: new           #943                // class java/lang/IllegalArgumentException
+    1215: dup
+    1216: aload         50
+    1218: invokevirtual #946                // Method java/lang/Object.toString:()Ljava/lang/String;
+    1221: invokespecial #949                // Method java/lang/IllegalArgumentException."<init>":(Ljava/lang/String;)V
+    1224: athrow
+    1225: aload         5
+    1227: getfield      #114                // Field positionOnScreen:J
+    1230: aload         46
+    1232: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+    1237: invokestatic  #625                // Method androidx/compose/ui/geometry/RectKt."Rect-tz77jQw":(JJ)Landroidx/compose/ui/geometry/Rect;
+    1240: astore        51
+    1242: getstatic     #1408               // Field androidx/compose/runtime/snapshots/Snapshot.Companion:Landroidx/compose/runtime/snapshots/Snapshot$Companion;
+    1245: astore        52
+    1247: iconst_0
+    1248: istore        53
+    1250: nop
+    1251: aload         52
+    1253: invokevirtual #1414               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.getCurrentThreadSnapshot:()Landroidx/compose/runtime/snapshots/Snapshot;
+    1256: astore        54
+    1258: aload         54
+    1260: dup
+    1261: ifnull        1270
+    1264: invokevirtual #1417               // Method androidx/compose/runtime/snapshots/Snapshot.getReadObserver:()Lkotlin/jvm/functions/Function1;
+    1267: goto          1272
+    1270: pop
+    1271: aconst_null
+    1272: astore        55
+    1274: aload         52
+    1276: aload         54
+    1278: invokevirtual #1421               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.makeCurrentNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;)Landroidx/compose/runtime/snapshots/Snapshot;
+    1281: astore        56
+    1283: nop
+    1284: iconst_0
+    1285: istore        57
+    1287: aload         49
+    1289: invokevirtual #660                // Method dev/chrisbanes/haze/HazeArea.getBounds$haze_release:()Landroidx/compose/ui/geometry/Rect;
+    1292: astore        57
+    1294: aload         52
+    1296: aload         54
+    1298: aload         56
+    1300: aload         55
+    1302: invokevirtual #1425               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.restoreNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;Landroidx/compose/runtime/snapshots/Snapshot;Lkotlin/jvm/functions/Function1;)V
+    1305: aload         57
+    1307: goto          1326
+    1310: astore        57
+    1312: aload         52
+    1314: aload         54
+    1316: aload         56
+    1318: aload         55
+    1320: invokevirtual #1425               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.restoreNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;Landroidx/compose/runtime/snapshots/Snapshot;Lkotlin/jvm/functions/Function1;)V
+    1323: aload         57
+    1325: athrow
+    1326: astore        50
+    1328: aload         50
+    1330: ifnull        1343
+    1333: aload         51
+    1335: aload         50
+    1337: invokevirtual #1429               // Method androidx/compose/ui/geometry/Rect.overlaps:(Landroidx/compose/ui/geometry/Rect;)Z
+    1340: ifne          1361
+    1343: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+    1346: ldc           #247                // String HazeEffect
+    1348: aload         49
+    1350: invokedynamic #1435,  0           // InvokeDynamic #54:invoke:(Ldev/chrisbanes/haze/HazeArea;)Lkotlin/jvm/functions/Function0;
+    1355: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+    1358: goto          1165
+    1361: getstatic     #1408               // Field androidx/compose/runtime/snapshots/Snapshot.Companion:Landroidx/compose/runtime/snapshots/Snapshot$Companion;
+    1364: astore        54
+    1366: iconst_0
+    1367: istore        55
+    1369: nop
+    1370: aload         54
+    1372: invokevirtual #1414               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.getCurrentThreadSnapshot:()Landroidx/compose/runtime/snapshots/Snapshot;
+    1375: astore        56
+    1377: aload         56
+    1379: dup
+    1380: ifnull        1389
+    1383: invokevirtual #1417               // Method androidx/compose/runtime/snapshots/Snapshot.getReadObserver:()Lkotlin/jvm/functions/Function1;
+    1386: goto          1391
+    1389: pop
+    1390: aconst_null
+    1391: astore        57
+    1393: aload         54
+    1395: aload         56
+    1397: invokevirtual #1421               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.makeCurrentNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;)Landroidx/compose/runtime/snapshots/Snapshot;
+    1400: astore        58
+    1402: nop
+    1403: iconst_0
+    1404: istore        59
+    1406: aload         49
+    1408: invokevirtual #878                // Method dev/chrisbanes/haze/HazeArea."getPositionOnScreen-F1C5BW0":()J
+    1411: lstore        61
+    1413: iconst_0
+    1414: istore        63
+    1416: lload         61
+    1418: lstore        64
+    1420: iconst_0
+    1421: istore        66
+    1423: lload         64
+    1425: invokestatic  #1438               // Method androidx/compose/ui/geometry/OffsetKt."isSpecified-k-4lQ0M":(J)Z
+    1428: ifeq          1436
+    1431: lload         64
+    1433: goto          1446
+    1436: iconst_0
+    1437: istore        67
+    1439: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+    1442: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+    1445: nop
+    1446: nop
+    1447: nop
+    1448: lstore        59
+    1450: aload         54
+    1452: aload         56
+    1454: aload         58
+    1456: aload         57
+    1458: invokevirtual #1425               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.restoreNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;Landroidx/compose/runtime/snapshots/Snapshot;Lkotlin/jvm/functions/Function1;)V
+    1461: lload         59
+    1463: goto          1482
+    1466: astore        59
+    1468: aload         54
+    1470: aload         56
+    1472: aload         58
+    1474: aload         57
+    1476: invokevirtual #1425               // Method androidx/compose/runtime/snapshots/Snapshot$Companion.restoreNonObservable:(Landroidx/compose/runtime/snapshots/Snapshot;Landroidx/compose/runtime/snapshots/Snapshot;Lkotlin/jvm/functions/Function1;)V
+    1479: aload         59
+    1481: athrow
+    1482: lstore        68
+    1484: aload         46
+    1486: astore        54
+    1488: iconst_0
+    1489: istore        55
+    1491: lload         68
+    1493: invokestatic  #1020               // Method androidx/compose/ui/geometry/OffsetKt."isFinite-k-4lQ0M":(J)Z
+    1496: ifeq          1763
+    1499: lload         68
+    1501: getstatic     #104                // Field androidx/compose/ui/geometry/Offset.Companion:Landroidx/compose/ui/geometry/Offset$Companion;
+    1504: invokevirtual #143                // Method androidx/compose/ui/geometry/Offset$Companion."getZero-F1C5BW0":()J
+    1507: invokestatic  #319                // Method androidx/compose/ui/geometry/Offset."equals-impl0":(JJ)Z
+    1510: ifne          1763
+    1513: aload         54
+    1515: astore        56
+    1517: lload         68
+    1519: invokestatic  #1023               // Method androidx/compose/ui/geometry/Offset."getX-impl":(J)F
+    1522: fstore        57
+    1524: lload         68
+    1526: invokestatic  #1026               // Method androidx/compose/ui/geometry/Offset."getY-impl":(J)F
+    1529: fstore        58
+    1531: iconst_0
+    1532: istore        59
+    1534: aload         56
+    1536: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+    1541: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+    1546: fload         57
+    1548: fload         58
+    1550: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+    1555: nop
+    1556: aload         56
+    1558: astore        70
+    1560: iconst_0
+    1561: istore        71
+    1563: aload         49
+    1565: invokevirtual #1441               // Method dev/chrisbanes/haze/HazeArea.getContentLayer:()Landroidx/compose/ui/graphics/layer/GraphicsLayer;
+    1568: astore        63
+    1570: aload         63
+    1572: ifnull        1657
+    1575: aload         63
+    1577: astore        72
+    1579: aload         72
+    1581: astore        73
+    1583: iconst_0
+    1584: istore        66
+    1586: aload         73
+    1588: invokevirtual #1444               // Method androidx/compose/ui/graphics/layer/GraphicsLayer.isReleased:()Z
+    1591: ifne          1599
+    1594: aload         72
+    1596: goto          1600
+    1599: aconst_null
+    1600: astore        67
+    1602: aload         67
+    1604: ifnull        1657
+    1607: aload         67
+    1609: astore        72
+    1611: aload         72
+    1613: astore        73
+    1615: iconst_0
+    1616: istore        66
+    1618: aload         73
+    1620: invokevirtual #1445               // Method androidx/compose/ui/graphics/layer/GraphicsLayer."getSize-YbymL2g":()J
+    1623: invokestatic  #930                // Method androidx/compose/ui/unit/IntSize."getWidth-impl":(J)I
+    1626: ifle          1640
+    1629: aload         73
+    1631: invokevirtual #1445               // Method androidx/compose/ui/graphics/layer/GraphicsLayer."getSize-YbymL2g":()J
+    1634: invokestatic  #933                // Method androidx/compose/ui/unit/IntSize."getHeight-impl":(J)I
+    1637: ifgt          1644
+    1640: iconst_1
+    1641: goto          1645
+    1644: iconst_0
+    1645: ifne          1653
+    1648: aload         72
+    1650: goto          1658
+    1653: aconst_null
+    1654: goto          1658
+    1657: aconst_null
+    1658: astore        74
+    1660: aload         74
+    1662: ifnull        1690
+    1665: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+    1668: ldc           #247                // String HazeEffect
+    1670: aload         74
+    1672: invokedynamic #1451,  0           // InvokeDynamic #55:invoke:(Landroidx/compose/ui/graphics/layer/GraphicsLayer;)Lkotlin/jvm/functions/Function0;
+    1677: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+    1680: aload         70
+    1682: aload         74
+    1684: invokestatic  #1065               // Method androidx/compose/ui/graphics/layer/GraphicsLayerKt.drawLayer:(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/layer/GraphicsLayer;)V
+    1687: goto          1703
+    1690: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+    1693: ldc           #247                // String HazeEffect
+    1695: invokedynamic #1455,  0           // InvokeDynamic #56:invoke:()Lkotlin/jvm/functions/Function0;
+    1700: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+    1703: nop
+    1704: nop
+    1705: aload         56
+    1707: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+    1712: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+    1717: fload         57
+    1719: fneg
+    1720: fload         58
+    1722: fneg
+    1723: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+    1728: goto          1759
+    1731: astore        75
+    1733: aload         56
+    1735: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+    1740: invokeinterface #1008,  1         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getTransform:()Landroidx/compose/ui/graphics/drawscope/DrawTransform;
+    1745: fload         57
+    1747: fneg
+    1748: fload         58
+    1750: fneg
+    1751: invokeinterface #1030,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawTransform.translate:(FF)V
+    1756: aload         75
+    1758: athrow
+    1759: nop
+    1760: goto          1912
+    1763: aload         54
+    1765: astore        70
+    1767: iconst_0
+    1768: istore        71
+    1770: aload         49
+    1772: invokevirtual #1441               // Method dev/chrisbanes/haze/HazeArea.getContentLayer:()Landroidx/compose/ui/graphics/layer/GraphicsLayer;
+    1775: astore        63
+    1777: aload         63
+    1779: ifnull        1864
+    1782: aload         63
+    1784: astore        72
+    1786: aload         72
+    1788: astore        73
+    1790: iconst_0
+    1791: istore        66
+    1793: aload         73
+    1795: invokevirtual #1444               // Method androidx/compose/ui/graphics/layer/GraphicsLayer.isReleased:()Z
+    1798: ifne          1806
+    1801: aload         72
+    1803: goto          1807
+    1806: aconst_null
+    1807: astore        67
+    1809: aload         67
+    1811: ifnull        1864
+    1814: aload         67
+    1816: astore        72
+    1818: aload         72
+    1820: astore        73
+    1822: iconst_0
+    1823: istore        66
+    1825: aload         73
+    1827: invokevirtual #1445               // Method androidx/compose/ui/graphics/layer/GraphicsLayer."getSize-YbymL2g":()J
+    1830: invokestatic  #930                // Method androidx/compose/ui/unit/IntSize."getWidth-impl":(J)I
+    1833: ifle          1847
+    1836: aload         73
+    1838: invokevirtual #1445               // Method androidx/compose/ui/graphics/layer/GraphicsLayer."getSize-YbymL2g":()J
+    1841: invokestatic  #933                // Method androidx/compose/ui/unit/IntSize."getHeight-impl":(J)I
+    1844: ifgt          1851
+    1847: iconst_1
+    1848: goto          1852
+    1851: iconst_0
+    1852: ifne          1860
+    1855: aload         72
+    1857: goto          1865
+    1860: aconst_null
+    1861: goto          1865
+    1864: aconst_null
+    1865: astore        74
+    1867: aload         74
+    1869: ifnull        1897
+    1872: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+    1875: ldc           #247                // String HazeEffect
+    1877: aload         74
+    1879: invokedynamic #1451,  0           // InvokeDynamic #55:invoke:(Landroidx/compose/ui/graphics/layer/GraphicsLayer;)Lkotlin/jvm/functions/Function0;
+    1884: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+    1887: aload         70
+    1889: aload         74
+    1891: invokestatic  #1065               // Method androidx/compose/ui/graphics/layer/GraphicsLayerKt.drawLayer:(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/layer/GraphicsLayer;)V
+    1894: goto          1910
+    1897: getstatic     #245                // Field dev/chrisbanes/haze/HazeLogger.INSTANCE:Ldev/chrisbanes/haze/HazeLogger;
+    1900: ldc           #247                // String HazeEffect
+    1902: invokedynamic #1455,  0           // InvokeDynamic #56:invoke:()Lkotlin/jvm/functions/Function0;
+    1907: invokevirtual #270                // Method dev/chrisbanes/haze/HazeLogger.d:(Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
+    1910: nop
+    1911: nop
+    1912: nop
+    1913: goto          1165
+    1916: nop
+    1917: nop
+    1918: nop
+    1919: nop
+    1920: nop
+    1921: aload         30
+    1923: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+    1928: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+    1933: aload         30
+    1935: lload         32
+    1937: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+    1942: goto          1971
+    1945: astore        77
+    1947: aload         30
+    1949: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+    1954: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+    1959: aload         30
+    1961: lload         32
+    1963: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+    1968: aload         77
+    1970: athrow
+    1971: nop
+    1972: nop
+    1973: nop
+    1974: nop
+    1975: nop
+    1976: nop
+    1977: aload         16
+    1979: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+    1984: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+    1989: aload         16
+    1991: lload         18
+    1993: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+    1998: goto          2027
+    2001: astore        78
+    2003: aload         16
+    2005: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+    2010: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+    2015: aload         16
+    2017: lload         18
+    2019: invokeinterface #1071,  3         // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext."setSize-uvyYCjk":(J)V
+    2024: aload         78
+    2026: athrow
+    2027: nop
+    2028: nop
+    2029: nop
+    2030: nop
+    2031: getstatic     #1460               // Field kotlin/Unit.INSTANCE:Lkotlin/Unit;
+    2034: areturn
+    Exception table:
+       from    to  target type
+         453   464   480   any
+         480   482   480   any
+         572   620   636   any
+         636   638   636   any
+         725   875   901   any
+         901   903   901   any
+         315  1088  1114   any
+        1114  1116  1114   any
+        1283  1294  1310   any
+        1310  1312  1310   any
+        1402  1450  1466   any
+        1466  1468  1466   any
+        1555  1705  1731   any
+        1731  1733  1731   any
+         201  1921  1945   any
+        1945  1947  1945   any
+         108  1977  2001   any
+        2001  2003  2001   any
+
+  private static final void drawEffectWithScrim$scrim(dev.chrisbanes.haze.HazeEffectNode, androidx.compose.ui.graphics.drawscope.DrawScope, dev.chrisbanes.haze.HazeTint);
+    Code:
+       0: aload_0
+       1: invokevirtual #1493               // Method getMask:()Landroidx/compose/ui/graphics/Brush;
+       4: astore_3
+       5: aload_0
+       6: invokevirtual #1036               // Method getProgressive:()Ldev/chrisbanes/haze/HazeProgressive;
+       9: astore        4
+      11: aload_2
+      12: invokevirtual #1496               // Method dev/chrisbanes/haze/HazeTint.getBrush:()Landroidx/compose/ui/graphics/Brush;
+      15: ifnull        381
+      18: nop
+      19: aload_3
+      20: instanceof    #1498               // class androidx/compose/ui/graphics/ShaderBrush
+      23: ifeq          42
+      26: aload_3
+      27: checkcast     #1498               // class androidx/compose/ui/graphics/ShaderBrush
+      30: aload_1
+      31: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+      36: invokevirtual #1502               // Method androidx/compose/ui/graphics/ShaderBrush."createShader-uvyYCjk":(J)Landroid/graphics/Shader;
+      39: goto          96
+      42: aload         4
+      44: dup
+      45: ifnull        94
+      48: iconst_0
+      49: iconst_1
+      50: aconst_null
+      51: invokestatic  #1508               // Method dev/chrisbanes/haze/GradientKt.asBrush$default:(Ldev/chrisbanes/haze/HazeProgressive;IILjava/lang/Object;)Landroidx/compose/ui/graphics/Brush;
+      54: astore        7
+      56: aload         7
+      58: instanceof    #1498               // class androidx/compose/ui/graphics/ShaderBrush
+      61: ifeq          72
+      64: aload         7
+      66: checkcast     #1498               // class androidx/compose/ui/graphics/ShaderBrush
+      69: goto          73
+      72: aconst_null
+      73: dup
+      74: ifnull        89
+      77: aload_1
+      78: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+      83: invokevirtual #1502               // Method androidx/compose/ui/graphics/ShaderBrush."createShader-uvyYCjk":(J)Landroid/graphics/Shader;
+      86: goto          96
+      89: pop
+      90: aconst_null
+      91: goto          96
+      94: pop
+      95: aconst_null
+      96: astore        5
+      98: aload         5
+     100: ifnull        358
+     103: invokestatic  #1154               // Method dev/chrisbanes/haze/PaintKt.getPaintPool:()Ldev/chrisbanes/haze/Pool;
+     106: astore        6
+     108: iconst_0
+     109: istore        7
+     111: aload         6
+     113: invokestatic  #1158               // Method dev/chrisbanes/haze/PaintKt.getOrCreate:(Ldev/chrisbanes/haze/Pool;)Landroidx/compose/ui/graphics/Paint;
+     116: astore        8
+     118: nop
+     119: aload         8
+     121: astore        9
+     123: iconst_0
+     124: istore        10
+     126: aload_1
+     127: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     132: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     137: astore        11
+     139: aload_1
+     140: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+     145: invokestatic  #1167               // Method androidx/compose/ui/geometry/SizeKt."toRect-uvyYCjk":(J)Landroidx/compose/ui/geometry/Rect;
+     148: astore        12
+     150: iconst_0
+     151: istore        13
+     153: nop
+     154: aload         11
+     156: aload         12
+     158: aload         9
+     160: invokeinterface #1171,  3         // InterfaceMethod androidx/compose/ui/graphics/Canvas.saveLayer:(Landroidx/compose/ui/geometry/Rect;Landroidx/compose/ui/graphics/Paint;)V
+     165: iconst_0
+     166: istore        14
+     168: aload_1
+     169: aload_2
+     170: invokevirtual #1496               // Method dev/chrisbanes/haze/HazeTint.getBrush:()Landroidx/compose/ui/graphics/Brush;
+     173: lconst_0
+     174: lconst_0
+     175: fconst_0
+     176: aconst_null
+     177: aconst_null
+     178: aload_2
+     179: invokevirtual #1511               // Method dev/chrisbanes/haze/HazeTint."getBlendMode-0nO6VwU":()I
+     182: bipush        62
+     184: aconst_null
+     185: invokestatic  #1515               // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."drawRect-AsUm42w$default":(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/Brush;JJFLandroidx/compose/ui/graphics/drawscope/DrawStyle;Landroidx/compose/ui/graphics/ColorFilter;IILjava/lang/Object;)V
+     188: invokestatic  #1154               // Method dev/chrisbanes/haze/PaintKt.getPaintPool:()Ldev/chrisbanes/haze/Pool;
+     191: astore        15
+     193: iconst_0
+     194: istore        16
+     196: aload         15
+     198: invokestatic  #1158               // Method dev/chrisbanes/haze/PaintKt.getOrCreate:(Ldev/chrisbanes/haze/Pool;)Landroidx/compose/ui/graphics/Paint;
+     201: astore        17
+     203: nop
+     204: aload         17
+     206: astore        18
+     208: iconst_0
+     209: istore        19
+     211: aload         18
+     213: aload         5
+     215: invokeinterface #1519,  2         // InterfaceMethod androidx/compose/ui/graphics/Paint.setShader:(Landroid/graphics/Shader;)V
+     220: aload         18
+     222: getstatic     #1524               // Field androidx/compose/ui/graphics/BlendMode.Companion:Landroidx/compose/ui/graphics/BlendMode$Companion;
+     225: invokevirtual #1529               // Method androidx/compose/ui/graphics/BlendMode$Companion."getDstIn-0nO6VwU":()I
+     228: invokeinterface #1532,  2         // InterfaceMethod androidx/compose/ui/graphics/Paint."setBlendMode-s9anfk8":(I)V
+     233: aload_1
+     234: invokeinterface #992,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope.getDrawContext:()Landroidx/compose/ui/graphics/drawscope/DrawContext;
+     239: invokeinterface #999,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawContext.getCanvas:()Landroidx/compose/ui/graphics/Canvas;
+     244: aload_1
+     245: invokeinterface #973,  1          // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."getSize-NH-jbRc":()J
+     250: invokestatic  #1167               // Method androidx/compose/ui/geometry/SizeKt."toRect-uvyYCjk":(J)Landroidx/compose/ui/geometry/Rect;
+     253: aload         18
+     255: invokeinterface #1535,  3         // InterfaceMethod androidx/compose/ui/graphics/Canvas.drawRect:(Landroidx/compose/ui/geometry/Rect;Landroidx/compose/ui/graphics/Paint;)V
+     260: nop
+     261: nop
+     262: aload         17
+     264: invokestatic  #1181               // Method dev/chrisbanes/haze/Paint_androidKt.reset:(Landroidx/compose/ui/graphics/Paint;)V
+     267: aload         15
+     269: aload         17
+     271: invokevirtual #1186               // Method dev/chrisbanes/haze/Pool.release:(Ljava/lang/Object;)V
+     274: goto          294
+     277: astore        20
+     279: aload         17
+     281: invokestatic  #1181               // Method dev/chrisbanes/haze/Paint_androidKt.reset:(Landroidx/compose/ui/graphics/Paint;)V
+     284: aload         15
+     286: aload         17
+     288: invokevirtual #1186               // Method dev/chrisbanes/haze/Pool.release:(Ljava/lang/Object;)V
+     291: aload         20
+     293: athrow
+     294: nop
+     295: nop
+     296: nop
+     297: aload         11
+     299: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     304: goto          319
+     307: astore        21
+     309: aload         11
+     311: invokeinterface #1068,  1         // InterfaceMethod androidx/compose/ui/graphics/Canvas.restore:()V
+     316: aload         21
+     318: athrow
+     319: nop
+     320: nop
+     321: nop
+     322: aload         8
+     324: invokestatic  #1181               // Method dev/chrisbanes/haze/Paint_androidKt.reset:(Landroidx/compose/ui/graphics/Paint;)V
+     327: aload         6
+     329: aload         8
+     331: invokevirtual #1186               // Method dev/chrisbanes/haze/Pool.release:(Ljava/lang/Object;)V
+     334: goto          354
+     337: astore        22
+     339: aload         8
+     341: invokestatic  #1181               // Method dev/chrisbanes/haze/Paint_androidKt.reset:(Landroidx/compose/ui/graphics/Paint;)V
+     344: aload         6
+     346: aload         8
+     348: invokevirtual #1186               // Method dev/chrisbanes/haze/Pool.release:(Ljava/lang/Object;)V
+     351: aload         22
+     353: athrow
+     354: nop
+     355: goto          488
+     358: aload_1
+     359: aload_2
+     360: invokevirtual #1496               // Method dev/chrisbanes/haze/HazeTint.getBrush:()Landroidx/compose/ui/graphics/Brush;
+     363: lconst_0
+     364: lconst_0
+     365: fconst_0
+     366: aconst_null
+     367: aconst_null
+     368: aload_2
+     369: invokevirtual #1511               // Method dev/chrisbanes/haze/HazeTint."getBlendMode-0nO6VwU":()I
+     372: bipush        62
+     374: aconst_null
+     375: invokestatic  #1515               // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."drawRect-AsUm42w$default":(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/Brush;JJFLandroidx/compose/ui/graphics/drawscope/DrawStyle;Landroidx/compose/ui/graphics/ColorFilter;IILjava/lang/Object;)V
+     378: goto          488
+     381: aload         4
+     383: dup
+     384: ifnull        396
+     387: iconst_0
+     388: iconst_1
+     389: aconst_null
+     390: invokestatic  #1508               // Method dev/chrisbanes/haze/GradientKt.asBrush$default:(Ldev/chrisbanes/haze/HazeProgressive;IILjava/lang/Object;)Landroidx/compose/ui/graphics/Brush;
+     393: goto          398
+     396: pop
+     397: aconst_null
+     398: astore        5
+     400: aload_3
+     401: ifnull        433
+     404: aload_1
+     405: aload_3
+     406: lconst_0
+     407: lconst_0
+     408: fconst_0
+     409: aconst_null
+     410: getstatic     #1540               // Field androidx/compose/ui/graphics/ColorFilter.Companion:Landroidx/compose/ui/graphics/ColorFilter$Companion;
+     413: aload_2
+     414: invokevirtual #1543               // Method dev/chrisbanes/haze/HazeTint."getColor-0d7_KjU":()J
+     417: iconst_0
+     418: iconst_2
+     419: aconst_null
+     420: invokestatic  #1549               // Method androidx/compose/ui/graphics/ColorFilter$Companion."tint-xETnrds$default":(Landroidx/compose/ui/graphics/ColorFilter$Companion;JIILjava/lang/Object;)Landroidx/compose/ui/graphics/ColorFilter;
+     423: iconst_0
+     424: bipush        94
+     426: aconst_null
+     427: invokestatic  #1515               // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."drawRect-AsUm42w$default":(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/Brush;JJFLandroidx/compose/ui/graphics/drawscope/DrawStyle;Landroidx/compose/ui/graphics/ColorFilter;IILjava/lang/Object;)V
+     430: goto          488
+     433: aload         5
+     435: ifnull        468
+     438: aload_1
+     439: aload         5
+     441: lconst_0
+     442: lconst_0
+     443: fconst_0
+     444: aconst_null
+     445: getstatic     #1540               // Field androidx/compose/ui/graphics/ColorFilter.Companion:Landroidx/compose/ui/graphics/ColorFilter$Companion;
+     448: aload_2
+     449: invokevirtual #1543               // Method dev/chrisbanes/haze/HazeTint."getColor-0d7_KjU":()J
+     452: iconst_0
+     453: iconst_2
+     454: aconst_null
+     455: invokestatic  #1549               // Method androidx/compose/ui/graphics/ColorFilter$Companion."tint-xETnrds$default":(Landroidx/compose/ui/graphics/ColorFilter$Companion;JIILjava/lang/Object;)Landroidx/compose/ui/graphics/ColorFilter;
+     458: iconst_0
+     459: bipush        94
+     461: aconst_null
+     462: invokestatic  #1515               // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."drawRect-AsUm42w$default":(Landroidx/compose/ui/graphics/drawscope/DrawScope;Landroidx/compose/ui/graphics/Brush;JJFLandroidx/compose/ui/graphics/drawscope/DrawStyle;Landroidx/compose/ui/graphics/ColorFilter;IILjava/lang/Object;)V
+     465: goto          488
+     468: aload_1
+     469: aload_2
+     470: invokevirtual #1543               // Method dev/chrisbanes/haze/HazeTint."getColor-0d7_KjU":()J
+     473: lconst_0
+     474: lconst_0
+     475: fconst_0
+     476: aconst_null
+     477: aconst_null
+     478: aload_2
+     479: invokevirtual #1511               // Method dev/chrisbanes/haze/HazeTint."getBlendMode-0nO6VwU":()I
+     482: bipush        62
+     484: aconst_null
+     485: invokestatic  #1397               // InterfaceMethod androidx/compose/ui/graphics/drawscope/DrawScope."drawRect-n-J9OG0$default":(Landroidx/compose/ui/graphics/drawscope/DrawScope;JJJFLandroidx/compose/ui/graphics/drawscope/DrawStyle;Landroidx/compose/ui/graphics/ColorFilter;IILjava/lang/Object;)V
+     488: return
+    Exception table:
+       from    to  target type
+         203   262   277   any
+         277   279   277   any
+         153   297   307   any
+         307   309   307   any
+         118   322   337   any
+         337   339   337   any
+
+  private static final java.lang.String invalidateIfNeeded$lambda$60(boolean, dev.chrisbanes.haze.HazeEffectNode);
+    Code:
+       0: iload_0
+       1: getstatic     #1569               // Field dev/chrisbanes/haze/DirtyFields.INSTANCE:Ldev/chrisbanes/haze/DirtyFields;
+       4: aload_1
+       5: getfield      #53                 // Field dirtyTracker:I
+       8: invokevirtual #1573               // Method dev/chrisbanes/haze/DirtyFields."stringify-AI7STRk":(I)Ljava/lang/String;
+      11: invokedynamic #1578,  0           // InvokeDynamic #57:makeConcatWithConstants:(ZLjava/lang/String;)Ljava/lang/String;
+      16: areturn
+
+  public static final void access$updateEffect(dev.chrisbanes.haze.HazeEffectNode);
+    Code:
+       0: aload_0
+       1: invokespecial #699                // Method updateEffect:()V
+       4: return
+
+  static {};
+    Code:
+       0: new           #1585               // class dev/chrisbanes/haze/HazeEffectNode$Companion
+       3: dup
+       4: aconst_null
+       5: invokespecial #1588               // Method dev/chrisbanes/haze/HazeEffectNode$Companion."<init>":(Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+       8: putstatic     #1591               // Field Companion:Ldev/chrisbanes/haze/HazeEffectNode$Companion;
+      11: bipush        8
+      13: putstatic     #1594               // Field $stable:I
+      16: return
+}

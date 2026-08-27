@@ -12,7 +12,7 @@ class SupplyTabSortingTest {
             SupplyCategory("cat2", "Category 2", 1)
         )
         // Default order without saved preferences
-        val result = buildSupplyTabsList(categories, isAdminMode = true, savedTabOrder = emptyList())
+        val result = buildSupplyTabsList(categories, savedTabOrder = emptyList())
         val ids = result.map { it.id }
         assertEquals(listOf("updates", "needs_attention", "to_order", "cat1", "cat2"), ids)
     }
@@ -24,7 +24,7 @@ class SupplyTabSortingTest {
             SupplyCategory("cat2", "Category 2", 1)
         )
         val savedOrder = listOf("cat2", "updates", "to_order", "cat1", "needs_attention")
-        val result = buildSupplyTabsList(categories, isAdminMode = true, savedTabOrder = savedOrder)
+        val result = buildSupplyTabsList(categories, savedTabOrder = savedOrder)
         val ids = result.map { it.id }
         assertEquals(savedOrder, ids)
     }
@@ -37,9 +37,10 @@ class SupplyTabSortingTest {
         )
         // cat2 was deleted, cat3 is not in savedOrder
         val savedOrder = listOf("cat2", "updates", "needs_attention", "cat1")
-        val result = buildSupplyTabsList(categories, isAdminMode = false, savedTabOrder = savedOrder)
+        val result = buildSupplyTabsList(categories, savedTabOrder = savedOrder)
         val ids = result.map { it.id }
-        // cat2 should be filtered out because it is not available (not in categories list), and cat3 should be appended at the end
-        assertEquals(listOf("updates", "needs_attention", "cat1", "cat3"), ids)
+        // cat2 should be filtered out because it is not available (not in categories list); to_order and
+        // cat3 are not in savedOrder so both get appended at the end
+        assertEquals(listOf("updates", "needs_attention", "cat1", "to_order", "cat3"), ids)
     }
 }

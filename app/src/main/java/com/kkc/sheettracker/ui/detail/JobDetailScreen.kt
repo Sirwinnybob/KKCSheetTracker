@@ -114,6 +114,22 @@ internal fun jobDetailLoadState(hasResolved: Boolean, hasJob: Boolean): JobDetai
     else -> JobDetailLoadState.UNAVAILABLE
 }
 
+internal data class JobDetailLoadKey(
+    val jobFolderName: String,
+    val retryAttempt: Int
+)
+
+/**
+ * Detail data is independent of the jobs-list generation. Tracker events can refresh that list
+ * while a worker is viewing a sheet; using its generation as a Compose key cancelled this load
+ * before it could complete.
+ */
+internal fun jobDetailLoadKey(
+    jobFolderName: String,
+    retryAttempt: Int,
+    @Suppress("UNUSED_PARAMETER") scanGeneration: Long
+): JobDetailLoadKey = JobDetailLoadKey(jobFolderName, retryAttempt)
+
 private data class JobDetailLoadResult(
     val job: Job?,
     val hasResolved: Boolean
@@ -160,12 +176,15 @@ fun JobDetailScreen(
     val appFlags = remember(appStateFlags) { appStateFlags.snapshot() }
     val useAppState = appFlags.detailEnabled
     var loadAttempt by rememberSaveable(jobFolderName) { mutableStateOf(0) }
+    val jobLoadKey = jobDetailLoadKey(
+        jobFolderName = jobFolderName,
+        retryAttempt = loadAttempt,
+        scanGeneration = scanState.snapshot.generation
+    )
     val jobLoadResult by produceState(
         initialValue = JobDetailLoadResult(job = null, hasResolved = false),
         unifiedEngine,
-        scanState.snapshot.generation,
-        jobFolderName,
-        loadAttempt
+        jobLoadKey
     ) {
         val loadedJob = withContext(Dispatchers.IO) {
             unifiedEngine.getCncSnapshot(jobFolderName)?.job

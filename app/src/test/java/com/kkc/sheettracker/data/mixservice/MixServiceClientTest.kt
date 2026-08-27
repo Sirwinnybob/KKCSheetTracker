@@ -29,6 +29,14 @@ class MixServiceClientTest {
     private fun client() = MixServiceClient(server.url("/").toString())
 
     @Test
+    fun `mutation timeout exceeds the CNC operation deadline`() {
+        // The service allows WINXISO operations to run for 180 seconds.  A shorter
+        // tablet timeout causes a completed request to be reported as unreachable,
+        // inviting an operator to submit the same replacement again.
+        assertTrue(MixServiceClient.MUTATION_TIMEOUT_SECONDS > 180L)
+    }
+
+    @Test
     fun `isReachable true on 200`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
         assertTrue(client().isReachable())
@@ -126,6 +134,34 @@ class MixServiceClientTest {
         val result = client().getMix("648", "19mm Pre_Finished")
         check(result is MixLookupResult.Conflict)
         assertEquals(listOf("First", "Second"), result.names)
+    }
+
+    @Test
+    fun `getPgmConflicts parses conflicts and requests job scope with programs joined by commas`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"conflicts":[{"pgm":"R1.pgm","mixName":"OtherMix"}]}"""
+            )
+        )
+        val result = client().getPgmConflicts("648", "19mm Pre_Finished", listOf("R1.pgm", "R2.pgm"), exclude = "ThisMix")
+        assertEquals(listOf(DuplicateMixWarning("R1.pgm", "OtherMix")), result)
+        val recorded = server.takeRequest()
+        assertTrue(recorded.path?.contains("programs=R1.pgm%2CR2.pgm") == true)
+        assertTrue(recorded.path?.contains("scope=job") == true)
+        assertTrue(recorded.path?.contains("exclude=ThisMix") == true)
+    }
+
+    @Test
+    fun `getPgmConflicts returns empty list without a request when programs is empty`() = runBlocking {
+        val result = client().getPgmConflicts("648", "19mm Pre_Finished", emptyList())
+        assertEquals(emptyList<DuplicateMixWarning>(), result)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `getPgmConflicts returns null on failure so callers can fall back`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(500))
+        assertNull(client().getPgmConflicts("648", "19mm Pre_Finished", listOf("R1.pgm")))
     }
 
     @Test

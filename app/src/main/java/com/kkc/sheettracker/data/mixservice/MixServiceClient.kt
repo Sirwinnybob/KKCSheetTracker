@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data.mixservice
 
+import android.util.Log
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -57,6 +58,8 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     private data class ErrorEnvelope(val ok: Boolean = false, val code: String? = null, val error: String? = null)
     private data class MixLookupEnvelope(val ok: Boolean = false, val mix: MixDefinition? = null, val status: String? = null)
     private data class MixConflictEnvelope(val ok: Boolean = false, val code: String? = null, val names: List<String> = emptyList())
+    private data class PgmConflict(val pgm: String = "", val mixName: String = "")
+    private data class PgmConflictsEnvelope(val ok: Boolean = false, val conflicts: List<PgmConflict> = emptyList())
     // A history-sync-failure error body's own "mix" field is the *whole* completed-mutation
     // envelope (i.e. another {ok, mix, status}), not a bare MixDefinition -- the server nests it
     // because it's literally the same result object the 200 success path would have returned.
@@ -69,9 +72,20 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     )
 
     companion object {
+        private const val TAG = "MixServiceClient"
+        // Service-side WINXISO work has a 180-second operation deadline.  Leave a small
+        // response margin so a completed compile is not misreported as an unreachable service.
+        internal const val MUTATION_TIMEOUT_SECONDS = 195L
+
         private val client = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
+            .build()
+
+        private val mutationClient = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(MUTATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(MUTATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
     }
 
@@ -144,6 +158,39 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         }.getOrDefault(MixLookupResult.NetworkError)
     }
 
+    // Job-scoped by default: a .pgm filename is unique across the whole job, not per-material,
+    // so a mix belonging to a different material in the same job still counts as a real
+    // conflict. Returns null (not empty) on any failure so callers can fall back rather than
+    // silently reporting "no conflicts" when the check itself didn't run.
+    suspend fun getPgmConflicts(
+        job: String,
+        material: String,
+        programs: List<String>,
+        exclude: String? = null,
+        scope: String = "job"
+    ): List<DuplicateMixWarning>? = withContext(Dispatchers.IO) {
+        if (programs.isEmpty()) return@withContext emptyList()
+        val urlBuilder = "$root/jobs/".toHttpUrl().newBuilder()
+            .addPathSegment(job)
+            .addPathSegment("materials")
+            .addPathSegment(material)
+            .addPathSegment("mixes")
+            .addPathSegment("pgm-conflicts")
+            .addQueryParameter("programs", programs.joinToString(","))
+            .addQueryParameter("scope", scope)
+        if (exclude != null) urlBuilder.addQueryParameter("exclude", exclude)
+        val request = Request.Builder().url(urlBuilder.build()).get().build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val body = response.body?.string() ?: return@use null
+                gson.fromJson(body, PgmConflictsEnvelope::class.java)?.conflicts?.map {
+                    DuplicateMixWarning(it.pgm, it.mixName)
+                }
+            }
+        }.getOrNull()
+    }
+
     suspend fun createMix(
         job: String,
         material: String,
@@ -184,7 +231,7 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         val body = gson.toJson(payload).toRequestBody(jsonMediaType)
         val request = Request.Builder().url(url).method(method, body).build()
         runCatching {
-            client.newCall(request).execute().use { response ->
+            mutationClient.newCall(request).execute().use { response ->
                 when (response.code) {
                     200 -> {
                         val responseBody = response.body?.string() ?: return@use MixWriteResult.NetworkError
@@ -207,7 +254,10 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
                     else -> MixWriteResult.NetworkError
                 }
             }
-        }.getOrDefault(MixWriteResult.NetworkError)
+        }.getOrElse { error ->
+            Log.w(TAG, "mix mutation request failed method=$method job=$job material=$material name=$name", error)
+            MixWriteResult.NetworkError
+        }
     }
 
     private fun errorMessage(response: Response): String =
@@ -259,7 +309,7 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         val body = gson.toJson(PgmEditBatchRequest(requestId, files)).toRequestBody(jsonMediaType)
         val request = Request.Builder().url(url).post(body).build()
         runCatching {
-            client.newCall(request).execute().use { response ->
+            mutationClient.newCall(request).execute().use { response ->
                 when (response.code) {
                     200 -> {
                         val responseBody = response.body?.string() ?: return@use PgmEditSubmitResult.NetworkError
@@ -272,6 +322,9 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
                     else -> PgmEditSubmitResult.NetworkError
                 }
             }
-        }.getOrDefault(PgmEditSubmitResult.NetworkError)
+        }.getOrElse { error ->
+            Log.w(TAG, "PGM edit request failed job=$job material=$material requestId=$requestId", error)
+            PgmEditSubmitResult.NetworkError
+        }
     }
 }
