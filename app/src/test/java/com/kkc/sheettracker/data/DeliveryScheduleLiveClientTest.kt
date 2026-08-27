@@ -116,13 +116,14 @@ class DeliveryScheduleLiveClientTest {
             fakeSocket,
             """{"type":"schedule","revision":1,"schedule":{"schemaVersion":1,"slots":{}}}"""
         )
-        assertEquals(1, schedules.size)
+        assertTrue(schedules.isEmpty())
         assertTrue(connectionStates.isEmpty())
 
         capturedListener.get().onMessage(
             fakeSocket,
             """{"type":"snapshot","revision":2,"schedule":{"schemaVersion":1,"slots":{}}}"""
         )
+        assertEquals(1, schedules.size)
         assertEquals(listOf(true), connectionStates)
         client.stop()
     }
@@ -169,6 +170,31 @@ class DeliveryScheduleLiveClientTest {
         waitUntil { capturedListener.get() != null }
         capturedListener.get().onMessage(fakeSocket, """{"type":"not_running"}""")
 
+        assertEquals(listOf(false), connectionStates)
+        client.stop()
+    }
+
+    @Test
+    fun `error reports disconnected without delivering a schedule`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val capturedListener = AtomicReference<WebSocketListener>()
+        val schedules = CopyOnWriteArrayList<DeliverySchedule>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val client = client(
+            fakeSocket = fakeSocket,
+            capturedListener = capturedListener,
+            onSchedule = { schedules.add(it) },
+            onConnectionState = { connectionStates.add(it) }
+        )
+
+        client.start()
+        waitUntil { capturedListener.get() != null }
+        capturedListener.get().onMessage(
+            fakeSocket,
+            """{"type":"error","message":"expected a hello message first","schedule":{"schemaVersion":1,"slots":{}}}"""
+        )
+
+        assertTrue(schedules.isEmpty())
         assertEquals(listOf(false), connectionStates)
         client.stop()
     }
@@ -302,6 +328,92 @@ class DeliveryScheduleLiveClientTest {
 
         Thread.sleep(400L)
         assertEquals(1, connectAttempts.get())
+    }
+
+    @Test
+    fun `ignores stale callbacks from an old socket after a newer socket exists`() = runBlocking {
+        val sockets = listOf(mock<WebSocket>(), mock<WebSocket>())
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val schedules = CopyOnWriteArrayList<DeliverySchedule>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val connectAttempts = AtomicInteger()
+        val client = client(
+            fakeSocket = sockets[0],
+            onSchedule = { schedules.add(it) },
+            onConnectionState = { connectionStates.add(it) },
+            reconnectDelayMs = { 0L },
+            webSocketFactory = { _, listener ->
+                val index = connectAttempts.getAndIncrement()
+                listeners.add(listener)
+                sockets[index.coerceAtMost(sockets.lastIndex)]
+            }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onFailure(sockets[0], RuntimeException("first"), null)
+        waitUntil { listeners.size == 2 }
+
+        val staleSnapshot =
+            """{"type":"snapshot","revision":1,"schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"588"}]}}}}"""
+        listeners[0].onMessage(sockets[0], staleSnapshot)
+        listeners[0].onClosed(sockets[0], 1001, "stale")
+        listeners[0].onFailure(sockets[0], RuntimeException("stale"), null)
+
+        Thread.sleep(200L)
+        assertTrue(schedules.isEmpty())
+        assertEquals(listOf(false), connectionStates)
+        assertEquals(2, listeners.size)
+        client.stop()
+    }
+
+    @Test
+    fun `concurrent starts create only one socket`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val client = client(
+            fakeSocket = fakeSocket,
+            webSocketFactory = { _, listener ->
+                listeners.add(listener)
+                fakeSocket
+            }
+        )
+        val starts = (1..8).map { Thread { client.start() } }
+
+        starts.forEach(Thread::start)
+        starts.forEach(Thread::join)
+        waitUntil { listeners.size == 1 }
+
+        Thread.sleep(100L)
+        assertEquals(1, listeners.size)
+        client.stop()
+    }
+
+    @Test
+    fun `rapid stop and start suppresses stale reconnect from prior lifecycle`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val connectAttempts = AtomicInteger()
+        val client = client(
+            fakeSocket = fakeSocket,
+            reconnectDelayMs = { 200L },
+            webSocketFactory = { _, listener ->
+                connectAttempts.incrementAndGet()
+                listeners.add(listener)
+                fakeSocket
+            }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onFailure(fakeSocket, RuntimeException("old lifecycle"), null)
+        client.stop()
+        client.start()
+        waitUntil { listeners.size == 2 }
+
+        Thread.sleep(400L)
+        assertEquals(2, connectAttempts.get())
+        client.stop()
     }
 
     private fun client(
