@@ -3,6 +3,8 @@ package com.kkc.sheettracker.data
 import com.kkc.sheettracker.data.models.DeliveryJob
 import com.kkc.sheettracker.data.models.DeliverySchedule
 import com.kkc.sheettracker.data.models.DeliverySlot
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -118,5 +120,39 @@ class DeliveryScheduleStateStoreTest {
 
         assertTrue(store.liveConnected)
         assertEquals("100", store.schedule.value.slot("friday", "am").jobs.single().jobNumber)
+    }
+
+    /**
+     * Regression test for the atomicity fix: a slow [DeliveryScheduleStateStore.refreshFallback]
+     * that is already mid-flight when a live update lands must not clobber the live schedule once
+     * it finally commits, and `liveConnected` must never disagree with which payload is showing.
+     */
+    @Test
+    fun refreshFallback_doesNotOverwriteScheduleFromConcurrentApplyLive() {
+        val fallbackThreadStartedLoading = CountDownLatch(1)
+        val liveUpdateApplied = CountDownLatch(1)
+        val fallback = scheduleWith("100")
+
+        // Only the background refresh thread's fallbackLoader() call blocks (simulating slow
+        // file I/O); the constructor's own eager load happens on the test thread and returns
+        // immediately.
+        val store = DeliveryScheduleStateStore {
+            if (Thread.currentThread().name == "fallback-refresh-thread") {
+                fallbackThreadStartedLoading.countDown()
+                assertTrue(liveUpdateApplied.await(5, TimeUnit.SECONDS))
+            }
+            fallback
+        }
+
+        val fallbackThread = Thread({ store.refreshFallback() }, "fallback-refresh-thread")
+        fallbackThread.start()
+
+        assertTrue(fallbackThreadStartedLoading.await(5, TimeUnit.SECONDS))
+        store.applyLive(scheduleWith("live"))
+        liveUpdateApplied.countDown()
+        fallbackThread.join(5000)
+
+        assertEquals("live", store.schedule.value.slot("friday", "am").jobs.single().jobNumber)
+        assertTrue(store.liveConnected)
     }
 }
