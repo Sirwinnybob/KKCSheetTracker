@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.data
 
+import java.util.concurrent.atomic.AtomicLong
+
 /**
  * Guards asynchronous delivery-schedule lifecycle work against a stale client/effect instance.
  *
@@ -58,6 +60,13 @@ internal class DeliveryScheduleLifecycleGate {
             lifecycleToken == currentLifecycleToken
     }
 
+    /** Runs [action] only if a callback still belongs to the current client/effect source. */
+    fun runIfSourceCurrent(sourceToken: Long, action: () -> Unit): Boolean = synchronized(lock) {
+        if (sourceToken == 0L || sourceToken != currentSourceToken) return false
+        action()
+        true
+    }
+
     /**
      * Runs [action] while holding the source/lifecycle guard, preventing disposal or stop from
      * interleaving between the final check and a client start.
@@ -78,4 +87,21 @@ internal class DeliveryScheduleLifecycleGate {
     fun isCleanupCurrent(cleanupToken: Long): Boolean = synchronized(lock) {
         cleanupToken != 0L && cleanupToken == currentCleanupToken
     }
+}
+
+/**
+ * Identity captured by one DeliveryScheduleLiveClient instance. A replacement client gets a new
+ * binding, so a callback that snapshots this token cannot be mistaken for the replacement source.
+ */
+internal class DeliveryScheduleClientBinding {
+    private val boundSourceToken = AtomicLong(0L)
+
+    fun bind(sourceToken: Long) {
+        require(sourceToken != 0L) { "source token must be non-zero" }
+        check(boundSourceToken.compareAndSet(0L, sourceToken)) {
+            "delivery client binding already claimed"
+        }
+    }
+
+    fun sourceToken(): Long = boundSourceToken.get()
 }

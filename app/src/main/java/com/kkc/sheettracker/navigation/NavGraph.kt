@@ -101,6 +101,7 @@ import com.kkc.sheettracker.data.DeliveryScheduleRepository
 import com.kkc.sheettracker.data.DeliveryScheduleLiveClient
 import com.kkc.sheettracker.data.DeliveryScheduleStateStore
 import com.kkc.sheettracker.data.DeliveryScheduleLifecycleGate
+import com.kkc.sheettracker.data.DeliveryScheduleClientBinding
 import com.kkc.sheettracker.data.TrackerChangeMonitor
 import com.kkc.sheettracker.data.StaticCachePoller
 import com.kkc.sheettracker.data.models.HardwoodDocType
@@ -354,18 +355,50 @@ fun AppNavigation(
         )
     }
     val deliverySchedule by deliveryScheduleStore.schedule.collectAsState()
-    val deliveryScheduleClient = remember(liveIndexAdminSyncConfig, deliveryScheduleStore, tabletId) {
+    val deliveryScheduleLifecycleGate = remember { DeliveryScheduleLifecycleGate() }
+    val deliveryScheduleClientBinding = remember(
+        lifecycleOwner,
+        liveIndexAdminSyncConfig,
+        deliveryScheduleStore,
+        tabletId
+    ) {
+        DeliveryScheduleClientBinding()
+    }
+    val deliveryScheduleClient = remember(
+        lifecycleOwner,
+        liveIndexAdminSyncConfig,
+        deliveryScheduleStore,
+        tabletId,
+        deliveryScheduleClientBinding
+    ) {
         DeliveryScheduleLiveClient(
             config = liveIndexAdminSyncConfig,
             tabletId = tabletId,
-            onSchedule = deliveryScheduleStore::applyLive,
-            onConnectionState = deliveryScheduleStore::setLiveConnected
+            onSchedule = { schedule ->
+                deliveryScheduleLifecycleGate.runIfSourceCurrent(
+                    deliveryScheduleClientBinding.sourceToken()
+                ) {
+                    deliveryScheduleStore.applyLive(schedule)
+                }
+            },
+            onConnectionState = { connected ->
+                deliveryScheduleLifecycleGate.runIfSourceCurrent(
+                    deliveryScheduleClientBinding.sourceToken()
+                ) {
+                    deliveryScheduleStore.setLiveConnected(connected)
+                }
+            }
         )
     }
-    val deliveryScheduleLifecycleGate = remember { DeliveryScheduleLifecycleGate() }
     val deliveryScheduleScope = rememberCoroutineScope()
-    DisposableEffect(lifecycleOwner, deliveryScheduleClient, deliveryScheduleStore) {
+    DisposableEffect(
+        lifecycleOwner,
+        deliveryScheduleClient,
+        deliveryScheduleClientBinding,
+        deliveryScheduleStore
+    ) {
         val sourceToken = deliveryScheduleLifecycleGate.bindSource()
+        deliveryScheduleClientBinding.bind(sourceToken)
         var lifecycleJob: Job? = null
 
         fun cancelLifecycleJob() {
