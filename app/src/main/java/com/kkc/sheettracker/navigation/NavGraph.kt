@@ -98,9 +98,12 @@ import com.kkc.sheettracker.data.SpecialtyScanCoordinator
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.TabletSpecialtyItemsStore
 import com.kkc.sheettracker.data.DeliveryScheduleRepository
+import com.kkc.sheettracker.data.DeliveryScheduleLiveClient
+import com.kkc.sheettracker.data.DeliveryScheduleStateStore
 import com.kkc.sheettracker.data.TrackerChangeMonitor
 import com.kkc.sheettracker.data.StaticCachePoller
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.DeliverySchedule
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.LiveIndexClient
 import com.kkc.sheettracker.data.unified.LiveAwareUnifiedMetadataEngine
@@ -338,6 +341,54 @@ fun AppNavigation(
         }
     }
 
+    val deliveryScheduleRepository = remember(basePath) {
+        DeliveryScheduleRepository(File(basePath))
+    }
+    val deliveryScheduleStore = remember(deliveryScheduleRepository) {
+        DeliveryScheduleStateStore(
+            fallbackLoader = deliveryScheduleRepository::fetchSchedule,
+            initialSchedule = DeliverySchedule()
+        )
+    }
+    val deliverySchedule by deliveryScheduleStore.schedule.collectAsState()
+    val deliveryScheduleClient = remember(liveIndexAdminSyncConfig, deliveryScheduleStore, tabletId) {
+        DeliveryScheduleLiveClient(
+            config = liveIndexAdminSyncConfig,
+            tabletId = tabletId,
+            onSchedule = deliveryScheduleStore::applyLive,
+            onConnectionState = deliveryScheduleStore::setLiveConnected
+        )
+    }
+    val deliveryScheduleScope = rememberCoroutineScope()
+    DisposableEffect(lifecycleOwner, deliveryScheduleClient, deliveryScheduleStore) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> deliveryScheduleScope.launch(Dispatchers.IO) {
+                    deliveryScheduleStore.refreshFallback()
+                    deliveryScheduleClient.start()
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    deliveryScheduleClient.stop()
+                    deliveryScheduleScope.launch(Dispatchers.IO) {
+                        deliveryScheduleStore.setLiveConnected(false)
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            deliveryScheduleClient.stop()
+        }
+    }
+    LaunchedEffect(watcherRefreshEpoch, deliveryScheduleStore) {
+        if (watcherRefreshEpoch <= 0L) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            deliveryScheduleStore.refreshFallback()
+        }
+    }
+
     val hardwoodsRepository = remember(basePath) { HardwoodsRepository(File(basePath)) }
     val coroutineScope = rememberCoroutineScope()
     DisposableEffect(progressStore, hardwoodsRepository, sharedHardwoodsProgressStore, jobRepository) {
@@ -399,6 +450,8 @@ fun AppNavigation(
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
                 watcherRefreshEpoch = watcherRefreshEpoch,
+                deliverySchedule = deliverySchedule,
+                onDeliveryScheduleApplied = deliveryScheduleStore::applyImmediate,
                 activeJobFolderName = activeJobFolderName,
                 supplySubscriptionManager = supplySubscriptionManager,
                 themeCatalog = themeCatalog,
@@ -443,6 +496,8 @@ fun AppNavigation(
                 onSyncthingCheckNow = onSyncthingCheckNow,
                 onSyncthingStartNow = onSyncthingStartNow,
                 watcherRefreshEpoch = watcherRefreshEpoch,
+                deliverySchedule = deliverySchedule,
+                onDeliveryScheduleApplied = deliveryScheduleStore::applyImmediate,
                 supplySubscriptionManager = supplySubscriptionManager,
                 themeCatalog = themeCatalog,
                 onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
@@ -490,6 +545,8 @@ private fun MultiBackStackNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     watcherRefreshEpoch: Long,
+    deliverySchedule: DeliverySchedule,
+    onDeliveryScheduleApplied: (DeliverySchedule) -> Unit,
     activeJobFolderName: MutableStateFlow<String?>,
     supplySubscriptionManager: SupplySubscriptionManager,
     themeCatalog: KKCThemeCatalog,
@@ -536,9 +593,6 @@ private fun MultiBackStackNavigation(
     }
     val sheetRipProgressStore = remember(basePath) {
         SheetRipProgressStore(File(basePath))
-    }
-    val deliveryScheduleRepository = remember(basePath) {
-        DeliveryScheduleRepository(File(basePath))
     }
     val tabletSpecialtyItemsStore = remember(basePath, tabletId) {
         TabletSpecialtyItemsStore(File(basePath), tabletId)
@@ -832,7 +886,8 @@ private fun MultiBackStackNavigation(
                         isDebugBuild = isDebugBuild,
                         isViewOnlyMode = isViewOnlyMode,
                         clockInState = clockInState,
-                        deliveryScheduleRepository = deliveryScheduleRepository,
+                        deliverySchedule = deliverySchedule,
+                        onDeliveryScheduleApplied = onDeliveryScheduleApplied,
                         assemblyViewerDefaultsStore = assemblyViewerDefaultsStore,
                         specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                         pinnedJobsStore = pinnedJobsStore,
@@ -1211,7 +1266,8 @@ private fun JobsTabHost(
     isDebugBuild: Boolean,
     isViewOnlyMode: Boolean,
     clockInState: ClockInState,
-    deliveryScheduleRepository: DeliveryScheduleRepository,
+    deliverySchedule: DeliverySchedule,
+    onDeliveryScheduleApplied: (DeliverySchedule) -> Unit,
     assemblyViewerDefaultsStore: AssemblyViewerDefaultsStore,
     specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
     pinnedJobsStore: PinnedJobsStore,
@@ -1343,7 +1399,8 @@ private fun JobsTabHost(
             com.kkc.sheettracker.ui.jobs.UnifiedJobsScreen(
                 spec = spec,
                 jobRepository = jobRepository,
-                deliveryScheduleRepository = deliveryScheduleRepository,
+                deliverySchedule = deliverySchedule,
+                onDeliveryScheduleApplied = onDeliveryScheduleApplied,
                 basePath = basePath,
                 tabletId = tabletId,
                 isDebugBuild = isDebugBuild,
@@ -2217,6 +2274,8 @@ private fun LegacySingleStackNavigation(
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
     watcherRefreshEpoch: Long,
+    deliverySchedule: DeliverySchedule,
+    onDeliveryScheduleApplied: (DeliverySchedule) -> Unit,
     supplySubscriptionManager: SupplySubscriptionManager,
     themeCatalog: KKCThemeCatalog,
     onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
@@ -2250,9 +2309,6 @@ private fun LegacySingleStackNavigation(
     }
     val sheetRipProgressStore = remember(basePath) {
         SheetRipProgressStore(File(basePath))
-    }
-    val deliveryScheduleRepository = remember(basePath) {
-        DeliveryScheduleRepository(File(basePath))
     }
     val tabletSpecialtyItemsStore = remember(basePath, tabletId) {
         TabletSpecialtyItemsStore(File(basePath), tabletId)
@@ -2651,7 +2707,8 @@ private fun LegacySingleStackNavigation(
                         com.kkc.sheettracker.ui.jobs.UnifiedJobsScreen(
                             spec = spec,
                             jobRepository = jobRepository,
-                            deliveryScheduleRepository = deliveryScheduleRepository,
+                            deliverySchedule = deliverySchedule,
+                            onDeliveryScheduleApplied = onDeliveryScheduleApplied,
                             basePath = basePath,
                             tabletId = tabletId,
                             isDebugBuild = isDebugBuild,

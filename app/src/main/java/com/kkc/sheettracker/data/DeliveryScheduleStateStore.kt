@@ -15,27 +15,28 @@ import kotlinx.coroutines.flow.asStateFlow
  * ### Threading
  * `fallbackLoader` performs blocking I/O in production (typically
  * `DeliveryScheduleRepository.fetchSchedule()`, which reads a Syncthing-replicated JSON file from
- * disk and documents "Call on Dispatchers.IO"). This class invokes `fallbackLoader` synchronously,
- * on whichever thread calls it, both in the constructor and in [refreshFallback]. Both must
- * therefore be invoked off the main thread (e.g. from a `Dispatchers.IO`-scoped coroutine) —
- * mirroring how `LiveIndexClient` scopes its own I/O to `Dispatchers.IO` and lets callbacks land
- * wherever that coroutine runs.
+ * disk and documents "Call on Dispatchers.IO"). The loader-only constructor invokes
+ * `fallbackLoader` synchronously, while the explicit `initialSchedule` constructor seam avoids
+ * that eager read for UI-owned construction. [refreshFallback] always invokes the loader
+ * synchronously on its caller's thread, so callers must invoke it off the main thread (for
+ * example from a `Dispatchers.IO`-scoped coroutine).
  *
  * ### Concurrency
  * [schedule] and [liveConnected] are arbitrated by two concurrent update sources: a live
  * WebSocket client calling [applyLive]/[setLiveConnected] from a background IO-dispatcher
- * coroutine, and a periodic file-fallback refresh ([refreshFallback]) called from Compose on the
- * main thread. Every mutation that touches both fields is guarded by a single lock so a
+ * coroutine, and a periodic file-fallback refresh ([refreshFallback]) called from an I/O
+ * coroutine. Every mutation that touches both fields is guarded by a single lock so a
  * [refreshFallback] call can never clobber a schedule that a concurrent [applyLive] has already
  * delivered while still reporting `liveConnected == true`.
  */
 class DeliveryScheduleStateStore(
+    initialSchedule: DeliverySchedule? = null,
     private val fallbackLoader: () -> DeliverySchedule
 ) {
     /** Guards every combined read/write of [_schedule] and [liveConnected] so they change atomically together. */
     private val lock = Any()
 
-    private val _schedule = MutableStateFlow(fallbackLoader())
+    private val _schedule = MutableStateFlow(initialSchedule ?: fallbackLoader())
     val schedule: StateFlow<DeliverySchedule> = _schedule.asStateFlow()
 
     @Volatile

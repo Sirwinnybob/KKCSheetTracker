@@ -31,6 +31,21 @@ class DeliveryScheduleStateStoreTest {
     }
 
     @Test
+    fun explicitInitialSchedule_doesNotInvokeFallbackLoaderDuringConstruction() {
+        var fallbackLoads = 0
+        val store = DeliveryScheduleStateStore(
+            fallbackLoader = {
+                fallbackLoads += 1
+                scheduleWith("fallback")
+            },
+            initialSchedule = scheduleWith("initial")
+        )
+
+        assertEquals(0, fallbackLoads)
+        assertEquals("initial", store.schedule.value.slot("friday", "am").jobs.single().jobNumber)
+    }
+
+    @Test
     fun applyLive_replacesScheduleAndSetsConnected() {
         var fallback = scheduleWith("100")
         val store = DeliveryScheduleStateStore { fallback }
