@@ -362,7 +362,7 @@ fun AppNavigation(
         deliveryScheduleStore,
         tabletId
     ) {
-        DeliveryScheduleClientBinding()
+        DeliveryScheduleClientBinding(deliveryScheduleLifecycleGate)
     }
     val deliveryScheduleClient = remember(
         lifecycleOwner,

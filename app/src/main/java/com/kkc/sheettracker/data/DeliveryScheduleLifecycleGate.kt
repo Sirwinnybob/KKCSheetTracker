@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.data.models.DeliverySchedule
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -93,7 +94,9 @@ internal class DeliveryScheduleLifecycleGate {
  * Identity captured by one DeliveryScheduleLiveClient instance. A replacement client gets a new
  * binding, so a callback that snapshots this token cannot be mistaken for the replacement source.
  */
-internal class DeliveryScheduleClientBinding {
+internal class DeliveryScheduleClientBinding(
+    private val lifecycleGate: DeliveryScheduleLifecycleGate
+) {
     private val boundSourceToken = AtomicLong(0L)
 
     fun bind(sourceToken: Long) {
@@ -103,5 +106,21 @@ internal class DeliveryScheduleClientBinding {
         }
     }
 
-    fun sourceToken(): Long = boundSourceToken.get()
+    /**
+     * Produces the exact schedule callback supplied to this binding's live client. The lifecycle
+     * gate and the store write run under the same lock, so source replacement cannot interleave
+     * after the current-source check but before the shared store is mutated.
+     */
+    fun scheduleCallback(store: DeliveryScheduleStateStore): (DeliverySchedule) -> Unit = { schedule ->
+        lifecycleGate.runIfSourceCurrent(boundSourceToken.get()) {
+            store.applyLive(schedule)
+        }
+    }
+
+    /** Produces the exact connection callback supplied to this binding's live client. */
+    fun connectionCallback(store: DeliveryScheduleStateStore): (Boolean) -> Unit = { connected ->
+        lifecycleGate.runIfSourceCurrent(boundSourceToken.get()) {
+            store.setLiveConnected(connected)
+        }
+    }
 }

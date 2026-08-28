@@ -23,40 +23,42 @@ class UnifiedJobsScreenTest {
     }
 
     @Test
-    fun deliverySchedulePresentation_preservesSuppliedFridayAmJobForBannerAndDialog() {
+    fun deliveryScheduleBinding_forwardsSuppliedFridayAmJobToBannerAndDialogInputs() {
         val supplied = DeliverySchedule(
             slots = mapOf(
                 "friday_am" to DeliverySlot(jobs = listOf(DeliveryJob(jobNumber = "FRI-123")))
             )
         )
 
-        val presentation = deliverySchedulePresentationForJobsScreen(supplied)
+        val binding = UnifiedJobsDeliveryScheduleBinding(supplied) {}
 
-        assertSame(supplied, presentation.bannerSchedule)
-        assertSame(supplied, presentation.dialogSchedule)
-        assertEquals("FRI-123", presentation.bannerSchedule.slot("friday", "am").jobs.single().jobNumber)
-        assertEquals("FRI-123", presentation.dialogSchedule.slot("friday", "am").jobs.single().jobNumber)
+        assertSame(supplied, binding.bannerSchedule)
+        assertSame(supplied, binding.dialogSchedule)
+        assertEquals("FRI-123", binding.bannerSchedule.slot("friday", "am").jobs.single().jobNumber)
+        assertEquals("FRI-123", binding.dialogSchedule.slot("friday", "am").jobs.single().jobNumber)
     }
 
     @Test
-    fun applyCanonicalDeliverySchedule_forwardsImmediateAdminResponseToOwner() {
+    fun deliveryScheduleBinding_forwardsCanonicalDirectEditResponseToOwner() {
         val canonical = DeliverySchedule(
             slots = mapOf(
                 "friday_am" to DeliverySlot(jobs = listOf(DeliveryJob(jobNumber = "CANONICAL-456")))
             )
         )
         var received: DeliverySchedule? = null
+        val binding = UnifiedJobsDeliveryScheduleBinding(canonical) { received = it }
 
-        assertTrue(applyCanonicalDeliverySchedule(canonical) { received = it })
+        assertTrue(binding.applyCanonicalResponse(canonical))
 
         assertSame(canonical, received)
     }
 
     @Test
-    fun applyCanonicalDeliverySchedule_doesNotNotifyOwnerWhenAdminResponseMissing() {
+    fun deliveryScheduleBinding_doesNotNotifyOwnerWhenDirectEditResponseMissing() {
         var callbackCount = 0
+        val binding = UnifiedJobsDeliveryScheduleBinding(DeliverySchedule()) { callbackCount += 1 }
 
-        assertFalse(applyCanonicalDeliverySchedule(null) { callbackCount += 1 })
+        assertFalse(binding.applyCanonicalResponse(null))
 
         assertEquals(0, callbackCount)
     }

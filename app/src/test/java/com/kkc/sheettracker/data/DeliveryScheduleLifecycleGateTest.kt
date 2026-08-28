@@ -51,21 +51,26 @@ class DeliveryScheduleLifecycleGateTest {
     }
 
     @Test
-    fun callbackCapturedBeforeReplacementCannotApplyToSharedStore() {
+    fun staleClientScheduleAndConnectionCallbacksCannotMutateReplacementStore() {
         val gate = DeliveryScheduleLifecycleGate()
-        val binding = DeliveryScheduleClientBinding()
+        val oldBinding = DeliveryScheduleClientBinding(gate)
         val store = DeliveryScheduleStateStore(
             initialSchedule = scheduleWith("replacement"),
             fallbackLoader = { scheduleWith("fallback") }
         )
         val oldSource = gate.bindSource()
-        binding.bind(oldSource)
-        val callbackSource = binding.sourceToken()
+        oldBinding.bind(oldSource)
+        val oldScheduleCallback = oldBinding.scheduleCallback(store)
+        val oldConnectionCallback = oldBinding.connectionCallback(store)
 
         gate.dispose(oldSource)
-        gate.bindSource()
+        val replacementBinding = DeliveryScheduleClientBinding(gate)
+        replacementBinding.bind(gate.bindSource())
+        store.markLiveDisconnected()
 
-        assertFalse(gate.runIfSourceCurrent(callbackSource) { store.applyLive(scheduleWith("stale")) })
+        oldScheduleCallback(scheduleWith("stale"))
+        oldConnectionCallback(true)
+
         assertEquals(
             "replacement",
             store.schedule.value.slot("friday", "am").jobs.single().jobNumber
