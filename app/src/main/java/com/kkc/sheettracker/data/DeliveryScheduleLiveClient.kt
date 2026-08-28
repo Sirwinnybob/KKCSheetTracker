@@ -178,6 +178,7 @@ class DeliveryScheduleLiveClient(
         private val listenerGeneration: Long
     ) : WebSocketListener() {
         private var receivedInitialSnapshot = false
+        private var lastRevision: Long? = null
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             if (!isCurrentSocket(listenerGeneration, webSocket)) return
@@ -193,14 +194,31 @@ class DeliveryScheduleLiveClient(
 
             when (envelope.type) {
                 "snapshot", "schedule" -> {
+                    val revision = envelope.revision
+                    if (revision == null || revision < 0L) {
+                        Log.d(TAG, "Ignoring ${envelope.type} frame without a valid revision")
+                        return
+                    }
+                    if (envelope.type == "snapshot" && receivedInitialSnapshot) {
+                        Log.d(TAG, "Ignoring duplicate snapshot in an established session")
+                        return
+                    }
                     if (envelope.type == "schedule" && !receivedInitialSnapshot) {
                         Log.d(TAG, "Ignoring schedule update before initial snapshot")
+                        return
+                    }
+                    if (envelope.type == "schedule" && revision <= (lastRevision ?: -1L)) {
+                        Log.d(
+                            TAG,
+                            "Ignoring stale schedule revision=$revision lastRevision=$lastRevision"
+                        )
                         return
                     }
                     val scheduleJson = envelope.schedule ?: return
                     val schedule = parseValidSchedule(scheduleJson) ?: return
                     if (!isCurrentSocket(listenerGeneration, webSocket)) return
-                    Log.d(TAG, "Received ${envelope.type} frame: revision=${envelope.revision}")
+                    Log.d(TAG, "Received ${envelope.type} frame: revision=$revision")
+                    lastRevision = revision
                     onSchedule(schedule)
                     if (envelope.type == "snapshot") {
                         synchronized(lifecycleLock) {

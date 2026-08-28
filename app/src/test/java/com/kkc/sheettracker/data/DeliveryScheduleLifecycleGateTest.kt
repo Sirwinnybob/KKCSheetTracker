@@ -77,4 +77,34 @@ class DeliveryScheduleLifecycleGateTest {
         )
         assertFalse(store.liveConnected)
     }
+
+    @Test
+    fun capturedCallbacksAfterStopCannotRestoreLiveStateOrReplaceFallback() {
+        val gate = DeliveryScheduleLifecycleGate()
+        val binding = DeliveryScheduleClientBinding(gate)
+        val store = DeliveryScheduleStateStore(
+            initialSchedule = scheduleWith("initial"),
+            fallbackLoader = { scheduleWith("fallback") }
+        )
+        val source = gate.bindSource()
+        binding.bind(source)
+        val scheduleCallback = binding.scheduleCallback(store)
+        val connectionCallback = binding.connectionCallback(store)
+        gate.begin(source)
+
+        scheduleCallback(scheduleWith("live"))
+        assertTrue(store.liveConnected)
+
+        gate.stop(source)
+        store.markLiveDisconnected()
+        store.refreshFallback()
+        scheduleCallback(scheduleWith("stale-after-stop"))
+        connectionCallback(true)
+
+        assertEquals(
+            "fallback",
+            store.schedule.value.slot("friday", "am").jobs.single().jobNumber
+        )
+        assertFalse(store.liveConnected)
+    }
 }

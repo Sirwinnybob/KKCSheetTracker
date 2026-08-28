@@ -16,6 +16,7 @@ internal class DeliveryScheduleLifecycleGate {
     private var currentSourceToken = 0L
     private var currentLifecycleToken = 0L
     private var currentCleanupToken = 0L
+    private var callbacksActive = false
 
     /** Claims the source identity for a newly installed lifecycle effect. */
     fun bindSource(): Long = synchronized(lock) {
@@ -23,6 +24,7 @@ internal class DeliveryScheduleLifecycleGate {
         currentSourceToken = token
         currentLifecycleToken = 0L
         currentCleanupToken = 0L
+        callbacksActive = false
         token
     }
 
@@ -32,6 +34,7 @@ internal class DeliveryScheduleLifecycleGate {
         val token = ++nextToken
         currentLifecycleToken = token
         currentCleanupToken = 0L
+        callbacksActive = true
         token
     }
 
@@ -41,6 +44,7 @@ internal class DeliveryScheduleLifecycleGate {
         val token = ++nextToken
         currentLifecycleToken = token
         currentCleanupToken = 0L
+        callbacksActive = false
         token
     }
 
@@ -51,6 +55,7 @@ internal class DeliveryScheduleLifecycleGate {
         currentSourceToken = cleanupToken
         currentLifecycleToken = 0L
         currentCleanupToken = cleanupToken
+        callbacksActive = false
         cleanupToken
     }
 
@@ -63,7 +68,7 @@ internal class DeliveryScheduleLifecycleGate {
 
     /** Runs [action] only if a callback still belongs to the current client/effect source. */
     fun runIfSourceCurrent(sourceToken: Long, action: () -> Unit): Boolean = synchronized(lock) {
-        if (sourceToken == 0L || sourceToken != currentSourceToken) return false
+        if (sourceToken == 0L || sourceToken != currentSourceToken || !callbacksActive) return false
         action()
         true
     }

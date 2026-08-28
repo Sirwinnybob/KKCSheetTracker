@@ -129,6 +129,129 @@ class DeliveryScheduleLiveClientTest {
     }
 
     @Test
+    fun `requires a nonnegative revision before an initial snapshot can establish live state`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val capturedListener = AtomicReference<WebSocketListener>()
+        val schedules = CopyOnWriteArrayList<DeliverySchedule>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val client = client(
+            fakeSocket = fakeSocket,
+            capturedListener = capturedListener,
+            onSchedule = { schedules.add(it) },
+            onConnectionState = { connectionStates.add(it) }
+        )
+
+        client.start()
+        waitUntil { capturedListener.get() != null }
+        val listener = capturedListener.get()
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"snapshot","schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"missing"}]}}}}"""
+        )
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"snapshot","revision":-1,"schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"negative"}]}}}}"""
+        )
+
+        assertTrue(schedules.isEmpty())
+        assertTrue(connectionStates.isEmpty())
+
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"snapshot","revision":0,"schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"valid"}]}}}}"""
+        )
+
+        assertEquals("valid", schedules.single().slot("friday", "am").jobs.single().jobNumber)
+        assertEquals(listOf(true), connectionStates)
+        client.stop()
+    }
+
+    @Test
+    fun `applies schedule frames only when their revision is strictly newer`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val capturedListener = AtomicReference<WebSocketListener>()
+        val schedules = CopyOnWriteArrayList<DeliverySchedule>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val client = client(
+            fakeSocket = fakeSocket,
+            capturedListener = capturedListener,
+            onSchedule = { schedules.add(it) },
+            onConnectionState = { connectionStates.add(it) }
+        )
+
+        client.start()
+        waitUntil { capturedListener.get() != null }
+        val listener = capturedListener.get()
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"snapshot","revision":5,"schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"snapshot"}]}}}}"""
+        )
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"schedule","schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"missing"}]}}}}"""
+        )
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"schedule","revision":5,"schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"duplicate"}]}}}}"""
+        )
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"schedule","revision":4,"schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"older"}]}}}}"""
+        )
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"schedule","revision":6,"schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"newer"}]}}}}"""
+        )
+
+        assertEquals(
+            listOf("snapshot", "newer"),
+            schedules.map { it.slot("friday", "am").jobs.single().jobNumber }
+        )
+        assertEquals(listOf(true), connectionStates)
+        client.stop()
+    }
+
+    @Test
+    fun `reconnect snapshot can replace a prior session despite a lower revision`() = runBlocking {
+        val sockets = listOf(mock<WebSocket>(), mock<WebSocket>())
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val schedules = CopyOnWriteArrayList<DeliverySchedule>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val connectAttempts = AtomicInteger()
+        val client = client(
+            fakeSocket = sockets[0],
+            onSchedule = { schedules.add(it) },
+            onConnectionState = { connectionStates.add(it) },
+            reconnectDelayMs = { 0L },
+            webSocketFactory = { _, listener ->
+                val index = connectAttempts.getAndIncrement()
+                listeners.add(listener)
+                sockets[index.coerceAtMost(sockets.lastIndex)]
+            }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onMessage(
+            sockets[0],
+            """{"type":"snapshot","revision":10,"schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"old-session"}]}}}}"""
+        )
+        listeners[0].onFailure(sockets[0], RuntimeException("reconnect"), null)
+        waitUntil { listeners.size == 2 }
+        listeners[1].onMessage(
+            sockets[1],
+            """{"type":"snapshot","revision":1,"schedule":{"schemaVersion":1,"slots":{"friday_am":{"jobs":[{"jobNumber":"new-session"}]}}}}"""
+        )
+
+        assertEquals(
+            listOf("old-session", "new-session"),
+            schedules.map { it.slot("friday", "am").jobs.single().jobNumber }
+        )
+        assertEquals(listOf(true, false, true), connectionStates)
+        client.stop()
+    }
+
+    @Test
     fun `suppresses invalid or missing schedule frames`() = runBlocking {
         val fakeSocket = mock<WebSocket>()
         val capturedListener = AtomicReference<WebSocketListener>()
