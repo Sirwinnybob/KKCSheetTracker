@@ -82,6 +82,12 @@ import com.kkc.sheettracker.data.models.MaterialUiModel
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
+import com.kkc.sheettracker.data.mixservice.MixDefinition
+import com.kkc.sheettracker.data.mixservice.MixServiceClient
+import com.kkc.sheettracker.data.mixservice.ViewerMixSelection
+import com.kkc.sheettracker.data.mixservice.resolveMaterialMixEntries
+import com.kkc.sheettracker.data.mixservice.statusCountsForPages
+import com.kkc.sheettracker.data.mixservice.shouldShowPendingBadPartAction
 import com.kkc.sheettracker.ui.components.CountStatusChip
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.headerBackground
@@ -145,7 +151,8 @@ fun JobDetailScreen(
     specialtyStateStore: SpecialtyStateStore,
     appStateFlags: AppStateFeatureFlags,
     jobFolderName: String,
-    onMaterialClick: (Material, Int) -> Unit,
+    mixServiceClient: MixServiceClient? = null,
+    onMaterialClick: (Material, Int, ViewerMixSelection?) -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
     onOpenManageCode: () -> Unit = {},
@@ -193,6 +200,21 @@ fun JobDetailScreen(
     }
     val job = jobLoadResult.job
     val jobLoadState = jobDetailLoadState(jobLoadResult.hasResolved, job != null)
+    val mixDefinitions by produceState<List<MixDefinition>?>(
+        initialValue = null,
+        job,
+        jobFolderName,
+        mixServiceClient
+    ) {
+        val currentJob = job
+        val client = mixServiceClient
+        if (currentJob != null && client != null) {
+            value = client.listMixes(jobFolderName)
+        }
+    }
+    val materialEntries = remember(job?.materials, mixDefinitions) {
+        resolveMaterialMixEntries(job?.materials.orEmpty(), mixDefinitions)
+    }
     val retryJob = {
         scanCoordinator.refreshJobOnOpen(jobFolderName)
         loadAttempt += 1
@@ -247,12 +269,15 @@ fun JobDetailScreen(
 
     var legacyPageStatuses by remember(jobFolderName) { mutableStateOf<Map<String, Map<Int, SheetStatus>>>(emptyMap()) }
 
-    LaunchedEffect(job, progressVersion, useAppState) {
-        if (useAppState) return@LaunchedEffect
+    LaunchedEffect(job, progressVersion, useAppState, appMaterialsByKey) {
         val currentJob = job ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
             val statuses = mutableMapOf<String, Map<Int, SheetStatus>>()
-            for (material in currentJob.materials) {
+            val fallbackMaterials = currentJob.materials.filter { material ->
+                !useAppState ||
+                    appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)] == null
+            }
+            for (material in fallbackMaterials) {
                 val pages = progressStore.getMaterialTrackablePages(material)
                 val materialStatuses = mutableMapOf<Int, SheetStatus>()
                 for (physicalPage in pages) {
@@ -534,10 +559,14 @@ fun JobDetailScreen(
                     }
                 }
 
-                items(job?.materials.orEmpty(), key = { it.pdfFilename }) { material ->
+                items(materialEntries, key = { entry ->
+                    "${entry.material.pdfFilename}|${entry.mixSelection?.name.orEmpty()}"
+                }) { entry ->
+                    val material = entry.material
+                    val mixSelection = entry.mixSelection
                     val statusColors = KKCThemeColors.statusColors
                     val appMaterialModel: MaterialUiModel? = appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)]
-                    val counts = if (useAppState && appMaterialModel != null) {
+                    val baseCounts = if (useAppState && appMaterialModel != null) {
                         appMaterialModel.counts
                     } else legacyMaterialProgress.countsByPdfFilename[material.pdfFilename]
                         ?: StatusCounts(total = material.pageCount)
@@ -550,15 +579,25 @@ fun JobDetailScreen(
                     ) {
                         progressStore.getMaterialTrackablePages(material)
                     }
-                    val fraction = if (useAppState && appMaterialModel != null) {
-                        appMaterialModel.completionFraction
-                    } else if (counts.total <= 0) 0f
+                    val statusByPage = if (useAppState && appMaterialModel != null) {
+                        trackablePages.zip(appMaterialModel.pageStatuses)
+                            .associate { (page, snapshot) -> page to snapshot.status }
+                    } else {
+                        legacyPageStatuses[material.pdfFilename].orEmpty()
+                    }
+                    val displayedPages = mixSelection?.pageOrder ?: trackablePages
+                    val counts = if (mixSelection == null) {
+                        baseCounts
+                    } else {
+                        statusCountsForPages(displayedPages, statusByPage)
+                    }
+                    val fraction = if (counts.total <= 0) 0f
                     else counts.complete.toFloat() / counts.total.toFloat()
                     val pendingBadPartCount = if (useAppState && appMaterialModel != null) {
                         appMaterialModel.pendingBadPartCount
                     } else legacyMaterialProgress.pendingBadPartsByPdfFilename[material.pdfFilename] ?: 0
                     ProgressCard(
-                        title = material.materialName,
+                        title = entry.title,
                         subtitle = "${counts.complete}/${counts.total} complete",
                         fraction = fraction,
                         expanded = true,
@@ -578,7 +617,10 @@ fun JobDetailScreen(
                             if (counts.skipped > 0) {
                                 CountStatusChip("Skip", counts.skipped, statusColors.skipBorder)
                             }
-                            if (pendingBadPartCount > 0 && onSubmitPendingBadParts != null) {
+                            if (
+                                shouldShowPendingBadPartAction(mixSelection, pendingBadPartCount) &&
+                                onSubmitPendingBadParts != null
+                            ) {
                                 TextButton(
                                     onClick = { onSubmitPendingBadParts(material) },
                                     colors = ButtonDefaults.textButtonColors(
@@ -594,8 +636,15 @@ fun JobDetailScreen(
                         },
                         onToggleExpanded = {},
                         onClick = {
-                            suppressLeavePrompt = true
-                            onMaterialClick(material, trackablePages.firstOrNull() ?: 1)
+                            val startPage = if (mixSelection == null) {
+                                trackablePages.firstOrNull() ?: 1
+                            } else {
+                                mixSelection.pageOrder.firstOrNull()
+                            }
+                            if (startPage != null) {
+                                suppressLeavePrompt = true
+                                onMaterialClick(material, startPage, mixSelection)
+                            }
                         }
                     ) {
                         PageStatusBar(
@@ -604,14 +653,8 @@ fun JobDetailScreen(
                                 .fillMaxWidth()
                                 .height(10.dp),
                             getStatus = { page ->
-                                if (useAppState && appMaterialModel != null) {
-                                    appMaterialModel.pageStatuses
-                                        .getOrNull((page - 1).coerceAtLeast(0))
-                                        ?.status ?: SheetStatus.NOT_STARTED
-                                } else {
-                                    val physicalPage = trackablePages.getOrNull((page - 1).coerceAtLeast(0)) ?: page
-                                    legacyPageStatuses[material.pdfFilename]?.get(physicalPage) ?: SheetStatus.NOT_STARTED
-                                }
+                                val physicalPage = displayedPages.getOrNull((page - 1).coerceAtLeast(0)) ?: page
+                                statusByPage[physicalPage] ?: SheetStatus.NOT_STARTED
                             }
                         )
                     }

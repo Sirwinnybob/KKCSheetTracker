@@ -311,7 +311,7 @@ private fun ArchiveCncDetail(
         specialtyStateStore = session.specialtyStateStore,
         appStateFlags = appStateFlags,
         jobFolderName = session.folderName,
-        onMaterialClick = { material, startPage ->
+        onMaterialClick = { material, startPage, _ ->
             navController.navigate("viewer/${URLEncoder.encode(material.pdfFilename, "UTF-8")}/$startPage")
         },
         onOpenReferenceDocument = { docType, startPage ->
@@ -379,6 +379,9 @@ private fun ArchiveHardwoodsDetail(
             )
         },
         onBack = onExitArchive,
+        tabletId = session.tabletId,
+        archiveClientFactory = { null },
+        onArchiveCompleted = {},
     )
 }
 
@@ -440,6 +443,9 @@ private fun ArchiveSpecialtyDetail(
         onJumpToCabinet = { cabinet ->
             navController.navigate(assemblyViewerRoute(session.folderName, 1, 1, cabinet = cabinet))
         },
+        tabletId = session.tabletId,
+        archiveClientFactory = { null },
+        onArchiveCompleted = {},
         onBack = onExitArchive,
     )
 }

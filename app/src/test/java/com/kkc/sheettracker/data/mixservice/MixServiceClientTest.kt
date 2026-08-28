@@ -8,6 +8,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -27,14 +28,6 @@ class MixServiceClientTest {
     }
 
     private fun client() = MixServiceClient(server.url("/").toString())
-
-    @Test
-    fun `mutation timeout exceeds the CNC operation deadline`() {
-        // The service allows WINXISO operations to run for 180 seconds.  A shorter
-        // tablet timeout causes a completed request to be reported as unreachable,
-        // inviting an operator to submit the same replacement again.
-        assertTrue(MixServiceClient.MUTATION_TIMEOUT_SECONDS > 180L)
-    }
 
     @Test
     fun `isReachable true on 200`() = runBlocking {
@@ -165,158 +158,6 @@ class MixServiceClientTest {
     }
 
     @Test
-    fun `createMix posts name job material programs and unwraps the mix envelope`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(200)
-                .setBody(
-                    """{"ok":true,"mix":{"name":"KkcMix","job":"648","material":"19mm Pre_Finished","programs":["R1.pgm"],"mixFilename":"KkcMix.mix"},"status":"never"}"""
-                )
-        )
-        val result = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"))
-        check(result is MixWriteResult.Success)
-        assertEquals("KkcMix", result.definition.name)
-        assertEquals("never", result.definition.status)
-        val recorded = server.takeRequest()
-        assertEquals("POST", recorded.method)
-        assertTrue(recorded.path?.endsWith("/mixes") == true)
-        val sentBody = JSONObject(recorded.body.readUtf8())
-        assertEquals("648", sentBody.getString("job"))
-        assertEquals("19mm Pre_Finished", sentBody.getString("material"))
-        assertEquals("KkcMix", sentBody.getString("name"))
-        assertFalse(sentBody.getBoolean("overwrite"))
-        val sentPrograms = sentBody.getJSONArray("programs")
-        assertEquals(1, sentPrograms.length())
-        assertEquals("R1.pgm", sentPrograms.getString(0))
-    }
-
-    @Test
-    fun `createMix with overwrite true sends overwrite true on the wire`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(200)
-                .setBody(
-                    """{"ok":true,"mix":{"name":"KkcMix","job":"648","material":"19mm Pre_Finished","programs":["R1.pgm"],"mixFilename":"KkcMix.mix"},"status":"never"}"""
-                )
-        )
-        val result = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"), overwrite = true)
-        check(result is MixWriteResult.Success)
-        val recorded = server.takeRequest()
-        val sentBody = JSONObject(recorded.body.readUtf8())
-        assertTrue(sentBody.getBoolean("overwrite"))
-    }
-
-    @Test
-    fun `createMix maps 409, 404, 400, 503, and 504 to their sealed results`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(409))
-        check(client().createMix("648", "19mm Pre_Finished", "Dup", emptyList()) is MixWriteResult.DuplicateName)
-
-        server.enqueue(MockResponse().setResponseCode(404))
-        check(client().createMix("648", "Unknown", "X", emptyList()) is MixWriteResult.UnknownJobOrMaterial)
-
-        server.enqueue(
-            MockResponse().setResponseCode(400)
-                .setBody("""{"ok":false,"code":"bad_request","error":"invalid mix name"}""")
-        )
-        val badRequest = client().createMix("648", "19mm Pre_Finished", "bad*name", emptyList())
-        check(badRequest is MixWriteResult.BadRequest)
-        assertEquals("invalid mix name", badRequest.message)
-
-        server.enqueue(MockResponse().setResponseCode(503))
-        check(client().createMix("648", "19mm Pre_Finished", "X", emptyList()) is MixWriteResult.CompileBusy)
-
-        server.enqueue(MockResponse().setResponseCode(504))
-        check(client().createMix("648", "19mm Pre_Finished", "X", emptyList()) is MixWriteResult.WinxisoTimeout)
-    }
-
-    @Test
-    fun `createMix maps a history-sync failure to SyncFailed, unwrapping the nested completed mix`() = runBlocking {
-        // Verified shape: the error body's "mix" field is itself a full {ok, mix, status}
-        // envelope, the same object the 200 success path would have returned -- not a bare
-        // MixDefinition. See mix_service/service.py's _history_sync_error_body/_create_mix.
-        server.enqueue(
-            MockResponse().setResponseCode(409)
-                .setBody(
-                    """{"ok":false,"code":"edit_busy","error":"ledger locked",""" +
-                        """"mix":{"ok":true,"mix":{"name":"KkcMix","job":"648",""" +
-                        """"material":"19mm Pre_Finished","programs":["R1.pgm"],""" +
-                        """"mixFilename":"KkcMix.mix"},"status":"compiled"},""" +
-                        """"recoveryUrl":"/jobs/648/materials/19mm Pre_Finished/mix-history/sync"}"""
-                )
-        )
-        val result = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"))
-        check(result is MixWriteResult.SyncFailed)
-        assertEquals("KkcMix", result.definition.name)
-        assertEquals("compiled", result.definition.status)
-        assertEquals("edit_busy", result.code)
-        assertEquals("/jobs/648/materials/19mm Pre_Finished/mix-history/sync", result.recoveryUrl)
-    }
-
-    @Test
-    fun `createMix maps 500 with a completed mix to SyncFailed, and plain 500 to NetworkError`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(500)
-                .setBody(
-                    """{"ok":false,"code":"history_sync_failed","error":"disk full",""" +
-                        """"mix":{"ok":true,"mix":{"name":"KkcMix","job":"648",""" +
-                        """"material":"19mm Pre_Finished","programs":["R1.pgm"]},"status":"never"}}"""
-                )
-        )
-        val syncFailed = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"))
-        check(syncFailed is MixWriteResult.SyncFailed)
-        assertEquals("history_sync_failed", syncFailed.code)
-
-        server.enqueue(MockResponse().setResponseCode(500).setBody("""{"ok":false,"code":"internal","error":"boom"}"""))
-        val plainError = client().createMix("648", "19mm Pre_Finished", "KkcMix", listOf("R1.pgm"))
-        check(plainError is MixWriteResult.NetworkError)
-    }
-
-    @Test
-    fun `createMix maps 422 missing-program error text to MissingProgram`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(422)
-                .setBody("""{"ok":false,"code":"missing_program","error":"missing program: R9.pgm"}""")
-        )
-        val result = client().createMix("648", "19mm Pre_Finished", "X", listOf("R9.pgm"))
-        check(result is MixWriteResult.MissingProgram)
-        assertEquals("R9.pgm", result.pgm)
-    }
-
-    @Test
-    fun `createMix maps a non-missing-program 422 to BadRequest`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(422)
-                .setBody("""{"ok":false,"code":"missing_field","error":"missing field: programs"}""")
-        )
-        val result = client().createMix("648", "19mm Pre_Finished", "X", listOf("R9.pgm"))
-        check(result is MixWriteResult.BadRequest)
-        assertEquals("missing field: programs", result.message)
-    }
-
-    @Test
-    fun `updateMix puts to the named mix path and preserves program order from the response`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(200)
-                .setBody(
-                    """{"ok":true,"mix":{"name":"KkcMix","job":"648","material":"19mm Pre_Finished","programs":["R2.pgm","R1.pgm"],"mixFilename":"KkcMix.mix"},"status":"stale"}"""
-                )
-        )
-        val result = client().updateMix("648", "19mm Pre_Finished", "KkcMix", listOf("R2.pgm", "R1.pgm"))
-        check(result is MixWriteResult.Success)
-        val recorded = server.takeRequest()
-        assertEquals("PUT", recorded.method)
-        assertTrue(recorded.path?.endsWith("/mixes/KkcMix") == true)
-        assertEquals(listOf("R2.pgm", "R1.pgm"), result.definition.programs)
-        val sentBody = JSONObject(recorded.body.readUtf8())
-        assertEquals("648", sentBody.getString("job"))
-        assertEquals("19mm Pre_Finished", sentBody.getString("material"))
-        val sentPrograms = sentBody.getJSONArray("programs")
-        assertEquals(2, sentPrograms.length())
-        assertEquals("R2.pgm", sentPrograms.getString(0))
-        assertEquals("R1.pgm", sentPrograms.getString(1))
-        assertFalse(sentBody.has("name"))
-        assertFalse(sentBody.has("overwrite"))
-    }
-
-    @Test
     fun `listPgmEdits parses the ledger view`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
@@ -337,17 +178,82 @@ class MixServiceClientTest {
     }
 
     @Test
-    fun `submitPgmEdits posts requestId and files with name identity, parses success`() = runBlocking {
+    fun `submitMix unwraps a 202 operation`() = runBlocking {
         server.enqueue(
-            MockResponse().setBody("""{"ok":true,"requestId":"r1","backupDir":"BACKUP_1","files":[{"name":"R1.pgm","status":"succeeded"}]}""")
+            MockResponse().setResponseCode(202).setBody(
+                """{"ok":true,"operation":{"id":"op1","kind":"mix_write","job":"648","material":"M","state":"queued","stage":"queued","completedPrograms":0,"totalPrograms":1}}"""
+            )
+        )
+
+        val operation = client().submitMix("648", "M", "Mix", listOf("R1.pgm"))
+
+        assertEquals("op1", operation.id)
+        assertEquals("queued", operation.state)
+        assertEquals("M", operation.material)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/mixes", recorded.requestUrl?.encodedPath)
+    }
+
+    @Test
+    fun `submitMix rejects an accepted envelope with a blank operation id`() {
+        server.enqueue(
+            MockResponse().setResponseCode(202).setBody(
+                """{"ok":true,"operation":{"id":"  ","kind":"mix_write","job":"648","material":"M","state":"queued","stage":"queued"}}"""
+            )
+        )
+
+        assertThrows(MixOperationClientException::class.java) {
+            runBlocking { client().submitMix("648", "M", "Mix", listOf("R1.pgm")) }
+        }
+    }
+
+    @Test
+    fun `submitMix rejects an accepted envelope with a missing operation id`() {
+        server.enqueue(
+            MockResponse().setResponseCode(202).setBody(
+                """{"ok":true,"operation":{"kind":"mix_write","job":"648","material":"M","state":"queued","stage":"queued"}}"""
+            )
+        )
+
+        assertThrows(MixOperationClientException::class.java) {
+            runBlocking { client().submitMix("648", "M", "Mix", listOf("R1.pgm")) }
+        }
+    }
+
+    @Test
+    fun `submitMix replaces an existing named mix through its operation route`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(202).setBody(
+                """{"ok":true,"operation":{"id":"op-replace","kind":"mix_write","job":"648","material":"M","state":"queued","stage":"queued"}}"""
+            )
+        )
+
+        val operation = client().submitMix("648", "M", "Existing", listOf("R1.pgm"), replaceExisting = true)
+
+        assertEquals("op-replace", operation.id)
+        val recorded = server.takeRequest()
+        assertEquals("PUT", recorded.method)
+        assertEquals("/mixes/Existing", recorded.requestUrl?.encodedPath)
+        val body = JSONObject(recorded.body.readUtf8())
+        assertEquals("648", body.getString("job"))
+        assertFalse(body.has("name"))
+        assertFalse(body.has("overwrite"))
+    }
+
+    @Test
+    fun `submitPgmEdits unwraps a 202 operation and preserves request body`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(202).setBody(
+                """{"ok":true,"operation":{"id":"op2","kind":"pgm_edit","job":"648","material":"M","state":"queued","stage":"queued","completedPrograms":0,"totalPrograms":1}}"""
+            )
         )
         val result = client().submitPgmEdits(
-            "648", "19mm Pre_Finished", "r1",
+            "648", "M", "r1",
             listOf(PgmEditRow(name = "R1.pgm", secondPass = "standard", removePUnload = false))
         )
-        check(result is PgmEditSubmitResult.Success)
-        assertEquals("succeeded", result.response.files.single().status)
-        assertEquals("R1.pgm", result.response.files.single().name)
+        assertEquals("op2", result.id)
+        assertEquals("queued", result.state)
         val recorded = server.takeRequest()
         assertEquals("POST", recorded.method)
         val sentBody = org.json.JSONObject(recorded.body.readUtf8())
@@ -360,17 +266,29 @@ class MixServiceClientTest {
     }
 
     @Test
-    fun `submitPgmEdits maps status codes to sealed results`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(403))
-        check(client().submitPgmEdits("648", "M", "r1", emptyList()) is PgmEditSubmitResult.Disabled)
+    fun `operation reads preserve structured warning recoveries and job operation list`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"operation":{"id":"op1","kind":"mix_write","job":"648","material":"M","state":"completed","stage":"completed","completedPrograms":1,"totalPrograms":1,"warning":{"code":"history_sync_failed","message":"history unavailable","recoveries":[{"url":"/jobs/648/materials/M/mix-history/sync","method":"POST","change":{"historyFile":".pgm_edit_history.json","attempt":2}}]}}}"""
+            )
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"operations":[{"id":"op1","kind":"mix_write","job":"648","material":"M","state":"completed","stage":"completed","completedPrograms":1,"totalPrograms":1}]}"""
+            )
+        )
 
-        server.enqueue(MockResponse().setResponseCode(409))
-        check(client().submitPgmEdits("648", "M", "r2", emptyList()) is PgmEditSubmitResult.EditBusy)
+        val operation = client().getOperation("op1")
+        val operations = client().listJobOperations("648")
 
-        server.enqueue(MockResponse().setResponseCode(503))
-        check(client().submitPgmEdits("648", "M", "r3", emptyList()) is PgmEditSubmitResult.CompileBusy)
-
-        server.enqueue(MockResponse().setResponseCode(504))
-        check(client().submitPgmEdits("648", "M", "r4", emptyList()) is PgmEditSubmitResult.WinxisoTimeout)
+        assertEquals("history_sync_failed", operation.warning?.code)
+        val recovery = operation.warning?.recoveries?.single()
+        assertEquals("/jobs/648/materials/M/mix-history/sync", recovery?.url)
+        assertEquals("POST", recovery?.method)
+        assertEquals(".pgm_edit_history.json", recovery?.change?.get("historyFile"))
+        assertEquals(2, (recovery?.change?.get("attempt") as Number).toInt())
+        assertEquals(listOf("op1"), operations.map { it.id })
+        assertEquals("/operations/op1", server.takeRequest().requestUrl?.encodedPath)
+        assertEquals("/jobs/648/operations", server.takeRequest().requestUrl?.encodedPath)
     }
 }

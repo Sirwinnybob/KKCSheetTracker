@@ -1531,6 +1531,7 @@ private fun JobsTabHost(
                 specialtyStateStore = specialtyStateStore,
                 appStateFlags = appStateFlags,
                 jobFolderName = folderName,
+                mixServiceClient = remember { com.kkc.sheettracker.data.mixservice.MixServiceClient() },
                 isClockedInHere = isClockedInHere,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
                 clockInState = clockInState,
@@ -1543,10 +1544,8 @@ private fun JobsTabHost(
                         if (!isCncSubScreen) clockInState.triggerPrompt()
                     }
                 },
-                onMaterialClick = { material, startPage ->
-                    navController.navigate(
-                        "viewer/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(material.pdfFilename, "UTF-8")}/$startPage"
-                    ) {
+                onMaterialClick = { material, startPage, mixSelection ->
+                    navController.navigate(viewerRoute(folderName, material.pdfFilename, startPage, mixSelection)) {
                         launchSingleTop = true
                     }
                 },
@@ -1673,6 +1672,14 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
+                tabletId = tabletId,
+                archiveClientFactory = {
+                    adminSyncConfig.getServerUrl()?.let(::ArchiveAdminClient)
+                },
+                onArchiveCompleted = {
+                    specialtyStateStore.refresh(RefreshReason.USER_REFRESH, force = true)
+                    navController.popBackStack()
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -1702,16 +1709,24 @@ private fun JobsTabHost(
         }
 
         composable(
-            "viewer/{folderName}/{pdfFilename}/{startPage}",
+            "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}&mixPages={mixPages}",
             arguments = listOf(
                 navArgument("folderName") { type = NavType.StringType },
                 navArgument("pdfFilename") { type = NavType.StringType },
-                navArgument("startPage") { type = NavType.IntType }
+                navArgument("startPage") { type = NavType.IntType },
+                navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("mixPages") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
             val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
             val startPage = backStack.arguments?.getInt("startPage") ?: 1
+            val selectedMixName = backStack.arguments?.getString("mixName")
+                ?.takeIf { it.isNotBlank() }
+                ?.let { URLDecoder.decode(it, "UTF-8") }
+            val selectedMixPages = if (selectedMixName == null) null else {
+                parseViewerMixPages(backStack.arguments?.getString("mixPages")) ?: emptyList()
+            }
             val isClockedInHere = clockInState.snapshot.isActive &&
                 clockInState.snapshot.folderName == folderName &&
                 clockInState.snapshot.tabType == "cnc"
@@ -1724,6 +1739,8 @@ private fun JobsTabHost(
                 jobFolderName = folderName,
                 pdfFilename = pdfFilename,
                 startPage = startPage,
+                selectedMixName = selectedMixName,
+                selectedMixPages = selectedMixPages,
                 isDarkTheme = cncSheetIsDarkTheme,
                 useStandardSheets = useStandardSheets,
                 isClockedInHere = isClockedInHere,
@@ -1869,6 +1886,14 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
+                tabletId = tabletId,
+                archiveClientFactory = {
+                    adminSyncConfig.getServerUrl()?.let(::ArchiveAdminClient)
+                },
+                onArchiveCompleted = {
+                    hardwoodsScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+                    navController.popBackStack()
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -1979,7 +2004,15 @@ private fun JobsTabHost(
                 onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                 onBack = { navController.popBackStack() },
                 clockInState = clockInState,
-                onUiVisibilityChanged = onUiVisibilityChanged
+                onUiVisibilityChanged = onUiVisibilityChanged,
+                tabletId = tabletId,
+                archiveClientFactory = {
+                    adminSyncConfig.getServerUrl()?.let(::ArchiveAdminClient)
+                },
+                onArchiveCompleted = {
+                    assemblyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+                    navController.popBackStack()
+                }
             )
         }
     }
@@ -2413,9 +2446,14 @@ private fun LegacySingleStackNavigation(
             }
         }
     }
-    fun openSheetLegacy(jobFolderName: String, pdfFilename: String, page: Int) {
-        if (isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page)) return
-        navController.navigate(viewerRoute(jobFolderName, pdfFilename, page)) {
+    fun openSheetLegacy(
+        jobFolderName: String,
+        pdfFilename: String,
+        page: Int,
+        mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null
+    ) {
+        if (isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page, mixSelection)) return
+        navController.navigate(viewerRoute(jobFolderName, pdfFilename, page, mixSelection)) {
             launchSingleTop = true
         }
     }
@@ -2815,14 +2853,15 @@ private fun LegacySingleStackNavigation(
                         specialtyStateStore = specialtyStateStore,
                         appStateFlags = appStateFlags,
                         jobFolderName = folderName,
+                        mixServiceClient = remember { com.kkc.sheettracker.data.mixservice.MixServiceClient() },
                         isClockedInHere = isClockedInHere,
                         onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "cnc") },
                         clockInState = clockInState,
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = this,
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
-                        onMaterialClick = { material, startPage ->
-                            openSheetLegacy(folderName, material.pdfFilename, startPage)
+                        onMaterialClick = { material, startPage, mixSelection ->
+                            openSheetLegacy(folderName, material.pdfFilename, startPage, mixSelection)
                         },
                         onOpenReferenceDocument = { docType, startPage ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
@@ -2947,6 +2986,14 @@ private fun LegacySingleStackNavigation(
                                 launchSingleTop = true
                             }
                         },
+                        tabletId = tabletId,
+                        archiveClientFactory = {
+                            legacyAdminSyncConfig.getServerUrl()?.let(::ArchiveAdminClient)
+                        },
+                        onArchiveCompleted = {
+                            specialtyStateStore.refresh(RefreshReason.USER_REFRESH, force = true)
+                            navController.popBackStack()
+                        },
                         onBack = { navController.popBackStack() }
                     )
                 }
@@ -3002,16 +3049,24 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable(
-                    "viewer/{folderName}/{pdfFilename}/{startPage}",
+                    "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}&mixPages={mixPages}",
                     arguments = listOf(
                         navArgument("folderName") { type = NavType.StringType },
                         navArgument("pdfFilename") { type = NavType.StringType },
-                        navArgument("startPage") { type = NavType.IntType }
+                        navArgument("startPage") { type = NavType.IntType },
+                        navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("mixPages") { type = NavType.StringType; nullable = true; defaultValue = null }
                     )
                 ) { backStack ->
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
                     val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
                     val startPage = backStack.arguments?.getInt("startPage") ?: 1
+                    val selectedMixName = backStack.arguments?.getString("mixName")
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { URLDecoder.decode(it, "UTF-8") }
+                    val selectedMixPages = if (selectedMixName == null) null else {
+                        parseViewerMixPages(backStack.arguments?.getString("mixPages")) ?: emptyList()
+                    }
                     val isClockedInHere = clockInState.snapshot.isActive &&
                         clockInState.snapshot.folderName == folderName &&
                         clockInState.snapshot.tabType == "cnc"
@@ -3024,6 +3079,8 @@ private fun LegacySingleStackNavigation(
                         jobFolderName = folderName,
                         pdfFilename = pdfFilename,
                         startPage = startPage,
+                        selectedMixName = selectedMixName,
+                        selectedMixPages = selectedMixPages,
                         isDarkTheme = isDarkTheme,
                         useStandardSheets = useStandardSheets,
                         isClockedInHere = isClockedInHere,
@@ -3164,6 +3221,14 @@ private fun LegacySingleStackNavigation(
                                 launchSingleTop = true
                             }
                         },
+                        tabletId = tabletId,
+                        archiveClientFactory = {
+                            legacyAdminSyncConfig.getServerUrl()?.let(::ArchiveAdminClient)
+                        },
+                        onArchiveCompleted = {
+                            hardwoodsScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+                            navController.popBackStack()
+                        },
                         onBack = { navController.popBackStack() }
                     )
                 }
@@ -3274,7 +3339,15 @@ private fun LegacySingleStackNavigation(
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                         onBack = { navController.popBackStack() },
                         clockInState = clockInState,
-                        onUiVisibilityChanged = { viewerUiVisible = it }
+                        onUiVisibilityChanged = { viewerUiVisible = it },
+                        tabletId = tabletId,
+                        archiveClientFactory = {
+                            legacyAdminSyncConfig.getServerUrl()?.let(::ArchiveAdminClient)
+                        },
+                        onArchiveCompleted = {
+                            assemblyScanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+                            navController.popBackStack()
+                        }
                     )
                 }
 
@@ -3624,9 +3697,22 @@ private fun LegacySingleStackNavigation(
     } // LocalOnOpenSettings CompositionLocalProvider
 }
 
-internal fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int): String {
-    return "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
+internal fun viewerRoute(
+    jobFolderName: String,
+    pdfFilename: String,
+    page: Int,
+    mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null
+): String {
+    val base = "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
+    val selection = mixSelection ?: return base
+    val mixName = URLEncoder.encode(selection.name, "UTF-8")
+    val mixPages = selection.pageOrder.joinToString(",")
+    return "$base?mixName=$mixName&mixPages=$mixPages"
 }
+
+internal fun parseViewerMixPages(value: String?): List<Int>? = value?.split(',')
+    ?.mapNotNull { it.toIntOrNull()?.takeIf { page -> page > 0 } }
+    ?.distinct()
 
 internal fun homeTopLevelTabForWorkMode(workMode: WorkMode): TopLevelTab {
     return if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
@@ -3710,7 +3796,8 @@ private fun isCurrentViewerTarget(
     backStackEntry: androidx.navigation.NavBackStackEntry?,
     jobFolderName: String,
     pdfFilename: String,
-    page: Int
+    page: Int,
+    mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null
 ): Boolean {
     val route = backStackEntry?.destination?.route ?: return false
     if (!route.startsWith("viewer/")) return false
@@ -3718,7 +3805,15 @@ private fun isCurrentViewerTarget(
     val currentFolder = args.getString("folderName") ?: return false
     val currentPdf = args.getString("pdfFilename") ?: return false
     val currentPage = args.getInt("startPage")
-    return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page
+    val currentMixName = args.getString("mixName")
+        ?.takeIf { it.isNotBlank() }
+        ?.let { URLDecoder.decode(it, "UTF-8") }
+    val currentMixPages = if (currentMixName == null) null else parseViewerMixPages(args.getString("mixPages"))
+    return currentFolder == jobFolderName &&
+        currentPdf == pdfFilename &&
+        currentPage == page &&
+        currentMixName == mixSelection?.name &&
+        currentMixPages == mixSelection?.pageOrder
 }
 
 private data class PendingClockOut(

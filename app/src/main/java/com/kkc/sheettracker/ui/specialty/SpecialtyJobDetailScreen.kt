@@ -111,6 +111,10 @@ import com.kkc.sheettracker.data.MoldingLibraryRepository
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.models.MoldingLibraryItem
 import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
+import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.ArchiveLifecycleClient
+import com.kkc.sheettracker.ui.detail.ArchiveLifecycleActionSheet
+import com.kkc.sheettracker.ui.detail.archiveActionVisible
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
@@ -140,6 +144,9 @@ fun SpecialtyJobDetailScreen(
     onOpenClosetRods: () -> Unit,
     onOpenSplitView: () -> Unit,
     onJumpToCabinet: ((String) -> Unit)? = null,
+    tabletId: String,
+    archiveClientFactory: suspend () -> ArchiveLifecycleClient?,
+    onArchiveCompleted: () -> Unit,
     onBack: () -> Unit
 ) {
     val scanState by specialtyStateStore.scanState.collectAsState()
@@ -153,6 +160,8 @@ fun SpecialtyJobDetailScreen(
     var toggleErrorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var showAddSheet by remember(jobFolderName) { mutableStateOf(false) }
     var showPrintDialog by remember { mutableStateOf(false) }
+    var showArchiveActionSheet by remember(jobFolderName) { mutableStateOf(false) }
+    val adminEnabled by AdminModeController.enabled.collectAsState()
     var editingItem by remember(jobFolderName) { mutableStateOf<com.kkc.sheettracker.data.models.SpecialtyItem?>(null) }
     var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var expandedSectionIds by remember(jobFolderName) { mutableStateOf<Set<String>?>(null) }
@@ -234,7 +243,13 @@ fun SpecialtyJobDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                
+                actions = {
+                    if (archiveActionVisible(adminEnabled = adminEnabled, sourceIsLive = true)) {
+                        TextButton(onClick = { showArchiveActionSheet = true }) {
+                            Text("Archive")
+                        }
+                    }
+                },
                 )
         },
     ) { padding ->
@@ -657,6 +672,16 @@ fun SpecialtyJobDetailScreen(
                 jobFolderName = jobFolderName,
                 jobRepository = jobRepository,
                 onDismissRequest = { showPrintDialog = false }
+            )
+        }
+        if (showArchiveActionSheet) {
+            ArchiveLifecycleActionSheet(
+                folderName = jobFolderName,
+                adminEnabled = adminEnabled,
+                tabletId = tabletId,
+                clientFactory = archiveClientFactory,
+                onCompleted = onArchiveCompleted,
+                onDismiss = { showArchiveActionSheet = false },
             )
         }
     }

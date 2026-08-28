@@ -51,8 +51,12 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.ArchiveLifecycleClient
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.ui.components.ClockInButton
+import com.kkc.sheettracker.ui.detail.ArchiveLifecycleActionSheet
+import com.kkc.sheettracker.ui.detail.archiveActionVisible
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -197,7 +201,10 @@ fun AssemblyViewerScreen(
     onUiVisibilityChanged: (Boolean) -> Unit = {},
     clockInState: ClockInState? = null,
     overridePdfMarkupStore: PdfMarkupStore? = null,
-    pdfMarkupReadOnly: Boolean = false
+    pdfMarkupReadOnly: Boolean = false,
+    tabletId: String = "",
+    archiveClientFactory: (suspend () -> ArchiveLifecycleClient?)? = null,
+    onArchiveCompleted: () -> Unit = {}
 ) {
     val sheetIndex by produceState<CabinetSheetIndex?>(
         initialValue = null,
@@ -337,6 +344,8 @@ fun AssemblyViewerScreen(
     var lastSearchedCabinet by rememberSaveable { mutableStateOf("") }
     var contextLine by remember { mutableStateOf("") }
     var showPartsSheet by remember { mutableStateOf(false) }
+    var showArchiveActionSheet by remember(jobFolderName) { mutableStateOf(false) }
+    val adminEnabled by AdminModeController.enabled.collectAsState()
     var fullscreenPane by rememberSaveable(initialSource) {
     val saved = if (enteredVia3D) null else prefs.getString("${resumePrefix}_fullscreen", null)
     mutableStateOf(
@@ -696,6 +705,13 @@ fun AssemblyViewerScreen(
                         }
                     },
                     actions = {
+                        if (archiveClientFactory != null &&
+                            archiveActionVisible(adminEnabled = adminEnabled, sourceIsLive = true)
+                        ) {
+                            TextButton(onClick = { showArchiveActionSheet = true }) {
+                                Text("Archive")
+                            }
+                        }
                         IconButton(onClick = { continuousScrollEnabled = !continuousScrollEnabled }) {
                             Icon(
                                 if (continuousScrollEnabled) Icons.Default.ViewDay else Icons.AutoMirrored.Filled.MenuBook,
@@ -1126,6 +1142,18 @@ fun AssemblyViewerScreen(
                 PartsChecklistSheet(parts = parts)
             }
         }
+    }
+
+    val currentArchiveClientFactory = archiveClientFactory
+    if (showArchiveActionSheet && currentArchiveClientFactory != null) {
+        ArchiveLifecycleActionSheet(
+            folderName = jobFolderName,
+            adminEnabled = adminEnabled,
+            tabletId = tabletId,
+            clientFactory = currentArchiveClientFactory,
+            onCompleted = onArchiveCompleted,
+            onDismiss = { showArchiveActionSheet = false },
+        )
     }
 }
 

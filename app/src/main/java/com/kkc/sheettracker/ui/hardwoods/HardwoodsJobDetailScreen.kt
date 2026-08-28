@@ -21,6 +21,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Print
 import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
+import com.kkc.sheettracker.data.AdminModeController
+import com.kkc.sheettracker.data.ArchiveLifecycleClient
+import com.kkc.sheettracker.ui.detail.ArchiveLifecycleActionSheet
+import com.kkc.sheettracker.ui.detail.archiveActionVisible
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -107,7 +111,10 @@ fun HardwoodsJobDetailScreen(
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onLeaveWhileClockedIn: () -> Unit = {},
-    clockInState: ClockInState? = null
+    clockInState: ClockInState? = null,
+    tabletId: String,
+    archiveClientFactory: suspend () -> ArchiveLifecycleClient?,
+    onArchiveCompleted: () -> Unit
 ) {
     val navBarDeco = LocalNavBarDecoration.current
     LaunchedEffect(Unit) {
@@ -188,6 +195,8 @@ fun HardwoodsJobDetailScreen(
     }
     var suppressLeavePrompt by remember { mutableStateOf(false) }
     var showPrintDialog by remember { mutableStateOf(false) }
+    var showArchiveActionSheet by remember { mutableStateOf(false) }
+    val adminEnabled by AdminModeController.enabled.collectAsState()
 
     androidx.compose.runtime.DisposableEffect(isClockedInHere) {
         val shouldNotify = isClockedInHere
@@ -212,6 +221,11 @@ fun HardwoodsJobDetailScreen(
                     }
                 },
                 actions = {
+                    if (archiveActionVisible(adminEnabled = adminEnabled, sourceIsLive = true)) {
+                        TextButton(onClick = { showArchiveActionSheet = true }) {
+                            Text("Archive")
+                        }
+                    }
                     if (clockInState != null) {
                         ClockInButton(
                             clockInState = clockInState,
@@ -411,6 +425,16 @@ fun HardwoodsJobDetailScreen(
                 jobFolderName = jobFolderName,
                 jobRepository = jobRepository,
                 onDismissRequest = { showPrintDialog = false }
+            )
+        }
+        if (showArchiveActionSheet) {
+            ArchiveLifecycleActionSheet(
+                folderName = jobFolderName,
+                adminEnabled = adminEnabled,
+                tabletId = tabletId,
+                clientFactory = archiveClientFactory,
+                onCompleted = onArchiveCompleted,
+                onDismiss = { showArchiveActionSheet = false },
             )
         }
     }

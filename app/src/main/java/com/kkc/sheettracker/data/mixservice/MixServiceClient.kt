@@ -1,6 +1,5 @@
 package com.kkc.sheettracker.data.mixservice
 
-import android.util.Log
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,22 +11,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.util.concurrent.TimeUnit
 
-sealed class MixWriteResult {
-    data class Success(val definition: MixDefinition) : MixWriteResult()
-    // The mix mutation itself succeeded (defn is real and already in the service's store) but
-    // writing that outcome into the material's .pgm_edit_history.json sidecar failed. Not a
-    // failed write -- callers must not retry the mutation on this result, since retrying
-    // create/update against an already-created mix name produces a real DuplicateName.
-    data class SyncFailed(val definition: MixDefinition, val code: String, val recoveryUrl: String?) : MixWriteResult()
-    data class DuplicateName(val name: String) : MixWriteResult()
-    object UnknownJobOrMaterial : MixWriteResult()
-    data class MissingProgram(val pgm: String) : MixWriteResult()
-    data class BadRequest(val message: String) : MixWriteResult()
-    object CompileBusy : MixWriteResult()
-    object WinxisoTimeout : MixWriteResult()
-    object NetworkError : MixWriteResult()
-}
-
 // Result of the singular current-mix lookup (GET .../mix). Conflict means more than one mix
 // definition already exists for this job+material -- the caller must not guess which one is
 // "the" mix (that was the previous client-side bug: silently taking listMixes().firstOrNull()).
@@ -38,54 +21,24 @@ sealed class MixLookupResult {
     object NetworkError : MixLookupResult()
 }
 
-sealed class PgmEditSubmitResult {
-    data class Success(val response: PgmEditBatchResponse) : PgmEditSubmitResult()
-    object Disabled : PgmEditSubmitResult()
-    object EditBusy : PgmEditSubmitResult()
-    object CompileBusy : PgmEditSubmitResult()
-    object WinxisoTimeout : PgmEditSubmitResult()
-    object NetworkError : PgmEditSubmitResult()
-}
-
-class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477") {
+class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477") : MixOperationService {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val gson = Gson()
     private val root: String get() = baseUrl.trimEnd('/')
 
     private data class PgmListEnvelope(val ok: Boolean = false, val pgms: List<PgmInventoryItem> = emptyList())
     private data class MixListEnvelope(val ok: Boolean = false, val mixes: List<MixDefinition> = emptyList())
-    private data class MixWriteEnvelope(val ok: Boolean = false, val mix: MixDefinition? = null, val status: String? = null)
-    private data class ErrorEnvelope(val ok: Boolean = false, val code: String? = null, val error: String? = null)
     private data class MixLookupEnvelope(val ok: Boolean = false, val mix: MixDefinition? = null, val status: String? = null)
     private data class MixConflictEnvelope(val ok: Boolean = false, val code: String? = null, val names: List<String> = emptyList())
     private data class PgmConflict(val pgm: String = "", val mixName: String = "")
     private data class PgmConflictsEnvelope(val ok: Boolean = false, val conflicts: List<PgmConflict> = emptyList())
-    // A history-sync-failure error body's own "mix" field is the *whole* completed-mutation
-    // envelope (i.e. another {ok, mix, status}), not a bare MixDefinition -- the server nests it
-    // because it's literally the same result object the 200 success path would have returned.
-    private data class MixSyncErrorEnvelope(
-        val ok: Boolean = false,
-        val code: String? = null,
-        val error: String? = null,
-        val mix: MixWriteEnvelope? = null,
-        val recoveryUrl: String? = null
-    )
+    private data class OperationEnvelope(val ok: Boolean = false, val operation: MixServiceOperation? = null)
+    private data class OperationsEnvelope(val ok: Boolean = false, val operations: List<MixServiceOperation> = emptyList())
 
     companion object {
-        private const val TAG = "MixServiceClient"
-        // Service-side WINXISO work has a 180-second operation deadline.  Leave a small
-        // response margin so a completed compile is not misreported as an unreachable service.
-        internal const val MUTATION_TIMEOUT_SECONDS = 195L
-
         private val client = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
-            .build()
-
-        private val mutationClient = OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(MUTATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .callTimeout(MUTATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
     }
 
@@ -191,88 +144,38 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         }.getOrNull()
     }
 
-    suspend fun createMix(
+    suspend fun submitMix(
         job: String,
         material: String,
         name: String,
         programs: List<String>,
-        overwrite: Boolean = false
-    ): MixWriteResult = writeMix("POST", job, material, name, programs, overwrite)
+    ): MixServiceOperation = submitMix(job, material, name, programs, replaceExisting = false)
 
-    suspend fun updateMix(
-        job: String,
-        material: String,
-        name: String,
-        programs: List<String>
-    ): MixWriteResult = writeMix("PUT", job, material, name, programs, overwrite = false)
-
-    private suspend fun writeMix(
-        method: String,
+    override suspend fun submitMix(
         job: String,
         material: String,
         name: String,
         programs: List<String>,
-        overwrite: Boolean
-    ): MixWriteResult = withContext(Dispatchers.IO) {
-        val url = if (method == "POST") {
-            "$root/mixes".toHttpUrl()
-        } else {
-            "$root/mixes/".toHttpUrl().newBuilder().addPathSegment(name).build()
-        }
+        replaceExisting: Boolean,
+    ): MixServiceOperation {
         val payload = mutableMapOf<String, Any?>(
             "job" to job,
             "material" to material,
-            "programs" to programs
+            "programs" to programs,
         )
-        if (method == "POST") {
+        if (!replaceExisting) {
             payload["name"] = name
-            payload["overwrite"] = overwrite
+            payload["overwrite"] = false
         }
-        val body = gson.toJson(payload).toRequestBody(jsonMediaType)
-        val request = Request.Builder().url(url).method(method, body).build()
-        runCatching {
-            mutationClient.newCall(request).execute().use { response ->
-                when (response.code) {
-                    200 -> {
-                        val responseBody = response.body?.string() ?: return@use MixWriteResult.NetworkError
-                        val envelope = gson.fromJson(responseBody, MixWriteEnvelope::class.java)
-                        val definition = envelope?.mix ?: return@use MixWriteResult.NetworkError
-                        MixWriteResult.Success(definition.copy(status = envelope.status ?: definition.status))
-                    }
-                    404 -> MixWriteResult.UnknownJobOrMaterial
-                    409 -> parseSyncFailure(response) ?: MixWriteResult.DuplicateName(name)
-                    422 -> {
-                        val message = errorMessage(response)
-                        val prefix = "missing program: "
-                        if (message.startsWith(prefix)) MixWriteResult.MissingProgram(message.removePrefix(prefix))
-                        else MixWriteResult.BadRequest(message)
-                    }
-                    400 -> MixWriteResult.BadRequest(errorMessage(response))
-                    500 -> parseSyncFailure(response) ?: MixWriteResult.NetworkError
-                    503 -> parseSyncFailure(response) ?: MixWriteResult.CompileBusy
-                    504 -> parseSyncFailure(response) ?: MixWriteResult.WinxisoTimeout
-                    else -> MixWriteResult.NetworkError
-                }
-            }
-        }.getOrElse { error ->
-            Log.w(TAG, "mix mutation request failed method=$method job=$job material=$material name=$name", error)
-            MixWriteResult.NetworkError
-        }
-    }
-
-    private fun errorMessage(response: Response): String =
-        runCatching { gson.fromJson(response.body?.string().orEmpty(), ErrorEnvelope::class.java)?.error }
-            .getOrNull().orEmpty()
-
-    // Reads the response body once. Returns null (no sync-failure shape found) rather than
-    // throwing, so callers can fall back to their normal per-status-code result.
-    private fun parseSyncFailure(response: Response): MixWriteResult.SyncFailed? {
-        val envelope = runCatching {
-            gson.fromJson(response.body?.string().orEmpty(), MixSyncErrorEnvelope::class.java)
-        }.getOrNull() ?: return null
-        val definition = envelope.mix?.mix ?: return null
-        val merged = definition.copy(status = envelope.mix.status ?: definition.status)
-        return MixWriteResult.SyncFailed(merged, envelope.code ?: "history_sync_failed", envelope.recoveryUrl)
+        return submitOperation(
+            url = if (replaceExisting) {
+                "$root/mixes/".toHttpUrl().newBuilder().addPathSegment(name).build()
+            } else {
+                "$root/mixes".toHttpUrl()
+            },
+            method = if (replaceExisting) "PUT" else "POST",
+            payload = payload,
+        )
     }
 
     suspend fun listPgmEdits(job: String, material: String, historyLimit: Int = 20): PgmEditHistoryView? =
@@ -294,37 +197,72 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
             }.getOrNull()
         }
 
-    suspend fun submitPgmEdits(
+    override suspend fun submitPgmEdits(
         job: String,
         material: String,
         requestId: String,
         files: List<PgmEditRow>
-    ): PgmEditSubmitResult = withContext(Dispatchers.IO) {
-        val url = "$root/jobs/".toHttpUrl().newBuilder()
+    ): MixServiceOperation = submitOperation(
+        url = "$root/jobs/".toHttpUrl().newBuilder()
             .addPathSegment(job)
             .addPathSegment("materials")
             .addPathSegment(material)
             .addPathSegment("pgm-edits")
-            .build()
-        val body = gson.toJson(PgmEditBatchRequest(requestId, files)).toRequestBody(jsonMediaType)
-        val request = Request.Builder().url(url).post(body).build()
-        runCatching {
-            mutationClient.newCall(request).execute().use { response ->
-                when (response.code) {
-                    200 -> {
-                        val responseBody = response.body?.string() ?: return@use PgmEditSubmitResult.NetworkError
-                        PgmEditSubmitResult.Success(gson.fromJson(responseBody, PgmEditBatchResponse::class.java))
-                    }
-                    403 -> PgmEditSubmitResult.Disabled
-                    409 -> PgmEditSubmitResult.EditBusy
-                    503 -> PgmEditSubmitResult.CompileBusy
-                    504 -> PgmEditSubmitResult.WinxisoTimeout
-                    else -> PgmEditSubmitResult.NetworkError
-                }
-            }
-        }.getOrElse { error ->
-            Log.w(TAG, "PGM edit request failed job=$job material=$material requestId=$requestId", error)
-            PgmEditSubmitResult.NetworkError
-        }
+            .build(),
+        method = "POST",
+        payload = PgmEditBatchRequest(requestId, files),
+    )
+
+    override suspend fun getOperation(id: String): MixServiceOperation = withContext(Dispatchers.IO) {
+        val url = "$root/operations/".toHttpUrl().newBuilder().addPathSegment(id).build()
+        readOperation(Request.Builder().url(url).get().build())
     }
+
+    override suspend fun listJobOperations(job: String): List<MixServiceOperation> = withContext(Dispatchers.IO) {
+        val url = "$root/jobs/".toHttpUrl().newBuilder().addPathSegment(job).addPathSegment("operations").build()
+        runCatching {
+            client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
+                val envelope = gson.fromJson(response.body?.string().orEmpty(), OperationsEnvelope::class.java)
+                if (response.code != 200 || envelope?.ok != true) throw MixOperationClientException("operation list failed")
+                envelope.operations
+            }
+        }.getOrElse { throw MixOperationClientException(it.message ?: "operation list failed") }
+    }
+
+    private suspend fun submitOperation(
+        url: okhttp3.HttpUrl,
+        method: String,
+        payload: Any,
+    ): MixServiceOperation = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(url)
+            .method(method, gson.toJson(payload).toRequestBody(jsonMediaType))
+            .build()
+        runCatching { client.newCall(request).execute().use(::parseAcceptedOperation) }
+            .getOrElse { throw MixOperationClientException(it.message ?: "operation submission failed") }
+    }
+
+    private fun readOperation(request: Request): MixServiceOperation = runCatching {
+        client.newCall(request).execute().use { response ->
+            val envelope = gson.fromJson(response.body?.string().orEmpty(), OperationEnvelope::class.java)
+            if (response.code != 200 || envelope?.ok != true || envelope.operation == null) {
+                throw MixOperationClientException("operation status failed")
+            }
+            envelope.operation
+        }
+    }.getOrElse { throw MixOperationClientException(it.message ?: "operation status failed") }
+
+    private fun parseAcceptedOperation(response: Response): MixServiceOperation {
+        val envelope = gson.fromJson(response.body?.string().orEmpty(), OperationEnvelope::class.java)
+        if (
+            response.code != 202 ||
+            envelope?.ok != true ||
+            envelope.operation == null ||
+            envelope.operation.id.isBlank()
+        ) {
+            throw MixOperationClientException("operation submission failed")
+        }
+        return envelope.operation
+    }
+
 }
