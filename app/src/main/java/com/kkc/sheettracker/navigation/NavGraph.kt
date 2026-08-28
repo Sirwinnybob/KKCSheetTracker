@@ -374,20 +374,8 @@ fun AppNavigation(
         DeliveryScheduleLiveClient(
             config = liveIndexAdminSyncConfig,
             tabletId = tabletId,
-            onSchedule = { schedule ->
-                deliveryScheduleLifecycleGate.runIfSourceCurrent(
-                    deliveryScheduleClientBinding.sourceToken()
-                ) {
-                    deliveryScheduleStore.applyLive(schedule)
-                }
-            },
-            onConnectionState = { connected ->
-                deliveryScheduleLifecycleGate.runIfSourceCurrent(
-                    deliveryScheduleClientBinding.sourceToken()
-                ) {
-                    deliveryScheduleStore.setLiveConnected(connected)
-                }
-            }
+            onSchedule = deliveryScheduleClientBinding.scheduleCallback(deliveryScheduleStore),
+            onConnectionState = deliveryScheduleClientBinding.connectionCallback(deliveryScheduleStore)
         )
     }
     val deliveryScheduleScope = rememberCoroutineScope()
