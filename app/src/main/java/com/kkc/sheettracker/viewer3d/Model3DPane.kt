@@ -41,6 +41,7 @@ fun Model3DPane(
     modifier: Modifier = Modifier,
     folderName: String,
     roomName: String?,
+    modelAvailable: Boolean,
     serverPort: Int,
     serverError: String?,
     isDarkTheme: Boolean,
@@ -48,7 +49,7 @@ fun Model3DPane(
     onOpenIn3DApp: (() -> Unit)? = null,
     headerSlot: @Composable RowScope.() -> Unit
 ) {
-    val encodedUrl = if (serverPort > 0 && roomName != null) {
+    val encodedUrl = if (modelAvailable && serverPort > 0 && roomName != null) {
         val encodedJob  = java.net.URLEncoder.encode(folderName, "UTF-8")
         val encodedRoom = java.net.URLEncoder.encode(roomName, "UTF-8")
         val darkParam   = if (isDarkTheme) "1" else "0"
@@ -76,7 +77,7 @@ fun Model3DPane(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 headerSlot()
-                if (roomName != null && onOpenIn3DApp != null) {
+                if (modelAvailable && roomName != null && onOpenIn3DApp != null) {
                     TextButton(
                         onClick = onOpenIn3DApp,
                         modifier = Modifier.padding(end = 2.dp)
@@ -84,7 +85,7 @@ fun Model3DPane(
                         Text("Open in 3D APP")
                     }
                 }
-                if (roomName != null && onFullScreen != null) {
+                if (modelAvailable && roomName != null && onFullScreen != null) {
                     IconButton(
                         onClick = onFullScreen,
                         modifier = Modifier.size(32.dp)
@@ -136,7 +137,8 @@ fun Model3DPane(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    if (serverPort == 0 && !serverError.isNullOrBlank()) "3D viewer server failed: $serverError"
+                    if (!modelAvailable) "No 3D model is available for this job"
+                    else if (serverPort == 0 && !serverError.isNullOrBlank()) "3D viewer server failed: $serverError"
                     else if (serverPort == 0) "Starting 3D viewer…"
                     else "Search a cabinet to load its 3D room",
                     style = MaterialTheme.typography.bodyMedium,

@@ -8,6 +8,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -99,22 +100,20 @@ fun StatusBorderedCard(
                 )
             }
 
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(IntrinsicSize.Min)
+                    .drawBehind {
+                        if (leftBorderWidth > 0.dp && statusCardColors.borderColor != Color.Transparent) {
+                            drawRect(
+                                color = statusCardColors.borderColor,
+                                size = size.copy(width = leftBorderWidth.toPx())
+                            )
+                        }
+                    }
             ) {
-                if (leftBorderWidth > 0.dp && statusCardColors.borderColor != Color.Transparent) {
-                    Box(
-                        modifier = Modifier
-                            .width(leftBorderWidth)
-                            .fillMaxHeight()
-                            .background(statusCardColors.borderColor)
-                    )
-                }
                 Box(
                     modifier = Modifier
-                        .weight(1f)
                         .fillMaxWidth(),
                     content = content
                 )

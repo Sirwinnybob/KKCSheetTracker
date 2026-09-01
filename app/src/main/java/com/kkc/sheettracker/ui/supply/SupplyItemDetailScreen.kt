@@ -1,6 +1,8 @@
 package com.kkc.sheettracker.ui.supply
 
+import android.Manifest
 import android.net.Uri
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -36,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -60,6 +63,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.UUID
+import android.widget.Toast
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Tab
@@ -171,6 +175,25 @@ fun SupplyItemDetailScreen(
         }
     }
 
+    fun beginCameraCapture() {
+        val dir = File(context.cacheDir, "supply_temp")
+        dir.mkdirs()
+        val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
+        captureTargetFile = file
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        cameraLauncher.launch(uri)
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            beginCameraCapture()
+        } else {
+            Toast.makeText(context, "Camera permission is required to take a photo", Toast.LENGTH_LONG).show()
+        }
+    }
+
     // Gallery launcher
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri ?: return@rememberLauncherForActivityResult
@@ -205,12 +228,23 @@ fun SupplyItemDetailScreen(
     }
 
     fun launchCamera() {
-        val dir = File(context.cacheDir, "supply_temp")
-        dir.mkdirs()
-        val f = File(dir, "capture_${System.currentTimeMillis()}.jpg")
-        captureTargetFile = f
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", f)
-        cameraLauncher.launch(uri)
+        when (
+            launchCameraSafely(
+                cameraPermissionGranted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED,
+                requestPermission = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+                launch = ::beginCameraCapture
+            )
+        ) {
+            CameraLaunchResult.LAUNCH_FAILED -> Toast.makeText(
+                context,
+                "Unable to open the camera. Try granting camera access again.",
+                Toast.LENGTH_LONG
+            ).show()
+            else -> Unit
+        }
     }
 
     val currentItem = item

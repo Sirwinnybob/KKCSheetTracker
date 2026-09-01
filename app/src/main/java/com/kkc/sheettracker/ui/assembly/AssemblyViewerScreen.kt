@@ -137,6 +137,7 @@ import com.kkc.sheettracker.ui.viewer.buildPlanViewLabelsFromPageToRoom
 import com.kkc.sheettracker.ui.viewer.extractRoomDisplayName
 import com.kkc.sheettracker.ui.viewer.sanitizeVirtualAssemblyData
 import com.kkc.sheettracker.viewer3d.Model3DPane
+import com.kkc.sheettracker.viewer3d.findMediumGlbForRoom
 import com.kkc.sheettracker.viewer3d.ViewerServer
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -399,6 +400,9 @@ fun AssemblyViewerScreen(
     var serverPort by remember { mutableIntStateOf(0) }
     var viewerServerError by remember { mutableStateOf<String?>(null) }
     var detectedRoom by rememberSaveable(initialRoom) { mutableStateOf(initialRoom) }
+    val modelAvailable = remember(basePath, jobFolderName, detectedRoom) {
+        basePath.isNotBlank() && findMediumGlbForRoom(File(basePath), jobFolderName, detectedRoom) != null
+    }
     val pdfMarkupStore = overridePdfMarkupStore ?: remember(pdfMarkupReadOnly) {
         val trackerPrefs = context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE)
         val storedBasePath = trackerPrefs.getString("base_path", null)
@@ -863,6 +867,7 @@ fun AssemblyViewerScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     folderName = jobFolderName,
                                     roomName = detectedRoom,
+                                    modelAvailable = modelAvailable,
                                     serverPort = serverPort,
                                     serverError = viewerServerError,
                                     isDarkTheme = isDarkTheme,
@@ -969,6 +974,7 @@ fun AssemblyViewerScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     folderName = jobFolderName,
                                     roomName = detectedRoom,
+                                    modelAvailable = modelAvailable,
                                     serverPort = serverPort,
                                     serverError = viewerServerError,
                                     isDarkTheme = isDarkTheme,

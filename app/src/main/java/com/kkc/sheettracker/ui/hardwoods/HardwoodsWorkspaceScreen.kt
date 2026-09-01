@@ -2380,6 +2380,7 @@ private fun ReferencePane(
             modifier = modifier,
             folderName = jobFolderName,
             roomName = roomName,
+            modelAvailable = hasThreeDAssets,
             serverPort = serverPort,
             serverError = serverError,
             isDarkTheme = isDarkTheme,
