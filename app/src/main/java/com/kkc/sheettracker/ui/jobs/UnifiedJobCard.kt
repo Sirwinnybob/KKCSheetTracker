@@ -289,14 +289,14 @@ fun UnifiedJobCard(
                         FilterChip(
                             selected = false,
                             onClick = { model.onViewCoverSheetClick?.invoke() },
-                            label = { Text("Cover Sheet") }
+                            label = { Text("Delivery") }
                         )
                     }
                     if (model.onView3DClick != null || model.badges.contains(JobBadge.HAS_3D_ASSETS)) {
                         FilterChip(
                             selected = false,
                             onClick = { model.onView3DClick?.invoke() },
-                            label = { Text("View 3D") }
+                            label = { Text("3D") }
                         )
                     }
                 }

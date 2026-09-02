@@ -192,7 +192,7 @@ fun CoverPageOverlay(
                     if (bmp != null) {
                         Image(
                             bitmap = bmp.asImageBitmap(),
-                            contentDescription = "Expanded Cover Sheet",
+                            contentDescription = "Expanded Delivery Sheet",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
