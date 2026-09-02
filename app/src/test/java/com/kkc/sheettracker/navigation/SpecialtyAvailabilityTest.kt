@@ -5,9 +5,10 @@ import org.junit.Test
 
 class SpecialtyAvailabilityTest {
     @Test
-    fun resolverCombinesTheFiveAvailabilityChecks() {
+    fun resolverCombinesTheSixAvailabilityChecks() {
         val result = resolveSpecialtyAvailability(
             hasDeliverySheet = { true },
+            hasPullsSheet = { true },
             hasAssemblySheet = { false },
             hasPlansElevations = { true },
             hasThreeDAssets = { true },
@@ -17,6 +18,7 @@ class SpecialtyAvailabilityTest {
         assertEquals(
             SpecialtyAvailability(
                 hasDeliverySheet = true,
+                hasPullsSheet = true,
                 hasAssemblySheet = false,
                 hasPlansElevations = true,
                 hasThreeDAssets = true,

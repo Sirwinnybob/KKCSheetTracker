@@ -6,6 +6,7 @@ import com.kkc.sheettracker.ui.specialty.hasClosetRodCutList
 
 internal data class SpecialtyAvailability(
     val hasDeliverySheet: Boolean = false,
+    val hasPullsSheet: Boolean = false,
     val hasAssemblySheet: Boolean = false,
     val hasPlansElevations: Boolean = false,
     val hasThreeDAssets: Boolean = false,
@@ -14,12 +15,14 @@ internal data class SpecialtyAvailability(
 
 internal fun resolveSpecialtyAvailability(
     hasDeliverySheet: () -> Boolean,
+    hasPullsSheet: () -> Boolean,
     hasAssemblySheet: () -> Boolean,
     hasPlansElevations: () -> Boolean,
     hasThreeDAssets: () -> Boolean,
     hasClosetRods: () -> Boolean
 ): SpecialtyAvailability = SpecialtyAvailability(
     hasDeliverySheet = hasDeliverySheet(),
+    hasPullsSheet = hasPullsSheet(),
     hasAssemblySheet = hasAssemblySheet(),
     hasPlansElevations = hasPlansElevations(),
     hasThreeDAssets = hasThreeDAssets(),
@@ -32,6 +35,9 @@ internal fun loadSpecialtyAvailability(
 ): SpecialtyAvailability = resolveSpecialtyAvailability(
     hasDeliverySheet = {
         jobRepository.getJobPdfCatalog(folderName).deliverySheet != null
+    },
+    hasPullsSheet = {
+        jobRepository.getJobPdfCatalog(folderName).pullsSheet != null
     },
     hasAssemblySheet = {
         jobRepository.hasReferenceDocument(
