@@ -1441,6 +1441,7 @@ class FileBackedUnifiedMetadataEngine(
         val catalog = gsonNullable(data.pdfCatalog)
         val sanitizedPdfCatalog = JobPdfCatalog(
             deliverySheet = catalog?.deliverySheet,
+            pullsSheet = catalog?.pullsSheet,
             managedDocs = catalog?.managedDocs ?: emptyList(),
             otherDocs = catalog?.otherDocs ?: emptyList()
         )

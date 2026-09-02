@@ -194,6 +194,40 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun pullsSheetSurvivesCacheStaticJsonRoundTrip() {
+        // resolvesPullsPdfByFilenameOnly (above) only exercises the fresh filesystem scan path
+        // (buildPdfCatalog). Real tablets mostly read job data back out of the on-disk
+        // cache_static.json instead, which goes through sanitizeStaticJobData() — a separate
+        // JobPdfCatalog reconstruction that must also preserve pullsSheet.
+        val baseDir = createTempBaseDir()
+        val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
+        val metadataDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(metadataDir, "deployment_gate.json").writeText("""{"deployed": true}""")
+        File(metadataDir, "cache_static.json").writeText(
+            """
+            {
+              "jobInfo": {
+                "folderName": "$jobFolder",
+                "jobNumber": "1234",
+                "jobName": "Test Job"
+              },
+              "pdfCatalog": {
+                "deliverySheet": null,
+                "pullsSheet": { "pdfFilename": "1234 - PULLS.pdf", "label": "Pulls" },
+                "managedDocs": [],
+                "otherDocs": []
+              }
+            }
+            """.trimIndent()
+        )
+
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+
+        val catalog = engine.getPdfCatalog(jobFolder).catalog
+        assertEquals("1234 - PULLS.pdf", catalog.pullsSheet?.pdfFilename)
+    }
+
+    @Test
     fun hasReferenceDocumentIsFalseForPullsWhenFileMissing() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)
