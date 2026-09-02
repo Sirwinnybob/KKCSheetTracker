@@ -405,6 +405,7 @@ private fun ArchiveSpecialtyDetail(
         hasAssemblySheet = availability.hasAssemblySheet,
         hasPlansElevations = availability.hasPlansElevations,
         hasDeliverySheet = availability.hasDeliverySheet,
+        hasPullsSheet = availability.hasPullsSheet,
         hasThreeDAssets = availability.hasThreeDAssets,
         hasClosetRods = availability.hasClosetRods,
         onOpenReferenceDocument = { docType, startPage ->

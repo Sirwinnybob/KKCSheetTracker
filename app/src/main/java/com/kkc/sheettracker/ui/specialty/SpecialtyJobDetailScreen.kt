@@ -135,6 +135,7 @@ fun SpecialtyJobDetailScreen(
     hasAssemblySheet: Boolean,
     hasPlansElevations: Boolean,
     hasDeliverySheet: Boolean,
+    hasPullsSheet: Boolean,
     hasThreeDAssets: Boolean,
     hasClosetRods: Boolean,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
@@ -285,22 +286,27 @@ fun SpecialtyJobDetailScreen(
                 ) {
                     if (hasAssemblySheet) {
                         Button(onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }) {
-                            Text("View Assembly")
+                            Text("Assembly")
                         }
                     }
                     if (hasPlansElevations) {
                         Button(onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }) {
-                            Text("View Plans & Elevations")
+                            Text("Plans & Elevations")
                         }
                     }
                     if (hasDeliverySheet) {
                         Button(onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }) {
-                            Text("View Cover Sheet")
+                            Text("Delivery")
+                        }
+                    }
+                    if (hasPullsSheet) {
+                        Button(onClick = { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }) {
+                            Text("Pulls")
                         }
                     }
                     if (hasThreeDAssets) {
                         Button(onClick = onOpenThreeD) {
-                            Text("View 3D")
+                            Text("3D")
                         }
                     }
                     Button(onClick = { showPrintDialog = true }) {
