@@ -402,12 +402,7 @@ private fun ArchiveSpecialtyDetail(
         specialtyStateStore = session.specialtyStateStore,
         specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
         jobRepository = session.jobRepository,
-        hasAssemblySheet = availability.hasAssemblySheet,
-        hasPlansElevations = availability.hasPlansElevations,
-        hasDeliverySheet = availability.hasDeliverySheet,
-        hasPullsSheet = availability.hasPullsSheet,
-        hasThreeDAssets = availability.hasThreeDAssets,
-        hasClosetRods = availability.hasClosetRods,
+        availability = availability,
         onOpenReferenceDocument = { docType, startPage ->
             navController.navigate("referenceViewer/${URLEncoder.encode(docType.name, "UTF-8")}/$startPage")
         },
