@@ -179,12 +179,15 @@ fun HardwoodsJobDetailScreen(
     }
     // Document availability loaded async — avoids blocking the composition thread on I/O
     var hasDeliverySheet by remember(jobFolderName) { mutableStateOf(false) }
+    var hasPullsSheet by remember(jobFolderName) { mutableStateOf(false) }
     var hasAssemblySheet by remember(jobFolderName) { mutableStateOf(false) }
     var hasPlansElevations by remember(jobFolderName) { mutableStateOf(false) }
     var hasThreeDAssets by remember(jobFolderName) { mutableStateOf(false) }
     LaunchedEffect(jobFolderName) {
         withContext(Dispatchers.IO) {
-            hasDeliverySheet = jobRepository.getJobPdfCatalog(jobFolderName).deliverySheet != null
+            val catalog = jobRepository.getJobPdfCatalog(jobFolderName)
+            hasDeliverySheet = catalog.deliverySheet != null
+            hasPullsSheet = catalog.pullsSheet != null
             hasAssemblySheet = jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.ASSEMBLY)
             hasPlansElevations = jobRepository.hasReferenceDocument(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
             hasThreeDAssets = jobRepository.hasThreeDAssets(jobFolderName)
@@ -269,7 +272,7 @@ fun HardwoodsJobDetailScreen(
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1)
                     }) {
-                        Text("View Assembly")
+                        Text("Assembly")
                     }
                 }
                 if (hasPlansElevations) {
@@ -277,7 +280,7 @@ fun HardwoodsJobDetailScreen(
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1)
                     }) {
-                        Text("View Plans & Elevations")
+                        Text("Plans & Elevations")
                     }
                 }
                 if (hasDeliverySheet) {
@@ -285,7 +288,15 @@ fun HardwoodsJobDetailScreen(
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
                     }) {
-                        Text("View Cover Sheet")
+                        Text("Delivery")
+                    }
+                }
+                if (hasPullsSheet) {
+                    Button(onClick = {
+                        suppressLeavePrompt = true
+                        onOpenReferenceDocument(ReferenceDocType.PULLS, 1)
+                    }) {
+                        Text("Pulls")
                     }
                 }
                 if (hasThreeDAssets) {
@@ -293,7 +304,7 @@ fun HardwoodsJobDetailScreen(
                         suppressLeavePrompt = true
                         onOpenThreeD()
                     }) {
-                        Text("View 3D")
+                        Text("3D")
                     }
                 }
                 Button(onClick = { showPrintDialog = true }) {
