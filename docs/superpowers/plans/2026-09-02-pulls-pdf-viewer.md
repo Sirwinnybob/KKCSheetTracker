@@ -23,7 +23,7 @@ Spec: `docs/superpowers/specs/2026-09-02-pulls-pdf-viewer-design.md`
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/viewer/ReferencePdfViewerScreen.kt:138-143`
 - Test: `app/src/test/java/com/kkc/sheettracker/data/unified/UnifiedMetadataEngineTest.kt`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `UnifiedMetadataEngineTest.kt` (after the existing `resolvesReferenceDocsAndCabinetJump` test at line 170):
 
@@ -67,12 +67,12 @@ Add to `UnifiedMetadataEngineTest.kt` (after the existing `resolvesReferenceDocs
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.data.unified.UnifiedMetadataEngineTest"`
 Expected: FAIL to compile — `ReferenceDocType.PULLS` and `catalog.pullsSheet` don't exist yet.
 
-- [ ] **Step 3: Add `PULLS` to the enum and `pullsSheet` to the catalog**
+- [x] **Step 3: Add `PULLS` to the enum and `pullsSheet` to the catalog**
 
 In `Models.kt`, replace lines 93-109:
 
@@ -98,7 +98,7 @@ data class JobPdfCatalog(
 )
 ```
 
-- [ ] **Step 4: Detect Pulls files in `buildPdfCatalog`**
+- [x] **Step 4: Detect Pulls files in `buildPdfCatalog`**
 
 In `FileBackedUnifiedMetadataEngine.kt`, replace the `buildPdfCatalog` body (lines 1052-1086):
 
@@ -145,7 +145,7 @@ In `FileBackedUnifiedMetadataEngine.kt`, replace the `buildPdfCatalog` body (lin
     }
 ```
 
-- [ ] **Step 5: Special-case `PULLS` in `findReferencePdfFilename`, keep the rest exhaustive**
+- [x] **Step 5: Special-case `PULLS` in `findReferencePdfFilename`, keep the rest exhaustive**
 
 In `FileBackedUnifiedMetadataEngine.kt`, replace lines 539-571:
 
@@ -190,7 +190,7 @@ In `FileBackedUnifiedMetadataEngine.kt`, replace lines 539-571:
     }
 ```
 
-- [ ] **Step 6: Fix the remaining exhaustive `when (docType)` blocks (no-op `PULLS` branch — not user-facing surfaces for Pulls)**
+- [x] **Step 6: Fix the remaining exhaustive `when (docType)` blocks (no-op `PULLS` branch — not user-facing surfaces for Pulls)**
 
 In `ReferenceViewerData.kt`, lines 37-44, add the branch:
 
@@ -285,7 +285,7 @@ Same file, lines 2225-2236:
     }
 ```
 
-- [ ] **Step 7: Rename the Delivery title and add the Pulls title in the full-screen viewer**
+- [x] **Step 7: Rename the Delivery title and add the Pulls title in the full-screen viewer**
 
 In `ReferencePdfViewerScreen.kt`, replace lines 138-143:
 
@@ -299,7 +299,7 @@ In `ReferencePdfViewerScreen.kt`, replace lines 138-143:
                         },
 ```
 
-- [ ] **Step 8: Run tests to verify they pass, and confirm the whole module compiles**
+- [x] **Step 8: Run tests to verify they pass, and confirm the whole module compiles**
 
 Run: `./gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.data.unified.UnifiedMetadataEngineTest"`
 Expected: PASS (all tests in the file, including the two new ones)
@@ -307,7 +307,7 @@ Expected: PASS (all tests in the file, including the two new ones)
 Run: `./gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL — confirms every other `when (docType)`/`when (referenceDocType)` in the module is exhaustive with the new `PULLS` case.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/data/models/Models.kt app/src/main/java/com/kkc/sheettracker/data/unified/FileBackedUnifiedMetadataEngine.kt app/src/main/java/com/kkc/sheettracker/ui/viewer/ReferenceViewerData.kt app/src/main/java/com/kkc/sheettracker/ui/hardwoods/HardwoodsWorkspaceScreen.kt app/src/main/java/com/kkc/sheettracker/ui/viewer/ReferencePdfViewerScreen.kt app/src/test/java/com/kkc/sheettracker/data/unified/UnifiedMetadataEngineTest.kt
@@ -322,7 +322,7 @@ git commit -m "feat(pulls): add PULLS reference doc type with filename-based det
 - Modify: `app/src/main/java/com/kkc/sheettracker/navigation/SpecialtyAvailability.kt`
 - Test: `app/src/test/java/com/kkc/sheettracker/navigation/SpecialtyAvailabilityTest.kt`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Replace the test body in `SpecialtyAvailabilityTest.kt`:
 
@@ -354,12 +354,12 @@ class SpecialtyAvailabilityTest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `./gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.navigation.SpecialtyAvailabilityTest"`
 Expected: FAIL to compile — `hasPullsSheet` parameter doesn't exist yet.
 
-- [ ] **Step 3: Add `hasPullsSheet` to the data class, resolver, and loader**
+- [x] **Step 3: Add `hasPullsSheet` to the data class, resolver, and loader**
 
 Replace the full contents of `SpecialtyAvailability.kt`:
 
@@ -422,14 +422,14 @@ internal fun loadSpecialtyAvailability(
 )
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `./gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.navigation.SpecialtyAvailabilityTest"`
 Expected: PASS
 
 Note: this leaves `NavGraph.kt`'s two `SpecialtyJobDetailScreen(...)` call sites (lines ~1605 and ~2919) not passing `hasPullsSheet` yet — that won't fail this test (it's not compiled against `SpecialtyJobDetailScreen`'s signature here), but the app module won't compile until Task 5 adds the parameter to `SpecialtyJobDetailScreen` and updates both call sites together. Don't run `compileDebugKotlin` between Task 2 and Task 5.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/navigation/SpecialtyAvailability.kt app/src/test/java/com/kkc/sheettracker/navigation/SpecialtyAvailabilityTest.kt
@@ -443,7 +443,7 @@ git commit -m "feat(pulls): add hasPullsSheet to SpecialtyAvailability"
 **Files:**
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/detail/JobDetailScreen.kt:252-264` and `:417-476`
 
-- [ ] **Step 1: Add `hasPullsSheet` state and fetch it alongside the other flags**
+- [x] **Step 1: Add `hasPullsSheet` state and fetch it alongside the other flags**
 
 Replace lines 252-264:
 
@@ -466,7 +466,7 @@ Replace lines 252-264:
     }
 ```
 
-- [ ] **Step 2: Rename buttons and add the Pulls button**
+- [x] **Step 2: Rename buttons and add the Pulls button**
 
 Replace lines 417-476 (the `item(key = "reference-doc-buttons")` block):
 
@@ -543,12 +543,12 @@ Replace lines 417-476 (the `item(key = "reference-doc-buttons")` block):
                 }
 ```
 
-- [ ] **Step 3: Compile check**
+- [x] **Step 3: Compile check**
 
 Run: `./gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/detail/JobDetailScreen.kt
@@ -562,7 +562,7 @@ git commit -m "feat(pulls): add Pulls button to CNC job details screen, rename r
 **Files:**
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/hardwoods/HardwoodsJobDetailScreen.kt:180-192` and `:267-298`
 
-- [ ] **Step 1: Add `hasPullsSheet` state and fetch it alongside the other flags**
+- [x] **Step 1: Add `hasPullsSheet` state and fetch it alongside the other flags**
 
 Replace lines 180-192:
 
@@ -585,7 +585,7 @@ Replace lines 180-192:
     }
 ```
 
-- [ ] **Step 2: Rename buttons and add the Pulls button**
+- [x] **Step 2: Rename buttons and add the Pulls button**
 
 Replace lines 267-298:
 
@@ -632,12 +632,12 @@ Replace lines 267-298:
                 }
 ```
 
-- [ ] **Step 3: Compile check**
+- [x] **Step 3: Compile check**
 
 Run: `./gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/hardwoods/HardwoodsJobDetailScreen.kt
@@ -652,7 +652,7 @@ git commit -m "feat(pulls): add Pulls button to Hardwoods job details screen, re
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/specialty/SpecialtyJobDetailScreen.kt:130-149` and `:286-305`
 - Modify: `app/src/main/java/com/kkc/sheettracker/navigation/NavGraph.kt:1605-1614` and `:2919-2928`
 
-- [ ] **Step 1: Add `hasPullsSheet` parameter**
+- [x] **Step 1: Add `hasPullsSheet` parameter**
 
 In `SpecialtyJobDetailScreen.kt`, replace lines 130-149 (the function signature) — insert `hasPullsSheet: Boolean,` right after `hasDeliverySheet: Boolean,`:
 
@@ -680,7 +680,7 @@ fun SpecialtyJobDetailScreen(
     onArchiveCompleted: () -> Unit,
 ```
 
-- [ ] **Step 2: Rename buttons and add the Pulls button**
+- [x] **Step 2: Rename buttons and add the Pulls button**
 
 Same file, replace lines 286-305:
 
@@ -712,7 +712,7 @@ Same file, replace lines 286-305:
                     }
 ```
 
-- [ ] **Step 3: Pass `hasPullsSheet` from both `NavGraph.kt` call sites**
+- [x] **Step 3: Pass `hasPullsSheet` from both `NavGraph.kt` call sites**
 
 In `NavGraph.kt`, line 1610-1614, insert `hasPullsSheet = availability.hasPullsSheet,` after `hasDeliverySheet = availability.hasDeliverySheet,`:
 
@@ -736,12 +736,12 @@ Same file, line 2924-2928, same edit:
                         hasClosetRods = availability.hasClosetRods,
 ```
 
-- [ ] **Step 4: Compile check**
+- [x] **Step 4: Compile check**
 
 Run: `./gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/specialty/SpecialtyJobDetailScreen.kt app/src/main/java/com/kkc/sheettracker/navigation/NavGraph.kt
@@ -755,7 +755,7 @@ git commit -m "feat(pulls): add Pulls button to Specialty job details screen, re
 **Files:**
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/assembly/AssemblyViewerScreen.kt`
 
-- [ ] **Step 1: Add `PULLS` to the local `PaneSource` enum and `isPdfSource()`**
+- [x] **Step 1: Add `PULLS` to the local `PaneSource` enum and `isPdfSource()`**
 
 Replace lines 157-176:
 
@@ -784,7 +784,7 @@ private fun PaneSource.isPdfSource(): Boolean {
 }
 ```
 
-- [ ] **Step 2: Add `pullsFilename`, sourced from the PDF catalog**
+- [x] **Step 2: Add `pullsFilename`, sourced from the PDF catalog**
 
 Replace lines 316-318:
 
@@ -797,7 +797,7 @@ Replace lines 316-318:
     }
 ```
 
-- [ ] **Step 3: Add per-pane Pulls page state**
+- [x] **Step 3: Add per-pane Pulls page state**
 
 Replace lines 388-389:
 
@@ -808,7 +808,7 @@ Replace lines 388-389:
     var secondPanePullsPage by rememberSaveable { mutableIntStateOf(1) }
 ```
 
-- [ ] **Step 4: Wire `PULLS` into `sourceLabel`, `sourceFilename`, `sourcePage`, `setSourcePage`**
+- [x] **Step 4: Wire `PULLS` into `sourceLabel`, `sourceFilename`, `sourcePage`, `setSourcePage`**
 
 Replace lines 588-637:
 
@@ -870,7 +870,7 @@ Replace lines 588-637:
     }
 ```
 
-- [ ] **Step 5: Update both `sourcePage(...)` call sites to pass the pulls page**
+- [x] **Step 5: Update both `sourcePage(...)` call sites to pass the pulls page**
 
 Line 786 (first pane) — find:
 
@@ -920,7 +920,7 @@ Replace with:
                                 text = "${sourcePage(secondPaneSource, secondPaneAssemblyPage, secondPanePlansPage, secondPaneOtherPage, secondPaneDeliveryPage, secondPanePullsPage)}/${secondPaneTotalPages.coerceAtLeast(0)}",
 ```
 
-- [ ] **Step 6: Update both `setSourcePage(...)` call sites to pass `setPulls`**
+- [x] **Step 6: Update both `setSourcePage(...)` call sites to pass `setPulls`**
 
 First pane (originally lines 792-795) — find:
 
@@ -954,7 +954,7 @@ Second pane (originally lines 900-903) — same edit using `secondPane...`:
                                 setPulls = { secondPanePullsPage = it }
 ```
 
-- [ ] **Step 7: Add the "Pulls" chip**
+- [x] **Step 7: Add the "Pulls" chip**
 
 In `PaneSourceControlsInline` (originally lines 1398-1403), insert immediately after the `DELIVERY` chip:
 
@@ -973,12 +973,12 @@ In `PaneSourceControlsInline` (originally lines 1398-1403), insert immediately a
     )
 ```
 
-- [ ] **Step 8: Compile check**
+- [x] **Step 8: Compile check**
 
 Run: `./gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL. If it fails, search the file for any other `sourcePage(` / `setSourcePage(` call the grep in this plan's research missed (there were exactly 2 of each in this file as of this plan's writing) and apply the same 6th-argument / `setPulls` addition.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/assembly/AssemblyViewerScreen.kt
@@ -991,12 +991,12 @@ git commit -m "feat(pulls): add Pulls chip to Assembly PDF viewer"
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Full debug build**
+- [x] **Step 1: Full debug build**
 
 Run: `./gradlew.bat assembleDebug`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 2: Full unit test suite**
+- [x] **Step 2: Full unit test suite**
 
 Run: `./gradlew.bat testDebugUnitTest`
 Expected: BUILD SUCCESSFUL, all tests pass (including the two new `UnifiedMetadataEngineTest` cases and the updated `SpecialtyAvailabilityTest` case)
@@ -1018,7 +1018,7 @@ Use the project's `debug-android-tablet` skill / `adb-install-release.ps1` (or `
 
 **Files:** none (this produces a message to the user, not a repository change)
 
-- [ ] **Step 1: Write and deliver the handoff prompt**
+- [x] **Step 1: Write and deliver the handoff prompt**
 
 Compose a self-contained prompt for a session opened in `C:\Scripts\Hours Tracker` covering:
 - The Pulls filename convention: `<job> - PULLS.pdf` at job root (e.g. `Y:\Ready Jobs\596 - HARSHBARGER 2793 TOMAHAWK\596 - PULLS.pdf`), detected by lowercase filename containing `"pulls"`. No parsing — pure PDF view.
