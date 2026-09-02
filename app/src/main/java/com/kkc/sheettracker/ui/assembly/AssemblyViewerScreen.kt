@@ -158,6 +158,7 @@ private enum class PaneSource {
     PLANS,
     ASSEMBLY,
     DELIVERY,
+    PULLS,
     OTHER,
     THREE_D,
     CHECKLIST
@@ -172,6 +173,7 @@ private fun PaneSource.isPdfSource(): Boolean {
     return this == PaneSource.PLANS ||
         this == PaneSource.ASSEMBLY ||
         this == PaneSource.DELIVERY ||
+        this == PaneSource.PULLS ||
         this == PaneSource.OTHER
 }
 
@@ -316,6 +318,9 @@ fun AssemblyViewerScreen(
     val deliveryFilename = remember(pdfCatalog?.deliverySheet) {
         pdfCatalog?.deliverySheet?.pdfFilename.orEmpty()
     }
+    val pullsFilename = remember(pdfCatalog?.pullsSheet) {
+        pdfCatalog?.pullsSheet?.pdfFilename.orEmpty()
+    }
     val unmanagedOtherPdfNames = remember(pdfCatalog?.otherDocs) {
         pdfCatalog?.otherDocs?.map { it.pdfFilename }.orEmpty()
     }
@@ -387,6 +392,8 @@ fun AssemblyViewerScreen(
     var secondPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
     var firstPaneDeliveryPage by rememberSaveable { mutableIntStateOf(1) }
     var secondPaneDeliveryPage by rememberSaveable { mutableIntStateOf(1) }
+    var firstPanePullsPage by rememberSaveable { mutableIntStateOf(1) }
+    var secondPanePullsPage by rememberSaveable { mutableIntStateOf(1) }
     var firstPaneOtherPage by rememberSaveable(firstPaneOtherFilename) { mutableIntStateOf(1) }
     var secondPaneOtherPage by rememberSaveable(secondPaneOtherFilename) { mutableIntStateOf(1) }
     var firstPaneTotalPages by remember { mutableIntStateOf(0) }
@@ -589,6 +596,7 @@ fun AssemblyViewerScreen(
         PaneSource.PLANS -> "Plans"
         PaneSource.ASSEMBLY -> "Assembly"
         PaneSource.DELIVERY -> "Delivery"
+        PaneSource.PULLS -> "Pulls"
         PaneSource.OTHER -> "Other"
         PaneSource.THREE_D -> "3D"
         PaneSource.CHECKLIST -> "Checklist"
@@ -598,15 +606,17 @@ fun AssemblyViewerScreen(
         PaneSource.PLANS -> plansFilename.takeIf { it.isNotBlank() }
         PaneSource.ASSEMBLY -> assemblyFilename.takeIf { it.isNotBlank() }
         PaneSource.DELIVERY -> deliveryFilename.takeIf { it.isNotBlank() }
+        PaneSource.PULLS -> pullsFilename.takeIf { it.isNotBlank() }
         PaneSource.OTHER -> otherFilename?.takeIf { it.isNotBlank() }
         PaneSource.THREE_D -> null
         PaneSource.CHECKLIST -> null
     }
 
-    fun sourcePage(source: PaneSource, assemblyPageVal: Int, plansPageVal: Int, otherPage: Int, deliveryPage: Int): Int = when (source) {
+    fun sourcePage(source: PaneSource, assemblyPageVal: Int, plansPageVal: Int, otherPage: Int, deliveryPage: Int, pullsPage: Int): Int = when (source) {
         PaneSource.PLANS -> plansPageVal
         PaneSource.ASSEMBLY -> assemblyPageVal
         PaneSource.DELIVERY -> deliveryPage
+        PaneSource.PULLS -> pullsPage
         PaneSource.OTHER -> otherPage
         PaneSource.THREE_D -> 1
         PaneSource.CHECKLIST -> 1
@@ -618,7 +628,8 @@ fun AssemblyViewerScreen(
         setPlans: (Int) -> Unit,
         setAssembly: (Int) -> Unit,
         setOther: (Int) -> Unit,
-        setDelivery: (Int) -> Unit
+        setDelivery: (Int) -> Unit,
+        setPulls: (Int) -> Unit
     ) {
         when (source) {
             PaneSource.PLANS -> setPlans(nextPage)
@@ -630,6 +641,7 @@ fun AssemblyViewerScreen(
                 }
             }
             PaneSource.DELIVERY -> setDelivery(nextPage)
+            PaneSource.PULLS -> setPulls(nextPage)
             PaneSource.OTHER -> setOther(nextPage)
             PaneSource.THREE_D -> Unit
             PaneSource.CHECKLIST -> Unit
@@ -783,7 +795,7 @@ fun AssemblyViewerScreen(
                         continuousScrollEnabled = continuousScrollEnabled,
                         isSplitPaneActive = (fullscreenPane == FullscreenPane.NONE),
                         pdfFilename = firstSourceFilename,
-                        currentPage = sourcePage(firstPaneSource, firstPaneAssemblyPage, firstPanePlansPage, firstPaneOtherPage, firstPaneDeliveryPage),
+                        currentPage = sourcePage(firstPaneSource, firstPaneAssemblyPage, firstPanePlansPage, firstPaneOtherPage, firstPaneDeliveryPage, firstPanePullsPage),
                         totalPages = firstPaneTotalPages,
                         onCurrentPageChange = { nextPage ->
                             setSourcePage(
@@ -792,7 +804,8 @@ fun AssemblyViewerScreen(
                                 setPlans = { firstPanePlansPage = it },
                                 setAssembly = { firstPaneAssemblyPage = it },
                                 setOther = { firstPaneOtherPage = it },
-                                setDelivery = { firstPaneDeliveryPage = it }
+                                setDelivery = { firstPaneDeliveryPage = it },
+                                setPulls = { firstPanePullsPage = it }
                             )
                         },
                         onTotalPagesChanged = {
@@ -891,7 +904,7 @@ fun AssemblyViewerScreen(
                         continuousScrollEnabled = continuousScrollEnabled,
                         isSplitPaneActive = (fullscreenPane == FullscreenPane.NONE),
                         pdfFilename = secondSourceFilename,
-                        currentPage = sourcePage(secondPaneSource, secondPaneAssemblyPage, secondPanePlansPage, secondPaneOtherPage, secondPaneDeliveryPage),
+                        currentPage = sourcePage(secondPaneSource, secondPaneAssemblyPage, secondPanePlansPage, secondPaneOtherPage, secondPaneDeliveryPage, secondPanePullsPage),
                         totalPages = secondPaneTotalPages,
                         onCurrentPageChange = { nextPage ->
                             setSourcePage(
@@ -900,7 +913,8 @@ fun AssemblyViewerScreen(
                                 setPlans = { secondPanePlansPage = it },
                                 setAssembly = { secondPaneAssemblyPage = it },
                                 setOther = { secondPaneOtherPage = it },
-                                setDelivery = { secondPaneDeliveryPage = it }
+                                setDelivery = { secondPaneDeliveryPage = it },
+                                setPulls = { secondPanePullsPage = it }
                             )
                         },
                         onTotalPagesChanged = {
@@ -1005,7 +1019,7 @@ fun AssemblyViewerScreen(
                                 Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
                             }
                             Text(
-                                text = "${sourcePage(firstPaneSource, firstPaneAssemblyPage, firstPanePlansPage, firstPaneOtherPage, firstPaneDeliveryPage)}/${firstPaneTotalPages.coerceAtLeast(0)}",
+                                text = "${sourcePage(firstPaneSource, firstPaneAssemblyPage, firstPanePlansPage, firstPaneOtherPage, firstPaneDeliveryPage, firstPanePullsPage)}/${firstPaneTotalPages.coerceAtLeast(0)}",
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
@@ -1041,7 +1055,7 @@ fun AssemblyViewerScreen(
                                 Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
                             }
                             Text(
-                                text = "${sourcePage(secondPaneSource, secondPaneAssemblyPage, secondPanePlansPage, secondPaneOtherPage, secondPaneDeliveryPage)}/${secondPaneTotalPages.coerceAtLeast(0)}",
+                                text = "${sourcePage(secondPaneSource, secondPaneAssemblyPage, secondPanePlansPage, secondPaneOtherPage, secondPaneDeliveryPage, secondPanePullsPage)}/${secondPaneTotalPages.coerceAtLeast(0)}",
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
@@ -1399,6 +1413,12 @@ private fun RowScope.PaneSourceControlsInline(
         selected = selectedSource == PaneSource.DELIVERY,
         onClick = { onSelectSource(PaneSource.DELIVERY) },
         label = { Text("Delivery") },
+        shape = MaterialTheme.shapes.small
+    )
+    FilterChip(
+        selected = selectedSource == PaneSource.PULLS,
+        onClick = { onSelectSource(PaneSource.PULLS) },
+        label = { Text("Pulls") },
         shape = MaterialTheme.shapes.small
     )
     FilterChip(
