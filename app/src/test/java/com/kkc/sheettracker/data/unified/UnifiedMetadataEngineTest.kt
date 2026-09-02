@@ -170,6 +170,44 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun resolvesPullsPdfByFilenameOnly() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        File(baseDir, "$jobFolder/1234 - PULLS.pdf").writeText("pdf")
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+
+        val pullsRef = engine.findReferencePdfFilename(
+            jobFolderName = jobFolder,
+            query = UnifiedReferenceQuery(ReferenceDocType.PULLS)
+        ).pdfFilename
+        assertEquals("1234 - PULLS.pdf", pullsRef)
+
+        assertTrue(
+            engine.hasReferenceDocument(
+                jobFolderName = jobFolder,
+                query = UnifiedReferenceQuery(ReferenceDocType.PULLS)
+            ).exists
+        )
+
+        val catalog = engine.getPdfCatalog(jobFolder).catalog
+        assertEquals("1234 - PULLS.pdf", catalog.pullsSheet?.pdfFilename)
+    }
+
+    @Test
+    fun hasReferenceDocumentIsFalseForPullsWhenFileMissing() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+
+        assertFalse(
+            engine.hasReferenceDocument(
+                jobFolderName = jobFolder,
+                query = UnifiedReferenceQuery(ReferenceDocType.PULLS)
+            ).exists
+        )
+    }
+
+    @Test
     fun loadsLegacyCncPartsWhenGraphicAndBandingFieldsAreMissing() {
         val legacyJson = """
             {

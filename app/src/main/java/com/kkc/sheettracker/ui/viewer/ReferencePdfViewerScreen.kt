@@ -138,8 +138,9 @@ fun ReferencePdfViewerScreen(
                         when (docType) {
                             ReferenceDocType.ASSEMBLY -> "Assembly Sheets"
                             ReferenceDocType.PLANS_ELEVATIONS -> "Plans & Elevations"
-                            ReferenceDocType.DELIVERY_SHEETS -> "Cover Sheet"
+                            ReferenceDocType.DELIVERY_SHEETS -> "Delivery"
                             ReferenceDocType.SHEET -> "Sheet"
+                            ReferenceDocType.PULLS -> "Pulls"
                         },
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,

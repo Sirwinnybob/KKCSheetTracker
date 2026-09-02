@@ -40,6 +40,7 @@ fun rememberReferenceViewerData(
             ReferenceDocType.PLANS_ELEVATIONS -> sheetIndex?.documents?.plansElevations
             ReferenceDocType.DELIVERY_SHEETS -> null
             ReferenceDocType.SHEET -> null
+            ReferenceDocType.PULLS -> null
         }
     }
 
@@ -104,6 +105,7 @@ fun rememberReferenceViewerData(
             ReferenceDocType.PLANS_ELEVATIONS -> documentIndex?.cabinetToPages.orEmpty()
             ReferenceDocType.DELIVERY_SHEETS -> emptyMap()
             ReferenceDocType.SHEET -> emptyMap()
+            ReferenceDocType.PULLS -> emptyMap()
         }
     }
     val navigatorPlanViewLabels = remember(docType, documentIndex) {

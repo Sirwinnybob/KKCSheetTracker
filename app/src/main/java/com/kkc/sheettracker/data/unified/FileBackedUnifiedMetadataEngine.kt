@@ -541,6 +541,9 @@ class FileBackedUnifiedMetadataEngine(
         if (docType == ReferenceDocType.DELIVERY_SHEETS) {
             return UnifiedReferenceLookup(getPdfCatalog(jobFolderName).catalog.deliverySheet?.pdfFilename)
         }
+        if (docType == ReferenceDocType.PULLS) {
+            return UnifiedReferenceLookup(getPdfCatalog(jobFolderName).catalog.pullsSheet?.pdfFilename)
+        }
         val staticData = loadStaticJobData(jobFolderName)
         val sheetIndex = staticData?.cabinetSheetIndex
         val fromIndex = when (docType) {
@@ -548,6 +551,7 @@ class FileBackedUnifiedMetadataEngine(
             ReferenceDocType.PLANS_ELEVATIONS -> sheetIndex?.documents?.plansElevations?.pdfFilename
             ReferenceDocType.DELIVERY_SHEETS -> null
             ReferenceDocType.SHEET -> null
+            ReferenceDocType.PULLS -> null
         }?.takeIf { it.isNotBlank() }
         if (fromIndex != null) return UnifiedReferenceLookup(fromIndex)
 
@@ -556,6 +560,7 @@ class FileBackedUnifiedMetadataEngine(
             ReferenceDocType.PLANS_ELEVATIONS -> "plans & elevations"
             ReferenceDocType.DELIVERY_SHEETS -> "delivery sheets"
             ReferenceDocType.SHEET -> "sheet"
+            ReferenceDocType.PULLS -> "pulls"
         }
         val jobDir = File(baseDir, jobFolderName)
         if (!jobDir.isDirectory) return UnifiedReferenceLookup(null)
@@ -1062,10 +1067,12 @@ class FileBackedUnifiedMetadataEngine(
         val managed = mutableListOf<JobPdfRef>()
         val other = mutableListOf<JobPdfRef>()
         var deliverySheet: JobPdfRef? = null
+        var pullsSheet: JobPdfRef? = null
         rootPdfs.forEach { file ->
             val lower = file.name.lowercase(Locale.US)
             val managedLabel = when {
                 lower.contains("delivery sheets") -> "Delivery Sheets"
+                lower.contains("pulls") -> "Pulls"
                 lower.contains("assembly sheets") -> "Assembly Sheets"
                 lower.contains("plans & elevations") || lower.contains("plans and elevations") -> "Plans & Elevations"
                 lower.contains("door list") -> "Door List"
@@ -1078,11 +1085,14 @@ class FileBackedUnifiedMetadataEngine(
                 if (managedLabel == "Delivery Sheets" && deliverySheet == null) {
                     deliverySheet = ref
                 }
+                if (managedLabel == "Pulls" && pullsSheet == null) {
+                    pullsSheet = ref
+                }
             } else {
                 other += JobPdfRef(pdfFilename = file.name, label = file.nameWithoutExtension)
             }
         }
-        return JobPdfCatalog(deliverySheet = deliverySheet, managedDocs = managed, otherDocs = other)
+        return JobPdfCatalog(deliverySheet = deliverySheet, pullsSheet = pullsSheet, managedDocs = managed, otherDocs = other)
     }
 
     private fun buildCncSearchIndex(job: Job): List<PartSearchEntry> {

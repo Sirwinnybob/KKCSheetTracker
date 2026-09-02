@@ -639,6 +639,7 @@ fun HardwoodsWorkspaceScreen(
             ReferenceDocType.PLANS_ELEVATIONS -> cabinetIndex?.documents?.plansElevations?.cabinetToPages
             ReferenceDocType.DELIVERY_SHEETS -> null
             ReferenceDocType.SHEET -> null
+            ReferenceDocType.PULLS -> null
         }
         return map?.get(cab)?.firstOrNull()
     }
@@ -830,6 +831,7 @@ fun HardwoodsWorkspaceScreen(
                 ReferenceDocType.PLANS_ELEVATIONS -> plansTarget?.let { referencePage = it }
                 ReferenceDocType.DELIVERY_SHEETS -> Unit
                 ReferenceDocType.SHEET -> Unit
+                ReferenceDocType.PULLS -> Unit
             }
             showReferencePane = true
             return
@@ -2172,6 +2174,7 @@ private fun ReferencePane(
             ReferenceDocType.PLANS_ELEVATIONS -> cabinetIndex?.documents?.plansElevations
             ReferenceDocType.DELIVERY_SHEETS -> null
             ReferenceDocType.SHEET -> null
+            ReferenceDocType.PULLS -> null
         }
     }
     val assemblyVirtualRawMap = remember(cabinetIndex) {
@@ -2232,6 +2235,7 @@ private fun ReferencePane(
             ReferenceDocType.PLANS_ELEVATIONS -> docIndex?.cabinetToPages.orEmpty()
             ReferenceDocType.DELIVERY_SHEETS -> emptyMap()
             ReferenceDocType.SHEET -> emptyMap()
+            ReferenceDocType.PULLS -> emptyMap()
         }
     }
     val navigatorPlanViewLabels = remember(referenceDocType, docIndex) {

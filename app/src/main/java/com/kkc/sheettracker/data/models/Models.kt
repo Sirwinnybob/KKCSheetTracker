@@ -94,7 +94,8 @@ enum class ReferenceDocType {
     ASSEMBLY,
     PLANS_ELEVATIONS,
     DELIVERY_SHEETS,
-    SHEET
+    SHEET,
+    PULLS
 }
 
 data class JobPdfRef(
@@ -104,6 +105,7 @@ data class JobPdfRef(
 
 data class JobPdfCatalog(
     val deliverySheet: JobPdfRef? = null,
+    val pullsSheet: JobPdfRef? = null,
     val managedDocs: List<JobPdfRef> = emptyList(),
     val otherDocs: List<JobPdfRef> = emptyList()
 )
