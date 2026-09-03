@@ -236,23 +236,25 @@ fun SettingsScreen(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Flexible Mode", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "Show a mode switcher on Dashboard and Jobs instead of locking to Work Mode above",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+            SettingsCard(title = "Flexible Mode") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Flexible Mode", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Show a mode switcher on Dashboard and Jobs instead of locking to Work Mode above",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = flexibleModeEnabled,
+                        onCheckedChange = onFlexibleModeChanged
                     )
                 }
-                Switch(
-                    checked = flexibleModeEnabled,
-                    onCheckedChange = onFlexibleModeChanged
-                )
             }
 
             // ── Appearance ───────────────────────────────────────────────
