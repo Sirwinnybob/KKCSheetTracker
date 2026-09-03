@@ -109,7 +109,8 @@ class AppStateStore(
                         val materials = info.indexProgress?.cnc?.materials.orEmpty()
                         materials.any { material ->
                             isRecentInProgressMaterial(material.toStatusCounts()) ||
-                                (material.isRemake && (material.done + material.renested) < material.totalSheets)
+                                (material.isRemake && (material.done + material.renested) < material.totalSheets) ||
+                                (material.isMisc && (material.done + material.renested) < material.totalSheets)
                         }
                     }
                     val loadedJobs = scanState.snapshot.jobs.associateBy { it.folderName }.toMutableMap()
@@ -134,7 +135,8 @@ class AppStateStore(
                         badPartsSheets = if (indexCncJobs.isNotEmpty()) indexCncJobs.sumOf { it.indexProgress?.cnc?.bad ?: 0 } else derivation.dashboard.badPartsSheets,
                         skippedSheets = if (indexCncJobs.isNotEmpty()) indexCncJobs.sumOf { it.indexProgress?.cnc?.skipped ?: 0 } else derivation.dashboard.skippedSheets,
                         recentInProgressMaterials = derivation.dashboard.recentInProgressMaterials,
-                        incompleteRemakeMaterials = derivation.dashboard.incompleteRemakeMaterials
+                        incompleteRemakeMaterials = derivation.dashboard.incompleteRemakeMaterials,
+                        incompleteMiscMaterials = derivation.dashboard.incompleteMiscMaterials
                     )
                     emitDistinctSnapshots(derivation.copy(dashboard = dashboard))
 
@@ -202,6 +204,7 @@ class AppStateStore(
         val jobModels = ArrayList<JobUiModel>(jobs.size)
         val recentInProgressMaterials = mutableListOf<DashboardRecentMaterialItem>()
         val incompleteRemakeMaterials = mutableListOf<DashboardRecentMaterialItem>()
+        val incompleteMiscMaterials = mutableListOf<DashboardRecentMaterialItem>()
 
         var totalSheets = 0
         var completedSheets = 0
@@ -293,6 +296,33 @@ class AppStateStore(
                         thumbnailPath = pageMeta?.thumbnailPath
                     )
                 }
+
+                val miscLabel = material.metadata?.miscLabel
+                if (miscLabel != null &&
+                    (materialUiModel.counts.complete + materialUiModel.counts.reNested) < materialUiModel.counts.total
+                ) {
+                    val visiblePages = trackablePages(material)
+                    val nextIncompletePage = nextIncompletePage(
+                        trackablePages = visiblePages,
+                        pageStatusByNumber = materialDerivation.pageStatusByNumber,
+                        fallbackPage = visiblePages.firstOrNull() ?: 1
+                    )
+                    val pageMeta = material.metadata.pages.firstOrNull { it.pageNumber == nextIncompletePage }
+                        ?: material.metadata.pages.getOrNull((nextIncompletePage - 1).coerceAtLeast(0))
+                    incompleteMiscMaterials += DashboardRecentMaterialItem(
+                        jobFolderName = job.folderName,
+                        jobNumber = job.jobNumber,
+                        materialName = material.materialName,
+                        pdfFilename = material.pdfFilename,
+                        fileFingerprint = material.fileFingerprint,
+                        lastTouchedPage = nextIncompletePage,
+                        nextIncompletePage = nextIncompletePage,
+                        lastTouchedAtMs = 0L,
+                        counts = materialUiModel.counts,
+                        completionFraction = materialUiModel.completionFraction,
+                        thumbnailPath = pageMeta?.thumbnailPath
+                    )
+                }
             }
 
             totalSheets += jobTotal - jobReNested
@@ -327,6 +357,9 @@ class AppStateStore(
                 .sortedByDescending { it.lastTouchedAtMs }
                 .take(DASHBOARD_RECENT_LIMIT),
             incompleteRemakeMaterials = incompleteRemakeMaterials
+                .sortedWith(compareBy({ it.jobFolderName }, { it.materialName }))
+                .take(DASHBOARD_RECENT_LIMIT),
+            incompleteMiscMaterials = incompleteMiscMaterials
                 .sortedWith(compareBy({ it.jobFolderName }, { it.materialName }))
                 .take(DASHBOARD_RECENT_LIMIT)
         )
