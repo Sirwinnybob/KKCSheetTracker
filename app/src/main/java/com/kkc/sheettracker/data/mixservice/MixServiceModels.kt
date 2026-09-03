@@ -57,3 +57,14 @@ data class PgmEditFileHistory(
 data class PgmEditHistoryView(
     val files: Map<String, PgmEditFileHistory> = emptyMap()
 )
+
+/** Result of reading the material-scoped catalog. Reads are safe to cache and render offline. */
+sealed class MixCatalogFetchResult {
+    data class Success(val snapshot: MixCatalogSnapshot) : MixCatalogFetchResult()
+    object NetworkError : MixCatalogFetchResult()
+}
+
+/** Read-only boundary used by [MixCatalogRepository]; it cannot submit catalog mutations. */
+interface MixCatalogReader {
+    suspend fun getMixCatalog(job: String, material: String): MixCatalogFetchResult
+}

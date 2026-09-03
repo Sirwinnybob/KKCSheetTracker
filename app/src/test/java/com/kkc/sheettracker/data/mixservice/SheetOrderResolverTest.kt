@@ -27,6 +27,31 @@ class SheetOrderResolverTest {
     }
 
     @Test
+    fun `pages for mix keeps exact catalog program order and excludes unrelated pages`() {
+        val selected = pagesForMix(
+            pages = pages,
+            naturalOrder = listOf(1, 2, 3),
+            programs = listOf("R3.pgm", "R1.pgm")
+        )
+
+        assertEquals(listOf(3, 1), selected)
+    }
+
+    @Test
+    fun `pages for mix maps both files in a combined row to one physical page`() {
+        val combined = listOf(
+            PageMetadata(pageNumber = 1, sheetFiles = listOf("R1")),
+            PageMetadata(pageNumber = 2, sheetFiles = listOf("R2A", "R2Z")),
+            PageMetadata(pageNumber = 3, sheetFiles = listOf("R3"))
+        )
+
+        assertEquals(
+            listOf(2),
+            pagesForMix(combined, naturalOrder = listOf(1, 2, 3), programs = listOf("R2Z.pgm", "R2A.pgm"))
+        )
+    }
+
+    @Test
     fun `pages not covered by a partial mix are appended after mapped pages, in natural order`() {
         val ordered = reorderVisiblePages(pages, naturalOrder = listOf(1, 2, 3), mixPrograms = listOf("R2.pgm"))
         assertEquals(listOf(2, 1, 3), ordered)

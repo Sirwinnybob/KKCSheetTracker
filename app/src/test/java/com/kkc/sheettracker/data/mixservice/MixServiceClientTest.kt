@@ -130,6 +130,69 @@ class MixServiceClientTest {
     }
 
     @Test
+    fun `getMixCatalog parses a revisioned snapshot and requests the canonical route`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R2.pgm"],"status":"compiled"}]}"""
+            )
+        )
+
+        val reader: MixCatalogReader = client()
+        val result = reader.getMixCatalog("100 - Alpha", "19mm Pre_Finished")
+
+        check(result is MixCatalogFetchResult.Success)
+        assertEquals(
+            MixCatalogSnapshot(
+                job = "100 - Alpha",
+                material = "19mm Pre_Finished",
+                revision = 17L,
+                entries = listOf(
+                    MixCatalogEntry(
+                        name = "Current",
+                        mixFilename = "Current.mix",
+                        lifecycle = MixLifecycle.ACTIVE,
+                        programs = listOf("R2.pgm"),
+                        status = "compiled",
+                    )
+                ),
+            ),
+            result.snapshot,
+        )
+        val recorded = server.takeRequest()
+        assertEquals("GET", recorded.method)
+        assertEquals(
+            "/jobs/100%20-%20Alpha/materials/19mm%20Pre_Finished/mix-catalog",
+            recorded.requestUrl?.encodedPath,
+        )
+        assertEquals(0L, recorded.body.size)
+    }
+
+    @Test
+    fun `getMixCatalog maps malformed, unrevisioned, or unsuccessful envelopes to NetworkError`() = runBlocking {
+        server.enqueue(MockResponse().setBody("not-json"))
+        server.enqueue(MockResponse().setBody("""{"ok":true,"entries":[]}"""))
+        server.enqueue(MockResponse().setBody("""{"ok":false,"revision":18,"entries":[]}"""))
+
+        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
+        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
+        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
+    }
+
+    @Test
+    fun `getMixCatalog maps non-success HTTP responses to NetworkError`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503).setBody("service unavailable"))
+
+        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
+    }
+
+    @Test
+    fun `getMixCatalog maps network failures to NetworkError`() = runBlocking {
+        server.shutdown()
+
+        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
+    }
+
+    @Test
     fun `getPgmConflicts parses conflicts and requests job scope with programs joined by commas`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

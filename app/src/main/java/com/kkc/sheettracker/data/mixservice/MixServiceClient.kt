@@ -21,7 +21,7 @@ sealed class MixLookupResult {
     object NetworkError : MixLookupResult()
 }
 
-class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477") : MixOperationService {
+class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477") : MixOperationService, MixCatalogReader {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val gson = Gson()
     private val root: String get() = baseUrl.trimEnd('/')
@@ -330,6 +330,27 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         method = "POST",
         payload = PgmEditBatchRequest(requestId, files),
     )
+
+    override suspend fun getMixCatalog(job: String, material: String): MixCatalogFetchResult =
+        withContext(Dispatchers.IO) {
+            val url = materialUrl(job, material).newBuilder()
+                .addPathSegment("mix-catalog")
+                .build()
+            val request = Request.Builder().url(url).get().build()
+            runCatching {
+                client.newCall(request).execute().use { response ->
+                    if (response.code != 200) return@use MixCatalogFetchResult.NetworkError
+                    val envelope = gson.fromJson(
+                        response.body?.string().orEmpty(),
+                        CatalogEnvelope::class.java,
+                    ) ?: return@use MixCatalogFetchResult.NetworkError
+                    if (!envelope.ok) return@use MixCatalogFetchResult.NetworkError
+                    val snapshot = envelope.toSnapshot(job, material)
+                        ?: return@use MixCatalogFetchResult.NetworkError
+                    MixCatalogFetchResult.Success(snapshot)
+                }
+            }.getOrDefault(MixCatalogFetchResult.NetworkError)
+        }
 
     override suspend fun getOperation(id: String): MixServiceOperation = withContext(Dispatchers.IO) {
         val url = "$root/operations/".toHttpUrl().newBuilder().addPathSegment(id).build()

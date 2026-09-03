@@ -33,6 +33,24 @@ fun reorderVisiblePages(pages: List<PageMetadata>, naturalOrder: List<Int>, mixP
     return ordered + unresolved
 }
 
+/**
+ * Maps a selected mix's PGM membership to only the corresponding visible physical pages.
+ * Unlike [reorderVisiblePages], this intentionally omits natural pages not owned by the mix.
+ * Combined A/Z rows map both physical files to the same page, while duplicate memberships are
+ * deduplicated without changing the catalog's explicit program order.
+ */
+fun pagesForMix(pages: List<PageMetadata>, naturalOrder: List<Int>, programs: List<String>): List<Int> {
+    val allowed = naturalOrder.toSet()
+    val pagesByProgram = buildManageCodeRows(pages)
+        .filter { it.pageNumber in allowed }
+        .flatMap { row -> row.pgmFiles.map { program -> program to row.pageNumber } }
+        .groupBy(keySelector = { it.first }, valueTransform = { it.second })
+
+    return programs.flatMap { program -> pagesByProgram[program].orEmpty() }
+        .filter { it in allowed }
+        .distinct()
+}
+
 fun resolveMaterialMixEntries(
     materials: List<Material>,
     mixes: List<MixDefinition>?
