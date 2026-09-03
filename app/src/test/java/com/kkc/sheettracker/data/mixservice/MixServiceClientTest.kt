@@ -462,6 +462,39 @@ class MixServiceClientTest {
     }
 
     @Test
+    fun `submitCatalogMutation rejects malformed successful catalog snapshots`() = runBlocking {
+        val payloads = listOf(
+            // Missing required lifecycle.
+            """{"ok":true,"catalog":{"revision":18,"entries":[{"name":"Current","mixFilename":"Current.mix","programs":["R1.pgm"]}]}}""",
+            // Unknown lifecycle.
+            """{"ok":true,"catalog":{"revision":18,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"retired","programs":["R1.pgm"]}]}}""",
+            // Gson would coerce this string to Long.
+            """{"ok":true,"catalog":{"revision":"18","entries":[]}}""",
+            // Integral numeric revisions only; Gson would otherwise accept/coerce this value.
+            """{"ok":true,"catalog":{"revision":18.5,"entries":[]}}""",
+            // Missing, null, and object entry containers are not snapshots.
+            """{"ok":true,"catalog":{"entries":[]}}""",
+            """{"ok":true,"catalog":{"revision":18,"entries":null}}""",
+            """{"ok":true,"catalog":{"revision":18,"entries":{}}}""",
+        )
+        payloads.forEach { server.enqueue(MockResponse().setBody(it)) }
+        val action = ManageCodeOperationAction.catalogReplace(
+            job = "100 - Alpha",
+            material = "Mat",
+            name = "Current",
+            programs = listOf("R1.pgm"),
+            expectedRevision = 17L,
+        )
+
+        payloads.forEach {
+            assertEquals(
+                MixCatalogMutationResult.NetworkError,
+                client().submitCatalogMutation(action),
+            )
+        }
+    }
+
+    @Test
     fun `submitCatalogMutation maps stale revision response distinctly`() = runBlocking {
         server.enqueue(
             MockResponse().setResponseCode(409).setBody("""{"ok":false,"code":"catalog_changed"}""")

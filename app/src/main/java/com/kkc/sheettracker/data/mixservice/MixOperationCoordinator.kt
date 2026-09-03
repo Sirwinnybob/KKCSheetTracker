@@ -20,6 +20,8 @@ class MixOperationCoordinator(
     private val store: MixOperationSessionStore,
     private val pollIntervalMillis: Long = POLL_INTERVAL_MILLIS,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    /** Process-shared cache sink. It is invoked only after a completed session is durable. */
+    private val catalogPublisher: MixCatalogPublisher? = null,
 ) {
     private val lock = Mutex()
     private val _sessions = MutableStateFlow<Map<String, ManageCodeSession>>(emptyMap())
@@ -218,23 +220,39 @@ class MixOperationCoordinator(
         warning: MixOperationWarning?,
     ): String? {
         val nextIndex = session.currentActionIndex + 1
-        publishLocked(
-            session.copy(
-                currentActionIndex = nextIndex,
-                completedMaterials = completedMaterialCount(session.actions, nextIndex),
-                warnings = warning?.let { session.warnings + it } ?: session.warnings,
-                current = MixServiceOperation(
-                    kind = action.kind,
-                    job = session.job,
-                    material = action.material,
-                    state = "completed",
-                    stage = "completed",
-                    result = snapshot,
-                    warning = warning,
-                ),
-            )
+        val completed = session.copy(
+            currentActionIndex = nextIndex,
+            completedMaterials = completedMaterialCount(session.actions, nextIndex),
+            warnings = warning?.let { session.warnings + it } ?: session.warnings,
+            current = MixServiceOperation(
+                kind = action.kind,
+                job = session.job,
+                material = action.material,
+                state = "completed",
+                stage = "completed",
+                result = snapshot,
+                warning = warning,
+            ),
         )
+        persistCatalogCompletionLocked(completed, snapshot)
         return if (nextIndex < session.actions.size) session.job else null
+    }
+
+    /**
+     * Catalog completion has two durable consumers. Save the operation first, then update the
+     * shared display cache, and only then emit the in-memory session so readers cannot observe a
+     * completed mutation while still seeing the previous catalog revision.
+     */
+    private suspend fun persistCatalogCompletionLocked(
+        session: ManageCodeSession,
+        snapshot: MixCatalogSnapshot,
+    ) {
+        val updated = _sessions.value + (session.job to session)
+        store.save(updated)
+        if (MixCatalogJson.isValidSnapshot(snapshot)) {
+            runCatching { catalogPublisher?.publish(snapshot) }
+        }
+        _sessions.value = updated
     }
 
     private fun catalogFailureOperation(

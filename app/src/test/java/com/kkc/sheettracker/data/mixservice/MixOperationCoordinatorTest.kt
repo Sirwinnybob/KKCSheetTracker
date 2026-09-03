@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data.mixservice
 
+import java.nio.file.Files
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -50,11 +51,65 @@ class MixOperationCoordinatorTest {
     }
 
     @Test
+    fun `catalog success persists completion before publishing the shared cache`() = runBlocking {
+        val root = Files.createTempDirectory("mix-catalog-operation-cache").toFile()
+        try {
+            val events = mutableListOf<String>()
+            val cache = MixCatalogCache(root, nowMillis = {
+                events += "cache-publish"
+                1234L
+            })
+            val store = object : MixOperationSessionStore {
+                var sessions: Map<String, ManageCodeSession> = emptyMap()
+
+                override suspend fun load(): MixOperationSessionLoadResult =
+                    MixOperationSessionLoadResult.Success(sessions)
+
+                override suspend fun save(next: Map<String, ManageCodeSession>) {
+                    sessions = next
+                    if (next["648"]?.current?.state == "completed") {
+                        events += "durable-completion"
+                    }
+                }
+            }
+            val coordinator = MixOperationCoordinator(
+                service = CatalogService(),
+                store = store,
+                pollIntervalMillis = 1,
+                catalogPublisher = cache,
+            )
+
+            coordinator.restore()
+            withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+            coordinator.start(
+                session(
+                    actions = listOf(
+                        ManageCodeOperationAction.catalogReplace(
+                            material = "Maple",
+                            name = "Current",
+                            programs = listOf("R2.pgm"),
+                            expectedRevision = 7L,
+                        )
+                    )
+                )
+            )
+
+            withTimeout(1_000) { coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true } }
+
+            assertEquals(listOf("durable-completion", "cache-publish"), events)
+            assertEquals(8L, cache.read("648", "Maple")?.revision)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `completed catalog history sync warning advances and is persisted`() = runBlocking {
+        val root = Files.createTempDirectory("mix-catalog-sync-failure-cache").toFile()
         val store = InMemorySessionStore()
         val service = CatalogService(
             MixCatalogMutationResult.SyncFailed(
-                snapshot = MixCatalogSnapshot(revision = 8L),
+                snapshot = MixCatalogSnapshot(job = "648", material = "M", revision = 8L),
                 code = "history_sync_failed",
                 recoveryUrl = "/jobs/648/materials/M/mix-history/sync",
                 recoveries = listOf(
@@ -66,7 +121,13 @@ class MixOperationCoordinatorTest {
                 ),
             )
         )
-        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+        val cache = MixCatalogCache(root)
+        val coordinator = MixOperationCoordinator(
+            service = service,
+            store = store,
+            pollIntervalMillis = 1,
+            catalogPublisher = cache,
+        )
 
         coordinator.restore()
         withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
@@ -97,6 +158,9 @@ class MixOperationCoordinatorTest {
             completed.warnings.single().recoveries.single().change["historyFile"],
         )
         assertTrue(store.saved.any { it.current.state == "completed" && it.warnings.isNotEmpty() })
+        assertEquals(8L, cache.read("648", "M")?.revision)
+        root.deleteRecursively()
+        Unit
     }
 
     @Test

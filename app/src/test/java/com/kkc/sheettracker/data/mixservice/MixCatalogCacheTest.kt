@@ -84,6 +84,8 @@ class MixCatalogCacheTest {
 
         listOf(
             """{"fetchedAtMillis":1,"snapshot":{"job":"","material":"Mat","revision":7,"entries":[]}}""",
+            """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":0,"entries":[]}}""",
+            """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","entries":[]}}""",
             """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":"7","entries":[]}}""",
             """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":7.5,"entries":[]}}""",
             """{"fetchedAtMillis":1,"snapshot":{"job":"100 - Alpha","material":"Mat","revision":7,"entries":null}}""",

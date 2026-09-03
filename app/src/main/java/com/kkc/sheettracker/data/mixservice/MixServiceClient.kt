@@ -1,6 +1,8 @@
 package com.kkc.sheettracker.data.mixservice
 
 import com.google.gson.Gson
+import com.google.gson.JsonElement
+import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -389,8 +391,7 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (response.code == 200) {
-                val envelope = gson.fromJson(body, CatalogMutationEnvelope::class.java)
-                return@use envelope?.toSnapshot(job, material)
+                return@use MixCatalogJson.parseMutationSnapshot(body, job, material)
                     ?.let(MixCatalogMutationResult::Success)
                     ?: MixCatalogMutationResult.NetworkError
             }
@@ -405,10 +406,16 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         material: String,
         duplicateName: String?,
     ): MixCatalogMutationResult {
+        val bodyObject = runCatching {
+            JsonParser.parseString(body).takeIf(JsonElement::isJsonObject)?.asJsonObject
+        }.getOrNull()
+        val syncSnapshot = bodyObject?.get("mix")?.let { mix ->
+            MixCatalogJson.parseMutationSnapshot(mix, job, material)
+        }
         val syncFailure = runCatching {
             gson.fromJson(body, CatalogSyncFailureEnvelope::class.java)
         }.getOrNull()?.let { envelope ->
-            envelope.mix?.toSnapshot(job, material)?.let { snapshot ->
+            syncSnapshot?.let { snapshot ->
                 MixCatalogMutationResult.SyncFailed(
                     snapshot = snapshot,
                     code = envelope.code ?: "history_sync_failed",
@@ -443,16 +450,6 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
                 else -> MixCatalogMutationResult.NetworkError
             }
         }
-    }
-
-    private fun CatalogMutationEnvelope.toSnapshot(job: String, material: String): MixCatalogSnapshot? {
-        if (!ok) return null
-        return catalog?.toSnapshot(job, material)
-    }
-
-    private fun CatalogEnvelope.toSnapshot(job: String, material: String): MixCatalogSnapshot? {
-        val revision = revision ?: return null
-        return MixCatalogSnapshot(job, material, revision, entries)
     }
 
     private fun materialUrl(job: String, material: String) = "$root/jobs/".toHttpUrl().newBuilder()

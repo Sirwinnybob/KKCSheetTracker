@@ -19,13 +19,38 @@ import kotlinx.coroutines.launch
 internal object MixCatalogJson {
     fun parseFetchSnapshot(content: String, job: String, material: String): MixCatalogSnapshot? =
         runCatching {
-            val envelope = JsonParser.parseString(content)
-                .takeIf(JsonElement::isJsonObject)
-                ?.asJsonObject
-                ?: return@runCatching null
-            if (envelope.booleanValue("ok") != true) return@runCatching null
-            parseSnapshotObject(envelope, job, material)
+            parseFetchSnapshot(JsonParser.parseString(content), job, material)
         }.getOrNull()
+
+    private fun parseFetchSnapshot(
+        element: JsonElement,
+        job: String,
+        material: String,
+    ): MixCatalogSnapshot? {
+        val envelope = element.takeIf(JsonElement::isJsonObject)?.asJsonObject
+            ?: return null
+        if (envelope.booleanValue("ok") != true) return null
+        return parseSnapshotObject(envelope, job, material)
+    }
+
+    /** Parses the {ok,catalog:{revision,entries}} envelope returned by catalog mutations. */
+    fun parseMutationSnapshot(content: String, job: String, material: String): MixCatalogSnapshot? =
+        runCatching {
+            parseMutationSnapshot(JsonParser.parseString(content), job, material)
+        }.getOrNull()
+
+    /** Parses a nested mutation envelope, used by both HTTP 200 and sync-failure responses. */
+    fun parseMutationSnapshot(
+        element: JsonElement?,
+        job: String,
+        material: String,
+    ): MixCatalogSnapshot? {
+        val envelope = element?.takeIf(JsonElement::isJsonObject)?.asJsonObject
+            ?: return null
+        if (envelope.booleanValue("ok") != true) return null
+        val catalog = envelope.objectValue("catalog") ?: return null
+        return parseSnapshotObject(catalog, job, material)
+    }
 
     fun parseSnapshotObject(
         objectValue: JsonObject,
@@ -82,7 +107,12 @@ internal object MixCatalogJson {
     }
 
     fun isValidSnapshot(snapshot: MixCatalogSnapshot?): Boolean = try {
-        if (snapshot == null || snapshot.job.isBlank() || snapshot.material.isBlank()) return false
+        if (
+            snapshot == null ||
+            snapshot.job.isBlank() ||
+            snapshot.material.isBlank() ||
+            snapshot.revision <= 0L
+        ) return false
         snapshot.entries.all { entry ->
             entry.name.isNotBlank() &&
                 entry.mixFilename.isNotBlank() &&
@@ -98,8 +128,11 @@ internal object MixCatalogJson {
     fun JsonObject.longValue(name: String): Long? {
         val value = get(name) ?: return null
         if (!value.isJsonPrimitive || !value.asJsonPrimitive.isNumber) return null
-        return value.asString.toLongOrNull()
+        return value.asString.toLongOrNull()?.takeIf { it > 0L }
     }
+
+    private fun JsonObject.objectValue(name: String): JsonObject? =
+        get(name)?.takeIf(JsonElement::isJsonObject)?.asJsonObject
 
     fun JsonObject.nonBlankString(name: String): String? =
         get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
@@ -131,11 +164,16 @@ data class CachedMixCatalogSnapshot(
     val fetchedAtMillis: Long
 )
 
+/** Boundary for publishing a validated mutation snapshot to the process-shared catalog cache. */
+fun interface MixCatalogPublisher {
+    fun publish(snapshot: MixCatalogSnapshot): Boolean
+}
+
 /** Durable, per-job/material catalog snapshots. The enclosing cache directory is injected. */
 class MixCatalogCache(
     private val root: File,
     private val nowMillis: () -> Long = System::currentTimeMillis
-) {
+) : MixCatalogPublisher {
     private val gson = Gson()
     private val frontCache = mutableMapOf<Pair<String, String>, CachedMixCatalogSnapshot>()
 
@@ -191,6 +229,8 @@ class MixCatalogCache(
             temporary.delete()
         }
     }
+
+    override fun publish(snapshot: MixCatalogSnapshot): Boolean = write(snapshot)
 
     private fun cacheFile(job: String, material: String): File = File(root, "${key(job, material)}.json")
 
