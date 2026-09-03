@@ -77,6 +77,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -332,16 +333,16 @@ fun AssemblyViewerScreen(
     // selecting the same doc type in both panes doesn't lock them together. Both panes seed
     // from the same resume value on first load (there's only ever one saved "last position"),
     // but diverge as soon as either pane is navigated on its own.
-    var firstPaneAssemblyPage by rememberSaveable(startPageAssembly) {
+    val firstPaneAssemblyPageState: MutableIntState = rememberSaveable(startPageAssembly) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_assembly_page", startPageAssembly).coerceAtLeast(1))
     }
-    var secondPaneAssemblyPage by rememberSaveable(startPageAssembly) {
+    val secondPaneAssemblyPageState: MutableIntState = rememberSaveable(startPageAssembly) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_assembly_page", startPageAssembly).coerceAtLeast(1))
     }
-    var firstPanePlansPage by rememberSaveable(startPagePlans) {
+    val firstPanePlansPageState: MutableIntState = rememberSaveable(startPagePlans) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_plans_page", startPagePlans).coerceAtLeast(1))
     }
-    var secondPanePlansPage by rememberSaveable(startPagePlans) {
+    val secondPanePlansPageState: MutableIntState = rememberSaveable(startPagePlans) {
         mutableIntStateOf(prefs.getInt("${resumePrefix}_plans_page", startPagePlans).coerceAtLeast(1))
     }
     var searchText by rememberSaveable(stateSaver = androidx.compose.ui.text.input.TextFieldValue.Saver) {
@@ -390,12 +391,30 @@ fun AssemblyViewerScreen(
 }
     var firstPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
     var secondPaneOtherFilename by rememberSaveable { mutableStateOf<String?>(null) }
-    var firstPaneDeliveryPage by rememberSaveable { mutableIntStateOf(1) }
-    var secondPaneDeliveryPage by rememberSaveable { mutableIntStateOf(1) }
-    var firstPanePullsPage by rememberSaveable { mutableIntStateOf(1) }
-    var secondPanePullsPage by rememberSaveable { mutableIntStateOf(1) }
-    var firstPaneOtherPage by rememberSaveable(firstPaneOtherFilename) { mutableIntStateOf(1) }
-    var secondPaneOtherPage by rememberSaveable(secondPaneOtherFilename) { mutableIntStateOf(1) }
+    val firstPaneDeliveryPageState: MutableIntState = rememberSaveable { mutableIntStateOf(1) }
+    val secondPaneDeliveryPageState: MutableIntState = rememberSaveable { mutableIntStateOf(1) }
+    val firstPanePullsPageState: MutableIntState = rememberSaveable { mutableIntStateOf(1) }
+    val secondPanePullsPageState: MutableIntState = rememberSaveable { mutableIntStateOf(1) }
+    val firstPaneOtherPageState: MutableIntState = rememberSaveable(firstPaneOtherFilename) { mutableIntStateOf(1) }
+    val secondPaneOtherPageState: MutableIntState = rememberSaveable(secondPaneOtherFilename) { mutableIntStateOf(1) }
+    // Keyed lookup for per-doc-type page state — replaces a positional-argument list that grew
+    // by one parameter (and one call-site edit at every read/write site) each time a new
+    // PaneSource doc type was added. THREE_D/CHECKLIST are intentionally absent: they have no
+    // real page state (sourcePage/setSourcePage treat a missing key as page 1 / no-op).
+    val firstPanePages: Map<PaneSource, MutableIntState> = mapOf(
+        PaneSource.PLANS to firstPanePlansPageState,
+        PaneSource.ASSEMBLY to firstPaneAssemblyPageState,
+        PaneSource.DELIVERY to firstPaneDeliveryPageState,
+        PaneSource.PULLS to firstPanePullsPageState,
+        PaneSource.OTHER to firstPaneOtherPageState
+    )
+    val secondPanePages: Map<PaneSource, MutableIntState> = mapOf(
+        PaneSource.PLANS to secondPanePlansPageState,
+        PaneSource.ASSEMBLY to secondPaneAssemblyPageState,
+        PaneSource.DELIVERY to secondPaneDeliveryPageState,
+        PaneSource.PULLS to secondPanePullsPageState,
+        PaneSource.OTHER to secondPaneOtherPageState
+    )
     var firstPaneTotalPages by remember { mutableIntStateOf(0) }
     var secondPaneTotalPages by remember { mutableIntStateOf(0) }
     var sharedPdfMarkupEnabled by rememberSaveable { mutableStateOf(false) }
@@ -421,13 +440,13 @@ fun AssemblyViewerScreen(
         }
     }
 
-    LaunchedEffect(firstPaneAssemblyPage, firstPanePlansPage, firstPaneSource, secondPaneSource, fullscreenPane) {
+    LaunchedEffect(firstPaneAssemblyPageState.intValue, firstPanePlansPageState.intValue, firstPaneSource, secondPaneSource, fullscreenPane) {
     if (enteredVia3D) return@LaunchedEffect
     // Resume only remembers one position per doc type — the first pane's, since that's the
     // primary/default pane. The second pane always reseeds from this same value on next open.
     prefs.edit()
-            .putInt("${resumePrefix}_assembly_page", firstPaneAssemblyPage)
-            .putInt("${resumePrefix}_plans_page", firstPanePlansPage)
+            .putInt("${resumePrefix}_assembly_page", firstPaneAssemblyPageState.intValue)
+            .putInt("${resumePrefix}_plans_page", firstPanePlansPageState.intValue)
             .putString("${resumePrefix}_first_source", firstPaneSource.name)
             .putString("${resumePrefix}_second_source", secondPaneSource.name)
             .putString("${resumePrefix}_fullscreen", fullscreenPane.name)
@@ -528,18 +547,18 @@ fun AssemblyViewerScreen(
         // Explicit jump moves BOTH panes to the searched cabinet — a deliberate navigation
         // action, unlike passive page-turning/scrolling which stays decoupled per pane.
         if (assemblyTarget != null) {
-            firstPaneAssemblyPage = assemblyTarget
-            secondPaneAssemblyPage = assemblyTarget
+            firstPaneAssemblyPageState.intValue = assemblyTarget
+            secondPaneAssemblyPageState.intValue = assemblyTarget
         }
         if (plansTarget != null) {
-            firstPanePlansPage = plansTarget
-            secondPanePlansPage = plansTarget
+            firstPanePlansPageState.intValue = plansTarget
+            secondPanePlansPageState.intValue = plansTarget
         }
 
         lastSearchedCabinet = normalized
         contextLine = assemblyStateStore.getCabinetContext(jobFolderName, normalized)
 
-        detectedRoom = roomForAssemblyPage(assemblyTarget ?: firstPaneAssemblyPage)
+        detectedRoom = roomForAssemblyPage(assemblyTarget ?: firstPaneAssemblyPageState.intValue)
 
         if (assemblyTarget == null && plansTarget == null) {
             scope.launch {
@@ -559,12 +578,12 @@ fun AssemblyViewerScreen(
         }
     }
 
-    LaunchedEffect(firstPaneAssemblyPage, secondPaneAssemblyPage, firstPaneSource, secondPaneSource) {
+    LaunchedEffect(firstPaneAssemblyPageState.intValue, secondPaneAssemblyPageState.intValue, firstPaneSource, secondPaneSource) {
         // 3D room sync needs a single "current" Assembly page — use whichever pane is actually
         // showing Assembly (the other pane is the one showing 3D).
         val assemblyPageForRoomSync = when {
-            firstPaneSource == PaneSource.ASSEMBLY -> firstPaneAssemblyPage
-            secondPaneSource == PaneSource.ASSEMBLY -> secondPaneAssemblyPage
+            firstPaneSource == PaneSource.ASSEMBLY -> firstPaneAssemblyPageState.intValue
+            secondPaneSource == PaneSource.ASSEMBLY -> secondPaneAssemblyPageState.intValue
             else -> null
         }
         if (assemblyPageForRoomSync != null && (firstPaneSource == PaneSource.THREE_D || secondPaneSource == PaneSource.THREE_D)) {
@@ -586,8 +605,8 @@ fun AssemblyViewerScreen(
             val fallback = firstAlphabeticalRoomFromIndex()
             if (fallback != null) {
                 detectedRoom = fallback.first
-                firstPaneAssemblyPage = fallback.second
-                secondPaneAssemblyPage = fallback.second
+                firstPaneAssemblyPageState.intValue = fallback.second
+                secondPaneAssemblyPageState.intValue = fallback.second
             }
         }
     }
@@ -612,39 +631,20 @@ fun AssemblyViewerScreen(
         PaneSource.CHECKLIST -> null
     }
 
-    fun sourcePage(source: PaneSource, assemblyPageVal: Int, plansPageVal: Int, otherPage: Int, deliveryPage: Int, pullsPage: Int): Int = when (source) {
-        PaneSource.PLANS -> plansPageVal
-        PaneSource.ASSEMBLY -> assemblyPageVal
-        PaneSource.DELIVERY -> deliveryPage
-        PaneSource.PULLS -> pullsPage
-        PaneSource.OTHER -> otherPage
-        PaneSource.THREE_D -> 1
-        PaneSource.CHECKLIST -> 1
-    }
+    // THREE_D/CHECKLIST have no entry in `pages` — page defaults to 1 / writes are no-ops.
+    fun sourcePage(source: PaneSource, pages: Map<PaneSource, MutableIntState>): Int =
+        pages[source]?.intValue ?: 1
 
-    fun setSourcePage(
-        source: PaneSource,
-        nextPage: Int,
-        setPlans: (Int) -> Unit,
-        setAssembly: (Int) -> Unit,
-        setOther: (Int) -> Unit,
-        setDelivery: (Int) -> Unit,
-        setPulls: (Int) -> Unit
-    ) {
-        when (source) {
-            PaneSource.PLANS -> setPlans(nextPage)
-            PaneSource.ASSEMBLY -> {
-                if (hasVirtualAssembly) {
-                    setAssembly(nextPage.coerceIn(1, assemblyVirtualTotalPages.coerceAtLeast(1)))
-                } else {
-                    setAssembly(nextPage.coerceAtLeast(1))
-                }
+    fun setSourcePage(source: PaneSource, nextPage: Int, pages: Map<PaneSource, MutableIntState>) {
+        val pageState = pages[source] ?: return
+        pageState.intValue = if (source == PaneSource.ASSEMBLY) {
+            if (hasVirtualAssembly) {
+                nextPage.coerceIn(1, assemblyVirtualTotalPages.coerceAtLeast(1))
+            } else {
+                nextPage.coerceAtLeast(1)
             }
-            PaneSource.DELIVERY -> setDelivery(nextPage)
-            PaneSource.PULLS -> setPulls(nextPage)
-            PaneSource.OTHER -> setOther(nextPage)
-            PaneSource.THREE_D -> Unit
-            PaneSource.CHECKLIST -> Unit
+        } else {
+            nextPage
         }
     }
 
@@ -795,18 +795,10 @@ fun AssemblyViewerScreen(
                         continuousScrollEnabled = continuousScrollEnabled,
                         isSplitPaneActive = (fullscreenPane == FullscreenPane.NONE),
                         pdfFilename = firstSourceFilename,
-                        currentPage = sourcePage(firstPaneSource, firstPaneAssemblyPage, firstPanePlansPage, firstPaneOtherPage, firstPaneDeliveryPage, firstPanePullsPage),
+                        currentPage = sourcePage(firstPaneSource, firstPanePages),
                         totalPages = firstPaneTotalPages,
                         onCurrentPageChange = { nextPage ->
-                            setSourcePage(
-                                source = firstPaneSource,
-                                nextPage = nextPage,
-                                setPlans = { firstPanePlansPage = it },
-                                setAssembly = { firstPaneAssemblyPage = it },
-                                setOther = { firstPaneOtherPage = it },
-                                setDelivery = { firstPaneDeliveryPage = it },
-                                setPulls = { firstPanePullsPage = it }
-                            )
+                            setSourcePage(firstPaneSource, nextPage, firstPanePages)
                         },
                         onTotalPagesChanged = {
                             firstPaneTotalPages = if (firstPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
@@ -904,18 +896,10 @@ fun AssemblyViewerScreen(
                         continuousScrollEnabled = continuousScrollEnabled,
                         isSplitPaneActive = (fullscreenPane == FullscreenPane.NONE),
                         pdfFilename = secondSourceFilename,
-                        currentPage = sourcePage(secondPaneSource, secondPaneAssemblyPage, secondPanePlansPage, secondPaneOtherPage, secondPaneDeliveryPage, secondPanePullsPage),
+                        currentPage = sourcePage(secondPaneSource, secondPanePages),
                         totalPages = secondPaneTotalPages,
                         onCurrentPageChange = { nextPage ->
-                            setSourcePage(
-                                source = secondPaneSource,
-                                nextPage = nextPage,
-                                setPlans = { secondPanePlansPage = it },
-                                setAssembly = { secondPaneAssemblyPage = it },
-                                setOther = { secondPaneOtherPage = it },
-                                setDelivery = { secondPaneDeliveryPage = it },
-                                setPulls = { secondPanePullsPage = it }
-                            )
+                            setSourcePage(secondPaneSource, nextPage, secondPanePages)
                         },
                         onTotalPagesChanged = {
                             secondPaneTotalPages = if (secondPaneSource == PaneSource.ASSEMBLY && hasVirtualAssembly) {
@@ -1019,7 +1003,7 @@ fun AssemblyViewerScreen(
                                 Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
                             }
                             Text(
-                                text = "${sourcePage(firstPaneSource, firstPaneAssemblyPage, firstPanePlansPage, firstPaneOtherPage, firstPaneDeliveryPage, firstPanePullsPage)}/${firstPaneTotalPages.coerceAtLeast(0)}",
+                                text = "${sourcePage(firstPaneSource, firstPanePages)}/${firstPaneTotalPages.coerceAtLeast(0)}",
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
@@ -1055,7 +1039,7 @@ fun AssemblyViewerScreen(
                                 Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
                             }
                             Text(
-                                text = "${sourcePage(secondPaneSource, secondPaneAssemblyPage, secondPanePlansPage, secondPaneOtherPage, secondPaneDeliveryPage, secondPanePullsPage)}/${secondPaneTotalPages.coerceAtLeast(0)}",
+                                text = "${sourcePage(secondPaneSource, secondPanePages)}/${secondPaneTotalPages.coerceAtLeast(0)}",
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
