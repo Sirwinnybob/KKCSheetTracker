@@ -104,17 +104,32 @@ class MixOperationCoordinator(
             val session = _sessions.value[job] ?: return
             val next = session.currentAction ?: return
             if (next.operationId != null) return
+            val submittedAction = if (next.isCatalogAction && next.job != job) {
+                next.copy(job = job)
+            } else {
+                next
+            }
+            val actions = session.actions.toMutableList().also {
+                it[session.currentActionIndex] = submittedAction
+            }
             publishLocked(
                 session.copy(
+                    actions = actions,
                     current = MixServiceOperation(
                         job = job,
-                        material = next.material,
+                        kind = submittedAction.kind,
+                        material = submittedAction.material,
                         state = "submitting",
                         stage = "submitting",
                     )
                 )
             )
-            next
+            submittedAction
+        }
+
+        if (action.isCatalogAction) {
+            submitCatalogAction(job, action)
+            return
         }
 
         val accepted = runCatching {
@@ -149,6 +164,91 @@ class MixOperationCoordinator(
         }
         pollExistingOperation(job, operation.id)
     }
+
+    private suspend fun submitCatalogAction(job: String, action: ManageCodeOperationAction) {
+        val result = runCatching { service.submitCatalogMutation(action) }
+        if (result.isFailure) {
+            markInterrupted(
+                job,
+                action.material,
+                result.exceptionOrNull()?.message ?: "catalog submission was not acknowledged",
+            )
+            return
+        }
+
+        val nextJob = lock.withLock {
+            val session = _sessions.value[job] ?: return@withLock null
+            if (session.currentAction != action) return@withLock null
+            when (val mutation = result.getOrThrow()) {
+                is MixCatalogMutationResult.Success -> completeCatalogAction(
+                    session,
+                    action,
+                    mutation.snapshot,
+                    warning = null,
+                )
+                is MixCatalogMutationResult.SyncFailed -> completeCatalogAction(
+                    session,
+                    action,
+                    mutation.snapshot,
+                    warning = MixOperationWarning(
+                        code = mutation.code,
+                        message = mutation.code,
+                        recoveries = mutation.recoveries.ifEmpty {
+                            mutation.recoveryUrl?.let { listOf(MixOperationRecovery(url = it)) }
+                                ?: emptyList()
+                        },
+                    ),
+                )
+                else -> {
+                    publishLocked(
+                        session.copy(current = catalogFailureOperation(job, action, mutation))
+                    )
+                    null
+                }
+            }
+        }
+        if (nextJob != null) submitCurrentAction(nextJob)
+    }
+
+    private suspend fun completeCatalogAction(
+        session: ManageCodeSession,
+        action: ManageCodeOperationAction,
+        snapshot: MixCatalogSnapshot,
+        warning: MixOperationWarning?,
+    ): String? {
+        val nextIndex = session.currentActionIndex + 1
+        publishLocked(
+            session.copy(
+                currentActionIndex = nextIndex,
+                completedMaterials = completedMaterialCount(session.actions, nextIndex),
+                warnings = warning?.let { session.warnings + it } ?: session.warnings,
+                current = MixServiceOperation(
+                    kind = action.kind,
+                    job = session.job,
+                    material = action.material,
+                    state = "completed",
+                    stage = "completed",
+                    result = snapshot,
+                    warning = warning,
+                ),
+            )
+        )
+        return if (nextIndex < session.actions.size) session.job else null
+    }
+
+    private fun catalogFailureOperation(
+        job: String,
+        action: ManageCodeOperationAction,
+        result: MixCatalogMutationResult,
+    ) = MixServiceOperation(
+        kind = action.kind,
+        job = job,
+        material = action.material,
+        state = "failed",
+        stage = "failed",
+        error = result.failureCode(),
+        result = result,
+    )
 
     private suspend fun pollExistingOperation(job: String, operationId: String) {
         while (true) {
@@ -218,4 +318,26 @@ class MixOperationCoordinator(
                 actions.indexOfLast { it.material == material } < nextActionIndex
             }
     }
+}
+
+private val ManageCodeOperationAction.isCatalogAction: Boolean
+    get() = kind in setOf(
+        ManageCodeOperationAction.CATALOG_CREATE,
+        ManageCodeOperationAction.CATALOG_REPLACE,
+        ManageCodeOperationAction.EXTERNAL_DELETE,
+    )
+
+private fun MixCatalogMutationResult.failureCode(): String = when (this) {
+    MixCatalogMutationResult.CatalogChanged -> "catalog_changed"
+    MixCatalogMutationResult.ExternalMixesPresent -> "external_mixes_present"
+    MixCatalogMutationResult.EditBusy -> "edit_busy"
+    MixCatalogMutationResult.CompileBusy -> "compile_busy"
+    MixCatalogMutationResult.WinxisoTimeout -> "winxiso_timeout"
+    is MixCatalogMutationResult.DuplicateName -> "duplicate_name: ${name}"
+    is MixCatalogMutationResult.MissingProgram -> "missing_program: ${pgm}"
+    is MixCatalogMutationResult.HistorySyncError -> "history_sync_failed: ${message}"
+    is MixCatalogMutationResult.BadRequest -> "bad_request: ${message}"
+    MixCatalogMutationResult.NetworkError -> "network_error"
+    is MixCatalogMutationResult.Success -> "success"
+    is MixCatalogMutationResult.SyncFailed -> code
 }

@@ -291,4 +291,133 @@ class MixServiceClientTest {
         assertEquals("/operations/op1", server.takeRequest().requestUrl?.encodedPath)
         assertEquals("/jobs/648/operations", server.takeRequest().requestUrl?.encodedPath)
     }
+
+    @Test
+    fun `submitCatalogMutation encodes replace action and parses returned catalog`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"catalog":{"revision":19,"entries":[]}}"""
+            )
+        )
+
+        val action = ManageCodeOperationAction.catalogReplace(
+            job = "100 - Alpha",
+            material = "19mm Pre_Finished",
+            name = "Current Mix",
+            programs = listOf("R2.pgm"),
+            expectedRevision = 17L,
+        )
+        val result = client().submitCatalogMutation(action)
+
+        check(result is MixCatalogMutationResult.Success)
+        assertEquals(19L, result.snapshot.revision)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals(
+            "/jobs/100%20-%20Alpha/materials/19mm%20Pre_Finished/mixes/Current%20Mix/replace",
+            recorded.requestUrl?.encodedPath,
+        )
+        val body = JSONObject(recorded.body.readUtf8())
+        assertEquals(17L, body.getLong("expectedRevision"))
+        assertEquals("R2.pgm", body.getJSONArray("programs").getString(0))
+    }
+
+    @Test
+    fun `submitCatalogMutation encodes create action without legacy job fields`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"ok":true,"catalog":{"revision":18,"entries":[]}}"""))
+
+        val result = client().submitCatalogMutation(
+            ManageCodeOperationAction.catalogCreate(
+                job = "100 - Alpha",
+                material = "19mm Pre_Finished",
+                name = "New Mix",
+                programs = listOf("R1.pgm"),
+                expectedRevision = 17L,
+            )
+        )
+
+        assertTrue(result is MixCatalogMutationResult.Success)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals(
+            "/jobs/100%20-%20Alpha/materials/19mm%20Pre_Finished/mixes",
+            recorded.requestUrl?.encodedPath,
+        )
+        val body = JSONObject(recorded.body.readUtf8())
+        assertEquals("New Mix", body.getString("name"))
+        assertEquals("R1.pgm", body.getJSONArray("programs").getString(0))
+        assertEquals(17L, body.getLong("expectedRevision"))
+        assertFalse(body.has("job"))
+        assertFalse(body.has("material"))
+    }
+
+    @Test
+    fun `submitCatalogMutation encodes external delete revision in query`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"ok":true,"catalog":{"revision":18,"entries":[]}}"""))
+
+        val result = client().submitCatalogMutation(
+            ManageCodeOperationAction.externalDelete(
+                job = "100 - Alpha",
+                material = "19mm Pre_Finished",
+                externalMixFilename = "Manual Mix.mix",
+                expectedRevision = 17L,
+            )
+        )
+
+        assertTrue(result is MixCatalogMutationResult.Success)
+        val recorded = server.takeRequest()
+        assertEquals("DELETE", recorded.method)
+        assertEquals(
+            "/jobs/100%20-%20Alpha/materials/19mm%20Pre_Finished/external-mixes/Manual%20Mix.mix",
+            recorded.requestUrl?.encodedPath,
+        )
+        assertEquals("17", recorded.requestUrl?.queryParameter("expectedRevision"))
+        assertEquals(0L, recorded.body.size)
+    }
+
+    @Test
+    fun `submitCatalogMutation maps stale revision response distinctly`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(409).setBody("""{"ok":false,"code":"catalog_changed"}""")
+        )
+
+        val result = client().submitCatalogMutation(
+            ManageCodeOperationAction.catalogReplace(
+                job = "100",
+                material = "Mat",
+                name = "Current",
+                programs = listOf("R1.pgm"),
+                expectedRevision = 7L,
+            )
+        )
+
+        assertTrue(result is MixCatalogMutationResult.CatalogChanged)
+    }
+
+    @Test
+    fun `submitCatalogMutation preserves completed history sync recovery details`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(500).setBody(
+                """{"ok":false,"code":"history_sync_failed","error":"history unavailable","mix":{"ok":true,"catalog":{"revision":18,"entries":[]}},"recoveryUrl":"/jobs/648/materials/M/mix-history/sync","recoveries":[{"url":"/jobs/648/materials/M/mix-history/sync","method":"POST","change":{"historyFile":".pgm_edit_history.json","attempt":2}}]}"""
+            )
+        )
+
+        val result = client().submitCatalogMutation(
+            ManageCodeOperationAction.catalogReplace(
+                job = "648",
+                material = "M",
+                name = "Current",
+                programs = listOf("R1.pgm"),
+                expectedRevision = 17L,
+            )
+        )
+
+        check(result is MixCatalogMutationResult.SyncFailed)
+        assertEquals(18L, result.snapshot.revision)
+        val recovery = result.recoveries.single()
+        assertEquals("/jobs/648/materials/M/mix-history/sync", recovery.url)
+        assertEquals("POST", recovery.method)
+        assertEquals(".pgm_edit_history.json", recovery.change["historyFile"])
+        assertEquals(2, (recovery.change["attempt"] as Number).toInt())
+    }
 }

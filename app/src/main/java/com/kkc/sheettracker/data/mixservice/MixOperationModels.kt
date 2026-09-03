@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.data.mixservice
 
+import com.google.gson.annotations.SerializedName
+
 data class MixOperationRecovery(
     val url: String = "",
     val method: String = "",
@@ -58,6 +60,8 @@ interface MixOperationService {
         files: List<PgmEditRow>,
     ): MixServiceOperation
 
+    suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixCatalogMutationResult
+
     suspend fun getOperation(id: String): MixServiceOperation
 
     suspend fun listJobOperations(job: String): List<MixServiceOperation>
@@ -76,10 +80,17 @@ data class ManageCodeOperationAction(
     val requestId: String = "",
     val editRows: List<PgmEditRow> = emptyList(),
     val operationId: String? = null,
+    /** Job folder is filled by [MixOperationCoordinator] before catalog submission. */
+    val job: String = "",
+    val expectedRevision: Long = 0L,
+    val externalMixFilename: String = "",
 ) {
     companion object {
         const val MIX = "mix"
         const val PGM_EDITS = "pgm_edits"
+        const val CATALOG_CREATE = "catalog_create"
+        const val CATALOG_REPLACE = "catalog_replace"
+        const val EXTERNAL_DELETE = "external_delete"
 
         fun mix(
             material: String,
@@ -101,7 +112,129 @@ data class ManageCodeOperationAction(
                 requestId = requestId,
                 editRows = editRows,
             )
+
+        fun catalogCreate(
+            material: String,
+            name: String,
+            programs: List<String>,
+            expectedRevision: Long,
+        ) = ManageCodeOperationAction(
+            kind = CATALOG_CREATE,
+            material = material,
+            name = name,
+            programs = programs,
+            expectedRevision = expectedRevision,
+        )
+
+        fun catalogCreate(
+            job: String,
+            material: String,
+            name: String,
+            programs: List<String>,
+            expectedRevision: Long,
+        ) = catalogCreate(material, name, programs, expectedRevision).copy(job = job)
+
+        fun catalogReplace(
+            material: String,
+            name: String,
+            programs: List<String>,
+            expectedRevision: Long,
+        ) = ManageCodeOperationAction(
+            kind = CATALOG_REPLACE,
+            material = material,
+            name = name,
+            programs = programs,
+            expectedRevision = expectedRevision,
+        )
+
+        fun catalogReplace(
+            job: String,
+            material: String,
+            name: String,
+            programs: List<String>,
+            expectedRevision: Long,
+        ) = catalogReplace(material, name, programs, expectedRevision).copy(job = job)
+
+        fun externalDelete(
+            material: String,
+            externalMixFilename: String,
+            expectedRevision: Long,
+        ) = ManageCodeOperationAction(
+            kind = EXTERNAL_DELETE,
+            material = material,
+            expectedRevision = expectedRevision,
+            externalMixFilename = externalMixFilename,
+        )
+
+        fun externalDelete(
+            job: String,
+            material: String,
+            externalMixFilename: String,
+            expectedRevision: Long,
+        ) = externalDelete(material, externalMixFilename, expectedRevision).copy(job = job)
+
+        fun catalogExternalDelete(
+            material: String,
+            externalMixFilename: String,
+            expectedRevision: Long,
+        ) = externalDelete(material, externalMixFilename, expectedRevision)
+
+        fun catalogExternalDelete(
+            job: String,
+            material: String,
+            externalMixFilename: String,
+            expectedRevision: Long,
+        ) = externalDelete(job, material, externalMixFilename, expectedRevision)
     }
+}
+
+enum class MixLifecycle {
+    @SerializedName("active") ACTIVE,
+    @SerializedName("history") HISTORY,
+    @SerializedName("external") EXTERNAL,
+}
+
+data class MixCatalogEntry(
+    val name: String = "",
+    val mixFilename: String = "",
+    val lifecycle: MixLifecycle = MixLifecycle.ACTIVE,
+    val programs: List<String> = emptyList(),
+    val status: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val lastCompiledAt: String? = null,
+    val lastCompileOk: Boolean? = null,
+    val lastCompileError: String? = null,
+)
+
+data class MixCatalogSnapshot(
+    val job: String = "",
+    val material: String = "",
+    val revision: Long = 0L,
+    val entries: List<MixCatalogEntry> = emptyList(),
+)
+
+sealed class MixCatalogMutationResult {
+    data class Success(val snapshot: MixCatalogSnapshot) : MixCatalogMutationResult()
+
+    /** The CNC mutation completed; retrying it could duplicate the completed change. */
+    data class SyncFailed(
+        val snapshot: MixCatalogSnapshot,
+        val code: String,
+        val recoveryUrl: String?,
+        val recoveries: List<MixOperationRecovery> = emptyList(),
+    ) : MixCatalogMutationResult()
+
+    object CatalogChanged : MixCatalogMutationResult()
+    object ExternalMixesPresent : MixCatalogMutationResult()
+    object EditBusy : MixCatalogMutationResult()
+    object CompileBusy : MixCatalogMutationResult()
+    object WinxisoTimeout : MixCatalogMutationResult()
+    data class DuplicateName(val name: String) : MixCatalogMutationResult()
+    data class MissingProgram(val pgm: String) : MixCatalogMutationResult()
+    data class HistorySyncError(val message: String) : MixCatalogMutationResult()
+    data class BadRequest(val message: String) : MixCatalogMutationResult()
+    object NetworkError : MixCatalogMutationResult()
 }
 
 data class ManageCodeSession(

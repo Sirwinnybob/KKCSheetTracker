@@ -34,6 +34,28 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     private data class PgmConflictsEnvelope(val ok: Boolean = false, val conflicts: List<PgmConflict> = emptyList())
     private data class OperationEnvelope(val ok: Boolean = false, val operation: MixServiceOperation? = null)
     private data class OperationsEnvelope(val ok: Boolean = false, val operations: List<MixServiceOperation> = emptyList())
+    private data class CatalogEnvelope(
+        val ok: Boolean = false,
+        val revision: Long? = null,
+        val entries: List<MixCatalogEntry> = emptyList(),
+    )
+    private data class CatalogMutationEnvelope(
+        val ok: Boolean = false,
+        val catalog: CatalogEnvelope? = null,
+    )
+    private data class CatalogSyncFailureEnvelope(
+        val ok: Boolean = false,
+        val code: String? = null,
+        val error: String? = null,
+        val mix: CatalogMutationEnvelope? = null,
+        val recoveryUrl: String? = null,
+        val recoveries: List<MixOperationRecovery> = emptyList(),
+    )
+    private data class CatalogErrorEnvelope(
+        val ok: Boolean = false,
+        val code: String? = null,
+        val error: String? = null,
+    )
 
     companion object {
         private val client = OkHttpClient.Builder()
@@ -178,6 +200,102 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         )
     }
 
+    override suspend fun submitCatalogMutation(
+        action: ManageCodeOperationAction,
+    ): MixCatalogMutationResult {
+        if (action.job.isBlank()) {
+            throw MixOperationClientException("catalog mutation is missing its job")
+        }
+        return when (action.kind) {
+            ManageCodeOperationAction.CATALOG_CREATE -> createCatalogMix(
+                job = action.job,
+                material = action.material,
+                name = action.name,
+                programs = action.programs,
+                expectedRevision = action.expectedRevision,
+            )
+            ManageCodeOperationAction.CATALOG_REPLACE -> replaceMix(
+                job = action.job,
+                material = action.material,
+                name = action.name,
+                programs = action.programs,
+                expectedRevision = action.expectedRevision,
+            )
+            ManageCodeOperationAction.EXTERNAL_DELETE -> deleteExternalMix(
+                job = action.job,
+                material = action.material,
+                filename = action.externalMixFilename,
+                expectedRevision = action.expectedRevision,
+            )
+            else -> throw MixOperationClientException("unknown catalog action: ${action.kind}")
+        }
+    }
+
+    suspend fun createCatalogMix(
+        job: String,
+        material: String,
+        name: String,
+        programs: List<String>,
+        expectedRevision: Long,
+    ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
+        val url = materialUrl(job, material).newBuilder()
+            .addPathSegment("mixes")
+            .build()
+        val body = gson.toJson(
+            mapOf(
+                "name" to name,
+                "programs" to programs,
+                "expectedRevision" to expectedRevision,
+            )
+        ).toRequestBody(jsonMediaType)
+        executeCatalogMutation(
+            Request.Builder().url(url).post(body).build(),
+            job,
+            material,
+            duplicateName = name,
+        )
+    }
+
+    suspend fun replaceMix(
+        job: String,
+        material: String,
+        name: String,
+        programs: List<String>,
+        expectedRevision: Long,
+    ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
+        val url = materialUrl(job, material).newBuilder()
+            .addPathSegment("mixes")
+            .addPathSegment(name)
+            .addPathSegment("replace")
+            .build()
+        val body = gson.toJson(
+            mapOf("programs" to programs, "expectedRevision" to expectedRevision)
+        ).toRequestBody(jsonMediaType)
+        executeCatalogMutation(
+            Request.Builder().url(url).post(body).build(),
+            job,
+            material,
+        )
+    }
+
+    suspend fun deleteExternalMix(
+        job: String,
+        material: String,
+        filename: String,
+        expectedRevision: Long,
+    ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
+        val url = materialUrl(job, material).newBuilder()
+            .addPathSegment("external-mixes")
+            .addPathSegment(filename)
+            .addQueryParameter("expectedRevision", expectedRevision.toString())
+            .build()
+        executeCatalogMutation(
+            Request.Builder().url(url).delete().build(),
+            job,
+            material,
+        )
+    }
+
     suspend fun listPgmEdits(job: String, material: String, historyLimit: Int = 20): PgmEditHistoryView? =
         withContext(Dispatchers.IO) {
             val url = "$root/jobs/".toHttpUrl().newBuilder()
@@ -241,6 +359,87 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         runCatching { client.newCall(request).execute().use(::parseAcceptedOperation) }
             .getOrElse { throw MixOperationClientException(it.message ?: "operation submission failed") }
     }
+
+    private fun executeCatalogMutation(
+        request: Request,
+        job: String,
+        material: String,
+        duplicateName: String? = null,
+    ): MixCatalogMutationResult = runCatching {
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (response.code == 200) {
+                val envelope = gson.fromJson(body, CatalogMutationEnvelope::class.java)
+                return@use envelope?.toSnapshot(job, material)
+                    ?.let(MixCatalogMutationResult::Success)
+                    ?: MixCatalogMutationResult.NetworkError
+            }
+            parseCatalogMutationFailure(response.code, body, job, material, duplicateName)
+        }
+    }.getOrDefault(MixCatalogMutationResult.NetworkError)
+
+    private fun parseCatalogMutationFailure(
+        statusCode: Int,
+        body: String,
+        job: String,
+        material: String,
+        duplicateName: String?,
+    ): MixCatalogMutationResult {
+        val syncFailure = runCatching {
+            gson.fromJson(body, CatalogSyncFailureEnvelope::class.java)
+        }.getOrNull()?.let { envelope ->
+            envelope.mix?.toSnapshot(job, material)?.let { snapshot ->
+                MixCatalogMutationResult.SyncFailed(
+                    snapshot = snapshot,
+                    code = envelope.code ?: "history_sync_failed",
+                    recoveryUrl = envelope.recoveryUrl,
+                    recoveries = envelope.recoveries.ifEmpty {
+                        envelope.recoveryUrl?.let { listOf(MixOperationRecovery(url = it)) }
+                            ?: emptyList()
+                    },
+                )
+            }
+        }
+        if (syncFailure != null) return syncFailure
+
+        val error = runCatching {
+            gson.fromJson(body, CatalogErrorEnvelope::class.java)
+        }.getOrNull()
+        val code = error?.code.orEmpty()
+        val message = error?.error.orEmpty()
+        return when (code) {
+            "catalog_changed" -> MixCatalogMutationResult.CatalogChanged
+            "external_mixes_present" -> MixCatalogMutationResult.ExternalMixesPresent
+            "edit_busy" -> MixCatalogMutationResult.EditBusy
+            "compile_busy" -> MixCatalogMutationResult.CompileBusy
+            "winxiso_timeout" -> MixCatalogMutationResult.WinxisoTimeout
+            "duplicate_mix" -> MixCatalogMutationResult.DuplicateName(duplicateName ?: message)
+            "missing_program" -> MixCatalogMutationResult.MissingProgram(
+                message.removePrefix("missing program:").trim()
+            )
+            "history_sync_failed" -> MixCatalogMutationResult.HistorySyncError(message)
+            else -> when (statusCode) {
+                400, 404, 422 -> MixCatalogMutationResult.BadRequest(message)
+                else -> MixCatalogMutationResult.NetworkError
+            }
+        }
+    }
+
+    private fun CatalogMutationEnvelope.toSnapshot(job: String, material: String): MixCatalogSnapshot? {
+        if (!ok) return null
+        return catalog?.toSnapshot(job, material)
+    }
+
+    private fun CatalogEnvelope.toSnapshot(job: String, material: String): MixCatalogSnapshot? {
+        val revision = revision ?: return null
+        return MixCatalogSnapshot(job, material, revision, entries)
+    }
+
+    private fun materialUrl(job: String, material: String) = "$root/jobs/".toHttpUrl().newBuilder()
+        .addPathSegment(job)
+        .addPathSegment("materials")
+        .addPathSegment(material)
+        .build()
 
     private fun readOperation(request: Request): MixServiceOperation = runCatching {
         client.newCall(request).execute().use { response ->
