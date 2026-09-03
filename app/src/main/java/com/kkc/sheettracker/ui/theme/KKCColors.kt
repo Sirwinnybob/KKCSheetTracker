@@ -69,7 +69,7 @@ val DarkStatusColors = KKCStatusColors(
     completeBorder = Color(0xFF66BB6A),
     skipBorder = Color(0xFFFFB74D),
     remakeBg = Color(0xFFBA68C8),
-    miscBg = Color(0xFF64B5F6),
+    miscBg = Color(0xFF42A5F5),
     widthBandPalette = listOf(
         Color(0xFFB7A83F),
         Color(0xFF5AA149),
