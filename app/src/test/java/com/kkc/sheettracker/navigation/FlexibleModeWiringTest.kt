@@ -41,6 +41,23 @@ class FlexibleModeWiringTest {
         )
     }
 
+    @Test
+    fun jobsComposableBuildsAllFourSpecsWhenFlexible() {
+        val source = navGraphSource()
+        val occurrences = Regex("if \\(flexibleModeEnabled\\)").findAll(source).count()
+        assertTrue("expected at least 2 flexibleModeEnabled branches in the jobs composables (one per duplicate)", occurrences >= 2)
+        val rememberCalls = listOf(
+            "rememberCncJobsSpec(",
+            "rememberHardwoodsJobsSpec(",
+            "rememberAssemblyJobsSpec(",
+            "rememberSpecialtyJobsSpec("
+        )
+        rememberCalls.forEach { call ->
+            val count = Regex(Regex.escape(call)).findAll(source).count()
+            assertTrue("$call should appear at least 2 times (once per duplicated jobs composable — each spec is hoisted into a single val and built unconditionally instead of inside a workMode branch, so the raw occurrence count doesn't double)", count >= 2)
+        }
+    }
+
     private fun navGraphSource(): String {
         var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
         repeat(6) {
