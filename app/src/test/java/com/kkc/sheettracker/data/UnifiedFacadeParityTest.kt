@@ -67,6 +67,35 @@ class UnifiedFacadeParityTest {
     }
 
     @Test
+    fun scanCoordinator_targetedDeepRefreshLoadsNewMiscMaterial() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        seedInitialStaticCache(baseDir)
+        val repository = JobRepository(baseDir, isDebugBuild = true)
+        val coordinator = ScanCoordinator(baseDir, repository)
+
+        coordinator.refresh(RefreshReason.USER_REFRESH, force = true)
+        waitUntilReady {
+            coordinator.state.value.status == ScanStatus.READY
+        }
+        val initialJob = coordinator.unifiedEngine.getCncSnapshot(jobFolder)?.job
+        assertTrue("Expected initial job to be loaded via getCncSnapshot", initialJob != null)
+        assertEquals(1, initialJob!!.materials.size)
+
+        seedMisc(baseDir)
+
+        coordinator.refreshJobsDeep(listOf(jobFolder))
+        val sawMisc = waitUntil(timeoutMs = 5_000L) {
+            coordinator.unifiedEngine.getCncSnapshot(jobFolder)?.job?.materials
+                ?.any { it.pdfFilename == "1234 - Misc Maple.pdf" } == true
+        }
+        val miscMaterial = coordinator.unifiedEngine.getCncSnapshot(jobFolder)?.job?.materials
+            ?.firstOrNull { it.pdfFilename == "1234 - Misc Maple.pdf" }
+        assertTrue("Expected targeted deep refresh to load misc material", sawMisc)
+        assertEquals("001 MISC", miscMaterial?.metadata?.miscLabel)
+    }
+
+    @Test
     fun scanCoordinator_cacheOnlyWatcherRefreshDoesNotDiscardDeepRemakeWhilePublishedCacheIsStale() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)
@@ -378,6 +407,37 @@ class UnifiedFacadeParityTest {
                       "length": 10.0,
                       "name": "Replacement Shelf",
                       "cabNumber": 42,
+                      "room": "Kitchen"
+                    }
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+    }
+
+    private fun seedMisc(baseDir: File) {
+        val cncDir = File(baseDir, "$jobFolder/CNC")
+        File(cncDir, "1234 - Misc Maple.pdf").writeText("pdf-misc")
+        File(cncDir, ".metadata/1234 - Misc Maple.json").writeText(
+            """
+            {
+              "jobNumber": "1234",
+              "jobName": "Test Job",
+              "material": "Misc Maple",
+              "pdfFilename": "1234 - Misc Maple.pdf",
+              "miscLabel": "001 MISC",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    {
+                      "number": 3,
+                      "width": 4.0,
+                      "length": 8.0,
+                      "name": "Misc Panel",
+                      "cabNumber": 12,
                       "room": "Kitchen"
                     }
                   ]

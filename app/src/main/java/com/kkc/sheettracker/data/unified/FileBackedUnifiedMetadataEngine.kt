@@ -1659,6 +1659,7 @@ class FileBackedUnifiedMetadataEngine(
             material = gsonNullable(metadata.material) ?: "",
             pdfFilename = gsonNullable(metadata.pdfFilename) ?: "",
             remakeLabel = metadata.remakeLabel,
+            miscLabel = metadata.miscLabel,
             partGraphicsArchive = metadata.partGraphicsArchive,
             pages = (gsonNullable(metadata.pages) ?: emptyList()).map { page ->
                 PageMetadata(
