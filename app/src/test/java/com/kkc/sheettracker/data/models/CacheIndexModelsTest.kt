@@ -32,4 +32,20 @@ class CacheIndexModelsTest {
         assertEquals(0, root.progressSummary?.cnc?.renested)
         assertEquals(0, root.progressSummary?.cnc?.materials?.single()?.renested)
     }
+
+    @Test
+    fun cncIsMiscDecodesFromCacheIndexAndStaysSeparateFromIsRemake() {
+        val root = gson.fromJson(
+            """{"progressSummary":{"cnc":{"totalSheets":1,"materials":[{"materialName":"Misc Maple","totalSheets":1,"isMisc":true},{"materialName":"Remake Oak","totalSheets":1,"isRemake":true}]}}}""",
+            CacheIndexRoot::class.java
+        )
+
+        val materials = requireNotNull(root.progressSummary?.cnc?.materials)
+        val misc = materials.single { it.materialName == "Misc Maple" }
+        val remake = materials.single { it.materialName == "Remake Oak" }
+        assertTrue(misc.isMisc)
+        assertTrue(!misc.isRemake)
+        assertTrue(remake.isRemake)
+        assertTrue(!remake.isMisc)
+    }
 }

@@ -7,7 +7,8 @@ data class CacheIndexMaterialProgress(
     val bad: Int = 0,
     val skipped: Int = 0,
     val renested: Int = 0,
-    val isRemake: Boolean = false
+    val isRemake: Boolean = false,
+    val isMisc: Boolean = false
 ) {
     fun toStatusCounts(): StatusCounts = StatusCounts(
         total = totalSheets - renested,
