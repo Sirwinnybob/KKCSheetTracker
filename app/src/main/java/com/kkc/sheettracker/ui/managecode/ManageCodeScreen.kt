@@ -360,6 +360,12 @@ sealed class ManageCodeMaterialResult {
     data class Blocked(val reason: String) : ManageCodeMaterialResult()
 }
 
+internal fun mixCatalogUnavailableMessage(result: MixCatalogFetchResult): String? = when (result) {
+    is MixCatalogFetchResult.Success -> null
+    MixCatalogFetchResult.NetworkError ->
+        "Mix catalog unavailable — update the CNC mix service, then refresh"
+}
+
 private data class PendingMixAction(
     val materialName: String,
     val catalog: MixCatalogSnapshot
@@ -394,11 +400,13 @@ fun ManageCodeScreen(
         value = withContext(Dispatchers.IO) { unifiedEngine.getCncSnapshot(jobFolderName)?.job }
     }
     var reachable by remember { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(Unit) { reachable = client.isReachable() }
+    var refreshAttempt by remember { mutableStateOf(0) }
+    LaunchedEffect(refreshAttempt) { reachable = client.isReachable() }
 
     val materials = job?.materials.orEmpty().filter { onlyMaterialName == null || it.materialName == onlyMaterialName }
     var materialStates by remember { mutableStateOf<Map<String, ManageCodeMaterialState>>(emptyMap()) }
     var materialCatalogs by remember { mutableStateOf<Map<String, MixCatalogSnapshot>>(emptyMap()) }
+    var catalogLoadErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var expandedMaterial by remember { mutableStateOf(onlyMaterialName) }
     var busy by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<Map<String, ManageCodeMaterialResult>>(emptyMap()) }
@@ -408,19 +416,21 @@ fun ManageCodeScreen(
 
     suspend fun loadMaterialState(
         material: com.kkc.sheettracker.data.models.Material,
-        catalog: MixCatalogSnapshot?
+        catalog: MixCatalogSnapshot?,
+        loadLiveData: Boolean = true
     ): ManageCodeMaterialState {
-        val pgms = client.listPgms(jobFolderName, material.materialName)
-        val hasPgms = pgms.isNotEmpty()
+        val pgms = if (loadLiveData) client.listPgms(jobFolderName, material.materialName)
+            else emptyList<com.kkc.sheettracker.data.mixservice.PgmInventoryItem>()
         val pages = material.metadata?.pages.orEmpty()
         var rows = buildManageCodeRows(pages)
+        val hasPgms = pgms.isNotEmpty() || (!loadLiveData && rows.isNotEmpty())
         val existingMix = catalog?.entries
             ?.filter { it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.ACTIVE }
             ?.singleOrNull()
         if (existingMix != null) {
             rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(rows, existingMix.programs)
         }
-        val editHistory = client.listPgmEdits(jobFolderName, material.materialName)
+        val editHistory = if (loadLiveData) client.listPgmEdits(jobFolderName, material.materialName) else null
         val locked = rows.filter { row ->
             isRowLocked(progressStore.getSheetStatus(jobFolderName, material.pdfFilename, row.pageNumber, material.fileFingerprint))
         }.map { it.editablePgm }.toSet()
@@ -443,17 +453,33 @@ fun ManageCodeScreen(
         return state
     }
 
-    LaunchedEffect(job, reachable) {
-        if (job == null || reachable != true) return@LaunchedEffect
+    LaunchedEffect(job, reachable, refreshAttempt) {
+        if (job == null) return@LaunchedEffect
         for (material in materials) {
             mixCatalogRepository.cached(jobFolderName, material.materialName)?.let { cached ->
                 materialCatalogs = materialCatalogs + (material.materialName to cached)
-                materialStates = materialStates + (material.materialName to loadMaterialState(material, cached))
+                materialStates = materialStates + (material.materialName to loadMaterialState(
+                    material, cached, loadLiveData = reachable == true))
+            }
+            if (reachable != true) {
+                if (materialStates[material.materialName] == null) {
+                    materialStates = materialStates + (material.materialName to loadMaterialState(
+                        material, null, loadLiveData = false))
+                }
+                continue
             }
             val refreshed = mixCatalogRepository.refresh(jobFolderName, material.materialName)
             if (refreshed is MixCatalogFetchResult.Success) {
                 materialCatalogs = materialCatalogs + (material.materialName to refreshed.snapshot)
                 materialStates = materialStates + (material.materialName to loadMaterialState(material, refreshed.snapshot))
+                catalogLoadErrors = catalogLoadErrors - material.materialName
+            } else {
+                if (materialStates[material.materialName] == null) {
+                    materialStates = materialStates + (material.materialName to loadMaterialState(material, null))
+                }
+                mixCatalogUnavailableMessage(refreshed)?.let { message ->
+                    catalogLoadErrors = catalogLoadErrors + (material.materialName to message)
+                }
             }
         }
     }
@@ -553,16 +579,22 @@ fun ManageCodeScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (reachable == false) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Mix service unreachable", color = MaterialTheme.colorScheme.error)
+            if (reachable == false || catalogLoadErrors.isNotEmpty()) {
+                Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text(
+                        if (reachable == false) "Mix service unreachable — showing saved mix information"
+                        else catalogLoadErrors.values.first(),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { refreshAttempt += 1 }) { Text("Retry") }
                 }
-            } else {
-                LazyColumn(
+            }
+            LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 160.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            ) {
                     itemsIndexed(materials, key = { _, m -> m.materialName }) { _, material ->
                         val state = materialStates[material.materialName] ?: return@itemsIndexed
                         // Cache persists across expand/collapse so re-expanding a card doesn't
@@ -613,6 +645,13 @@ fun ManageCodeScreen(
                             }
                             Text(label, style = MaterialTheme.typography.labelSmall)
                         }
+                        catalogLoadErrors[material.materialName]?.let { message ->
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                     item {
                         Button(
@@ -650,7 +689,6 @@ fun ManageCodeScreen(
                             Text(if (busy) "Generating…" else "Generate mixes and edit code")
                         }
                     }
-                }
             }
         }
 

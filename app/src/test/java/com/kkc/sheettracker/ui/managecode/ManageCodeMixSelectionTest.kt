@@ -3,6 +3,7 @@ package com.kkc.sheettracker.ui.managecode
 import com.kkc.sheettracker.data.mixservice.ManageCodeRow
 import com.kkc.sheettracker.data.mixservice.ManageCodeRowSelection
 import com.kkc.sheettracker.data.mixservice.MixGenerationTarget
+import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
 import com.kkc.sheettracker.data.mixservice.buildManageCodeChange
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,6 +11,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ManageCodeMixSelectionTest {
+    @Test
+    fun `unavailable mix catalog has an operator visible explanation`() {
+        assertEquals(
+            "Mix catalog unavailable — update the CNC mix service, then refresh",
+            mixCatalogUnavailableMessage(MixCatalogFetchResult.NetworkError)
+        )
+    }
+
     @Test
     fun `untouched multi active material hydrates selected B membership and order`() {
         val state = state(rows = listOf("R1.pgm", "R2.pgm", "R4.pgm", "R3.pgm"))
