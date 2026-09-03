@@ -80,7 +80,8 @@ fun rememberCncJobsSpec(
                             MaterialSegmentData(
                                 materialName = material.materialName,
                                 counts = material.toStatusCounts(),
-                                isRemake = material.isRemake
+                                isRemake = material.isRemake,
+                                isMisc = material.isMisc
                             )
                         }
                         makeCncJobCard(
