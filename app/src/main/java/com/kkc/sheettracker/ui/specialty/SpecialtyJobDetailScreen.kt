@@ -127,17 +127,12 @@ import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
-fun SpecialtyJobDetailScreen(
+internal fun SpecialtyJobDetailScreen(
     jobFolderName: String,
     specialtyStateStore: SpecialtyStateStore,
     specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
     jobRepository: JobRepository,
-    hasAssemblySheet: Boolean,
-    hasPlansElevations: Boolean,
-    hasDeliverySheet: Boolean,
-    hasPullsSheet: Boolean,
-    hasThreeDAssets: Boolean,
-    hasClosetRods: Boolean,
+    availability: com.kkc.sheettracker.navigation.SpecialtyAvailability,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
     onOpenDoorPanels: () -> Unit,
@@ -284,27 +279,27 @@ fun SpecialtyJobDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (hasAssemblySheet) {
+                    if (availability.hasAssemblySheet) {
                         Button(onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }) {
                             Text("Assembly")
                         }
                     }
-                    if (hasPlansElevations) {
+                    if (availability.hasPlansElevations) {
                         Button(onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }) {
                             Text("Plans & Elevations")
                         }
                     }
-                    if (hasDeliverySheet) {
+                    if (availability.hasDeliverySheet) {
                         Button(onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }) {
                             Text("Delivery")
                         }
                     }
-                    if (hasPullsSheet) {
+                    if (availability.hasPullsSheet) {
                         Button(onClick = { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }) {
                             Text("Pulls")
                         }
                     }
-                    if (hasThreeDAssets) {
+                    if (availability.hasThreeDAssets) {
                         Button(onClick = onOpenThreeD) {
                             Text("3D")
                         }
@@ -338,7 +333,7 @@ fun SpecialtyJobDetailScreen(
                         subtitle = "View sheet stock rip cuts",
                         onClick = onOpenSawRipList
                     )
-                    if (hasClosetRods) {
+                    if (availability.hasClosetRods) {
                         SpecialtyActionWidget(
                             modifier = Modifier.width(168.dp),
                             title = "Closet Rods",

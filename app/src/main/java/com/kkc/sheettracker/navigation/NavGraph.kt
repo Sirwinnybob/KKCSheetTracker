@@ -1607,12 +1607,7 @@ private fun JobsTabHost(
                 specialtyStateStore = specialtyStateStore,
                 specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                 jobRepository = jobRepository,
-                hasAssemblySheet = availability.hasAssemblySheet,
-                hasPlansElevations = availability.hasPlansElevations,
-                hasDeliverySheet = availability.hasDeliverySheet,
-                hasPullsSheet = availability.hasPullsSheet,
-                hasThreeDAssets = availability.hasThreeDAssets,
-                hasClosetRods = availability.hasClosetRods,
+                availability = availability,
                 onOpenReferenceDocument = { docType, startPage ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
                         launchSingleTop = true
@@ -2922,12 +2917,7 @@ private fun LegacySingleStackNavigation(
                         specialtyStateStore = specialtyStateStore,
                         specialtyViewerDefaultsStore = legacySpecialtyViewerDefaultsStore,
                         jobRepository = jobRepository,
-                        hasAssemblySheet = availability.hasAssemblySheet,
-                        hasPlansElevations = availability.hasPlansElevations,
-                        hasDeliverySheet = availability.hasDeliverySheet,
-                        hasPullsSheet = availability.hasPullsSheet,
-                        hasThreeDAssets = availability.hasThreeDAssets,
-                        hasClosetRods = availability.hasClosetRods,
+                        availability = availability,
                         onOpenReferenceDocument = { docType, startPage ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
                                 launchSingleTop = true
