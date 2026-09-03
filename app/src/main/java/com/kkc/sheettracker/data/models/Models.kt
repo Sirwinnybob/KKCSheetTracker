@@ -30,6 +30,7 @@ data class MaterialMetadata(
     val material: String = "",
     val pdfFilename: String = "",
     val remakeLabel: String? = null,
+    val miscLabel: String? = null,
     // Relative path (e.g. ".metadata/parts/{material}.zip") to a ZIP bundling
     // this material's per-part graphics. When present, a part's graphicPath
     // basename is the entry name inside this archive. Null for legacy jobs
@@ -767,7 +768,8 @@ data class DashboardUiModel(
     val badPartsSheets: Int = 0,
     val skippedSheets: Int = 0,
     val recentInProgressMaterials: List<DashboardRecentMaterialItem> = emptyList(),
-    val incompleteRemakeMaterials: List<DashboardRecentMaterialItem> = emptyList()
+    val incompleteRemakeMaterials: List<DashboardRecentMaterialItem> = emptyList(),
+    val incompleteMiscMaterials: List<DashboardRecentMaterialItem> = emptyList()
 )
 
 enum class SpecialtyItemCategory {
