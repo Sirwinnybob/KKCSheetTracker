@@ -270,59 +270,21 @@ class AppStateStore(
                     }
                 }
 
-                val remakeLabel = material.metadata?.remakeLabel
-                if (remakeLabel != null &&
-                    (materialUiModel.counts.complete + materialUiModel.counts.reNested) < materialUiModel.counts.total
-                ) {
-                    val visiblePages = trackablePages(material)
-                    val nextIncompletePage = nextIncompletePage(
-                        trackablePages = visiblePages,
-                        pageStatusByNumber = materialDerivation.pageStatusByNumber,
-                        fallbackPage = visiblePages.firstOrNull() ?: 1
-                    )
-                    val pageMeta = material.metadata.pages.firstOrNull { it.pageNumber == nextIncompletePage }
-                        ?: material.metadata.pages.getOrNull((nextIncompletePage - 1).coerceAtLeast(0))
-                    incompleteRemakeMaterials += DashboardRecentMaterialItem(
-                        jobFolderName = job.folderName,
-                        jobNumber = job.jobNumber,
-                        materialName = material.materialName,
-                        pdfFilename = material.pdfFilename,
-                        fileFingerprint = material.fileFingerprint,
-                        lastTouchedPage = nextIncompletePage,
-                        nextIncompletePage = nextIncompletePage,
-                        lastTouchedAtMs = 0L,
-                        counts = materialUiModel.counts,
-                        completionFraction = materialUiModel.completionFraction,
-                        thumbnailPath = pageMeta?.thumbnailPath
-                    )
-                }
+                buildIncompleteTaggedMaterialItem(
+                    label = material.metadata?.remakeLabel,
+                    job = job,
+                    material = material,
+                    materialUiModel = materialUiModel,
+                    pageStatusByNumber = materialDerivation.pageStatusByNumber
+                )?.let { incompleteRemakeMaterials += it }
 
-                val miscLabel = material.metadata?.miscLabel
-                if (miscLabel != null &&
-                    (materialUiModel.counts.complete + materialUiModel.counts.reNested) < materialUiModel.counts.total
-                ) {
-                    val visiblePages = trackablePages(material)
-                    val nextIncompletePage = nextIncompletePage(
-                        trackablePages = visiblePages,
-                        pageStatusByNumber = materialDerivation.pageStatusByNumber,
-                        fallbackPage = visiblePages.firstOrNull() ?: 1
-                    )
-                    val pageMeta = material.metadata.pages.firstOrNull { it.pageNumber == nextIncompletePage }
-                        ?: material.metadata.pages.getOrNull((nextIncompletePage - 1).coerceAtLeast(0))
-                    incompleteMiscMaterials += DashboardRecentMaterialItem(
-                        jobFolderName = job.folderName,
-                        jobNumber = job.jobNumber,
-                        materialName = material.materialName,
-                        pdfFilename = material.pdfFilename,
-                        fileFingerprint = material.fileFingerprint,
-                        lastTouchedPage = nextIncompletePage,
-                        nextIncompletePage = nextIncompletePage,
-                        lastTouchedAtMs = 0L,
-                        counts = materialUiModel.counts,
-                        completionFraction = materialUiModel.completionFraction,
-                        thumbnailPath = pageMeta?.thumbnailPath
-                    )
-                }
+                buildIncompleteTaggedMaterialItem(
+                    label = material.metadata?.miscLabel,
+                    job = job,
+                    material = material,
+                    materialUiModel = materialUiModel,
+                    pageStatusByNumber = materialDerivation.pageStatusByNumber
+                )?.let { incompleteMiscMaterials += it }
             }
 
             totalSheets += jobTotal - jobReNested
@@ -464,32 +426,6 @@ class AppStateStore(
             sheetStatuses = keyedStatuses,
             pageStatusByNumber = pageStatusByNumber
         )
-    }
-
-    private fun trackablePages(material: Material): List<Int> {
-        val metadataPages = material.metadata?.pages.orEmpty()
-        val visibleFromMetadata = metadataPages
-            .filterNot { it.hiddenInApp || it.trackingExcluded || it.isPartListContinuation }
-            .mapNotNull { page ->
-                val p = page.pageNumber
-                p.takeIf { it in 1..material.pageCount }
-            }
-            .distinct()
-            .sorted()
-        return if (visibleFromMetadata.isNotEmpty()) visibleFromMetadata else (1..material.pageCount).toList()
-    }
-
-    private fun nextIncompletePage(
-        trackablePages: List<Int>,
-        pageStatusByNumber: Map<Int, SheetStatusSnapshot>,
-        fallbackPage: Int
-    ): Int {
-        return trackablePages.firstOrNull { page ->
-            when (pageStatusByNumber[page]?.status ?: SheetStatus.NOT_STARTED) {
-                SheetStatus.NOT_STARTED, SheetStatus.IN_PROGRESS -> true
-                SheetStatus.COMPLETE, SheetStatus.SKIPPED, SheetStatus.HAS_BAD_PARTS, SheetStatus.RE_NESTED -> false
-            }
-        } ?: fallbackPage
     }
 
     private fun nearestTrackablePage(targetPage: Int, pages: List<Int>): Int {
