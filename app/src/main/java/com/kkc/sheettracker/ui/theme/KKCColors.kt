@@ -21,6 +21,7 @@ data class KKCStatusColors(
     val completeBorder: Color,
     val skipBorder: Color,
     val remakeBg: Color,
+    val miscBg: Color,
     val widthBandPalette: List<Color>,
     val progressGradientStart: Color,
     val progressGradientEnd: Color
@@ -41,6 +42,7 @@ val LightStatusColors = KKCStatusColors(
     completeBorder = Color(0xFF388E3C),
     skipBorder = Color(0xFFE65100),
     remakeBg = Color(0xFFCE93D8),
+    miscBg = Color(0xFF90CAF9),
     widthBandPalette = listOf(
         Color(0xFFF7E56A),
         Color(0xFF97E17F),
@@ -67,6 +69,7 @@ val DarkStatusColors = KKCStatusColors(
     completeBorder = Color(0xFF66BB6A),
     skipBorder = Color(0xFFFFB74D),
     remakeBg = Color(0xFFBA68C8),
+    miscBg = Color(0xFF64B5F6),
     widthBandPalette = listOf(
         Color(0xFFB7A83F),
         Color(0xFF5AA149),
