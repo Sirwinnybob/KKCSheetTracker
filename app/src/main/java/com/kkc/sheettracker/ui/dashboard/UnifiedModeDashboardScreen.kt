@@ -99,6 +99,8 @@ enum class UnifiedModeDashboardMode {
     SPECIALTY
 }
 
+// modeSwitcher is intentionally CNC/Hardwoods-only (product decision, Flexible Mode's
+// Dashboard switcher never offers Assembly/Specialty) — do not add it to those variants.
 sealed interface UnifiedModeDashboardSpec {
     data class Cnc(
         val scanCoordinator: ScanCoordinator,
