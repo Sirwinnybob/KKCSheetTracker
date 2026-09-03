@@ -141,6 +141,61 @@ class MixOperationCoordinatorTest {
     }
 
     @Test
+    fun `restore preserves acknowledged catalog failure while interrupting unacknowledged submission`() = runBlocking {
+        val failedCatalog = session(
+            actions = listOf(
+                ManageCodeOperationAction.catalogReplace(
+                    job = "648",
+                    material = "M",
+                    name = "Current",
+                    programs = listOf("R1.pgm"),
+                    expectedRevision = 7L,
+                )
+            ),
+            current = operation(state = "failed", stage = "failed").copy(
+                kind = "catalog_replace",
+                error = "catalog_changed",
+                result = MixCatalogMutationResult.CatalogChanged,
+            ),
+        )
+        val pendingCatalog = session(
+            actions = listOf(
+                ManageCodeOperationAction.catalogReplace(
+                    job = "649",
+                    material = "M",
+                    name = "Current",
+                    programs = listOf("R1.pgm"),
+                    expectedRevision = 7L,
+                )
+            ),
+            current = operation(state = "submitting", stage = "submitting").copy(
+                job = "649",
+                kind = "catalog_replace",
+            ),
+        ).copy(job = "649")
+        val store = InMemorySessionStore(
+            mapOf("648" to failedCatalog, "649" to pendingCatalog)
+        )
+        val service = CatalogService()
+        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+
+        coordinator.restore()
+        val restored = withTimeout(1_000) {
+            coordinator.sessions.first { sessions ->
+                sessions["648"]?.current?.state == "failed" &&
+                    sessions["649"]?.current?.state == "interrupted"
+            }
+        }
+
+        val failed = restored.getValue("648")
+        assertEquals("failed", failed.current.state)
+        assertEquals("catalog_changed", failed.current.error)
+        assertEquals(MixCatalogMutationResult.CatalogChanged, failed.current.result)
+        assertEquals("interrupted", restored.getValue("649").current.state)
+        assertEquals(0, service.submitCount)
+    }
+
+    @Test
     fun `catalog failure is durably mapped and does not advance to the next action`() = runBlocking {
         val store = InMemorySessionStore()
         val service = CatalogService(MixCatalogMutationResult.CatalogChanged)

@@ -78,6 +78,7 @@ class MixOperationCoordinator(
                         val action = session.currentAction ?: return@launch
                         val id = action.operationId
                         if (id == null) {
+                            if (action.isCatalogAction && session.current.state == "failed") return@launch
                             markInterrupted(session.job, action.material, "submission was not acknowledged before restart")
                         } else {
                             pollExistingOperation(session.job, id)
