@@ -22,10 +22,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -179,7 +177,6 @@ fun UnifiedJobsScreen(
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(""))
     }
-    var sortByName by rememberSaveable { mutableStateOf(false) }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView(spec.modeName.lowercase())) }
     var showScheduleDialog by remember { mutableStateOf(false) }
     var showRestoreArchivedJobSheet by remember { mutableStateOf(false) }
@@ -193,11 +190,9 @@ fun UnifiedJobsScreen(
     LaunchedEffect(adminMode) {
         if (adminMode) {
             query = TextFieldValue("")
-            sortByName = false
             boardView = false
         }
     }
-    LaunchedEffect(sortByName) { if (sortByName) boardView = false }
 
     val navBarDeco = LocalNavBarDecoration.current
     val listBottomPadding = if (navBarDeco.searchDecoration != null) 172.dp else 112.dp
@@ -246,8 +241,8 @@ fun UnifiedJobsScreen(
     val badgeCache = remember(scanGeneration) { mutableStateMapOf<String, Set<JobBadge>>() }
     var localJobEdits by remember { mutableStateOf<Map<String, LocalJobEdit>>(emptyMap()) }
 
-    val cards = remember(scanGeneration, progressVersion, sortByName, localJobEdits) {
-        val all = spec.deriveJobCards().map { card ->
+    val cards = remember(scanGeneration, progressVersion, localJobEdits) {
+        spec.deriveJobCards().map { card ->
             val edit = localJobEdits[card.folderName]
             if (edit != null) {
                 val newBoardSection = edit.boardSection ?: card.boardSection
@@ -263,11 +258,6 @@ fun UnifiedJobsScreen(
             } else {
                 card
             }
-        }
-        if (sortByName) {
-            all.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.folderName })
-        } else {
-            all
         }
     }
     val filteredCards = remember(cards, query.text) {
@@ -412,22 +402,11 @@ fun UnifiedJobsScreen(
                         onClick = { spec.refresh(RefreshReason.USER_REFRESH, force = true) }
                     )
                     IconButton(
-                        onClick = { if (!adminMode) sortByName = !sortByName },
-                        enabled = !adminMode
-                    ) {
-                        Icon(
-                            imageVector = if (sortByName) Icons.Default.SortByAlpha else Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = if (sortByName) "Sort: A–Z Name" else "Sort: Production Order"
-                        )
-                    }
-                    IconButton(
                         onClick = {
-                            if (!sortByName) {
-                                boardView = !boardView
-                                uiPrefs.setBoardView(spec.modeName.lowercase(), boardView)
-                            }
+                            boardView = !boardView
+                            uiPrefs.setBoardView(spec.modeName.lowercase(), boardView)
                         },
-                        enabled = !sortByName && !adminMode
+                        enabled = !adminMode
                     ) {
                         Icon(
                             imageVector = if (boardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
@@ -441,17 +420,16 @@ fun UnifiedJobsScreen(
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             AnimatedContent(
-                targetState = sortByName to boardView,
+                targetState = boardView,
                 transitionSpec = {
                     if (lowEndMode.animationsDisabled) {
                         fadeIn(snap()) togetherWith fadeOut(snap())
                     } else {
-                        val dir = if (targetState.first) 1 else -1
-                        slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
+                        slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
                     }
                 },
                 label = "sort_anim"
-            ) { (_, isBoardView) ->
+            ) { isBoardView ->
                 when {
                     scanStatus == ScanStatus.LOADING && cards.isEmpty() -> {
                         Box(
@@ -561,12 +539,11 @@ fun UnifiedJobsScreen(
                                         onHistoryClick = { folder -> selectedHistoryJob = folder }
                                     ),
                                     adminMode = adminMode,
-                                    sortByName = sortByName,
                                     onTogglePin = { onTogglePin(card.folderName, !card.isPinned) },
                                     onEditLabels = { editingLabelsFor = card }
                                 )
                             }
-                            
+
                             if (pendingCards.isNotEmpty()) {
                                 item(span = { GridItemSpan(maxLineSpan) }) {
                                     SectionHeader("Pending Delivery")
@@ -587,7 +564,6 @@ fun UnifiedJobsScreen(
                                             onHistoryClick = { folder -> selectedHistoryJob = folder }
                                         ),
                                         adminMode = adminMode,
-                                        sortByName = sortByName,
                                         onTogglePin = { onTogglePin(card.folderName, !card.isPinned) },
                                         onEditLabels = { editingLabelsFor = card }
                                     )
@@ -657,7 +633,6 @@ fun UnifiedJobsScreen(
                                             onHistoryClick = { folder -> selectedHistoryJob = folder }
                                         ),
                                         adminMode = adminMode,
-                                        sortByName = sortByName,
                                         onTogglePin = { onTogglePin(card.folderName, true) },
                                         onEditLabels = { editingLabelsFor = if (editingLabelsFor?.folderName == card.folderName) null else card }
                                     )
@@ -686,7 +661,6 @@ fun UnifiedJobsScreen(
                                                 onHistoryClick = { folder -> selectedHistoryJob = folder }
                                             ),
                                             adminMode = adminMode,
-                                            sortByName = sortByName,
                                             onTogglePin = { onTogglePin(card.folderName, false) },
                                             onEditLabels = { editingLabelsFor = if (editingLabelsFor?.folderName == card.folderName) null else card },
                                             dragModifier = if (adminMode) Modifier.draggableHandle(onDragStopped = { saveActiveOrder() }) else Modifier
@@ -716,7 +690,6 @@ fun UnifiedJobsScreen(
                                             onHistoryClick = { folder -> selectedHistoryJob = folder }
                                         ),
                                         adminMode = adminMode,
-                                        sortByName = sortByName,
                                         onTogglePin = { onTogglePin(card.folderName, !card.isPinned) },
                                         onEditLabels = { editingLabelsFor = if (editingLabelsFor?.folderName == card.folderName) null else card }
                                     )
