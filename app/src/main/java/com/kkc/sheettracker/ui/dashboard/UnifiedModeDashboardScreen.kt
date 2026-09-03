@@ -244,6 +244,14 @@ private fun CncDashboardContent(
                     onOpenSheet = onOpenSheet
                 )
             }
+            if (!hasLoadedOnce || dashboard.incompleteMiscMaterials.isNotEmpty()) {
+                CncMiscsSection(
+                    items = dashboard.incompleteMiscMaterials,
+                    hasLoadedOnce = hasLoadedOnce,
+                    jobRepository = jobRepository,
+                    onOpenSheet = onOpenSheet
+                )
+            }
         } else {
             AnimatedVisibility(
                 visible = !hasLoadedOnce || dashboard.incompleteRemakeMaterials.isNotEmpty(),
@@ -252,6 +260,18 @@ private fun CncDashboardContent(
             ) {
                 CncRemakesSection(
                     items = dashboard.incompleteRemakeMaterials,
+                    hasLoadedOnce = hasLoadedOnce,
+                    jobRepository = jobRepository,
+                    onOpenSheet = onOpenSheet
+                )
+            }
+            AnimatedVisibility(
+                visible = !hasLoadedOnce || dashboard.incompleteMiscMaterials.isNotEmpty(),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                CncMiscsSection(
+                    items = dashboard.incompleteMiscMaterials,
                     hasLoadedOnce = hasLoadedOnce,
                     jobRepository = jobRepository,
                     onOpenSheet = onOpenSheet
@@ -502,6 +522,180 @@ private fun CncRemakeMaterialCard(
                 modifier = Modifier.fillMaxWidth(),
                 color = remakeColor,
                 trackColor = remakeColor.copy(alpha = 0.2f)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                DashboardAccentPill(
+                    item?.let { "C ${it.counts.complete}" } ?: "C",
+                    if (item != null) DashboardAccent.SUCCESS else DashboardAccent.NEUTRAL
+                )
+                DashboardAccentPill(
+                    item?.let { "B ${it.counts.bad}" } ?: "B",
+                    if (item != null) DashboardAccent.DANGER else DashboardAccent.NEUTRAL
+                )
+                DashboardAccentPill(
+                    item?.let { "S ${it.counts.skipped}" } ?: "S",
+                    if (item != null) DashboardAccent.WARNING else DashboardAccent.NEUTRAL
+                )
+                DashboardAccentPill(
+                    item?.let { "R ${it.counts.notStarted}" } ?: "R",
+                    if (item != null) DashboardAccent.INFO else DashboardAccent.NEUTRAL
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CncMiscsSection(
+    items: List<DashboardRecentMaterialItem>,
+    hasLoadedOnce: Boolean,
+    jobRepository: JobRepository,
+    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
+) {
+    val miscColor = KKCThemeColors.statusColors.miscBg
+    DashboardSurfaceCard {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(miscColor, CircleShape)
+            )
+            DashboardSectionHeader(
+                title = "Incomplete Miscellaneous",
+                subtitle = if (!hasLoadedOnce) null else "${items.size} miscellaneous item${if (items.size == 1) "" else "s"} pending"
+            )
+        }
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (!hasLoadedOnce) {
+                CncMiscMaterialCard(item = null, miscColor = miscColor, thumbnail = null, onClick = {})
+            } else {
+                items.forEach { item ->
+                    key(item.jobFolderName, item.pdfFilename) {
+                        val thumbnail by produceState<Bitmap?>(
+                            initialValue = null,
+                            item.jobFolderName,
+                            item.pdfFilename,
+                            item.thumbnailPath,
+                            item.nextIncompletePage
+                        ) {
+                            value = withContext(Dispatchers.IO) {
+                                loadRecentMaterialThumbnail(jobRepository, item)
+                            }
+                        }
+                        CncMiscMaterialCard(
+                            item = item,
+                            miscColor = miscColor,
+                            thumbnail = thumbnail,
+                            onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CncMiscMaterialCard(
+    item: DashboardRecentMaterialItem?,
+    miscColor: androidx.compose.ui.graphics.Color,
+    thumbnail: Bitmap?,
+    onClick: () -> Unit
+) {
+    val lowEnd = LocalLowEndMode.current
+    val tileShape = DashboardSurfaceDefaults.sectionShape
+    DashboardSurfaceCard(
+        modifier = Modifier
+            .width(268.dp)
+            .bounceClick(onClick = onClick)
+            .border(width = 2.dp, color = miscColor, shape = tileShape),
+        shape = tileShape,
+        contentPadding = PaddingValues(12.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium),
+                contentAlignment = Alignment.Center
+            ) {
+                if (thumbnail != null) {
+                    Image(
+                        bitmap = thumbnail.asImageBitmap(),
+                        contentDescription = "Miscellaneous material preview",
+                        modifier = Modifier.fillMaxWidth(),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.Description,
+                        contentDescription = "Description icon",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Text(
+                item?.materialName ?: " ",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = miscColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                item?.let { "${it.jobFolderName} • Next sheet ${it.nextIncompletePage}" } ?: " ",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    item?.let { "${it.counts.complete}/${it.counts.total} complete" } ?: " ",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                ProgressPill(
+                    done = item?.counts?.complete ?: 0,
+                    total = item?.counts?.total ?: 0,
+                    state = ProgressState.from(item?.counts?.complete ?: 0, item?.counts?.total ?: 0)
+                )
+            }
+            val fraction = item?.completionFraction?.coerceIn(0f, 1f) ?: 0f
+            val animSpec = if (lowEnd.animationsDisabled) {
+                androidx.compose.animation.core.snap<Float>()
+            } else {
+                androidx.compose.animation.core.spring(
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
+                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy
+                )
+            }
+            val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = fraction,
+                animationSpec = animSpec,
+                label = "miscProgress"
+            )
+            LinearProgressIndicator(
+                progress = { animatedFraction },
+                modifier = Modifier.fillMaxWidth(),
+                color = miscColor,
+                trackColor = miscColor.copy(alpha = 0.2f)
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
