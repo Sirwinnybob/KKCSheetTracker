@@ -22,11 +22,34 @@ import org.junit.Test
 class ContinuousReferencePdfPaneTest {
 
     @Test
+    fun cabinetNavigation_doesNotTreatTheLastReportedPageAsAlreadyAligned() {
+        val source = continuousPaneSource()
+
+        assertFalse(
+            "At the document end, the displayed page can be the final visible page while the " +
+                "first list item is still the preceding page. Cabinet navigation must still scroll.",
+            source.contains("scrollToPage == lastReportedPage || isInteracting")
+        )
+    }
+
+    @Test
     fun continuousCurrentPage_keepsFirstVisiblePageAwayFromTheDocumentEnd() {
         assertEquals(
             4,
             continuousCurrentPage(firstVisibleIndex = 3, lastVisibleIndex = 5, canScrollForward = true)
         )
+    }
+
+    private fun continuousPaneSource(): String {
+        var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
+        repeat(6) {
+            val candidate = File(dir, "app/src/main/java/com/kkc/sheettracker/ui/components/ContinuousReferencePdfPane.kt")
+            if (candidate.exists()) return candidate.readText()
+            val direct = File(dir, "src/main/java/com/kkc/sheettracker/ui/components/ContinuousReferencePdfPane.kt")
+            if (direct.exists()) return direct.readText()
+            dir = dir.parentFile ?: return@repeat
+        }
+        error("Unable to locate ContinuousReferencePdfPane.kt from ${System.getProperty("user.dir")}")
     }
 
     @Test

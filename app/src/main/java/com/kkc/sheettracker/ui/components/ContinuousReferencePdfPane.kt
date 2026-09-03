@@ -749,7 +749,7 @@ internal fun ContinuousReferencePdfPane(
         // A page selection is a new document position. It must not inherit the temporary visual
         // translation used to reveal the leading/trailing blank space at the previous boundary.
         sharedMainAxisOverscroll = 0f
-        if (scrollToPage == lastReportedPage || isInteracting) {
+        if (isInteracting) {
             lastReportedPage = scrollToPage
             return@LaunchedEffect
         }
