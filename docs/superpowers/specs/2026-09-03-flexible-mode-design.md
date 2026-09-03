@@ -21,9 +21,9 @@ selected in that screen's switcher.
 - No per-tap "which mode?" dialog — superseded by the header switcher during brainstorming.
 - No merged/unified job list across trackers — each mode still renders its own existing job
   list content via its own `UnifiedJobsSpec`; the switcher just changes which one is active.
-- No persistence of the switcher's selection across app restarts, and no per-job "remembered
-  mode." Each screen resets to the tablet's underlying `work_mode` setting as its default
-  every time it's freshly entered.
+- No per-job "remembered mode." The Jobs switcher resets to the tablet's underlying
+  `work_mode` setting as its default every time the Jobs screen is freshly entered (no
+  cross-restart persistence). The Dashboard switcher is the one exception — see below.
 - No change to Assembly/Specialty Dashboard variants — they're untouched, not part of the
   Dashboard switcher (see below).
 
@@ -69,6 +69,14 @@ background). Reused by both Dashboard (2 modes) and Jobs (4 modes).
 Per product decision, only CNC and Hardwoods appear on the Dashboard switcher — Assembly and
 Specialty Dashboard variants are left exactly as-is and are not reachable from the switcher.
 
+The switcher must show regardless of the tablet's underlying `work_mode` — including when
+that's Assembly or Specialty, neither of which has a switcher option. Because `work_mode`
+can't sensibly supply a default in that case, the Dashboard switcher's selection is
+**persisted** (new pref, e.g. `flexible_dashboard_last_mode`, stored the same way as
+`work_mode`) rather than derived from it: it always opens on whichever of CNC/Hardwoods was
+picked most recently, defaulting to CNC only the first time it's ever used. This is narrower
+than the Jobs switcher, which still resets to `work_mode` each entry (see Non-goals).
+
 `DashboardShell` already exposes a `topBarActions: @Composable RowScope.() -> Unit` slot
 ([DashboardWidgetFactories.kt:391](../../../app/src/main/java/com/kkc/sheettracker/ui/dashboard/DashboardWidgetFactories.kt)),
 so no new Scaffold/TopAppBar is needed. `CncDashboardContent` and `HardwoodsDashboardContent`
@@ -80,8 +88,15 @@ In `DashboardTabHost`'s `"dashboard"` composable ([NavGraph.kt:1254-1309](../../
 - When `flexibleModeEnabled` is `false`: unchanged existing `when (workMode)` branch.
 - When `true`: build **both** `UnifiedModeDashboardSpec.Cnc(...)` and
   `UnifiedModeDashboardSpec.Hardwoods(...)` unconditionally (Assembly/Specialty specs are not
-  built in this branch). Hold `var dashMode by remember { mutableStateOf(if (workMode == WorkMode.HARDWOODS) WorkMode.HARDWOODS else WorkMode.CNC) }`.
-  Render the spec matching `dashMode`, passing `modeSwitcher = { ModeSwitcherRow(modes = listOf(WorkMode.CNC, WorkMode.HARDWOODS), selected = dashMode, onSelect = { dashMode = it }) }`.
+  built in this branch), for **any** underlying `workMode` — this branch fully replaces the
+  `when (workMode)` dispatch, so it applies even when the tablet's underlying mode is Assembly
+  or Specialty. Initial `dashMode` state reads the persisted `flexible_dashboard_last_mode`
+  pref (defaulting to CNC if unset) rather than `workMode`. Selecting a mode via the switcher
+  both updates local state and writes the pref immediately, so the next Dashboard visit
+  (regardless of what `work_mode` is at that time) opens on the same choice:
+  `var dashMode by remember { mutableStateOf(WorkMode.fromStored(prefs.getString("flexible_dashboard_last_mode", null)).let { if (it == WorkMode.HARDWOODS) it else WorkMode.CNC }) }`.
+  Render the spec matching `dashMode`, passing
+  `modeSwitcher = { ModeSwitcherRow(modes = listOf(WorkMode.CNC, WorkMode.HARDWOODS), selected = dashMode, onSelect = { dashMode = it; prefs.edit().putString("flexible_dashboard_last_mode", it.name).apply() }) }`.
 
 ### Jobs switcher (all 4 modes)
 
@@ -139,7 +154,9 @@ MainActivity → AppNavigation → NavGraph(flexibleModeEnabled, workMode)
         │
         ├─ DashboardTabHost "dashboard" composable
         │     flexibleModeEnabled=false → existing when(workMode) branch (unchanged)
-        │     flexibleModeEnabled=true  → build Cnc+Hardwoods specs, local dashMode state,
+        │     flexibleModeEnabled=true  → build Cnc+Hardwoods specs (any underlying workMode),
+        │                                  dashMode seeded from persisted
+        │                                  flexible_dashboard_last_mode pref,
         │                                  ModeSwitcherRow(CNC, HARDWOODS) via topBarActions
         │
         └─ "jobs" composable
@@ -154,8 +171,12 @@ MainActivity → AppNavigation → NavGraph(flexibleModeEnabled, workMode)
 
 - Unit/UI test that toggling Flexible Mode OFF preserves exact existing single-mode behavior
   (regression guard, mirrors existing coverage style e.g. `LegacyStandardsTransitionWiringTest`).
-- Test that Dashboard switcher only ever offers CNC/Hardwoods regardless of underlying
-  `work_mode` value.
+- Test that Dashboard switcher only ever offers CNC/Hardwoods, and is visible/functional
+  regardless of underlying `work_mode` value — including when `work_mode` is Assembly or
+  Specialty.
+- Test that picking Hardwoods on Dashboard, leaving, and re-entering (with `work_mode` left
+  at, say, Specialty) opens back on Hardwoods — confirms the pref persists and is not
+  re-derived from `work_mode`.
 - Test that Jobs switcher offers all 4 and that tapping a job while a given mode is selected
   navigates to that mode's existing detail route (reuse of existing per-mode `onJobClick`
   should make this mostly free — existing per-mode navigation tests should still cover route
