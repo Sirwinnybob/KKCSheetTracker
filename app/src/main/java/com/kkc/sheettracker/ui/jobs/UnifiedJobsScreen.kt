@@ -164,7 +164,10 @@ fun UnifiedJobsScreen(
     onOpenHardwoodsChange: ((folderName: String, docType: HardwoodDocType, rowId: String) -> Unit)? = null,
     onSearchClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
-    active: Boolean = true
+    active: Boolean = true,
+    flexibleModeEnabled: Boolean = false,
+    selectedFlexMode: com.kkc.sheettracker.navigation.WorkMode? = null,
+    onFlexModeSelected: ((com.kkc.sheettracker.navigation.WorkMode) -> Unit)? = null
 ) {
     // The Jobs list is deliberately index-only. Board configuration is full admin metadata and
     // must not be opened until the operator enters an individual job/admin workflow.
@@ -396,6 +399,13 @@ fun UnifiedJobsScreen(
                         TextButton(onClick = { showRestoreArchivedJobSheet = true }) {
                             Text("Restore")
                         }
+                    }
+                    if (flexibleModeEnabled && selectedFlexMode != null && onFlexModeSelected != null) {
+                        com.kkc.sheettracker.ui.components.ModeSwitcherRow(
+                            modes = com.kkc.sheettracker.navigation.WorkMode.entries,
+                            selected = selectedFlexMode,
+                            onSelect = onFlexModeSelected
+                        )
                     }
                     RefreshIconButton(
                         loading = scanStatus == ScanStatus.LOADING,
