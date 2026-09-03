@@ -53,9 +53,11 @@ fun SettingsScreen(
     followSystemTheme: Boolean = true,
     darkThemeOverride: Boolean = false,
     workMode: WorkMode,
+    flexibleModeEnabled: Boolean,
     onThemeChanged: (Boolean) -> Unit,
     onFollowSystemThemeChanged: (Boolean) -> Unit = {},
     onWorkModeChanged: (WorkMode) -> Unit,
+    onFlexibleModeChanged: (Boolean) -> Unit,
     onReinstallLatest: () -> Unit,
     onTabletIdChanged: (String) -> Unit,
     onBasePathChanged: (String) -> Unit,
@@ -231,6 +233,25 @@ fun SettingsScreen(
                     isSelected = workMode == WorkMode.SPECIALTY,
                     onClick = { onWorkModeChanged(WorkMode.SPECIALTY) },
                     modifier = Modifier.weight(1f)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Flexible Mode", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Show a mode switcher on Dashboard and Jobs instead of locking to Work Mode above",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = flexibleModeEnabled,
+                    onCheckedChange = onFlexibleModeChanged
                 )
             }
 

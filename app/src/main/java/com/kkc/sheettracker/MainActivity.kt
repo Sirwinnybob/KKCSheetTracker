@@ -309,6 +309,9 @@ class MainActivity : ComponentActivity() {
                     WorkMode.fromStored(prefs.getString("work_mode", null))
                 )
             }
+            var flexibleModeEnabled by remember {
+                mutableStateOf(prefs.getBoolean("flexible_mode_enabled", false))
+            }
             LaunchedEffect(workMode) {
                 CrashReporter.updateContext(workMode = workMode.name)
             }
@@ -368,6 +371,7 @@ class MainActivity : ComponentActivity() {
                         useStandardSheets = if (idlePhase != IdlePhase.ACTIVE) false else useStandardSheets,
                         continuousScrollDefault = continuousScrollDefault,
                         workMode = workMode,
+                        flexibleModeEnabled = flexibleModeEnabled,
                         employeeName = employeeName,
                         supplySubscriptionManager = supplySubscriptionManager,
                         onEmployeeNameChanged = { name ->
@@ -395,6 +399,10 @@ class MainActivity : ComponentActivity() {
                             workMode = mode
                             prefs.edit().putString("work_mode", mode.name).apply()
                             CrashReporter.updateContext(workMode = mode.name)
+                        },
+                        onFlexibleModeChanged = { enabled ->
+                            flexibleModeEnabled = enabled
+                            prefs.edit().putBoolean("flexible_mode_enabled", enabled).apply()
                         },
                         onReinstallLatest = { updateManager.reinstallLatest() },
                         onBasePathChanged = { newPath ->
