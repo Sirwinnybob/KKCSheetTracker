@@ -179,6 +179,29 @@ class MixServiceClientTest {
     }
 
     @Test
+    fun `getMixCatalog rejects malformed successful payload fields without Gson coercion`() = runBlocking {
+        val payloads = listOf(
+            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","programs":["R1.pgm"]}]}""",
+            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"unknown","programs":["R1.pgm"]}]}""",
+            """{"ok":true,"revision":"17","entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R1.pgm"]}]}""",
+            """{"ok":true,"revision":17.5,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R1.pgm"]}]}""",
+            """{"ok":true,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R1.pgm"]}]}""",
+            """{"ok":true,"revision":17,"entries":[{"name":null,"mixFilename":"Current.mix","lifecycle":"active","programs":["R1.pgm"]}]}""",
+            """{"ok":true,"revision":17,"entries":[{"name":"Current","lifecycle":"active","programs":["R1.pgm"]}]}""",
+            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active"}]}""",
+            """{"ok":true,"revision":17,"entries":null}""",
+            """{"ok":true,"revision":17,"entries":{}}""",
+            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":{}}]}""",
+            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":[null]}]}""",
+        )
+        payloads.forEach { server.enqueue(MockResponse().setBody(it)) }
+
+        payloads.forEach {
+            assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
+        }
+    }
+
+    @Test
     fun `getMixCatalog maps non-success HTTP responses to NetworkError`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(503).setBody("service unavailable"))
 

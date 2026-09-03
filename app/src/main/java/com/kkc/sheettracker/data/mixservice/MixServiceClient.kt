@@ -340,12 +340,11 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
             runCatching {
                 client.newCall(request).execute().use { response ->
                     if (response.code != 200) return@use MixCatalogFetchResult.NetworkError
-                    val envelope = gson.fromJson(
+                    val snapshot = MixCatalogJson.parseFetchSnapshot(
                         response.body?.string().orEmpty(),
-                        CatalogEnvelope::class.java,
-                    ) ?: return@use MixCatalogFetchResult.NetworkError
-                    if (!envelope.ok) return@use MixCatalogFetchResult.NetworkError
-                    val snapshot = envelope.toSnapshot(job, material)
+                        job,
+                        material,
+                    )
                         ?: return@use MixCatalogFetchResult.NetworkError
                     MixCatalogFetchResult.Success(snapshot)
                 }

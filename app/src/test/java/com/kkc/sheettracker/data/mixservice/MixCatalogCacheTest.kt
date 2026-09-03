@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data.mixservice
 
 import java.io.File
 import java.nio.file.Files
+import com.google.gson.Gson
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -125,6 +126,37 @@ class MixCatalogCacheTest {
         assertEquals(7L, repository.cached("100 - Alpha", "Mat")!!.revision)
         assertEquals(MixCatalogFetchResult.NetworkError, repository.refresh("100 - Alpha", "Mat"))
         assertEquals(7L, repository.cached("100 - Alpha", "Mat")!!.revision)
+    }
+
+    @Test
+    fun `malformed successful refresh is rejected and preserves the previous cache`() = runBlocking {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(7L))
+        val malformed = Gson().fromJson<MixCatalogSnapshot>(
+            """{"job":"100 - Alpha","material":"Mat","revision":8,"entries":[{"name":"Broken","mixFilename":"Broken.mix","lifecycle":null,"programs":["R1.pgm"]}]}""",
+            MixCatalogSnapshot::class.java,
+        )
+        val repository = MixCatalogRepository(
+            FakeCatalogReader(MixCatalogFetchResult.Success(malformed)),
+            cache,
+        )
+
+        assertEquals(MixCatalogFetchResult.NetworkError, repository.refresh("100 - Alpha", "Mat"))
+        assertEquals(7L, repository.cached("100 - Alpha", "Mat")?.revision)
+        assertEquals("Current", repository.cached("100 - Alpha", "Mat")?.entries?.single()?.name)
+    }
+
+    @Test
+    fun `cache write rejects malformed deserialized snapshots without throwing`() {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(7L))
+        val malformed = Gson().fromJson<MixCatalogSnapshot>(
+            """{"job":"100 - Alpha","material":"Mat","revision":8,"entries":[{"name":"Broken","mixFilename":"Broken.mix","lifecycle":null,"programs":["R1.pgm"]}]}""",
+            MixCatalogSnapshot::class.java,
+        )
+
+        assertFalse(cache.write(malformed))
+        assertEquals(7L, cache.read("100 - Alpha", "Mat")?.revision)
     }
 
     private class FakeCatalogReader(private val result: MixCatalogFetchResult) : MixCatalogReader {

@@ -15,6 +15,117 @@ import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+/** Strict JSON boundary for catalog snapshots. Gson's default adapters coerce malformed data. */
+internal object MixCatalogJson {
+    fun parseFetchSnapshot(content: String, job: String, material: String): MixCatalogSnapshot? =
+        runCatching {
+            val envelope = JsonParser.parseString(content)
+                .takeIf(JsonElement::isJsonObject)
+                ?.asJsonObject
+                ?: return@runCatching null
+            if (envelope.booleanValue("ok") != true) return@runCatching null
+            parseSnapshotObject(envelope, job, material)
+        }.getOrNull()
+
+    fun parseSnapshotObject(
+        objectValue: JsonObject,
+        job: String,
+        material: String,
+    ): MixCatalogSnapshot? {
+        if (job.isBlank() || material.isBlank()) return null
+        val revision = objectValue.longValue("revision") ?: return null
+        val entriesElement = objectValue["entries"]
+        if (entriesElement == null || !entriesElement.isJsonArray) return null
+        val entries = entriesElement.asJsonArray.map { parseEntry(it) ?: return null }
+        return MixCatalogSnapshot(job, material, revision, entries)
+            .takeIf(::isValidSnapshot)
+    }
+
+    fun parseEntry(element: JsonElement): MixCatalogEntry? {
+        if (!element.isJsonObject) return null
+        val entry = element.asJsonObject
+        val name = entry.nonBlankString("name") ?: return null
+        val mixFilename = entry.nonBlankString("mixFilename") ?: return null
+        val lifecycle = when (entry.nonBlankString("lifecycle")) {
+            "active" -> MixLifecycle.ACTIVE
+            "history" -> MixLifecycle.HISTORY
+            "external" -> MixLifecycle.EXTERNAL
+            else -> return null
+        }
+        val programsElement = entry["programs"]
+        if (programsElement == null || !programsElement.isJsonArray) return null
+        val programs = programsElement.asJsonArray.map { program ->
+            if (!program.isJsonPrimitive || !program.asJsonPrimitive.isString || program.asString.isBlank()) {
+                return null
+            }
+            program.asString
+        }
+        if (!entry.isOptionalString("status") ||
+            !entry.isOptionalString("createdAt") ||
+            !entry.isOptionalString("updatedAt") ||
+            !entry.isOptionalString("lastCompiledAt") ||
+            !entry.isOptionalString("lastCompileError") ||
+            !entry.isOptionalBoolean("lastCompileOk")
+        ) return null
+        return MixCatalogEntry(
+            name = name,
+            mixFilename = mixFilename,
+            lifecycle = lifecycle,
+            programs = programs,
+            status = entry.optionalString("status"),
+            createdAt = entry.optionalString("createdAt"),
+            updatedAt = entry.optionalString("updatedAt"),
+            lastCompiledAt = entry.optionalString("lastCompiledAt"),
+            lastCompileOk = entry.optionalBoolean("lastCompileOk"),
+            lastCompileError = entry.optionalString("lastCompileError")
+        )
+    }
+
+    fun isValidSnapshot(snapshot: MixCatalogSnapshot?): Boolean = try {
+        if (snapshot == null || snapshot.job.isBlank() || snapshot.material.isBlank()) return false
+        snapshot.entries.all { entry ->
+            entry.name.isNotBlank() &&
+                entry.mixFilename.isNotBlank() &&
+                (entry.lifecycle === MixLifecycle.ACTIVE ||
+                    entry.lifecycle === MixLifecycle.HISTORY ||
+                    entry.lifecycle === MixLifecycle.EXTERNAL) &&
+                entry.programs.all(String::isNotBlank)
+        }
+    } catch (_: RuntimeException) {
+        false
+    }
+
+    fun JsonObject.longValue(name: String): Long? {
+        val value = get(name) ?: return null
+        if (!value.isJsonPrimitive || !value.asJsonPrimitive.isNumber) return null
+        return value.asString.toLongOrNull()
+    }
+
+    fun JsonObject.nonBlankString(name: String): String? =
+        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
+            ?.asString
+            ?.takeIf(String::isNotBlank)
+
+    private fun JsonObject.optionalString(name: String): String? =
+        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+
+    private fun JsonObject.optionalBoolean(name: String): Boolean? =
+        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean
+
+    private fun JsonObject.booleanValue(name: String): Boolean? =
+        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean
+
+    private fun JsonObject.isOptionalString(name: String): Boolean {
+        val value = get(name) ?: return true
+        return value.isJsonNull || (value.isJsonPrimitive && value.asJsonPrimitive.isString)
+    }
+
+    private fun JsonObject.isOptionalBoolean(name: String): Boolean {
+        val value = get(name) ?: return true
+        return value.isJsonNull || (value.isJsonPrimitive && value.asJsonPrimitive.isBoolean)
+    }
+}
+
 data class CachedMixCatalogSnapshot(
     val snapshot: MixCatalogSnapshot,
     val fetchedAtMillis: Long
@@ -49,8 +160,9 @@ class MixCatalogCache(
 
     /** Revision is a service equality token: only an identical revision is a no-op. */
     @Synchronized
-    fun write(snapshot: MixCatalogSnapshot): Boolean {
-        if (!isValidSnapshot(snapshot)) return false
+    fun write(snapshot: MixCatalogSnapshot?): Boolean {
+        if (!MixCatalogJson.isValidSnapshot(snapshot)) return false
+        snapshot ?: return false
         val existing = readCached(snapshot.job, snapshot.material)
         if (existing?.snapshot?.revision == snapshot.revision) return false
 
@@ -88,92 +200,16 @@ class MixCatalogCache(
 
     private fun parseCachedSnapshot(content: String): CachedMixCatalogSnapshot? {
         val rootObject = runCatching { JsonParser.parseString(content).asJsonObject }.getOrNull() ?: return null
-        val fetchedAtMillis = rootObject.longValue("fetchedAtMillis") ?: return null
+        val fetchedAtMillis = MixCatalogJson.run { rootObject.longValue("fetchedAtMillis") } ?: return null
         val snapshotObject = rootObject.objectValue("snapshot") ?: return null
-        val job = snapshotObject.nonBlankString("job") ?: return null
-        val material = snapshotObject.nonBlankString("material") ?: return null
-        val revision = snapshotObject.longValue("revision") ?: return null
-        val entriesElement = snapshotObject["entries"]
-        if (entriesElement == null || !entriesElement.isJsonArray) return null
-        val entries = entriesElement.asJsonArray.map { parseEntry(it) ?: return null }
-        val snapshot = MixCatalogSnapshot(job, material, revision, entries)
-        return CachedMixCatalogSnapshot(snapshot, fetchedAtMillis).takeIf { isValidSnapshot(it.snapshot) }
-    }
-
-    private fun parseEntry(element: JsonElement): MixCatalogEntry? {
-        if (!element.isJsonObject) return null
-        val entry = element.asJsonObject
-        val name = entry.nonBlankString("name") ?: return null
-        val mixFilename = entry.nonBlankString("mixFilename") ?: return null
-        val lifecycle = when (entry.nonBlankString("lifecycle")) {
-            "active" -> MixLifecycle.ACTIVE
-            "history" -> MixLifecycle.HISTORY
-            "external" -> MixLifecycle.EXTERNAL
-            else -> return null
-        }
-        val programsElement = entry["programs"]
-        if (programsElement == null || !programsElement.isJsonArray) return null
-        val programs = programsElement.asJsonArray.map { program ->
-            if (!program.isJsonPrimitive || !program.asJsonPrimitive.isString || program.asString.isBlank()) return null
-            program.asString
-        }
-        if (!entry.isOptionalString("status") ||
-            !entry.isOptionalString("createdAt") ||
-            !entry.isOptionalString("updatedAt") ||
-            !entry.isOptionalString("lastCompiledAt") ||
-            !entry.isOptionalString("lastCompileError") ||
-            !entry.isOptionalBoolean("lastCompileOk")
-        ) return null
-        return MixCatalogEntry(
-            name = name,
-            mixFilename = mixFilename,
-            lifecycle = lifecycle,
-            programs = programs,
-            status = entry.optionalString("status"),
-            createdAt = entry.optionalString("createdAt"),
-            updatedAt = entry.optionalString("updatedAt"),
-            lastCompiledAt = entry.optionalString("lastCompiledAt"),
-            lastCompileOk = entry.optionalBoolean("lastCompileOk"),
-            lastCompileError = entry.optionalString("lastCompileError")
-        )
-    }
-
-    private fun isValidSnapshot(snapshot: MixCatalogSnapshot): Boolean =
-        snapshot.job.isNotBlank() &&
-            snapshot.material.isNotBlank() &&
-            snapshot.entries.all {
-                it.name.isNotBlank() &&
-                    it.mixFilename.isNotBlank() &&
-                    it.programs.all(String::isNotBlank)
-            }
-
-    private fun JsonObject.longValue(name: String): Long? {
-        val value = get(name) ?: return null
-        if (!value.isJsonPrimitive || !value.asJsonPrimitive.isNumber) return null
-        return value.asString.toLongOrNull()
+        val job = MixCatalogJson.run { snapshotObject.nonBlankString("job") } ?: return null
+        val material = MixCatalogJson.run { snapshotObject.nonBlankString("material") } ?: return null
+        val snapshot = MixCatalogJson.parseSnapshotObject(snapshotObject, job, material) ?: return null
+        return CachedMixCatalogSnapshot(snapshot, fetchedAtMillis)
     }
 
     private fun JsonObject.objectValue(name: String): JsonObject? =
         get(name)?.takeIf(JsonElement::isJsonObject)?.asJsonObject
-
-    private fun JsonObject.nonBlankString(name: String): String? =
-        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString?.takeIf(String::isNotBlank)
-
-    private fun JsonObject.optionalString(name: String): String? =
-        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
-
-    private fun JsonObject.optionalBoolean(name: String): Boolean? =
-        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean
-
-    private fun JsonObject.isOptionalString(name: String): Boolean {
-        val value = get(name) ?: return true
-        return value.isJsonNull || (value.isJsonPrimitive && value.asJsonPrimitive.isString)
-    }
-
-    private fun JsonObject.isOptionalBoolean(name: String): Boolean {
-        val value = get(name) ?: return true
-        return value.isJsonNull || (value.isJsonPrimitive && value.asJsonPrimitive.isBoolean)
-    }
 
     companion object {
         fun inAppFiles(context: Context): MixCatalogCache =
@@ -201,7 +237,10 @@ class MixCatalogRepository(
 
     suspend fun refresh(job: String, material: String): MixCatalogFetchResult {
         val result = client.getMixCatalog(job, material)
-        if (result is MixCatalogFetchResult.Success) cache.write(result.snapshot)
+        if (result is MixCatalogFetchResult.Success) {
+            if (!MixCatalogJson.isValidSnapshot(result.snapshot)) return MixCatalogFetchResult.NetworkError
+            cache.write(result.snapshot)
+        }
         return result
     }
 }
