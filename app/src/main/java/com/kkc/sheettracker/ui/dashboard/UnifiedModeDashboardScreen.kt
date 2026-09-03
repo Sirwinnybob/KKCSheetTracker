@@ -237,19 +237,29 @@ private fun CncDashboardContent(
         )
         if (lowEnd.animationsDisabled) {
             if (!hasLoadedOnce || dashboard.incompleteRemakeMaterials.isNotEmpty()) {
-                CncRemakesSection(
+                TaggedMaterialSection(
                     items = dashboard.incompleteRemakeMaterials,
                     hasLoadedOnce = hasLoadedOnce,
                     jobRepository = jobRepository,
-                    onOpenSheet = onOpenSheet
+                    onOpenSheet = onOpenSheet,
+                    accentColor = KKCThemeColors.statusColors.remakeBg,
+                    title = "Incomplete Remakes",
+                    subtitleFor = { count -> "$count remake${if (count == 1) "" else "s"} pending" },
+                    thumbnailContentDescription = "Remake material preview",
+                    progressAnimationLabel = "remakeProgress"
                 )
             }
             if (!hasLoadedOnce || dashboard.incompleteMiscMaterials.isNotEmpty()) {
-                CncMiscsSection(
+                TaggedMaterialSection(
                     items = dashboard.incompleteMiscMaterials,
                     hasLoadedOnce = hasLoadedOnce,
                     jobRepository = jobRepository,
-                    onOpenSheet = onOpenSheet
+                    onOpenSheet = onOpenSheet,
+                    accentColor = KKCThemeColors.statusColors.miscBg,
+                    title = "Incomplete Miscellaneous",
+                    subtitleFor = { count -> "$count miscellaneous item${if (count == 1) "" else "s"} pending" },
+                    thumbnailContentDescription = "Miscellaneous material preview",
+                    progressAnimationLabel = "miscProgress"
                 )
             }
         } else {
@@ -258,11 +268,16 @@ private fun CncDashboardContent(
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
-                CncRemakesSection(
+                TaggedMaterialSection(
                     items = dashboard.incompleteRemakeMaterials,
                     hasLoadedOnce = hasLoadedOnce,
                     jobRepository = jobRepository,
-                    onOpenSheet = onOpenSheet
+                    onOpenSheet = onOpenSheet,
+                    accentColor = KKCThemeColors.statusColors.remakeBg,
+                    title = "Incomplete Remakes",
+                    subtitleFor = { count -> "$count remake${if (count == 1) "" else "s"} pending" },
+                    thumbnailContentDescription = "Remake material preview",
+                    progressAnimationLabel = "remakeProgress"
                 )
             }
             AnimatedVisibility(
@@ -270,11 +285,16 @@ private fun CncDashboardContent(
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
-                CncMiscsSection(
+                TaggedMaterialSection(
                     items = dashboard.incompleteMiscMaterials,
                     hasLoadedOnce = hasLoadedOnce,
                     jobRepository = jobRepository,
-                    onOpenSheet = onOpenSheet
+                    onOpenSheet = onOpenSheet,
+                    accentColor = KKCThemeColors.statusColors.miscBg,
+                    title = "Incomplete Miscellaneous",
+                    subtitleFor = { count -> "$count miscellaneous item${if (count == 1) "" else "s"} pending" },
+                    thumbnailContentDescription = "Miscellaneous material preview",
+                    progressAnimationLabel = "miscProgress"
                 )
             }
         }
@@ -375,13 +395,17 @@ private fun CncRecentMaterialsSection(
 }
 
 @Composable
-private fun CncRemakesSection(
+private fun TaggedMaterialSection(
     items: List<DashboardRecentMaterialItem>,
     hasLoadedOnce: Boolean,
     jobRepository: JobRepository,
-    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
+    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
+    accentColor: androidx.compose.ui.graphics.Color,
+    title: String,
+    subtitleFor: (count: Int) -> String,
+    thumbnailContentDescription: String,
+    progressAnimationLabel: String
 ) {
-    val remakeColor = KKCThemeColors.statusColors.remakeBg
     DashboardSurfaceCard {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -390,11 +414,11 @@ private fun CncRemakesSection(
             Box(
                 modifier = Modifier
                     .size(10.dp)
-                    .background(remakeColor, CircleShape)
+                    .background(accentColor, CircleShape)
             )
             DashboardSectionHeader(
-                title = "Incomplete Remakes",
-                subtitle = if (!hasLoadedOnce) null else "${items.size} remake${if (items.size == 1) "" else "s"} pending"
+                title = title,
+                subtitle = if (!hasLoadedOnce) null else subtitleFor(items.size)
             )
         }
         Row(
@@ -402,7 +426,14 @@ private fun CncRemakesSection(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (!hasLoadedOnce) {
-                CncRemakeMaterialCard(item = null, remakeColor = remakeColor, thumbnail = null, onClick = {})
+                TaggedMaterialCard(
+                    item = null,
+                    accentColor = accentColor,
+                    thumbnailContentDescription = thumbnailContentDescription,
+                    progressAnimationLabel = progressAnimationLabel,
+                    thumbnail = null,
+                    onClick = {}
+                )
             } else {
                 items.forEach { item ->
                     key(item.jobFolderName, item.pdfFilename) {
@@ -417,9 +448,11 @@ private fun CncRemakesSection(
                                 loadRecentMaterialThumbnail(jobRepository, item)
                             }
                         }
-                        CncRemakeMaterialCard(
+                        TaggedMaterialCard(
                             item = item,
-                            remakeColor = remakeColor,
+                            accentColor = accentColor,
+                            thumbnailContentDescription = thumbnailContentDescription,
+                            progressAnimationLabel = progressAnimationLabel,
                             thumbnail = thumbnail,
                             onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
                         )
@@ -431,9 +464,11 @@ private fun CncRemakesSection(
 }
 
 @Composable
-private fun CncRemakeMaterialCard(
+private fun TaggedMaterialCard(
     item: DashboardRecentMaterialItem?,
-    remakeColor: androidx.compose.ui.graphics.Color,
+    accentColor: androidx.compose.ui.graphics.Color,
+    thumbnailContentDescription: String,
+    progressAnimationLabel: String,
     thumbnail: Bitmap?,
     onClick: () -> Unit
 ) {
@@ -443,7 +478,7 @@ private fun CncRemakeMaterialCard(
         modifier = Modifier
             .width(268.dp)
             .bounceClick(onClick = onClick)
-            .border(width = 2.dp, color = remakeColor, shape = tileShape),
+            .border(width = 2.dp, color = accentColor, shape = tileShape),
         shape = tileShape,
         contentPadding = PaddingValues(12.dp)
     ) {
@@ -460,7 +495,7 @@ private fun CncRemakeMaterialCard(
                 if (thumbnail != null) {
                     Image(
                         bitmap = thumbnail.asImageBitmap(),
-                        contentDescription = "Remake material preview",
+                        contentDescription = thumbnailContentDescription,
                         modifier = Modifier.fillMaxWidth(),
                         contentScale = ContentScale.Fit
                     )
@@ -477,7 +512,7 @@ private fun CncRemakeMaterialCard(
                 item?.materialName ?: " ",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = remakeColor,
+                color = accentColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -515,187 +550,13 @@ private fun CncRemakeMaterialCard(
             val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
                 targetValue = fraction,
                 animationSpec = animSpec,
-                label = "remakeProgress"
+                label = progressAnimationLabel
             )
             LinearProgressIndicator(
                 progress = { animatedFraction },
                 modifier = Modifier.fillMaxWidth(),
-                color = remakeColor,
-                trackColor = remakeColor.copy(alpha = 0.2f)
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                DashboardAccentPill(
-                    item?.let { "C ${it.counts.complete}" } ?: "C",
-                    if (item != null) DashboardAccent.SUCCESS else DashboardAccent.NEUTRAL
-                )
-                DashboardAccentPill(
-                    item?.let { "B ${it.counts.bad}" } ?: "B",
-                    if (item != null) DashboardAccent.DANGER else DashboardAccent.NEUTRAL
-                )
-                DashboardAccentPill(
-                    item?.let { "S ${it.counts.skipped}" } ?: "S",
-                    if (item != null) DashboardAccent.WARNING else DashboardAccent.NEUTRAL
-                )
-                DashboardAccentPill(
-                    item?.let { "R ${it.counts.notStarted}" } ?: "R",
-                    if (item != null) DashboardAccent.INFO else DashboardAccent.NEUTRAL
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CncMiscsSection(
-    items: List<DashboardRecentMaterialItem>,
-    hasLoadedOnce: Boolean,
-    jobRepository: JobRepository,
-    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
-) {
-    val miscColor = KKCThemeColors.statusColors.miscBg
-    DashboardSurfaceCard {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .background(miscColor, CircleShape)
-            )
-            DashboardSectionHeader(
-                title = "Incomplete Miscellaneous",
-                subtitle = if (!hasLoadedOnce) null else "${items.size} miscellaneous item${if (items.size == 1) "" else "s"} pending"
-            )
-        }
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (!hasLoadedOnce) {
-                CncMiscMaterialCard(item = null, miscColor = miscColor, thumbnail = null, onClick = {})
-            } else {
-                items.forEach { item ->
-                    key(item.jobFolderName, item.pdfFilename) {
-                        val thumbnail by produceState<Bitmap?>(
-                            initialValue = null,
-                            item.jobFolderName,
-                            item.pdfFilename,
-                            item.thumbnailPath,
-                            item.nextIncompletePage
-                        ) {
-                            value = withContext(Dispatchers.IO) {
-                                loadRecentMaterialThumbnail(jobRepository, item)
-                            }
-                        }
-                        CncMiscMaterialCard(
-                            item = item,
-                            miscColor = miscColor,
-                            thumbnail = thumbnail,
-                            onClick = { onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CncMiscMaterialCard(
-    item: DashboardRecentMaterialItem?,
-    miscColor: androidx.compose.ui.graphics.Color,
-    thumbnail: Bitmap?,
-    onClick: () -> Unit
-) {
-    val lowEnd = LocalLowEndMode.current
-    val tileShape = DashboardSurfaceDefaults.sectionShape
-    DashboardSurfaceCard(
-        modifier = Modifier
-            .width(268.dp)
-            .bounceClick(onClick = onClick)
-            .border(width = 2.dp, color = miscColor, shape = tileShape),
-        shape = tileShape,
-        contentPadding = PaddingValues(12.dp)
-    ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium),
-                contentAlignment = Alignment.Center
-            ) {
-                if (thumbnail != null) {
-                    Image(
-                        bitmap = thumbnail.asImageBitmap(),
-                        contentDescription = "Miscellaneous material preview",
-                        modifier = Modifier.fillMaxWidth(),
-                        contentScale = ContentScale.Fit
-                    )
-                } else {
-                    androidx.compose.material3.Icon(
-                        Icons.Default.Description,
-                        contentDescription = "Description icon",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Text(
-                item?.materialName ?: " ",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = miscColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                item?.let { "${it.jobFolderName} • Next sheet ${it.nextIncompletePage}" } ?: " ",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    item?.let { "${it.counts.complete}/${it.counts.total} complete" } ?: " ",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                ProgressPill(
-                    done = item?.counts?.complete ?: 0,
-                    total = item?.counts?.total ?: 0,
-                    state = ProgressState.from(item?.counts?.complete ?: 0, item?.counts?.total ?: 0)
-                )
-            }
-            val fraction = item?.completionFraction?.coerceIn(0f, 1f) ?: 0f
-            val animSpec = if (lowEnd.animationsDisabled) {
-                androidx.compose.animation.core.snap<Float>()
-            } else {
-                androidx.compose.animation.core.spring(
-                    stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
-                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy
-                )
-            }
-            val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = fraction,
-                animationSpec = animSpec,
-                label = "miscProgress"
-            )
-            LinearProgressIndicator(
-                progress = { animatedFraction },
-                modifier = Modifier.fillMaxWidth(),
-                color = miscColor,
-                trackColor = miscColor.copy(alpha = 0.2f)
+                color = accentColor,
+                trackColor = accentColor.copy(alpha = 0.2f)
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
