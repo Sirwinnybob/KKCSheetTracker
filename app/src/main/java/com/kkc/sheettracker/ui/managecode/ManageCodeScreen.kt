@@ -64,6 +64,7 @@ import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -99,6 +100,21 @@ internal fun isCatalogChangedFailure(session: ManageCodeSession?, job: String): 
     session?.job == job &&
         session.current.state == "failed" &&
         session.current.error == "catalog_changed"
+
+internal enum class ExternalDeleteSubmissionPath {
+    START,
+    REPLACE_CATALOG_CHANGED,
+}
+
+/** A refreshed external-delete choice replaces only the retained catalog-conflict session. */
+internal fun externalDeleteSubmissionPath(
+    session: ManageCodeSession?,
+    job: String,
+): ExternalDeleteSubmissionPath = if (isCatalogChangedFailure(session, job)) {
+    ExternalDeleteSubmissionPath.REPLACE_CATALOG_CHANGED
+} else {
+    ExternalDeleteSubmissionPath.START
+}
 
 @Suppress("UNUSED_PARAMETER")
 internal fun catalogChangedRecoveryMessage(materialName: String): String =
@@ -550,6 +566,7 @@ fun ManageCodeScreen(
 ) {
     val app = LocalContext.current.applicationContext as KKCApplication
     val coordinator = app.mixOperationCoordinator
+    val coordinatorScope = rememberCoroutineScope()
     // The application owns the one client shared by reads and durable mutation submission.
     val serviceClient = app.mixServiceClient
     val catalogRepository = app.mixCatalogRepository
@@ -977,7 +994,15 @@ fun ManageCodeScreen(
                     if (action != null) {
                         preflightMessage = null
                         operationSessionToken += 1L
-                        coordinator.start(ManageCodeSession(jobFolderName, listOf(action)))
+                        val newSession = ManageCodeSession(jobFolderName, listOf(action))
+                        when (externalDeleteSubmissionPath(operationSession, jobFolderName)) {
+                            ExternalDeleteSubmissionPath.REPLACE_CATALOG_CHANGED -> {
+                                coordinatorScope.launch {
+                                    coordinator.replaceCatalogChangedSession(newSession)
+                                }
+                            }
+                            ExternalDeleteSubmissionPath.START -> coordinator.start(newSession)
+                        }
                     }
                 },
             )

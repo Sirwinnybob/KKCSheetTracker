@@ -151,6 +151,32 @@ internal data class JobDetailCatalogState(
     val statuses: Map<String, JobDetailCatalogStatus> = emptyMap(),
 )
 
+/** Publishes the current cache classification before a refresh suspends for the network. */
+internal fun jobDetailCatalogStateBeforeRefresh(
+    previous: JobDetailCatalogState,
+    materialName: String,
+    cached: MixCatalogSnapshot?,
+): JobDetailCatalogState {
+    val retained = cached ?: previous.snapshots[materialName]
+    if (retained == null) {
+        return previous.copy(
+            snapshots = previous.snapshots - materialName,
+            statuses = previous.statuses + (materialName to JobDetailCatalogStatus.UNAVAILABLE),
+        )
+    }
+
+    val previousStatus = previous.statuses[materialName]
+    val pendingStatus = when {
+        cached != null && previousStatus != JobDetailCatalogStatus.STALE -> JobDetailCatalogStatus.FRESH
+        previousStatus != null -> previousStatus
+        else -> JobDetailCatalogStatus.FRESH
+    }
+    return previous.copy(
+        snapshots = previous.snapshots + (materialName to retained),
+        statuses = previous.statuses + (materialName to pendingStatus),
+    )
+}
+
 /** Keeps cached data visible when refresh fails, while exposing its recovery state to the UI. */
 internal fun jobDetailCatalogStateAfterRefresh(
     previous: JobDetailCatalogState,
@@ -302,6 +328,11 @@ fun JobDetailScreen(
         materialsToLoad.forEach { material ->
             val cached = catalogRepository.cached(jobFolderName, material.materialName)
             if (!isActive) return@forEach
+            catalogState = jobDetailCatalogStateBeforeRefresh(
+                previous = catalogState,
+                materialName = material.materialName,
+                cached = cached,
+            )
             val refreshed = catalogRepository.refresh(jobFolderName, material.materialName)
             catalogState = jobDetailCatalogStateAfterRefresh(
                 previous = catalogState,

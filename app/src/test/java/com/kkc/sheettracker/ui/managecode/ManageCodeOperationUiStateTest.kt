@@ -350,6 +350,34 @@ class ManageCodeOperationUiStateTest {
         )
     }
 
+    @Test
+    fun `external delete recovery replaces retained catalog changed session but starts normal failures`() {
+        val catalogChanged = session(
+            state = "failed",
+            stage = "failed",
+            error = "catalog_changed",
+            actions = listOf(
+                ManageCodeOperationAction.externalDelete(
+                    material = "Walnut",
+                    externalMixFilename = "Manual.mix",
+                    expectedRevision = 8L,
+                ),
+            ),
+        )
+        val networkFailure = catalogChanged.copy(
+            current = catalogChanged.current.copy(error = "network_error"),
+        )
+
+        assertEquals(
+            ExternalDeleteSubmissionPath.REPLACE_CATALOG_CHANGED,
+            externalDeleteSubmissionPath(catalogChanged, "648"),
+        )
+        assertEquals(
+            ExternalDeleteSubmissionPath.START,
+            externalDeleteSubmissionPath(networkFailure, "648"),
+        )
+    }
+
     private fun session(
         state: String = "running",
         stage: String = "queued",

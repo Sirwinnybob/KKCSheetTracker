@@ -174,4 +174,59 @@ class JobDetailLoadStateTest {
         )
         assertEquals(false, canOpenCatalogMaterialEntry(unscoped, JobDetailCatalogStatus.UNAVAILABLE))
     }
+
+    @Test
+    fun `cache-first catalog state publishes scoped active selection before refresh`() {
+        val material = Material(
+            pdfFilename = "19mm.pdf",
+            materialName = "19mm",
+            pageCount = 2,
+            metadata = MaterialMetadata(
+                pages = listOf(
+                    PageMetadata(pageNumber = 1, sheetFiles = listOf("R1")),
+                    PageMetadata(pageNumber = 2, sheetFiles = listOf("R2")),
+                ),
+            ),
+        )
+        val cached = MixCatalogSnapshot(
+            job = "100 - Alpha",
+            material = "19mm",
+            revision = 7L,
+            entries = listOf(
+                MixCatalogEntry(
+                    name = "Current",
+                    mixFilename = "Current.mix",
+                    lifecycle = MixLifecycle.ACTIVE,
+                    programs = listOf("R2.pgm", "R1.pgm"),
+                ),
+            ),
+        )
+
+        val cacheFirst = jobDetailCatalogStateBeforeRefresh(
+            previous = JobDetailCatalogState(),
+            materialName = material.materialName,
+            cached = cached,
+        )
+        val entry = catalogMaterialEntries(material, cacheFirst.snapshots[material.materialName]).single()
+
+        assertEquals(cached, cacheFirst.snapshots[material.materialName])
+        assertEquals(JobDetailCatalogStatus.FRESH, cacheFirst.statuses[material.materialName])
+        assertEquals(listOf(2, 1), entry.mixSelection?.pageOrder)
+        assertTrue(canOpenCatalogMaterialEntry(entry, cacheFirst.statuses[material.materialName]))
+    }
+
+    @Test
+    fun `uncached catalog state blocks unscoped open while refresh is pending`() {
+        val material = Material(pdfFilename = "19mm.pdf", materialName = "19mm", pageCount = 2)
+        val pending = jobDetailCatalogStateBeforeRefresh(
+            previous = JobDetailCatalogState(),
+            materialName = material.materialName,
+            cached = null,
+        )
+        val entry = catalogMaterialEntries(material, pending.snapshots[material.materialName]).single()
+
+        assertEquals(null, entry.mixSelection)
+        assertEquals(JobDetailCatalogStatus.UNAVAILABLE, pending.statuses[material.materialName])
+        assertEquals(false, canOpenCatalogMaterialEntry(entry, pending.statuses[material.materialName]))
+    }
 }
