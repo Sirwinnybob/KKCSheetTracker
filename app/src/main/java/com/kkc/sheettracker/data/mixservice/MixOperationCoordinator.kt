@@ -57,6 +57,29 @@ class MixOperationCoordinator(
         }
     }
 
+    /**
+     * Replaces the durable session left by an acknowledged catalog conflict.
+     *
+     * A catalog conflict is not retryable: its action carries a stale revision. The caller must
+     * provide a newly planned, clean session (including fresh catalog revisions and PGM request
+     * IDs). The replacement is saved before its first action is submitted, and the old action is
+     * never replayed.
+     */
+    suspend fun replaceCatalogChangedSession(replacement: ManageCodeSession): Boolean {
+        if (_restoreState.value != MixOperationRestoreState.Ready) return false
+        val shouldSubmit = lock.withLock {
+            if (_restoreState.value != MixOperationRestoreState.Ready) return false
+            val existing = _sessions.value[replacement.job] ?: return false
+            if (!existing.isFailedCatalogChangedSession()) return false
+            if (!replacement.isFreshReplacementSession()) return false
+
+            publishLocked(replacement)
+            true
+        }
+        if (shouldSubmit) submitCurrentAction(replacement.job)
+        return shouldSubmit
+    }
+
     fun restore() {
         scope.launch {
             restoreLock.withLock {
@@ -338,6 +361,17 @@ class MixOperationCoordinator(
             }
     }
 }
+
+private fun ManageCodeSession.isFailedCatalogChangedSession(): Boolean =
+    current.state == "failed" &&
+        current.error == "catalog_changed" &&
+        currentAction?.isCatalogAction == true
+
+private fun ManageCodeSession.isFreshReplacementSession(): Boolean =
+    actions.isNotEmpty() &&
+        currentActionIndex == 0 &&
+        current.state == "queued" &&
+        actions.all { it.operationId == null }
 
 private val ManageCodeOperationAction.isCatalogAction: Boolean
     get() = kind in setOf(

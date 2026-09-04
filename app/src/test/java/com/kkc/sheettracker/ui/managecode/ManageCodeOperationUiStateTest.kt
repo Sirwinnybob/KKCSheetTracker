@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.managecode
 
 import com.kkc.sheettracker.data.mixservice.ManageCodeOperationAction
 import com.kkc.sheettracker.data.mixservice.ManageCodeSession
+import com.kkc.sheettracker.data.mixservice.DuplicateMixWarning
 import com.kkc.sheettracker.data.mixservice.MixOperationWarning
 import com.kkc.sheettracker.data.mixservice.MixOperationRestoreState
 import com.kkc.sheettracker.data.mixservice.MixServiceOperation
@@ -14,6 +15,7 @@ import com.kkc.sheettracker.data.mixservice.MixGenerationTarget
 import com.kkc.sheettracker.data.mixservice.buildManageCodeActions
 import com.kkc.sheettracker.data.mixservice.resolveMixGenerationTarget
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -272,6 +274,80 @@ class ManageCodeOperationUiStateTest {
         assertEquals(listOf(ManageCodeOperationAction.CATALOG_REPLACE, ManageCodeOperationAction.PGM_EDITS), actions.map { it.kind })
         assertEquals(7L, actions.first().expectedRevision)
         assertEquals("edit-1", actions[1].requestId)
+    }
+
+    @Test
+    fun `job-wide pgm conflicts win and material catalog is only a fallback`() {
+        val catalog = MixCatalogSnapshot(
+            job = "648",
+            material = "Walnut",
+            revision = 7L,
+            entries = listOf(
+                MixCatalogEntry("WalnutMix", "WalnutMix.mix", MixLifecycle.ACTIVE, listOf("W.pgm"))
+            ),
+        )
+        val jobWide = listOf(DuplicateMixWarning("W.pgm", "MapleMix"))
+
+        assertEquals(
+            jobWide,
+            preSubmitPgmConflicts(jobWide, listOf("W.pgm"), "WalnutMix", catalog),
+        )
+        assertEquals(
+            listOf(DuplicateMixWarning("W.pgm", "WalnutMix")),
+            preSubmitPgmConflicts(null, listOf("W.pgm"), "OtherMix", catalog),
+        )
+    }
+
+    @Test
+    fun `completion refresh key changes for every operation session`() {
+        val action = ManageCodeOperationAction.catalogReplace(
+            material = "Walnut",
+            name = "WalnutMix",
+            programs = listOf("W.pgm"),
+            expectedRevision = 7L,
+        )
+
+        assertFalse(
+            catalogCompletionRefreshKey(1L, 0, action) ==
+                catalogCompletionRefreshKey(2L, 0, action)
+        )
+    }
+
+    @Test
+    fun `catalog changed failure requests a fresh choice instead of retrying stale action`() {
+        val conflicted = session(
+            state = "failed",
+            stage = "failed",
+            error = "catalog_changed",
+        )
+
+        assertTrue(isCatalogChangedFailure(conflicted, "648"))
+        assertEquals(
+            "Mix catalog changed — refresh and choose an action again",
+            catalogChangedRecoveryMessage("Walnut"),
+        )
+    }
+
+    @Test
+    fun `replacement choice is selected only for failed catalog changed sessions`() {
+        assertTrue(
+            isCatalogChangedFailure(
+                session(state = "failed", stage = "failed", error = "catalog_changed"),
+                "648",
+            )
+        )
+        assertFalse(
+            isCatalogChangedFailure(
+                session(state = "failed", stage = "failed", error = "network_error"),
+                "648",
+            )
+        )
+        assertFalse(
+            isCatalogChangedFailure(
+                session(state = "interrupted", stage = "interrupted", error = "catalog_changed"),
+                "648",
+            )
+        )
     }
 
     private fun session(

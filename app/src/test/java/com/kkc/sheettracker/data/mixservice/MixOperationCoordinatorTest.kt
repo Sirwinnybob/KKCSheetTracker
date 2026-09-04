@@ -286,6 +286,130 @@ class MixOperationCoordinatorTest {
     }
 
     @Test
+    fun `replacing catalog changed session persists fresh actions before submitting`() = runBlocking {
+        val failed = session(
+            actions = listOf(
+                ManageCodeOperationAction.catalogReplace(
+                    job = "648",
+                    material = "M",
+                    name = "Current",
+                    programs = listOf("R1.pgm"),
+                    expectedRevision = 7L,
+                ),
+            ),
+            current = operation(state = "failed", stage = "failed").copy(
+                kind = ManageCodeOperationAction.CATALOG_REPLACE,
+                error = "catalog_changed",
+                result = MixCatalogMutationResult.CatalogChanged,
+            ),
+        )
+        val store = InMemorySessionStore(mapOf("648" to failed))
+        val service = CatalogService { submitted ->
+            val persisted = store.currentSessions.getValue("648")
+            assertEquals("submitting", persisted.current.state)
+            assertEquals(submitted, persisted.currentAction)
+            assertEquals(9L, persisted.currentAction?.expectedRevision)
+            assertEquals("new-request", persisted.actions.getOrNull(1)?.requestId)
+        }
+        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+
+        val replacement = ManageCodeSession(
+            job = "648",
+            actions = listOf(
+                ManageCodeOperationAction.catalogReplace(
+                    job = "648",
+                    material = "M",
+                    name = "Current",
+                    programs = listOf("R2.pgm"),
+                    expectedRevision = 9L,
+                ),
+                ManageCodeOperationAction.pgmEdits(
+                    material = "M",
+                    requestId = "new-request",
+                    editRows = listOf(PgmEditRow("R2.pgm", "standard", removePUnload = false)),
+                ),
+            ),
+        )
+
+        assertTrue(coordinator.replaceCatalogChangedSession(replacement))
+
+        val completed = withTimeout(1_000) {
+            coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true }
+        }.getValue("648")
+
+        assertEquals(listOf("catalog_replace", "pgm_edits"), service.submissionKinds)
+        assertEquals(9L, service.submitted.single().expectedRevision)
+        assertEquals("new-request", completed.actions[1].requestId)
+        assertTrue(store.saved.indexOfFirst { it === replacement } >= 0)
+    }
+
+    @Test
+    fun `replacing catalog changed session rejects invalid existing states without submitting`() = runBlocking {
+        val invalidStates = listOf(
+            operation(state = "failed", stage = "failed").copy(
+                kind = ManageCodeOperationAction.CATALOG_REPLACE,
+                error = "network_error",
+            ),
+            operation(state = "interrupted", stage = "interrupted").copy(
+                kind = ManageCodeOperationAction.CATALOG_REPLACE,
+                error = "catalog_changed",
+            ),
+            operation(state = "running", stage = "compiling").copy(
+                kind = ManageCodeOperationAction.CATALOG_REPLACE,
+                error = "catalog_changed",
+            ),
+            operation(state = "completed", stage = "completed").copy(
+                kind = ManageCodeOperationAction.CATALOG_REPLACE,
+                error = "catalog_changed",
+            ),
+        )
+
+        invalidStates.forEach { invalidCurrent ->
+            val store = InMemorySessionStore(
+                mapOf(
+                    "648" to session(
+                        actions = listOf(
+                            ManageCodeOperationAction.catalogReplace(
+                                job = "648",
+                                material = "M",
+                                name = "Current",
+                                programs = listOf("R1.pgm"),
+                                expectedRevision = 7L,
+                            ),
+                        ),
+                        current = invalidCurrent,
+                    )
+                )
+            )
+            val service = CatalogService()
+            val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+            coordinator.restore()
+            withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+
+            assertFalse(
+                coordinator.replaceCatalogChangedSession(
+                    ManageCodeSession(
+                        job = "648",
+                        actions = listOf(
+                            ManageCodeOperationAction.catalogReplace(
+                                job = "648",
+                                material = "M",
+                                name = "Current",
+                                programs = listOf("R2.pgm"),
+                                expectedRevision = 9L,
+                            ),
+                        ),
+                    )
+                )
+            )
+            assertEquals(0, service.submitCount)
+        }
+    }
+
+    @Test
     fun `coordinator retains active job session after observer cancellation`() = runBlocking {
         val store = InMemorySessionStore()
         val service = CompletingService()

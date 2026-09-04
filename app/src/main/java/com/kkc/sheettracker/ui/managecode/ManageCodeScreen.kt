@@ -43,6 +43,7 @@ import com.kkc.sheettracker.data.mixservice.ManageCodeOperationAction
 import com.kkc.sheettracker.data.mixservice.ManageCodeRow
 import com.kkc.sheettracker.data.mixservice.ManageCodeRowSelection
 import com.kkc.sheettracker.data.mixservice.ManageCodeSession
+import com.kkc.sheettracker.data.mixservice.DuplicateMixWarning
 import com.kkc.sheettracker.data.mixservice.MixOperationRestoreState
 import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
 import com.kkc.sheettracker.data.mixservice.MixCatalogMutationResult
@@ -77,6 +78,31 @@ data class ManageCodeMaterialState(
     /** Set only by an operator row reorder or MIX toggle, never by target hydration. */
     val mixLayoutDirty: Boolean = false,
 )
+
+/** Prefers the job-wide service check; a material snapshot is only a failure fallback. */
+internal fun preSubmitPgmConflicts(
+    jobWideConflicts: List<DuplicateMixWarning>?,
+    programs: List<String>,
+    thisMixName: String,
+    catalog: MixCatalogSnapshot,
+): List<DuplicateMixWarning> = jobWideConflicts
+    ?: findCrossMixDuplicates(programs, thisMixName, catalog)
+
+/** Completion refreshes are scoped to both the action and the generated session. */
+internal fun catalogCompletionRefreshKey(
+    sessionToken: Long,
+    actionIndex: Int,
+    action: ManageCodeOperationAction,
+): String = "$sessionToken:$actionIndex:${action.kind}:${action.material}"
+
+internal fun isCatalogChangedFailure(session: ManageCodeSession?, job: String): Boolean =
+    session?.job == job &&
+        session.current.state == "failed" &&
+        session.current.error == "catalog_changed"
+
+@Suppress("UNUSED_PARAMETER")
+internal fun catalogChangedRecoveryMessage(materialName: String): String =
+    "Mix catalog changed — refresh and choose an action again"
 
 internal fun updateMixLayoutSelection(
     state: ManageCodeMaterialState,
@@ -371,7 +397,11 @@ sealed interface ManageCodeOperationUiState {
             val operation = session.current
             if (operation.state in setOf("failed", "interrupted")) {
                 val stage = if (operation.state == "interrupted") "Operation interrupted" else "Operation failed"
-                return Failed(operation.error?.takeIf { it.isNotBlank() }?.let { "$stage: $it" } ?: stage)
+                val detail = when (operation.error) {
+                    "catalog_changed" -> "Mix catalog changed — refresh and choose an action again"
+                    else -> operation.error?.takeIf { it.isNotBlank() }
+                }
+                return Failed(detail?.let { "$stage: $it" } ?: stage)
             }
             if (session.isTerminal && operation.state == "completed") return Completed
             return when (operation.stage) {
@@ -556,6 +586,9 @@ fun ManageCodeScreen(
     var startRequest by remember { mutableIntStateOf(0) }
     var preflightMessage by remember { mutableStateOf<String?>(null) }
     var refreshedOperationIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var operationSessionToken by remember { mutableLongStateOf(0L) }
+    var catalogRecoveryMaterial by remember { mutableStateOf<String?>(null) }
+    var catalogRecoveryAttempt by remember { mutableIntStateOf(0) }
 
     suspend fun loadMaterialState(
         material: com.kkc.sheettracker.data.models.Material,
@@ -661,7 +694,17 @@ fun ManageCodeScreen(
                 originalPrograms = plan.programsBaseline,
             )
             if (change.orderOrMembershipChanged) {
-                val duplicates = findCrossMixDuplicates(change.programs, plan.name, catalog)
+                val duplicates = preSubmitPgmConflicts(
+                    jobWideConflicts = serviceClient.getPgmConflicts(
+                        job = jobFolderName,
+                        material = materialName,
+                        programs = change.programs,
+                        exclude = plan.name,
+                    ),
+                    programs = change.programs,
+                    thisMixName = plan.name,
+                    catalog = catalog,
+                )
                 if (duplicates.isNotEmpty() && materialName !in allowedDuplicateMaterials) {
                     return ManageCodeSessionPreparation.Duplicate(materialName, target, duplicates)
                 }
@@ -688,9 +731,10 @@ fun ManageCodeScreen(
     }
 
     LaunchedEffect(startRequest) {
+        val catalogChangedFailure = isCatalogChangedFailure(operationSession, jobFolderName)
         if (
             startRequest == 0 ||
-            (operationSession != null && !operationSession.isCompletedSuccessfully) ||
+            (operationSession != null && !operationSession.isCompletedSuccessfully && !catalogChangedFailure) ||
             restoreState != MixOperationRestoreState.Ready ||
             reachable != true
         ) return@LaunchedEffect
@@ -699,7 +743,13 @@ fun ManageCodeScreen(
                 preflightMessage = null
                 selectedTargets = emptyMap()
                 allowedDuplicateMaterials = emptySet()
-                coordinator.start(preparation.session)
+                operationSessionToken += 1L
+                if (catalogChangedFailure) {
+                    catalogRecoveryMaterial = null
+                    coordinator.replaceCatalogChangedSession(preparation.session)
+                } else {
+                    coordinator.start(preparation.session)
+                }
             }
             is ManageCodeSessionPreparation.SelectAction -> {
                 pendingMixAction = preparation.pending
@@ -723,7 +773,7 @@ fun ManageCodeScreen(
         .orEmpty()
     LaunchedEffect(completedActions, materials) {
         completedActions.forEachIndexed { index, action ->
-            val refreshKey = "$index:${action.kind}:${action.material}"
+            val refreshKey = catalogCompletionRefreshKey(operationSessionToken, index, action)
             if (refreshKey in refreshedOperationIds) return@forEachIndexed
             val material = materials.firstOrNull { it.materialName == action.material } ?: return@forEachIndexed
             val snapshot = catalogRepository.cached(jobFolderName, action.material)
@@ -739,9 +789,45 @@ fun ManageCodeScreen(
         }
     }
 
+    LaunchedEffect(catalogRecoveryAttempt, job, reachable) {
+        val materialName = catalogRecoveryMaterial ?: return@LaunchedEffect
+        if (job == null || reachable != true) return@LaunchedEffect
+        val material = materials.firstOrNull { it.materialName == materialName }
+            ?: return@LaunchedEffect
+        when (val refreshed = catalogRepository.refresh(jobFolderName, materialName)) {
+            is MixCatalogFetchResult.Success -> {
+                materialCatalogs = materialCatalogs + (materialName to refreshed.snapshot)
+                materialStates = materialStates + (materialName to loadMaterialState(material, refreshed.snapshot))
+                catalogLoadErrors = catalogLoadErrors - materialName
+                pendingMixAction = PendingMixAction(materialName, refreshed.snapshot)
+                preflightMessage = "Catalog refreshed — choose a new action for $materialName"
+            }
+            MixCatalogFetchResult.NetworkError -> {
+                catalogLoadErrors = catalogLoadErrors + (
+                    materialName to "Could not refresh the mix catalog — cached information was retained"
+                )
+                preflightMessage = "Mix catalog changed — refresh failed; try again before choosing an action"
+            }
+        }
+    }
+
     fun retryCurrentOperation() {
         val material = operationSession?.currentAction?.material ?: operationSession?.current?.material ?: return
         coordinator.retry(jobFolderName, material)
+    }
+
+    fun recoverCatalogChangedOperation() {
+        val material = operationSession?.currentAction?.material
+            ?: operationSession?.current?.material
+            ?: return
+        // The failed action contains the stale revision and must not be retried. A refreshed
+        // snapshot will open a new choice dialog and produce a new durable action instead.
+        pendingMixAction = null
+        selectedTargets = selectedTargets - material
+        allowedDuplicateMaterials = allowedDuplicateMaterials - material
+        catalogRecoveryMaterial = material
+        catalogRecoveryAttempt += 1
+        preflightMessage = catalogChangedRecoveryMessage(material)
     }
 
     Scaffold(
@@ -813,9 +899,11 @@ fun ManageCodeScreen(
                 }
                 item {
                     val isRetryable = operationUiState is ManageCodeOperationUiState.Failed
+                    val catalogChangedFailure = isCatalogChangedFailure(operationSession, jobFolderName)
                     Button(
                         onClick = {
                             if (screenPresentation.canRetryRestore) coordinator.restore()
+                            else if (catalogChangedFailure) recoverCatalogChangedOperation()
                             else if (isRetryable) retryCurrentOperation()
                             else startRequest += 1
                         },
@@ -838,6 +926,7 @@ fun ManageCodeScreen(
                                 when {
                                     restoreState == MixOperationRestoreState.Restoring -> "Restoring prior session…"
                                     screenPresentation.canRetryRestore -> "Retry session restore"
+                                    catalogChangedFailure -> "Refresh catalog and choose again"
                                     isRetryable -> "Retry — ${manageCodeOperationLabel(operationUiState, operationSession)}"
                                     else -> manageCodeOperationLabel(operationUiState, operationSession)
                                 },
@@ -887,6 +976,7 @@ fun ManageCodeScreen(
                     pendingMixAction = null
                     if (action != null) {
                         preflightMessage = null
+                        operationSessionToken += 1L
                         coordinator.start(ManageCodeSession(jobFolderName, listOf(action)))
                     }
                 },

@@ -83,7 +83,6 @@ import com.kkc.sheettracker.data.models.MaterialUiModel
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
-import com.kkc.sheettracker.data.mixservice.MixServiceClient
 import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
 import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
 import com.kkc.sheettracker.data.mixservice.MaterialMixEntry
@@ -141,13 +140,58 @@ internal fun jobDetailLoadKey(
     @Suppress("UNUSED_PARAMETER") scanGeneration: Long
 ): JobDetailLoadKey = JobDetailLoadKey(jobFolderName, retryAttempt)
 
+internal enum class JobDetailCatalogStatus {
+    FRESH,
+    STALE,
+    UNAVAILABLE,
+}
+
+internal data class JobDetailCatalogState(
+    val snapshots: Map<String, MixCatalogSnapshot> = emptyMap(),
+    val statuses: Map<String, JobDetailCatalogStatus> = emptyMap(),
+)
+
+/** Keeps cached data visible when refresh fails, while exposing its recovery state to the UI. */
+internal fun jobDetailCatalogStateAfterRefresh(
+    previous: JobDetailCatalogState,
+    materialName: String,
+    cached: MixCatalogSnapshot?,
+    refreshed: MixCatalogFetchResult,
+): JobDetailCatalogState {
+    val retained = cached ?: previous.snapshots[materialName]
+    return when (refreshed) {
+        is MixCatalogFetchResult.Success -> previous.copy(
+            snapshots = previous.snapshots + (materialName to refreshed.snapshot),
+            statuses = previous.statuses + (materialName to JobDetailCatalogStatus.FRESH),
+        )
+        MixCatalogFetchResult.NetworkError -> if (retained != null) {
+            previous.copy(
+                snapshots = previous.snapshots + (materialName to retained),
+                statuses = previous.statuses + (materialName to JobDetailCatalogStatus.STALE),
+            )
+        } else {
+            previous.copy(
+                snapshots = previous.snapshots - materialName,
+                statuses = previous.statuses + (materialName to JobDetailCatalogStatus.UNAVAILABLE),
+            )
+        }
+    }
+}
+
+/** An empty scoped selection is an unavailable active mix, never an unscoped viewer fallback. */
+internal fun canOpenCatalogMaterialEntry(
+    entry: MaterialMixEntry,
+    catalogStatus: JobDetailCatalogStatus? = null,
+): Boolean = catalogStatus != JobDetailCatalogStatus.UNAVAILABLE &&
+    entry.mixSelection?.pageOrder?.isNotEmpty() != false
+
 /** Projects only active catalog ownership into the established viewer route model. */
 internal fun catalogMaterialEntries(
     material: Material,
     catalog: MixCatalogSnapshot?
 ): List<MaterialMixEntry> {
     val naturalOrder = catalogTrackablePages(material)
-    return activeMixRows(material, catalog).mapNotNull { row ->
+    val projected = activeMixRows(material, catalog).map { row ->
         val activeMix = row.activeMix
         if (activeMix == null) {
             MaterialMixEntry(material = material, title = material.materialName, mixSelection = null)
@@ -157,17 +201,17 @@ internal fun catalogMaterialEntries(
                 naturalOrder = naturalOrder,
                 programs = activeMix.programs,
             )
-            pageOrder.takeIf { it.isNotEmpty() }?.let {
-                MaterialMixEntry(
-                    material = material,
-                    title = row.title,
-                    mixSelection = ViewerMixSelection(activeMix.name, it),
-                )
-            }
+            // Preserve the active ownership row even when no visible page maps to it. The
+            // empty selection is rendered as unavailable, never widened to all material pages.
+            MaterialMixEntry(
+                material = material,
+                title = row.title,
+                mixSelection = ViewerMixSelection(activeMix.name, pageOrder),
+            )
         }
-    }.ifEmpty {
-        listOf(MaterialMixEntry(material = material, title = material.materialName, mixSelection = null))
     }
+    return projected.takeIf { entries -> entries.any { it.mixSelection != null } }
+        ?: listOf(MaterialMixEntry(material = material, title = material.materialName, mixSelection = null))
 }
 
 private fun catalogTrackablePages(material: Material): List<Int> {
@@ -194,7 +238,6 @@ fun JobDetailScreen(
     specialtyStateStore: SpecialtyStateStore,
     appStateFlags: AppStateFeatureFlags,
     jobFolderName: String,
-    mixServiceClient: MixServiceClient? = null,
     onMaterialClick: (Material, Int, ViewerMixSelection?) -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
@@ -245,26 +288,30 @@ fun JobDetailScreen(
     }
     val job = jobLoadResult.job
     val jobLoadState = jobDetailLoadState(jobLoadResult.hasResolved, job != null)
-    val mixCatalogs by produceState<Map<String, MixCatalogSnapshot>>(
-        initialValue = emptyMap(),
-        job,
-        jobFolderName,
-        catalogRepository
-    ) {
-        val currentJob = job
-        if (currentJob != null) {
-            currentJob.materials.forEach { material ->
-                catalogRepository.cached(jobFolderName, material.materialName)?.let { cached ->
-                    value = value + (material.materialName to cached)
-                }
-                if (!isActive) return@forEach
-                when (val refreshed = catalogRepository.refresh(jobFolderName, material.materialName)) {
-                    is MixCatalogFetchResult.Success -> value = value + (material.materialName to refreshed.snapshot)
-                    MixCatalogFetchResult.NetworkError -> Unit
-                }
-            }
+    var catalogState by remember(jobFolderName) { mutableStateOf(JobDetailCatalogState()) }
+    var catalogRetryMaterial by remember(jobFolderName) { mutableStateOf<String?>(null) }
+    var catalogRetryAttempt by remember(jobFolderName) { mutableIntStateOf(0) }
+    LaunchedEffect(job, jobFolderName, catalogRepository, catalogRetryAttempt) {
+        val currentJob = job ?: return@LaunchedEffect
+        val requestedMaterial = catalogRetryMaterial
+        val materialsToLoad = if (requestedMaterial == null) {
+            currentJob.materials
+        } else {
+            currentJob.materials.filter { it.materialName == requestedMaterial }
+        }
+        materialsToLoad.forEach { material ->
+            val cached = catalogRepository.cached(jobFolderName, material.materialName)
+            if (!isActive) return@forEach
+            val refreshed = catalogRepository.refresh(jobFolderName, material.materialName)
+            catalogState = jobDetailCatalogStateAfterRefresh(
+                previous = catalogState,
+                materialName = material.materialName,
+                cached = cached,
+                refreshed = refreshed,
+            )
         }
     }
+    val mixCatalogs = catalogState.snapshots
     val materialEntries = remember(job?.materials, mixCatalogs) {
         job?.materials.orEmpty().flatMap { material ->
             catalogMaterialEntries(material, mixCatalogs[material.materialName])
@@ -632,6 +679,7 @@ fun JobDetailScreen(
                 }) { entry ->
                     val material = entry.material
                     val mixSelection = entry.mixSelection
+                    val catalogStatus = catalogState.statuses[material.materialName]
                     val statusColors = KKCThemeColors.statusColors
                     val appMaterialModel: MaterialUiModel? = appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)]
                     val baseCounts = if (useAppState && appMaterialModel != null) {
@@ -704,14 +752,16 @@ fun JobDetailScreen(
                         },
                         onToggleExpanded = {},
                         onClick = {
-                            val startPage = if (mixSelection == null) {
-                                trackablePages.firstOrNull() ?: 1
-                            } else {
-                                mixSelection.pageOrder.firstOrNull()
-                            }
-                            if (startPage != null) {
-                                suppressLeavePrompt = true
-                                onMaterialClick(material, startPage, mixSelection)
+                            if (canOpenCatalogMaterialEntry(entry, catalogStatus)) {
+                                val startPage = if (mixSelection == null) {
+                                    trackablePages.firstOrNull() ?: 1
+                                } else {
+                                    mixSelection.pageOrder.firstOrNull()
+                                }
+                                if (startPage != null) {
+                                    suppressLeavePrompt = true
+                                    onMaterialClick(material, startPage, mixSelection)
+                                }
                             }
                         }
                     ) {
@@ -725,6 +775,59 @@ fun JobDetailScreen(
                                 statusByPage[physicalPage] ?: SheetStatus.NOT_STARTED
                             }
                         )
+                    }
+                    if (mixSelection != null && mixSelection.pageOrder.isEmpty()) {
+                        Text(
+                            text = "${mixSelection.name} has no visible sheets. Refresh the catalog or go back to jobs.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = {
+                                catalogRetryMaterial = material.materialName
+                                catalogRetryAttempt += 1
+                            }) { Text("Retry catalog") }
+                            TextButton(onClick = onBack) { Text("Back to jobs") }
+                        }
+                    }
+                    when (catalogStatus) {
+                        JobDetailCatalogStatus.STALE -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Showing saved mix information; catalog refresh failed.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = {
+                                    catalogRetryMaterial = material.materialName
+                                    catalogRetryAttempt += 1
+                                }) { Text("Retry") }
+                            }
+                        }
+                        JobDetailCatalogStatus.UNAVAILABLE -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Mix catalog unavailable; try again before opening a mix.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = {
+                                    catalogRetryMaterial = material.materialName
+                                    catalogRetryAttempt += 1
+                                }) { Text("Retry") }
+                            }
+                        }
+                        JobDetailCatalogStatus.FRESH, null -> Unit
                     }
                 }
             }
