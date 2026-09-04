@@ -53,6 +53,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
@@ -1528,7 +1530,13 @@ private fun JobsTabHost(
                 }
             )
 
-            var flexMode by remember { mutableStateOf(workMode) }
+            // workMode only seeds the initial value on a fresh app open; once the operator picks a
+            // mode here, it must survive leaving for a job detail screen and coming back — hence
+            // rememberSaveable (tied to this NavBackStackEntry's saved state) rather than remember,
+            // which would reset every time "jobs" leaves and re-enters composition.
+            var flexMode by rememberSaveable(
+                stateSaver = Saver(save = { it.name }, restore = { WorkMode.fromStored(it) })
+            ) { mutableStateOf(workMode) }
             val spec = if (flexibleModeEnabled) {
                 when (flexMode) {
                     WorkMode.CNC -> cncSpec
@@ -2948,7 +2956,13 @@ private fun LegacySingleStackNavigation(
                             }
                         )
 
-                        var flexMode by remember { mutableStateOf(workMode) }
+                        // workMode only seeds the initial value on a fresh app open; once the operator picks a
+            // mode here, it must survive leaving for a job detail screen and coming back — hence
+            // rememberSaveable (tied to this NavBackStackEntry's saved state) rather than remember,
+            // which would reset every time "jobs" leaves and re-enters composition.
+            var flexMode by rememberSaveable(
+                stateSaver = Saver(save = { it.name }, restore = { WorkMode.fromStored(it) })
+            ) { mutableStateOf(workMode) }
                         val spec = if (flexibleModeEnabled) {
                             when (flexMode) {
                                 WorkMode.CNC -> cncSpec
