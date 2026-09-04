@@ -514,6 +514,73 @@ class MixServiceClientTest {
     }
 
     @Test
+    fun `submitCatalogMutation preserves sync failure when recoveries contains null`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(500).setBody(
+                """{"ok":false,"code":"history_sync_failed","mix":{"ok":true,"catalog":{"revision":18,"entries":[]}},"recoveries":[null]}"""
+            )
+        )
+
+        val result = client().submitCatalogMutation(
+            ManageCodeOperationAction.catalogReplace(
+                job = "648",
+                material = "M",
+                name = "Current",
+                programs = listOf("R1.pgm"),
+                expectedRevision = 17L,
+            )
+        )
+
+        check(result is MixCatalogMutationResult.SyncFailed)
+        assertTrue(result.recoveries.isEmpty())
+    }
+
+    @Test
+    fun `submitCatalogMutation preserves sync failure when recoveries is null`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(500).setBody(
+                """{"ok":false,"code":"history_sync_failed","mix":{"ok":true,"catalog":{"revision":18,"entries":[]}},"recoveries":null}"""
+            )
+        )
+
+        val result = client().submitCatalogMutation(
+            ManageCodeOperationAction.catalogReplace(
+                job = "648",
+                material = "M",
+                name = "Current",
+                programs = listOf("R1.pgm"),
+                expectedRevision = 17L,
+            )
+        )
+
+        check(result is MixCatalogMutationResult.SyncFailed)
+        assertTrue(result.recoveries.isEmpty())
+    }
+
+    @Test
+    fun `submitCatalogMutation ignores malformed recovery metadata without losing sync failure`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(500).setBody(
+                """{"ok":false,"code":"history_sync_failed","mix":{"ok":true,"catalog":{"revision":18,"entries":[]}},"recoveryUrl":{"invalid":true},"recoveries":[{"url":null,"method":"POST","change":{"attempt":2}},{"url":"/jobs/648/materials/M/mix-history/sync","method":null,"change":null},{"url":12,"method":"POST","change":"invalid"}]}"""
+            )
+        )
+
+        val result = client().submitCatalogMutation(
+            ManageCodeOperationAction.catalogReplace(
+                job = "648",
+                material = "M",
+                name = "Current",
+                programs = listOf("R1.pgm"),
+                expectedRevision = 17L,
+            )
+        )
+
+        check(result is MixCatalogMutationResult.SyncFailed)
+        assertNull(result.recoveryUrl)
+        assertTrue(result.recoveries.isEmpty())
+    }
+
+    @Test
     fun `submitCatalogMutation preserves completed history sync recovery details`() = runBlocking {
         server.enqueue(
             MockResponse().setResponseCode(500).setBody(

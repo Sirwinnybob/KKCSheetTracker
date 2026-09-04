@@ -3,6 +3,7 @@ package com.kkc.sheettracker.data.mixservice
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -50,8 +51,8 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         val code: String? = null,
         val error: String? = null,
         val mix: CatalogMutationEnvelope? = null,
-        val recoveryUrl: String? = null,
-        val recoveries: List<MixOperationRecovery> = emptyList(),
+        val recoveryUrl: JsonElement? = null,
+        val recoveries: JsonElement? = null,
     )
     private data class CatalogErrorEnvelope(
         val ok: Boolean = false,
@@ -64,6 +65,7 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
+        private val CHANGE_MAP_TYPE = object : TypeToken<Map<String, Any?>>() {}.type
     }
 
     suspend fun isReachable(): Boolean = withContext(Dispatchers.IO) {
@@ -416,12 +418,13 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
             gson.fromJson(body, CatalogSyncFailureEnvelope::class.java)
         }.getOrNull()?.let { envelope ->
             syncSnapshot?.let { snapshot ->
+                val recoveryUrl = envelope.recoveryUrl.asNonBlankString()
                 MixCatalogMutationResult.SyncFailed(
                     snapshot = snapshot,
                     code = envelope.code ?: "history_sync_failed",
-                    recoveryUrl = envelope.recoveryUrl,
-                    recoveries = envelope.recoveries.ifEmpty {
-                        envelope.recoveryUrl?.let { listOf(MixOperationRecovery(url = it)) }
+                    recoveryUrl = recoveryUrl,
+                    recoveries = normalizeRecoveries(envelope.recoveries).ifEmpty {
+                        recoveryUrl?.let { listOf(MixOperationRecovery(url = it)) }
                             ?: emptyList()
                     },
                 )
@@ -451,6 +454,32 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
             }
         }
     }
+
+    private fun normalizeRecoveries(recoveries: JsonElement?): List<MixOperationRecovery> {
+        if (recoveries?.isJsonArray != true) return emptyList()
+        return recoveries.asJsonArray.mapNotNull { element ->
+            parseRecovery(element)
+        }
+    }
+
+    private fun parseRecovery(element: JsonElement): MixOperationRecovery? {
+        if (!element.isJsonObject) return null
+        val recovery = element.asJsonObject
+        val url = recovery["url"].asNonBlankString() ?: return null
+        val method = recovery["method"].asNonBlankString() ?: return null
+        val changeElement = recovery["change"] ?: return null
+        if (!changeElement.isJsonObject) return null
+        val change = runCatching {
+            gson.fromJson<Map<String, Any?>>(changeElement, CHANGE_MAP_TYPE)
+        }.getOrNull() ?: return null
+        return MixOperationRecovery(url = url, method = method, change = change)
+    }
+
+    private fun JsonElement?.asNonBlankString(): String? =
+        this
+            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
+            ?.asString
+            ?.takeIf { it.isNotBlank() }
 
     private fun materialUrl(job: String, material: String) = "$root/jobs/".toHttpUrl().newBuilder()
         .addPathSegment(job)
