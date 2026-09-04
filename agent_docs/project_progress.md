@@ -1,5 +1,5 @@
 # Project Progress
-# CNC catalog operation integration — active
+# CNC catalog operation integration — completed
 
 Plan: `docs/superpowers/plans/2026-09-03-cnc-catalog-operation-integration.md`.
 
@@ -21,7 +21,18 @@ Gates: every catalog request is persisted before submission; unacknowledged subm
 restore as interrupted without replay; stale revisions require a refreshed selection;
 the main navigation/viewer contract stays authoritative.
 
-Status: active. HCO-1 is the next executor task.
+Status: completed 2026-09-03.
+
+Delivered:
+- HCO-1 through HCO-3 are integrated in `5b64fc1` with durable revisioned catalog
+  mutations, cache-first Manage Code/Job Detail, archive isolation, and restart-safe
+  cache-publication recovery.
+- `codex/cnc-mix-catalog` is recorded by the ancestry-only merge commit `38dd5c8`.
+- Closing Luna/Terra gates passed after targeted regressions for cancellation, stale
+  revisions, cache durability, cross-instance cache safety, and operator-edit retention.
+- Fresh verification: `:app:testDebugUnitTest` (1,050 tests; zero failures/errors/skips)
+  and `:app:assembleRelease` both passed. The APK was built locally only; no copy,
+  deployment, or update-feed change was made.
 
 # Archive job detail screens — completed
 
