@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -192,6 +193,7 @@ fun AppNavigation(
     useStandardSheets: Boolean,
     continuousScrollDefault: Boolean,
     workMode: WorkMode,
+    flexibleModeEnabled: Boolean,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
     clockInState: ClockInState,
@@ -200,6 +202,7 @@ fun AppNavigation(
     onUseStandardSheetsChanged: (Boolean) -> Unit,
     onContinuousScrollDefaultChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
+    onFlexibleModeChanged: (Boolean) -> Unit,
     onReinstallLatest: () -> Unit,
     onBasePathChanged: (String) -> Unit,
     onTabletIdChanged: (String) -> Unit,
@@ -505,6 +508,7 @@ fun AppNavigation(
                 useStandardSheets = useStandardSheets,
                 continuousScrollDefault = continuousScrollDefault,
                 workMode = workMode,
+                flexibleModeEnabled = flexibleModeEnabled,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
                 clockInState = clockInState,
@@ -513,6 +517,7 @@ fun AppNavigation(
                 onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                 onContinuousScrollDefaultChanged = onContinuousScrollDefaultChanged,
                 onWorkModeChanged = onWorkModeChanged,
+                onFlexibleModeChanged = onFlexibleModeChanged,
                 onReinstallLatest = onReinstallLatest,
                 onBasePathChanged = onBasePathChanged,
                 onTabletIdChanged = onTabletIdChanged,
@@ -551,6 +556,7 @@ fun AppNavigation(
                 useStandardSheets = useStandardSheets,
                 continuousScrollDefault = continuousScrollDefault,
                 workMode = workMode,
+                flexibleModeEnabled = flexibleModeEnabled,
                 employeeName = employeeName,
                 onEmployeeNameChanged = onEmployeeNameChanged,
                 clockInState = clockInState,
@@ -559,6 +565,7 @@ fun AppNavigation(
                 onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                 onContinuousScrollDefaultChanged = onContinuousScrollDefaultChanged,
                 onWorkModeChanged = onWorkModeChanged,
+                onFlexibleModeChanged = onFlexibleModeChanged,
                 onReinstallLatest = onReinstallLatest,
                 onBasePathChanged = onBasePathChanged,
                 onTabletIdChanged = onTabletIdChanged,
@@ -600,6 +607,7 @@ private fun MultiBackStackNavigation(
     useStandardSheets: Boolean,
     continuousScrollDefault: Boolean,
     workMode: WorkMode,
+    flexibleModeEnabled: Boolean,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
     clockInState: ClockInState,
@@ -608,6 +616,7 @@ private fun MultiBackStackNavigation(
     onUseStandardSheetsChanged: (Boolean) -> Unit,
     onContinuousScrollDefaultChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
+    onFlexibleModeChanged: (Boolean) -> Unit,
     onReinstallLatest: () -> Unit,
     onBasePathChanged: (String) -> Unit,
     onTabletIdChanged: (String) -> Unit,
@@ -688,15 +697,17 @@ private fun MultiBackStackNavigation(
     val timecardNavController = rememberNavController()
     val supplyNavController = rememberNavController()
     val standardsNavController = rememberNavController()
-    val homeTab = homeTopLevelTabForWorkMode(workMode)
-    var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
+    val homeTab = if (flexibleModeEnabled) TopLevelTab.DASHBOARD else homeTopLevelTabForWorkMode(workMode)
+    var selectedTab by remember(workMode, flexibleModeEnabled) { mutableStateOf(homeTab) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
-    val visibleDestinations = remember(workMode) {
+    val visibleDestinations = remember(workMode, flexibleModeEnabled) {
         // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
-        // bottom nav bar — filtered out of both branches here.
-        if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
+        // bottom nav bar — filtered out of both branches here. Flexible Mode makes the Dashboard
+        // tab meaningful even in Assembly/Specialty (it shows a CNC/Hardwoods switcher there), so
+        // it stays reachable in that case instead of being hidden.
+        if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) {
             listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
         } else {
             NavDestination.entries.filter {
@@ -907,6 +918,7 @@ private fun MultiBackStackNavigation(
                         progressStore = progressStore,
                         appStateFlags = appStateFlags,
                         workMode = workMode,
+                        flexibleModeEnabled = flexibleModeEnabled,
                         hardwoodsScanCoordinator = hardwoodsScanCoordinator,
                         hardwoodsProgressStore = hardwoodsProgressStore,
                         assemblyScanCoordinator = assemblyScanCoordinator,
@@ -945,6 +957,7 @@ private fun MultiBackStackNavigation(
                         useStandardSheets = useStandardSheets,
                         continuousScrollDefault = continuousScrollDefault,
                         workMode = workMode,
+                        flexibleModeEnabled = flexibleModeEnabled,
                         hardwoodsRepository = hardwoodsRepository,
                         hardwoodsScanCoordinator = hardwoodsScanCoordinator,
                         hardwoodsProgressStore = hardwoodsProgressStore,
@@ -1046,11 +1059,13 @@ private fun MultiBackStackNavigation(
                         onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                         onContinuousScrollDefaultChanged = onContinuousScrollDefaultChanged,
                         workMode = workMode,
+                        flexibleModeEnabled = flexibleModeEnabled,
                         employeeName = employeeName,
                         onEmployeeNameChanged = onEmployeeNameChanged,
                         onThemeChanged = onThemeChanged,
                         onFollowSystemThemeChanged = onFollowSystemThemeChanged,
                         onWorkModeChanged = onWorkModeChanged,
+                        onFlexibleModeChanged = onFlexibleModeChanged,
                         onReinstallLatest = onReinstallLatest,
                         onTabletIdChanged = onTabletIdChanged,
                         onBasePathChanged = onBasePathChanged,
@@ -1233,6 +1248,7 @@ private fun DashboardTabHost(
     progressStore: ProgressStore,
     appStateFlags: AppStateFeatureFlags,
     workMode: WorkMode,
+    flexibleModeEnabled: Boolean,
     hardwoodsScanCoordinator: HardwoodsScanCoordinator,
     hardwoodsProgressStore: HardwoodsProgressStore,
     assemblyScanCoordinator: AssemblyScanCoordinator,
@@ -1252,9 +1268,38 @@ private fun DashboardTabHost(
         modifier = Modifier.fillMaxSize()
     ) {
         composable("dashboard") {
-            when (workMode) {
-                WorkMode.CNC -> {
-                    UnifiedModeDashboardScreen(
+            if (flexibleModeEnabled) {
+                val context = LocalContext.current
+                val dashPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
+                var dashMode by remember {
+                    mutableStateOf(
+                        WorkMode.fromStored(dashPrefs.getString("flexible_dashboard_last_mode", null))
+                            .let { if (it == WorkMode.HARDWOODS) it else WorkMode.CNC }
+                    )
+                }
+                val switcher: @Composable RowScope.() -> Unit = {
+                    com.kkc.sheettracker.ui.components.ModeSwitcherRow(
+                        modes = listOf(WorkMode.CNC, WorkMode.HARDWOODS),
+                        selected = dashMode,
+                        onSelect = { mode ->
+                            dashMode = mode
+                            dashPrefs.edit().putString("flexible_dashboard_last_mode", mode.name).apply()
+                        }
+                    )
+                }
+                when (dashMode) {
+                    WorkMode.HARDWOODS -> UnifiedModeDashboardScreen(
+                        UnifiedModeDashboardSpec.Hardwoods(
+                            scanCoordinator = hardwoodsScanCoordinator,
+                            progressStore = hardwoodsProgressStore,
+                            liveEngine = liveEngine,
+                            onOpenJob = { job ->
+                                onOpenHardwoodsJobInJobs(job.folderName)
+                            },
+                            modeSwitcher = switcher
+                        )
+                    )
+                    else -> UnifiedModeDashboardScreen(
                         UnifiedModeDashboardSpec.Cnc(
                             scanCoordinator = scanCoordinator,
                             appStateStore = appStateStore,
@@ -1262,48 +1307,65 @@ private fun DashboardTabHost(
                             progressStore = progressStore,
                             appStateFlags = appStateFlags,
                             onNavigateToJobs = onNavigateToJobs,
-                            onOpenSheet = onOpenSheet
+                            onOpenSheet = onOpenSheet,
+                            modeSwitcher = switcher
                         )
                     )
                 }
-                WorkMode.HARDWOODS -> {
-                    UnifiedModeDashboardScreen(
-                        UnifiedModeDashboardSpec.Hardwoods(
-                            scanCoordinator = hardwoodsScanCoordinator,
-                            progressStore = hardwoodsProgressStore,
-                            liveEngine = liveEngine,
-                            onOpenJob = { job ->
-                                onOpenHardwoodsJobInJobs(job.folderName)
-                            }
+            } else {
+                when (workMode) {
+                    WorkMode.CNC -> {
+                        UnifiedModeDashboardScreen(
+                            UnifiedModeDashboardSpec.Cnc(
+                                scanCoordinator = scanCoordinator,
+                                appStateStore = appStateStore,
+                                jobRepository = jobRepository,
+                                progressStore = progressStore,
+                                appStateFlags = appStateFlags,
+                                onNavigateToJobs = onNavigateToJobs,
+                                onOpenSheet = onOpenSheet
+                            )
                         )
-                    )
-                }
-                WorkMode.ASSEMBLY -> {
-                    UnifiedModeDashboardScreen(
-                        UnifiedModeDashboardSpec.Assembly(
-                            scanCoordinator = assemblyScanCoordinator,
-                            assemblyStateStore = assemblyStateStore,
-                            cncProgressStore = progressStore,
-                            hardwoodsProgressStore = hardwoodsProgressStore,
-                            specialtyStateStore = specialtyStateStore,
-                            onOpenJob = { folderName ->
-                                navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
-                                    launchSingleTop = true
+                    }
+                    WorkMode.HARDWOODS -> {
+                        UnifiedModeDashboardScreen(
+                            UnifiedModeDashboardSpec.Hardwoods(
+                                scanCoordinator = hardwoodsScanCoordinator,
+                                progressStore = hardwoodsProgressStore,
+                                liveEngine = liveEngine,
+                                onOpenJob = { job ->
+                                    onOpenHardwoodsJobInJobs(job.folderName)
                                 }
-                            }
+                            )
                         )
-                    )
-                }
-                WorkMode.SPECIALTY -> {
-                    UnifiedModeDashboardScreen(
-                        UnifiedModeDashboardSpec.Specialty(
-                            specialtyStateStore = specialtyStateStore,
-                            onNavigateToJobs = onNavigateToJobs,
-                            onOpenJob = { folderName ->
-                                onOpenSpecialtyJobInJobs(folderName)
-                            }
+                    }
+                    WorkMode.ASSEMBLY -> {
+                        UnifiedModeDashboardScreen(
+                            UnifiedModeDashboardSpec.Assembly(
+                                scanCoordinator = assemblyScanCoordinator,
+                                assemblyStateStore = assemblyStateStore,
+                                cncProgressStore = progressStore,
+                                hardwoodsProgressStore = hardwoodsProgressStore,
+                                specialtyStateStore = specialtyStateStore,
+                                onOpenJob = { folderName ->
+                                    navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
                         )
-                    )
+                    }
+                    WorkMode.SPECIALTY -> {
+                        UnifiedModeDashboardScreen(
+                            UnifiedModeDashboardSpec.Specialty(
+                                specialtyStateStore = specialtyStateStore,
+                                onNavigateToJobs = onNavigateToJobs,
+                                onOpenJob = { folderName ->
+                                    onOpenSpecialtyJobInJobs(folderName)
+                                }
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -1325,6 +1387,7 @@ private fun JobsTabHost(
     useStandardSheets: Boolean,
     continuousScrollDefault: Boolean = false,
     workMode: WorkMode,
+    flexibleModeEnabled: Boolean,
     hardwoodsRepository: HardwoodsRepository,
     hardwoodsScanCoordinator: HardwoodsScanCoordinator,
     hardwoodsProgressStore: HardwoodsProgressStore,
@@ -1390,81 +1453,96 @@ private fun JobsTabHost(
             }
         ) {
         composable("jobs") {
-            val spec = when (workMode) {
-                WorkMode.CNC -> com.kkc.sheettracker.ui.jobs.rememberCncJobsSpec(
-                    scanCoordinator = scanCoordinator,
-                    appStateStore = appStateStore,
-                    progressStore = progressStore,
-                    jobRepository = jobRepository,
-                    hardwoodsRepository = hardwoodsRepository,
-                    engine = unifiedEngine,
-                    coroutineScope = coroutineScope,
-                    onJobClick = { jobFolder ->
-                        navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
-                    },
-                    onView3D = { jobFolder ->
-                        val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
-                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
-                    },
-                    onViewCoverSheet = { jobFolder ->
-                        navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+            val cncSpec = com.kkc.sheettracker.ui.jobs.rememberCncJobsSpec(
+                scanCoordinator = scanCoordinator,
+                appStateStore = appStateStore,
+                progressStore = progressStore,
+                jobRepository = jobRepository,
+                hardwoodsRepository = hardwoodsRepository,
+                engine = unifiedEngine,
+                coroutineScope = coroutineScope,
+                onJobClick = { jobFolder ->
+                    navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
+                },
+                onView3D = { jobFolder ->
+                    val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
+                    navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
+                },
+                onViewCoverSheet = { jobFolder ->
+                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                }
+            )
+            val hardwoodsSpec = com.kkc.sheettracker.ui.jobs.rememberHardwoodsJobsSpec(
+                scanCoordinator = hardwoodsScanCoordinator,
+                hardwoodsRepository = hardwoodsRepository,
+                progressStore = hardwoodsProgressStore,
+                jobRepository = jobRepository,
+                engine = unifiedEngine,
+                coroutineScope = coroutineScope,
+                onJobClick = { jobFolder ->
+                    navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
+                },
+                onView3D = { jobFolder ->
+                    val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
+                    navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
+                },
+                onViewCoverSheet = { jobFolder ->
+                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                }
+            )
+            val assemblySpec = com.kkc.sheettracker.ui.jobs.rememberAssemblyJobsSpec(
+                assemblyScanCoordinator = assemblyScanCoordinator,
+                assemblyStateStore = assemblyStateStore,
+                jobRepository = jobRepository,
+                engine = unifiedEngine,
+                progressStore = progressStore,
+                hardwoodsProgressStore = hardwoodsProgressStore,
+                coroutineScope = coroutineScope,
+                onJobClick = { jobFolder ->
+                    coroutineScope.launch {
+                        val d = assemblyViewerDefaultsStore.current()
+                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, layout = d.layout, firstPane = d.firstPane, secondPane = d.secondPane, hideUiOnOpen = d.hideUiOnOpen)) { launchSingleTop = true }
                     }
-                )
-                WorkMode.HARDWOODS -> com.kkc.sheettracker.ui.jobs.rememberHardwoodsJobsSpec(
-                    scanCoordinator = hardwoodsScanCoordinator,
-                    hardwoodsRepository = hardwoodsRepository,
-                    progressStore = hardwoodsProgressStore,
-                    jobRepository = jobRepository,
-                    engine = unifiedEngine,
-                    coroutineScope = coroutineScope,
-                    onJobClick = { jobFolder ->
-                        navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
-                    },
-                    onView3D = { jobFolder ->
-                        val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
-                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
-                    },
-                    onViewCoverSheet = { jobFolder ->
-                        navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                },
+                onView3D = { jobFolder -> }, // not used
+                onViewCoverSheet = { jobFolder ->
+                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                }
+            )
+            val specialtySpec = com.kkc.sheettracker.ui.jobs.rememberSpecialtyJobsSpec(
+                specialtyScanCoordinator = specialtyScanCoordinator,
+                specialtyStateStore = specialtyStateStore,
+                jobRepository = jobRepository,
+                coroutineScope = coroutineScope,
+                onJobClick = { jobFolder ->
+                    navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
+                },
+                onView3D = { jobFolder ->
+                    val room = resolveSpecialtyThreeDRoom(File(basePath), jobFolder)
+                    if (room != null) {
+                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, source = "3d", room = room)) { launchSingleTop = true }
                     }
-                )
-                WorkMode.ASSEMBLY -> com.kkc.sheettracker.ui.jobs.rememberAssemblyJobsSpec(
-                    assemblyScanCoordinator = assemblyScanCoordinator,
-                    assemblyStateStore = assemblyStateStore,
-                    jobRepository = jobRepository,
-                    engine = unifiedEngine,
-                    progressStore = progressStore,
-                    hardwoodsProgressStore = hardwoodsProgressStore,
-                    coroutineScope = coroutineScope,
-                    onJobClick = { jobFolder ->
-                        coroutineScope.launch {
-                            val d = assemblyViewerDefaultsStore.current()
-                            navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, layout = d.layout, firstPane = d.firstPane, secondPane = d.secondPane, hideUiOnOpen = d.hideUiOnOpen)) { launchSingleTop = true }
-                        }
-                    },
-                    onView3D = { jobFolder -> }, // not used
-                    onViewCoverSheet = { jobFolder ->
-                        navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
-                    }
-                )
-                WorkMode.SPECIALTY -> com.kkc.sheettracker.ui.jobs.rememberSpecialtyJobsSpec(
-                    specialtyScanCoordinator = specialtyScanCoordinator,
-                    specialtyStateStore = specialtyStateStore,
-                    jobRepository = jobRepository,
-                    coroutineScope = coroutineScope,
-                    onJobClick = { jobFolder ->
-                        navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
-                    },
-                    onView3D = { jobFolder ->
-                        val room = resolveSpecialtyThreeDRoom(File(basePath), jobFolder)
-                        if (room != null) {
-                            navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, source = "3d", room = room)) { launchSingleTop = true }
-                        }
-                    },
-                    onViewCoverSheet = { jobFolder ->
-                        navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
-                    }
-                )
+                },
+                onViewCoverSheet = { jobFolder ->
+                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                }
+            )
+
+            var flexMode by remember { mutableStateOf(workMode) }
+            val spec = if (flexibleModeEnabled) {
+                when (flexMode) {
+                    WorkMode.CNC -> cncSpec
+                    WorkMode.HARDWOODS -> hardwoodsSpec
+                    WorkMode.ASSEMBLY -> assemblySpec
+                    WorkMode.SPECIALTY -> specialtySpec
+                }
+            } else {
+                when (workMode) {
+                    WorkMode.CNC -> cncSpec
+                    WorkMode.HARDWOODS -> hardwoodsSpec
+                    WorkMode.ASSEMBLY -> assemblySpec
+                    WorkMode.SPECIALTY -> specialtySpec
+                }
             }
 
             com.kkc.sheettracker.ui.jobs.UnifiedJobsScreen(
@@ -1485,7 +1563,10 @@ private fun JobsTabHost(
                 },
                 onSearchClick = onSearchClick,
                 onSettingsClick = onSettingsClick,
-                active = jobsListActive
+                active = jobsListActive,
+                flexibleModeEnabled = flexibleModeEnabled,
+                selectedFlexMode = flexMode,
+                onFlexModeSelected = { flexMode = it }
             )
         }
 
@@ -2090,6 +2171,7 @@ private fun SettingsTabHost(
     useStandardSheets: Boolean,
     continuousScrollDefault: Boolean,
     workMode: WorkMode,
+    flexibleModeEnabled: Boolean,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
     onThemeChanged: (Boolean) -> Unit,
@@ -2097,6 +2179,7 @@ private fun SettingsTabHost(
     onUseStandardSheetsChanged: (Boolean) -> Unit,
     onContinuousScrollDefaultChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
+    onFlexibleModeChanged: (Boolean) -> Unit,
     onReinstallLatest: () -> Unit,
     onTabletIdChanged: (String) -> Unit,
     onBasePathChanged: (String) -> Unit,
@@ -2133,9 +2216,11 @@ private fun SettingsTabHost(
                 onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                 onContinuousScrollDefaultChanged = onContinuousScrollDefaultChanged,
                 workMode = workMode,
+                flexibleModeEnabled = flexibleModeEnabled,
                 onThemeChanged = onThemeChanged,
                 onFollowSystemThemeChanged = onFollowSystemThemeChanged,
                 onWorkModeChanged = onWorkModeChanged,
+                onFlexibleModeChanged = onFlexibleModeChanged,
                 onReinstallLatest = onReinstallLatest,
                 onTabletIdChanged = onTabletIdChanged,
                 onBasePathChanged = onBasePathChanged,
@@ -2356,6 +2441,7 @@ private fun LegacySingleStackNavigation(
     useStandardSheets: Boolean,
     continuousScrollDefault: Boolean,
     workMode: WorkMode,
+    flexibleModeEnabled: Boolean,
     employeeName: String,
     onEmployeeNameChanged: (String) -> Unit,
     clockInState: ClockInState,
@@ -2364,6 +2450,7 @@ private fun LegacySingleStackNavigation(
     onUseStandardSheetsChanged: (Boolean) -> Unit,
     onContinuousScrollDefaultChanged: (Boolean) -> Unit,
     onWorkModeChanged: (WorkMode) -> Unit,
+    onFlexibleModeChanged: (Boolean) -> Unit,
     onReinstallLatest: () -> Unit,
     onBasePathChanged: (String) -> Unit,
     onTabletIdChanged: (String) -> Unit,
@@ -2425,14 +2512,16 @@ private fun LegacySingleStackNavigation(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val startRoute = if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) "jobs" else "dashboard"
+    val startRoute = if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) "jobs" else "dashboard"
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
-    val visibleDestinations = remember(workMode) {
+    val visibleDestinations = remember(workMode, flexibleModeEnabled) {
         // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
-        // bottom nav bar — filtered out of both branches here.
-        if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
+        // bottom nav bar — filtered out of both branches here. Flexible Mode makes the Dashboard
+        // tab meaningful even in Assembly/Specialty (it shows a CNC/Hardwoods switcher there), so
+        // it stays reachable in that case instead of being hidden.
+        if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) {
             listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
         } else {
             NavDestination.entries.filter {
@@ -2550,9 +2639,9 @@ private fun LegacySingleStackNavigation(
 
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
 
-    val currentNavDest = remember(currentRoute) {
+    val currentNavDest = remember(currentRoute, workMode, flexibleModeEnabled) {
         when {
-            currentRoute == "dashboard" && workMode != WorkMode.ASSEMBLY && workMode != WorkMode.SPECIALTY -> NavDestination.DASHBOARD
+            currentRoute == "dashboard" && (flexibleModeEnabled || (workMode != WorkMode.ASSEMBLY && workMode != WorkMode.SPECIALTY)) -> NavDestination.DASHBOARD
             currentRoute?.startsWith("jobs") == true ||
             currentRoute?.startsWith("job/") == true ||
                 currentRoute?.startsWith("specialty/job/") == true ||
@@ -2568,7 +2657,7 @@ private fun LegacySingleStackNavigation(
             currentRoute?.startsWith("supply") == true -> NavDestination.SUPPLY
             currentRoute == "settings" || currentRoute?.startsWith("settings/") == true -> NavDestination.SETTINGS
             currentRoute == "standards" || currentRoute?.startsWith("standards/") == true -> NavDestination.STANDARDS
-            else -> if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) NavDestination.JOBS else NavDestination.DASHBOARD
+            else -> if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) NavDestination.JOBS else NavDestination.DASHBOARD
         }
     }
 
@@ -2659,9 +2748,40 @@ private fun LegacySingleStackNavigation(
                         }
                     ) {
                     composable("dashboard") {
-                        when (workMode) {
-                            WorkMode.CNC -> {
-                                UnifiedModeDashboardScreen(
+                        if (flexibleModeEnabled) {
+                            val context = LocalContext.current
+                            val dashPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
+                            var dashMode by remember {
+                                mutableStateOf(
+                                    WorkMode.fromStored(dashPrefs.getString("flexible_dashboard_last_mode", null))
+                                        .let { if (it == WorkMode.HARDWOODS) it else WorkMode.CNC }
+                                )
+                            }
+                            val switcher: @Composable RowScope.() -> Unit = {
+                                com.kkc.sheettracker.ui.components.ModeSwitcherRow(
+                                    modes = listOf(WorkMode.CNC, WorkMode.HARDWOODS),
+                                    selected = dashMode,
+                                    onSelect = { mode ->
+                                        dashMode = mode
+                                        dashPrefs.edit().putString("flexible_dashboard_last_mode", mode.name).apply()
+                                    }
+                                )
+                            }
+                            when (dashMode) {
+                                WorkMode.HARDWOODS -> UnifiedModeDashboardScreen(
+                                    UnifiedModeDashboardSpec.Hardwoods(
+                                        scanCoordinator = hardwoodsScanCoordinator,
+                                        progressStore = hardwoodsProgressStore,
+                                        liveEngine = unifiedEngine,
+                                        onOpenJob = { job ->
+                                            navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                                                launchSingleTop = true
+                                            }
+                                        },
+                                        modeSwitcher = switcher
+                                    )
+                                )
+                                else -> UnifiedModeDashboardScreen(
                                     UnifiedModeDashboardSpec.Cnc(
                                         scanCoordinator = scanCoordinator,
                                         appStateStore = appStateStore,
@@ -2675,136 +2795,174 @@ private fun LegacySingleStackNavigation(
                                         },
                                         onOpenSheet = { folderName, pdfFilename, page ->
                                             openSheetLegacy(folderName, pdfFilename, page)
-                                        }
-                                    )
-                                )
-                            }
-                            WorkMode.HARDWOODS -> {
-                                UnifiedModeDashboardScreen(
-                                    UnifiedModeDashboardSpec.Hardwoods(
-                                        scanCoordinator = hardwoodsScanCoordinator,
-                                        progressStore = hardwoodsProgressStore,
-                                        liveEngine = unifiedEngine,
-                                        onOpenJob = { job ->
-                                            navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
-                                                launchSingleTop = true
-                                            }
-                                        }
-                                    )
-                                )
-                            }
-                            WorkMode.ASSEMBLY -> {
-                                UnifiedModeDashboardScreen(
-                                    UnifiedModeDashboardSpec.Assembly(
-                                        scanCoordinator = assemblyScanCoordinator,
-                                        assemblyStateStore = assemblyStateStore,
-                                        cncProgressStore = progressStore,
-                                        hardwoodsProgressStore = hardwoodsProgressStore,
-                                        specialtyStateStore = specialtyStateStore,
-                                        onOpenJob = { folderName ->
-                                            navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
-                                                launchSingleTop = true
-                                            }
-                                        }
-                                    )
-                                )
-                            }
-                            WorkMode.SPECIALTY -> {
-                                UnifiedModeDashboardScreen(
-                                    UnifiedModeDashboardSpec.Specialty(
-                                        specialtyStateStore = specialtyStateStore,
-                                        onNavigateToJobs = {
-                                            navController.navigate("jobs") {
-                                                launchSingleTop = true
-                                            }
                                         },
-                                        onOpenJob = { folderName ->
-                                            navController.navigate(specialtyJobRoute(folderName)) {
-                                                launchSingleTop = true
-                                            }
-                                        }
+                                        modeSwitcher = switcher
                                     )
                                 )
+                            }
+                        } else {
+                            when (workMode) {
+                                WorkMode.CNC -> {
+                                    UnifiedModeDashboardScreen(
+                                        UnifiedModeDashboardSpec.Cnc(
+                                            scanCoordinator = scanCoordinator,
+                                            appStateStore = appStateStore,
+                                            jobRepository = jobRepository,
+                                            progressStore = progressStore,
+                                            appStateFlags = appStateFlags,
+                                            onNavigateToJobs = {
+                                                navController.navigate("jobs") {
+                                                    launchSingleTop = true
+                                                }
+                                            },
+                                            onOpenSheet = { folderName, pdfFilename, page ->
+                                                openSheetLegacy(folderName, pdfFilename, page)
+                                            }
+                                        )
+                                    )
+                                }
+                                WorkMode.HARDWOODS -> {
+                                    UnifiedModeDashboardScreen(
+                                        UnifiedModeDashboardSpec.Hardwoods(
+                                            scanCoordinator = hardwoodsScanCoordinator,
+                                            progressStore = hardwoodsProgressStore,
+                                            liveEngine = unifiedEngine,
+                                            onOpenJob = { job ->
+                                                navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                                                    launchSingleTop = true
+                                                }
+                                            }
+                                        )
+                                    )
+                                }
+                                WorkMode.ASSEMBLY -> {
+                                    UnifiedModeDashboardScreen(
+                                        UnifiedModeDashboardSpec.Assembly(
+                                            scanCoordinator = assemblyScanCoordinator,
+                                            assemblyStateStore = assemblyStateStore,
+                                            cncProgressStore = progressStore,
+                                            hardwoodsProgressStore = hardwoodsProgressStore,
+                                            specialtyStateStore = specialtyStateStore,
+                                            onOpenJob = { folderName ->
+                                                navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                                                    launchSingleTop = true
+                                                }
+                                            }
+                                        )
+                                    )
+                                }
+                                WorkMode.SPECIALTY -> {
+                                    UnifiedModeDashboardScreen(
+                                        UnifiedModeDashboardSpec.Specialty(
+                                            specialtyStateStore = specialtyStateStore,
+                                            onNavigateToJobs = {
+                                                navController.navigate("jobs") {
+                                                    launchSingleTop = true
+                                                }
+                                            },
+                                            onOpenJob = { folderName ->
+                                                navController.navigate(specialtyJobRoute(folderName)) {
+                                                    launchSingleTop = true
+                                                }
+                                            }
+                                        )
+                                    )
+                                }
                             }
                         }
                     }
 
                     composable("jobs") {
-                        val spec = when (workMode) {
-                            WorkMode.CNC -> com.kkc.sheettracker.ui.jobs.rememberCncJobsSpec(
-                                scanCoordinator = scanCoordinator,
-                                appStateStore = appStateStore,
-                                progressStore = progressStore,
-                                jobRepository = jobRepository,
-                                hardwoodsRepository = hardwoodsRepository,
-                                engine = unifiedEngine,
-                                coroutineScope = legacyCoroutineScope,
-                                onJobClick = { jobFolder ->
-                                    navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
-                                },
-                                onView3D = { jobFolder ->
-                                    val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
-                                    navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
-                                },
-                                onViewCoverSheet = { jobFolder ->
-                                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                        val cncSpec = com.kkc.sheettracker.ui.jobs.rememberCncJobsSpec(
+                            scanCoordinator = scanCoordinator,
+                            appStateStore = appStateStore,
+                            progressStore = progressStore,
+                            jobRepository = jobRepository,
+                            hardwoodsRepository = hardwoodsRepository,
+                            engine = unifiedEngine,
+                            coroutineScope = legacyCoroutineScope,
+                            onJobClick = { jobFolder ->
+                                navController.navigate("job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
+                            },
+                            onView3D = { jobFolder ->
+                                val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
+                                navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
+                            },
+                            onViewCoverSheet = { jobFolder ->
+                                navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                            }
+                        )
+                        val hardwoodsSpec = com.kkc.sheettracker.ui.jobs.rememberHardwoodsJobsSpec(
+                            scanCoordinator = hardwoodsScanCoordinator,
+                            hardwoodsRepository = hardwoodsRepository,
+                            progressStore = hardwoodsProgressStore,
+                            jobRepository = jobRepository,
+                            engine = unifiedEngine,
+                            coroutineScope = legacyCoroutineScope,
+                            onJobClick = { jobFolder ->
+                                navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
+                            },
+                            onView3D = { jobFolder ->
+                                val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
+                                navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
+                            },
+                            onViewCoverSheet = { jobFolder ->
+                                navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                            }
+                        )
+                        val assemblySpec = com.kkc.sheettracker.ui.jobs.rememberAssemblyJobsSpec(
+                            assemblyScanCoordinator = assemblyScanCoordinator,
+                            assemblyStateStore = assemblyStateStore,
+                            jobRepository = jobRepository,
+                            engine = unifiedEngine,
+                            progressStore = progressStore,
+                            hardwoodsProgressStore = hardwoodsProgressStore,
+                            coroutineScope = legacyCoroutineScope,
+                            onJobClick = { jobFolder ->
+                                legacyCoroutineScope.launch {
+                                    val d = legacyAssemblyViewerDefaultsStore.current()
+                                    navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, layout = d.layout, firstPane = d.firstPane, secondPane = d.secondPane, hideUiOnOpen = d.hideUiOnOpen)) { launchSingleTop = true }
                                 }
-                            )
-                            WorkMode.HARDWOODS -> com.kkc.sheettracker.ui.jobs.rememberHardwoodsJobsSpec(
-                                scanCoordinator = hardwoodsScanCoordinator,
-                                hardwoodsRepository = hardwoodsRepository,
-                                progressStore = hardwoodsProgressStore,
-                                jobRepository = jobRepository,
-                                engine = unifiedEngine,
-                                coroutineScope = legacyCoroutineScope,
-                                onJobClick = { jobFolder ->
-                                    navController.navigate("hardwoods/job/${java.net.URLEncoder.encode(jobFolder, "UTF-8")}") { launchSingleTop = true }
-                                },
-                                onView3D = { jobFolder ->
-                                    val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, jobFolder)
-                                    navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = target.assemblyPage, plansPage = target.plansPage, source = "3d", room = target.room)) { launchSingleTop = true }
-                                },
-                                onViewCoverSheet = { jobFolder ->
-                                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                            },
+                            onView3D = { jobFolder -> }, // not used
+                            onViewCoverSheet = { jobFolder ->
+                                navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                            }
+                        )
+                        val specialtySpec = com.kkc.sheettracker.ui.jobs.rememberSpecialtyJobsSpec(
+                            specialtyScanCoordinator = specialtyScanCoordinator,
+                            specialtyStateStore = specialtyStateStore,
+                            jobRepository = jobRepository,
+                            coroutineScope = legacyCoroutineScope,
+                            onJobClick = { jobFolder ->
+                                navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
+                            },
+                            onView3D = { jobFolder ->
+                                val room = resolveSpecialtyThreeDRoom(File(basePath), jobFolder)
+                                if (room != null) {
+                                    navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, source = "3d", room = room)) { launchSingleTop = true }
                                 }
-                            )
-                            WorkMode.ASSEMBLY -> com.kkc.sheettracker.ui.jobs.rememberAssemblyJobsSpec(
-                                assemblyScanCoordinator = assemblyScanCoordinator,
-                                assemblyStateStore = assemblyStateStore,
-                                jobRepository = jobRepository,
-                                engine = unifiedEngine,
-                                progressStore = progressStore,
-                                hardwoodsProgressStore = hardwoodsProgressStore,
-                                coroutineScope = legacyCoroutineScope,
-                                onJobClick = { jobFolder ->
-                                    legacyCoroutineScope.launch {
-                                        val d = legacyAssemblyViewerDefaultsStore.current()
-                                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, layout = d.layout, firstPane = d.firstPane, secondPane = d.secondPane, hideUiOnOpen = d.hideUiOnOpen)) { launchSingleTop = true }
-                                    }
-                                },
-                                onView3D = { jobFolder -> }, // not used
-                                onViewCoverSheet = { jobFolder ->
-                                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
-                                }
-                            )
-                            WorkMode.SPECIALTY -> com.kkc.sheettracker.ui.jobs.rememberSpecialtyJobsSpec(
-                                specialtyScanCoordinator = specialtyScanCoordinator,
-                                specialtyStateStore = specialtyStateStore,
-                                jobRepository = jobRepository,
-                                coroutineScope = legacyCoroutineScope,
-                                onJobClick = { jobFolder ->
-                                    navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
-                                },
-                                onView3D = { jobFolder ->
-                                    val room = resolveSpecialtyThreeDRoom(File(basePath), jobFolder)
-                                    if (room != null) {
-                                        navController.navigate(assemblyViewerRoute(jobFolderName = jobFolder, assemblyPage = 1, plansPage = 1, source = "3d", room = room)) { launchSingleTop = true }
-                                    }
-                                },
-                                onViewCoverSheet = { jobFolder ->
-                                    navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
-                                }
-                            )
+                            },
+                            onViewCoverSheet = { jobFolder ->
+                                navController.navigate(referenceViewerRoute(jobFolder, ReferenceDocType.DELIVERY_SHEETS, 1)) { launchSingleTop = true }
+                            }
+                        )
+
+                        var flexMode by remember { mutableStateOf(workMode) }
+                        val spec = if (flexibleModeEnabled) {
+                            when (flexMode) {
+                                WorkMode.CNC -> cncSpec
+                                WorkMode.HARDWOODS -> hardwoodsSpec
+                                WorkMode.ASSEMBLY -> assemblySpec
+                                WorkMode.SPECIALTY -> specialtySpec
+                            }
+                        } else {
+                            when (workMode) {
+                                WorkMode.CNC -> cncSpec
+                                WorkMode.HARDWOODS -> hardwoodsSpec
+                                WorkMode.ASSEMBLY -> assemblySpec
+                                WorkMode.SPECIALTY -> specialtySpec
+                            }
                         }
 
                         com.kkc.sheettracker.ui.jobs.UnifiedJobsScreen(
@@ -2825,7 +2983,10 @@ private fun LegacySingleStackNavigation(
                             },
                             onSearchClick = { navController.navigate("search") { launchSingleTop = true } },
                             onSettingsClick = { navController.navigate("settings") { launchSingleTop = true } },
-                            active = currentNavDest == NavDestination.JOBS && isJobsListRoute(currentRoute)
+                            active = currentNavDest == NavDestination.JOBS && isJobsListRoute(currentRoute),
+                            flexibleModeEnabled = flexibleModeEnabled,
+                            selectedFlexMode = flexMode,
+                            onFlexModeSelected = { flexMode = it }
                         )
                     }
 
@@ -3460,9 +3621,11 @@ private fun LegacySingleStackNavigation(
                         onUseStandardSheetsChanged = onUseStandardSheetsChanged,
                         onContinuousScrollDefaultChanged = onContinuousScrollDefaultChanged,
                         workMode = workMode,
+                        flexibleModeEnabled = flexibleModeEnabled,
                         onThemeChanged = onThemeChanged,
                         onFollowSystemThemeChanged = onFollowSystemThemeChanged,
                         onWorkModeChanged = onWorkModeChanged,
+                        onFlexibleModeChanged = onFlexibleModeChanged,
                         onReinstallLatest = onReinstallLatest,
                         onTabletIdChanged = onTabletIdChanged,
                         onBasePathChanged = onBasePathChanged,

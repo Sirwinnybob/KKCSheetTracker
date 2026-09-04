@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -98,6 +99,8 @@ enum class UnifiedModeDashboardMode {
     SPECIALTY
 }
 
+// modeSwitcher is intentionally CNC/Hardwoods-only (product decision, Flexible Mode's
+// Dashboard switcher never offers Assembly/Specialty) — do not add it to those variants.
 sealed interface UnifiedModeDashboardSpec {
     data class Cnc(
         val scanCoordinator: ScanCoordinator,
@@ -106,14 +109,16 @@ sealed interface UnifiedModeDashboardSpec {
         val progressStore: ProgressStore,
         val appStateFlags: AppStateFeatureFlags,
         val onNavigateToJobs: () -> Unit,
-        val onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
+        val onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
+        val modeSwitcher: (@Composable RowScope.() -> Unit)? = null
     ) : UnifiedModeDashboardSpec
 
     data class Hardwoods(
         val scanCoordinator: HardwoodsScanCoordinator,
         val progressStore: HardwoodsProgressStore,
         val liveEngine: UnifiedMetadataEngine,
-        val onOpenJob: (HardwoodJob) -> Unit
+        val onOpenJob: (HardwoodJob) -> Unit,
+        val modeSwitcher: (@Composable RowScope.() -> Unit)? = null
     ) : UnifiedModeDashboardSpec
 
     data class Assembly(
@@ -142,13 +147,15 @@ fun UnifiedModeDashboardScreen(spec: UnifiedModeDashboardSpec) {
             progressStore = spec.progressStore,
             appStateFlags = spec.appStateFlags,
             onNavigateToJobs = spec.onNavigateToJobs,
-            onOpenSheet = spec.onOpenSheet
+            onOpenSheet = spec.onOpenSheet,
+            modeSwitcher = spec.modeSwitcher
         )
         is UnifiedModeDashboardSpec.Hardwoods -> HardwoodsDashboardContent(
             scanCoordinator = spec.scanCoordinator,
             progressStore = spec.progressStore,
             liveEngine = spec.liveEngine,
-            onOpenJob = spec.onOpenJob
+            onOpenJob = spec.onOpenJob,
+            modeSwitcher = spec.modeSwitcher
         )
         is UnifiedModeDashboardSpec.Assembly -> AssemblyDashboardContent(
             scanCoordinator = spec.scanCoordinator,
@@ -174,7 +181,8 @@ private fun CncDashboardContent(
     progressStore: ProgressStore,
     appStateFlags: AppStateFeatureFlags,
     onNavigateToJobs: () -> Unit,
-    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
+    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
+    modeSwitcher: (@Composable RowScope.() -> Unit)? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val dashboard by appStateStore.dashboardUiModel.collectAsState()
@@ -217,7 +225,8 @@ private fun CncDashboardContent(
         errorMessage = scanState.errorMessage ?: appUiState.errorMessage,
         emptyMessage = "No CNC dashboard widgets are available yet.",
         hasContent = widgets.isNotEmpty(),
-        onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
+        onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) },
+        topBarActions = { modeSwitcher?.invoke(this) }
     ) {
         DashboardWidgetRenderer(
             widgets = nonRecentWidgets,
@@ -800,7 +809,8 @@ private fun HardwoodsDashboardContent(
     scanCoordinator: HardwoodsScanCoordinator,
     progressStore: HardwoodsProgressStore,
     liveEngine: UnifiedMetadataEngine,
-    onOpenJob: (HardwoodJob) -> Unit
+    onOpenJob: (HardwoodJob) -> Unit,
+    modeSwitcher: (@Composable RowScope.() -> Unit)? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val engine = liveEngine
@@ -844,7 +854,8 @@ private fun HardwoodsDashboardContent(
         errorMessage = scanState.errorMessage,
         emptyMessage = "No hardwood jobs are available yet.",
         hasContent = jobInfos.isNotEmpty(),
-        onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
+        onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) },
+        topBarActions = { modeSwitcher?.invoke(this) }
     ) {
         DashboardWidgetRenderer(
             widgets = widgets,
