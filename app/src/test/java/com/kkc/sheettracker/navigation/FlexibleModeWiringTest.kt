@@ -70,6 +70,25 @@ class FlexibleModeWiringTest {
         assertFalse("Assembly must not be built inside a flexibleModeEnabled dashboard branch", assemblySpecInFlexibleBranch)
     }
 
+    @Test
+    fun dashboardTabStaysReachableInAssemblyOrSpecialtyWhenFlexible() {
+        val source = navGraphSource()
+        // Both nav-visibility gates that hide the Dashboard tab for Assembly/Specialty must be
+        // qualified with `!flexibleModeEnabled` so Flexible Mode keeps Dashboard reachable.
+        val guardedGateCount = Regex(
+            "!flexibleModeEnabled\\s*&&\\s*\\(workMode == WorkMode\\.ASSEMBLY \\|\\| workMode == WorkMode\\.SPECIALTY\\)"
+        ).findAll(source).count()
+        assertTrue(
+            "expected at least 3 nav-visibility gates (startRoute, and visibleDestinations x2) to check !flexibleModeEnabled before hiding Dashboard for Assembly/Specialty, found $guardedGateCount",
+            guardedGateCount >= 3
+        )
+        // The old unguarded form must be gone everywhere.
+        val unguardedGate = Regex(
+            "(?<!!flexibleModeEnabled && )\\(?workMode == WorkMode\\.ASSEMBLY \\|\\| workMode == WorkMode\\.SPECIALTY\\)?\\s*->\\s*\"jobs\""
+        ).containsMatchIn(source)
+        assertFalse("startRoute must not hide dashboard for Assembly/Specialty without checking flexibleModeEnabled first", unguardedGate)
+    }
+
     private fun navGraphSource(): String {
         var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
         repeat(6) {

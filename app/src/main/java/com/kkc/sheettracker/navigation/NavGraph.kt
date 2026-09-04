@@ -697,15 +697,17 @@ private fun MultiBackStackNavigation(
     val timecardNavController = rememberNavController()
     val supplyNavController = rememberNavController()
     val standardsNavController = rememberNavController()
-    val homeTab = homeTopLevelTabForWorkMode(workMode)
-    var selectedTab by remember(workMode) { mutableStateOf(homeTab) }
+    val homeTab = if (flexibleModeEnabled) TopLevelTab.DASHBOARD else homeTopLevelTabForWorkMode(workMode)
+    var selectedTab by remember(workMode, flexibleModeEnabled) { mutableStateOf(homeTab) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
-    val visibleDestinations = remember(workMode) {
+    val visibleDestinations = remember(workMode, flexibleModeEnabled) {
         // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
-        // bottom nav bar — filtered out of both branches here.
-        if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
+        // bottom nav bar — filtered out of both branches here. Flexible Mode makes the Dashboard
+        // tab meaningful even in Assembly/Specialty (it shows a CNC/Hardwoods switcher there), so
+        // it stays reachable in that case instead of being hidden.
+        if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) {
             listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
         } else {
             NavDestination.entries.filter {
@@ -2517,14 +2519,16 @@ private fun LegacySingleStackNavigation(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val startRoute = if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) "jobs" else "dashboard"
+    val startRoute = if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) "jobs" else "dashboard"
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }
-    val visibleDestinations = remember(workMode) {
+    val visibleDestinations = remember(workMode, flexibleModeEnabled) {
         // SETTINGS is reached via the top bar's Settings icon (LocalOnOpenSettings), not the
-        // bottom nav bar — filtered out of both branches here.
-        if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
+        // bottom nav bar — filtered out of both branches here. Flexible Mode makes the Dashboard
+        // tab meaningful even in Assembly/Specialty (it shows a CNC/Hardwoods switcher there), so
+        // it stays reachable in that case instead of being hidden.
+        if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) {
             listOf(NavDestination.JOBS, NavDestination.HOURS, NavDestination.TIMECARD, NavDestination.SUPPLY, NavDestination.STANDARDS)
         } else {
             NavDestination.entries.filter {
@@ -2642,9 +2646,9 @@ private fun LegacySingleStackNavigation(
 
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
 
-    val currentNavDest = remember(currentRoute) {
+    val currentNavDest = remember(currentRoute, workMode, flexibleModeEnabled) {
         when {
-            currentRoute == "dashboard" && workMode != WorkMode.ASSEMBLY && workMode != WorkMode.SPECIALTY -> NavDestination.DASHBOARD
+            currentRoute == "dashboard" -> NavDestination.DASHBOARD
             currentRoute?.startsWith("jobs") == true ||
             currentRoute?.startsWith("job/") == true ||
                 currentRoute?.startsWith("specialty/job/") == true ||
@@ -2660,7 +2664,7 @@ private fun LegacySingleStackNavigation(
             currentRoute?.startsWith("supply") == true -> NavDestination.SUPPLY
             currentRoute == "settings" || currentRoute?.startsWith("settings/") == true -> NavDestination.SETTINGS
             currentRoute == "standards" || currentRoute?.startsWith("standards/") == true -> NavDestination.STANDARDS
-            else -> if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) NavDestination.JOBS else NavDestination.DASHBOARD
+            else -> if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) NavDestination.JOBS else NavDestination.DASHBOARD
         }
     }
 
