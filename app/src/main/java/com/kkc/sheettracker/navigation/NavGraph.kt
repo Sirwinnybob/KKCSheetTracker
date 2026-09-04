@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -1265,9 +1266,38 @@ private fun DashboardTabHost(
         modifier = Modifier.fillMaxSize()
     ) {
         composable("dashboard") {
-            when (workMode) {
-                WorkMode.CNC -> {
-                    UnifiedModeDashboardScreen(
+            if (flexibleModeEnabled) {
+                val context = LocalContext.current
+                val dashPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
+                var dashMode by remember {
+                    mutableStateOf(
+                        WorkMode.fromStored(dashPrefs.getString("flexible_dashboard_last_mode", null))
+                            .let { if (it == WorkMode.HARDWOODS) it else WorkMode.CNC }
+                    )
+                }
+                val switcher: @Composable RowScope.() -> Unit = {
+                    com.kkc.sheettracker.ui.components.ModeSwitcherRow(
+                        modes = listOf(WorkMode.CNC, WorkMode.HARDWOODS),
+                        selected = dashMode,
+                        onSelect = { mode ->
+                            dashMode = mode
+                            dashPrefs.edit().putString("flexible_dashboard_last_mode", mode.name).apply()
+                        }
+                    )
+                }
+                when (dashMode) {
+                    WorkMode.HARDWOODS -> UnifiedModeDashboardScreen(
+                        UnifiedModeDashboardSpec.Hardwoods(
+                            scanCoordinator = hardwoodsScanCoordinator,
+                            progressStore = hardwoodsProgressStore,
+                            liveEngine = liveEngine,
+                            onOpenJob = { job ->
+                                onOpenHardwoodsJobInJobs(job.folderName)
+                            },
+                            modeSwitcher = switcher
+                        )
+                    )
+                    else -> UnifiedModeDashboardScreen(
                         UnifiedModeDashboardSpec.Cnc(
                             scanCoordinator = scanCoordinator,
                             appStateStore = appStateStore,
@@ -1275,48 +1305,65 @@ private fun DashboardTabHost(
                             progressStore = progressStore,
                             appStateFlags = appStateFlags,
                             onNavigateToJobs = onNavigateToJobs,
-                            onOpenSheet = onOpenSheet
+                            onOpenSheet = onOpenSheet,
+                            modeSwitcher = switcher
                         )
                     )
                 }
-                WorkMode.HARDWOODS -> {
-                    UnifiedModeDashboardScreen(
-                        UnifiedModeDashboardSpec.Hardwoods(
-                            scanCoordinator = hardwoodsScanCoordinator,
-                            progressStore = hardwoodsProgressStore,
-                            liveEngine = liveEngine,
-                            onOpenJob = { job ->
-                                onOpenHardwoodsJobInJobs(job.folderName)
-                            }
+            } else {
+                when (workMode) {
+                    WorkMode.CNC -> {
+                        UnifiedModeDashboardScreen(
+                            UnifiedModeDashboardSpec.Cnc(
+                                scanCoordinator = scanCoordinator,
+                                appStateStore = appStateStore,
+                                jobRepository = jobRepository,
+                                progressStore = progressStore,
+                                appStateFlags = appStateFlags,
+                                onNavigateToJobs = onNavigateToJobs,
+                                onOpenSheet = onOpenSheet
+                            )
                         )
-                    )
-                }
-                WorkMode.ASSEMBLY -> {
-                    UnifiedModeDashboardScreen(
-                        UnifiedModeDashboardSpec.Assembly(
-                            scanCoordinator = assemblyScanCoordinator,
-                            assemblyStateStore = assemblyStateStore,
-                            cncProgressStore = progressStore,
-                            hardwoodsProgressStore = hardwoodsProgressStore,
-                            specialtyStateStore = specialtyStateStore,
-                            onOpenJob = { folderName ->
-                                navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
-                                    launchSingleTop = true
+                    }
+                    WorkMode.HARDWOODS -> {
+                        UnifiedModeDashboardScreen(
+                            UnifiedModeDashboardSpec.Hardwoods(
+                                scanCoordinator = hardwoodsScanCoordinator,
+                                progressStore = hardwoodsProgressStore,
+                                liveEngine = liveEngine,
+                                onOpenJob = { job ->
+                                    onOpenHardwoodsJobInJobs(job.folderName)
                                 }
-                            }
+                            )
                         )
-                    )
-                }
-                WorkMode.SPECIALTY -> {
-                    UnifiedModeDashboardScreen(
-                        UnifiedModeDashboardSpec.Specialty(
-                            specialtyStateStore = specialtyStateStore,
-                            onNavigateToJobs = onNavigateToJobs,
-                            onOpenJob = { folderName ->
-                                onOpenSpecialtyJobInJobs(folderName)
-                            }
+                    }
+                    WorkMode.ASSEMBLY -> {
+                        UnifiedModeDashboardScreen(
+                            UnifiedModeDashboardSpec.Assembly(
+                                scanCoordinator = assemblyScanCoordinator,
+                                assemblyStateStore = assemblyStateStore,
+                                cncProgressStore = progressStore,
+                                hardwoodsProgressStore = hardwoodsProgressStore,
+                                specialtyStateStore = specialtyStateStore,
+                                onOpenJob = { folderName ->
+                                    navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
                         )
-                    )
+                    }
+                    WorkMode.SPECIALTY -> {
+                        UnifiedModeDashboardScreen(
+                            UnifiedModeDashboardSpec.Specialty(
+                                specialtyStateStore = specialtyStateStore,
+                                onNavigateToJobs = onNavigateToJobs,
+                                onOpenJob = { folderName ->
+                                    onOpenSpecialtyJobInJobs(folderName)
+                                }
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -2704,9 +2751,40 @@ private fun LegacySingleStackNavigation(
                         }
                     ) {
                     composable("dashboard") {
-                        when (workMode) {
-                            WorkMode.CNC -> {
-                                UnifiedModeDashboardScreen(
+                        if (flexibleModeEnabled) {
+                            val context = LocalContext.current
+                            val dashPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
+                            var dashMode by remember {
+                                mutableStateOf(
+                                    WorkMode.fromStored(dashPrefs.getString("flexible_dashboard_last_mode", null))
+                                        .let { if (it == WorkMode.HARDWOODS) it else WorkMode.CNC }
+                                )
+                            }
+                            val switcher: @Composable RowScope.() -> Unit = {
+                                com.kkc.sheettracker.ui.components.ModeSwitcherRow(
+                                    modes = listOf(WorkMode.CNC, WorkMode.HARDWOODS),
+                                    selected = dashMode,
+                                    onSelect = { mode ->
+                                        dashMode = mode
+                                        dashPrefs.edit().putString("flexible_dashboard_last_mode", mode.name).apply()
+                                    }
+                                )
+                            }
+                            when (dashMode) {
+                                WorkMode.HARDWOODS -> UnifiedModeDashboardScreen(
+                                    UnifiedModeDashboardSpec.Hardwoods(
+                                        scanCoordinator = hardwoodsScanCoordinator,
+                                        progressStore = hardwoodsProgressStore,
+                                        liveEngine = unifiedEngine,
+                                        onOpenJob = { job ->
+                                            navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                                                launchSingleTop = true
+                                            }
+                                        },
+                                        modeSwitcher = switcher
+                                    )
+                                )
+                                else -> UnifiedModeDashboardScreen(
                                     UnifiedModeDashboardSpec.Cnc(
                                         scanCoordinator = scanCoordinator,
                                         appStateStore = appStateStore,
@@ -2720,56 +2798,79 @@ private fun LegacySingleStackNavigation(
                                         },
                                         onOpenSheet = { folderName, pdfFilename, page ->
                                             openSheetLegacy(folderName, pdfFilename, page)
-                                        }
-                                    )
-                                )
-                            }
-                            WorkMode.HARDWOODS -> {
-                                UnifiedModeDashboardScreen(
-                                    UnifiedModeDashboardSpec.Hardwoods(
-                                        scanCoordinator = hardwoodsScanCoordinator,
-                                        progressStore = hardwoodsProgressStore,
-                                        liveEngine = unifiedEngine,
-                                        onOpenJob = { job ->
-                                            navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
-                                                launchSingleTop = true
-                                            }
-                                        }
-                                    )
-                                )
-                            }
-                            WorkMode.ASSEMBLY -> {
-                                UnifiedModeDashboardScreen(
-                                    UnifiedModeDashboardSpec.Assembly(
-                                        scanCoordinator = assemblyScanCoordinator,
-                                        assemblyStateStore = assemblyStateStore,
-                                        cncProgressStore = progressStore,
-                                        hardwoodsProgressStore = hardwoodsProgressStore,
-                                        specialtyStateStore = specialtyStateStore,
-                                        onOpenJob = { folderName ->
-                                            navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
-                                                launchSingleTop = true
-                                            }
-                                        }
-                                    )
-                                )
-                            }
-                            WorkMode.SPECIALTY -> {
-                                UnifiedModeDashboardScreen(
-                                    UnifiedModeDashboardSpec.Specialty(
-                                        specialtyStateStore = specialtyStateStore,
-                                        onNavigateToJobs = {
-                                            navController.navigate("jobs") {
-                                                launchSingleTop = true
-                                            }
                                         },
-                                        onOpenJob = { folderName ->
-                                            navController.navigate(specialtyJobRoute(folderName)) {
-                                                launchSingleTop = true
-                                            }
-                                        }
+                                        modeSwitcher = switcher
                                     )
                                 )
+                            }
+                        } else {
+                            when (workMode) {
+                                WorkMode.CNC -> {
+                                    UnifiedModeDashboardScreen(
+                                        UnifiedModeDashboardSpec.Cnc(
+                                            scanCoordinator = scanCoordinator,
+                                            appStateStore = appStateStore,
+                                            jobRepository = jobRepository,
+                                            progressStore = progressStore,
+                                            appStateFlags = appStateFlags,
+                                            onNavigateToJobs = {
+                                                navController.navigate("jobs") {
+                                                    launchSingleTop = true
+                                                }
+                                            },
+                                            onOpenSheet = { folderName, pdfFilename, page ->
+                                                openSheetLegacy(folderName, pdfFilename, page)
+                                            }
+                                        )
+                                    )
+                                }
+                                WorkMode.HARDWOODS -> {
+                                    UnifiedModeDashboardScreen(
+                                        UnifiedModeDashboardSpec.Hardwoods(
+                                            scanCoordinator = hardwoodsScanCoordinator,
+                                            progressStore = hardwoodsProgressStore,
+                                            liveEngine = unifiedEngine,
+                                            onOpenJob = { job ->
+                                                navController.navigate("hardwoods/job/${URLEncoder.encode(job.folderName, "UTF-8")}") {
+                                                    launchSingleTop = true
+                                                }
+                                            }
+                                        )
+                                    )
+                                }
+                                WorkMode.ASSEMBLY -> {
+                                    UnifiedModeDashboardScreen(
+                                        UnifiedModeDashboardSpec.Assembly(
+                                            scanCoordinator = assemblyScanCoordinator,
+                                            assemblyStateStore = assemblyStateStore,
+                                            cncProgressStore = progressStore,
+                                            hardwoodsProgressStore = hardwoodsProgressStore,
+                                            specialtyStateStore = specialtyStateStore,
+                                            onOpenJob = { folderName ->
+                                                navController.navigate("assembly/job/${URLEncoder.encode(folderName, "UTF-8")}") {
+                                                    launchSingleTop = true
+                                                }
+                                            }
+                                        )
+                                    )
+                                }
+                                WorkMode.SPECIALTY -> {
+                                    UnifiedModeDashboardScreen(
+                                        UnifiedModeDashboardSpec.Specialty(
+                                            specialtyStateStore = specialtyStateStore,
+                                            onNavigateToJobs = {
+                                                navController.navigate("jobs") {
+                                                    launchSingleTop = true
+                                                }
+                                            },
+                                            onOpenJob = { folderName ->
+                                                navController.navigate(specialtyJobRoute(folderName)) {
+                                                    launchSingleTop = true
+                                                }
+                                            }
+                                        )
+                                    )
+                                }
                             }
                         }
                     }

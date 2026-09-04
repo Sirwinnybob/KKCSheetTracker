@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.navigation
 
 import java.io.File
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,6 +57,17 @@ class FlexibleModeWiringTest {
             val count = Regex(Regex.escape(call)).findAll(source).count()
             assertTrue("$call should appear at least 2 times (once per duplicated jobs composable — each spec is hoisted into a single val and built unconditionally instead of inside a workMode branch, so the raw occurrence count doesn't double)", count >= 2)
         }
+    }
+
+    @Test
+    fun dashboardComposableOffersOnlyCncAndHardwoodsWhenFlexible() {
+        val source = navGraphSource()
+        val occurrences = Regex("flexible_dashboard_last_mode").findAll(source).count()
+        assertTrue("expected the persisted dashboard-mode pref key to appear at least twice (once per duplicated dashboard composable)", occurrences >= 2)
+        val assemblySpecInFlexibleBranch = Regex(
+            "flexibleModeEnabled[\\s\\S]{0,400}UnifiedModeDashboardSpec\\.Assembly"
+        ).containsMatchIn(source)
+        assertFalse("Assembly must not be built inside a flexibleModeEnabled dashboard branch", assemblySpecInFlexibleBranch)
     }
 
     private fun navGraphSource(): String {
