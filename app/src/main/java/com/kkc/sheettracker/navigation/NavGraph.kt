@@ -2648,7 +2648,7 @@ private fun LegacySingleStackNavigation(
 
     val currentNavDest = remember(currentRoute, workMode, flexibleModeEnabled) {
         when {
-            currentRoute == "dashboard" -> NavDestination.DASHBOARD
+            currentRoute == "dashboard" && (flexibleModeEnabled || (workMode != WorkMode.ASSEMBLY && workMode != WorkMode.SPECIALTY)) -> NavDestination.DASHBOARD
             currentRoute?.startsWith("jobs") == true ||
             currentRoute?.startsWith("job/") == true ||
                 currentRoute?.startsWith("specialty/job/") == true ||

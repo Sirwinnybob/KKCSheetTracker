@@ -73,20 +73,32 @@ class FlexibleModeWiringTest {
     @Test
     fun dashboardTabStaysReachableInAssemblyOrSpecialtyWhenFlexible() {
         val source = navGraphSource()
-        // Both nav-visibility gates that hide the Dashboard tab for Assembly/Specialty must be
-        // qualified with `!flexibleModeEnabled` so Flexible Mode keeps Dashboard reachable.
+        // Exactly 4 gates carry this guard: visibleDestinations x2 (MultiBackStack + Legacy),
+        // startRoute, and currentNavDest's else-fallback. An exact count (not >=) means dropping
+        // any single one of these four regresses the test, unlike a loose threshold.
         val guardedGateCount = Regex(
             "!flexibleModeEnabled\\s*&&\\s*\\(workMode == WorkMode\\.ASSEMBLY \\|\\| workMode == WorkMode\\.SPECIALTY\\)"
         ).findAll(source).count()
         assertTrue(
-            "expected at least 3 nav-visibility gates (startRoute, and visibleDestinations x2) to check !flexibleModeEnabled before hiding Dashboard for Assembly/Specialty, found $guardedGateCount",
-            guardedGateCount >= 3
+            "expected exactly 4 nav-visibility gates (visibleDestinations x2, startRoute, currentNavDest else-branch) to check !flexibleModeEnabled before hiding Dashboard for Assembly/Specialty, found $guardedGateCount",
+            guardedGateCount == 4
         )
-        // The old unguarded form must be gone everywhere.
-        val unguardedGate = Regex(
-            "(?<!!flexibleModeEnabled && )\\(?workMode == WorkMode\\.ASSEMBLY \\|\\| workMode == WorkMode\\.SPECIALTY\\)?\\s*->\\s*\"jobs\""
+        // homeTab (MultiBackStackNavigation) uses a differently-shaped ternary, not the shared
+        // regex above, so it needs its own check.
+        val homeTabGuarded = Regex(
+            "if \\(flexibleModeEnabled\\) TopLevelTab\\.DASHBOARD else homeTopLevelTabForWorkMode\\(workMode\\)"
         ).containsMatchIn(source)
-        assertFalse("startRoute must not hide dashboard for Assembly/Specialty without checking flexibleModeEnabled first", unguardedGate)
+        assertTrue("homeTab must resolve to DASHBOARD when flexibleModeEnabled, regardless of workMode", homeTabGuarded)
+        // currentNavDest's "dashboard" branch (Legacy) must itself check flexibleModeEnabled, not
+        // just its else-fallback — otherwise the nav-highlight can desync from visibleDestinations
+        // if flexibleModeEnabled is toggled off while still sitting on the dashboard route.
+        val dashboardBranchGuarded = Regex(
+            "currentRoute == \"dashboard\" && \\(flexibleModeEnabled \\|\\| \\(workMode != WorkMode\\.ASSEMBLY && workMode != WorkMode\\.SPECIALTY\\)\\) -> NavDestination\\.DASHBOARD"
+        ).containsMatchIn(source)
+        assertTrue(
+            "currentNavDest's dashboard branch must check flexibleModeEnabled before matching on workMode, so nav-highlight state can't desync from visibleDestinations",
+            dashboardBranchGuarded
+        )
     }
 
     private fun navGraphSource(): String {
