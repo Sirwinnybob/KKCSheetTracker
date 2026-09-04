@@ -19,6 +19,7 @@ import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.data.unified.UnifiedJobInfo
@@ -387,16 +388,14 @@ fun rememberSpecialtyJobsSpec(
     specialtyScanCoordinator: SpecialtyScanCoordinator,
     specialtyStateStore: SpecialtyStateStore,
     jobRepository: JobRepository,
-    engine: UnifiedMetadataEngine,
     coroutineScope: CoroutineScope,
     onJobClick: (String) -> Unit,
     onView3D: ((String) -> Unit)? = null,
     onViewCoverSheet: ((String) -> Unit)? = null
 ): UnifiedJobsSpec {
     val scanState by specialtyScanCoordinator.state.collectAsState()
-    val jobInfos = engine.getCachedJobInfos()
-    
-    return remember(scanState, jobInfos) {
+
+    return remember(scanState) {
         object : UnifiedJobsSpec {
             override val modeName = "jobs_specialty"
             override val scanStatus = specialtyScanCoordinator.state.map { it.status }.stateIn(coroutineScope, SharingStarted.Eagerly, ScanStatus.IDLE)
@@ -404,33 +403,12 @@ fun rememberSpecialtyJobsSpec(
             override val progressVersion = specialtyStateStore.progressVersion
             
             override fun deriveJobCards(): List<UnifiedJobUiModel> {
-                val snapshotCards = specialtyStateStore.deriveJobCards().associateBy { it.folderName }
-                return jobInfos.map { info ->
-                    snapshotCards[info.folderName]?.toUnifiedModel(
-                        isPinned = false,
-                        onCardClick = { onJobClick(info.folderName) },
-                        onView3DClick = onView3D?.let { h -> { h(info.folderName) } },
-                        onViewCoverSheetClick = onViewCoverSheet?.let { h -> { h(info.folderName) } }
-                    ) ?: UnifiedJobUiModel(
-                        folderName = info.folderName,
-                        jobNumber = info.jobNumber,
-                        jobName = info.jobName,
-                        isPinned = false,
-                        isPending = info.isPending,
-                        boardSection = info.boardSection,
-                        lineupPosition = info.lineupPosition,
-                        labels = info.labels,
-                        progressStyle = ProgressStyle.Specialty(
-                            stationProgress = emptyList(),
-                            totalItems = 0,
-                            completedItems = 0,
-                            fraction = 0f
-                        ),
-                        onCardClick = { onJobClick(info.folderName) },
-                        onView3DClick = onView3D?.let { h -> { h(info.folderName) } },
-                        onViewCoverSheetClick = onViewCoverSheet?.let { h -> { h(info.folderName) } }
-                    )
-                }
+                return specialtyCardsToUnifiedModels(
+                    specialtyCards = specialtyStateStore.deriveJobCards(),
+                    onJobClick = onJobClick,
+                    onView3D = onView3D,
+                    onViewCoverSheet = onViewCoverSheet,
+                )
             }
             
             override fun refresh(reason: RefreshReason, force: Boolean) {
@@ -451,4 +429,19 @@ fun rememberSpecialtyJobsSpec(
             }
         }
     }
+}
+
+/** The specialty scan is the canonical source for both specialty list membership and progress. */
+internal fun specialtyCardsToUnifiedModels(
+    specialtyCards: List<SpecialtyJobCard>,
+    onJobClick: (String) -> Unit,
+    onView3D: ((String) -> Unit)? = null,
+    onViewCoverSheet: ((String) -> Unit)? = null,
+): List<UnifiedJobUiModel> = specialtyCards.map { card ->
+    card.toUnifiedModel(
+        isPinned = false,
+        onCardClick = { onJobClick(card.folderName) },
+        onView3DClick = onView3D?.let { handler -> { handler(card.folderName) } },
+        onViewCoverSheetClick = onViewCoverSheet?.let { handler -> { handler(card.folderName) } },
+    )
 }

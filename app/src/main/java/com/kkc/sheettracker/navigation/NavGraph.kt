@@ -1451,7 +1451,6 @@ private fun JobsTabHost(
                     specialtyScanCoordinator = specialtyScanCoordinator,
                     specialtyStateStore = specialtyStateStore,
                     jobRepository = jobRepository,
-                    engine = unifiedEngine,
                     coroutineScope = coroutineScope,
                     onJobClick = { jobFolder ->
                         navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
@@ -2792,7 +2791,6 @@ private fun LegacySingleStackNavigation(
                                 specialtyScanCoordinator = specialtyScanCoordinator,
                                 specialtyStateStore = specialtyStateStore,
                                 jobRepository = jobRepository,
-                                engine = unifiedEngine,
                                 coroutineScope = legacyCoroutineScope,
                                 onJobClick = { jobFolder ->
                                     navController.navigate(specialtyJobRoute(jobFolder)) { launchSingleTop = true }
