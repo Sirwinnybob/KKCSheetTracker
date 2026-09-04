@@ -5,6 +5,14 @@ import com.kkc.sheettracker.data.mixservice.ManageCodeSession
 import com.kkc.sheettracker.data.mixservice.MixOperationWarning
 import com.kkc.sheettracker.data.mixservice.MixOperationRestoreState
 import com.kkc.sheettracker.data.mixservice.MixServiceOperation
+import com.kkc.sheettracker.data.mixservice.MixCatalogEntry
+import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MixLifecycle
+import com.kkc.sheettracker.data.mixservice.PgmEditRow
+import com.kkc.sheettracker.data.mixservice.ManageCodeChange
+import com.kkc.sheettracker.data.mixservice.MixGenerationTarget
+import com.kkc.sheettracker.data.mixservice.buildManageCodeActions
+import com.kkc.sheettracker.data.mixservice.resolveMixGenerationTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -234,6 +242,36 @@ class ManageCodeOperationUiStateTest {
             "Multiple mixes already exist for Walnut — resolve on the CNC first",
             result.conflictBlockMessage,
         )
+    }
+
+    @Test
+    fun `catalog actions retain revision and precede pgm edits in queued session`() {
+        val catalog = MixCatalogSnapshot(
+            job = "100 - Alpha",
+            material = "Maple",
+            revision = 7L,
+            entries = listOf(MixCatalogEntry("Current", "Current.mix", MixLifecycle.ACTIVE, listOf("R1.pgm")))
+        )
+        val plan = resolveMixGenerationTarget(
+            MixGenerationTarget.ReplaceActive("Current", 7L, listOf("R1.pgm")),
+            catalog,
+            "Maple",
+        )!!
+        val actions = buildManageCodeActions(
+            job = "100 - Alpha",
+            material = "Maple",
+            plan = plan,
+            change = ManageCodeChange(
+                orderOrMembershipChanged = true,
+                programs = listOf("R2.pgm"),
+                editRows = listOf(PgmEditRow("R2.pgm", "standard", removePUnload = false)),
+            ),
+            requestId = "edit-1",
+        )
+
+        assertEquals(listOf(ManageCodeOperationAction.CATALOG_REPLACE, ManageCodeOperationAction.PGM_EDITS), actions.map { it.kind })
+        assertEquals(7L, actions.first().expectedRevision)
+        assertEquals("edit-1", actions[1].requestId)
     }
 
     private fun session(

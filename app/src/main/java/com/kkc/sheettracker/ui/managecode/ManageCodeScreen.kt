@@ -43,13 +43,20 @@ import com.kkc.sheettracker.data.mixservice.ManageCodeOperationAction
 import com.kkc.sheettracker.data.mixservice.ManageCodeRow
 import com.kkc.sheettracker.data.mixservice.ManageCodeRowSelection
 import com.kkc.sheettracker.data.mixservice.ManageCodeSession
-import com.kkc.sheettracker.data.mixservice.MixServiceClient
 import com.kkc.sheettracker.data.mixservice.MixOperationRestoreState
+import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
+import com.kkc.sheettracker.data.mixservice.MixCatalogMutationResult
+import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MixGenerationTarget
 import com.kkc.sheettracker.data.mixservice.buildManageCodeChange
+import com.kkc.sheettracker.data.mixservice.buildManageCodeActions
+import com.kkc.sheettracker.data.mixservice.buildExternalDeleteAction
 import com.kkc.sheettracker.data.mixservice.buildManageCodeRows
+import com.kkc.sheettracker.data.mixservice.defaultMixName
 import com.kkc.sheettracker.data.mixservice.deriveRowSelection
 import com.kkc.sheettracker.data.mixservice.findCrossMixDuplicates
 import com.kkc.sheettracker.data.mixservice.isRowLocked
+import com.kkc.sheettracker.data.mixservice.resolveMixGenerationTarget
 import com.kkc.sheettracker.data.mixservice.toggleSecondPass
 import com.kkc.sheettracker.data.mixservice.toggleSuperPass
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
@@ -66,8 +73,55 @@ data class ManageCodeMaterialState(
     val rows: List<ManageCodeRow>,
     val locked: Set<String>,
     val selections: Map<String, ManageCodeRowSelection>,
-    val mixConflict: List<String> = emptyList()
+    val mixConflict: List<String> = emptyList(),
+    /** Set only by an operator row reorder or MIX toggle, never by target hydration. */
+    val mixLayoutDirty: Boolean = false,
 )
+
+internal fun updateMixLayoutSelection(
+    state: ManageCodeMaterialState,
+    editablePgm: String,
+    selection: ManageCodeRowSelection
+): ManageCodeMaterialState {
+    val mixChanged = state.selections[editablePgm]?.mix != selection.mix
+    return state.copy(
+        selections = state.selections + (editablePgm to selection),
+        mixLayoutDirty = state.mixLayoutDirty || mixChanged
+    )
+}
+
+internal fun updateMixLayoutSelections(
+    state: ManageCodeMaterialState,
+    selections: Map<String, ManageCodeRowSelection>
+): ManageCodeMaterialState {
+    val mixChanged = selections.any { (pgm, selection) -> state.selections[pgm]?.mix != selection.mix }
+    return state.copy(
+        selections = selections,
+        mixLayoutDirty = state.mixLayoutDirty || mixChanged
+    )
+}
+
+internal fun updateMixLayoutRows(
+    state: ManageCodeMaterialState,
+    rows: List<ManageCodeRow>
+): ManageCodeMaterialState {
+    val orderChanged = state.rows.map { it.editablePgm } != rows.map { it.editablePgm }
+    return state.copy(rows = rows, mixLayoutDirty = state.mixLayoutDirty || orderChanged)
+}
+
+/** Seeds an untouched multi-active screen from the chosen target without replacing operator edits. */
+internal fun selectReplacementTarget(
+    state: ManageCodeMaterialState,
+    target: MixGenerationTarget.ReplaceActive
+): ManageCodeMaterialState {
+    if (state.mixLayoutDirty) return state
+    val rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(state.rows, target.programsBaseline)
+    val selections = rows.associate { row ->
+        val existing = state.selections[row.editablePgm] ?: ManageCodeRowSelection()
+        row.editablePgm to existing.copy(mix = row.editablePgm in target.programsBaseline)
+    }
+    return state.copy(rows = rows, selections = selections)
+}
 
 @Composable
 fun ManageCodeMaterialCard(
@@ -403,14 +457,32 @@ internal fun manageCodeOperationLabel(
     }
 }
 
+internal fun mixCatalogUnavailableMessage(result: MixCatalogFetchResult): String? = when (result) {
+    is MixCatalogFetchResult.Success -> null
+    MixCatalogFetchResult.NetworkError -> "Mix catalog unavailable — showing last known state"
+}
+
 private sealed interface ManageCodeSessionPreparation {
     data class Ready(val session: ManageCodeSession) : ManageCodeSessionPreparation
+    data class SelectAction(val pending: PendingMixAction) : ManageCodeSessionPreparation
     data class Duplicate(
         val material: String,
+        val target: MixGenerationTarget,
         val warnings: List<com.kkc.sheettracker.data.mixservice.DuplicateMixWarning>,
     ) : ManageCodeSessionPreparation
     data class Blocked(val message: String) : ManageCodeSessionPreparation
 }
+
+private data class PendingMixAction(
+    val materialName: String,
+    val catalog: MixCatalogSnapshot,
+)
+
+private data class PendingDuplicateMixAction(
+    val materialName: String,
+    val target: MixGenerationTarget,
+    val duplicates: List<com.kkc.sheettracker.data.mixservice.DuplicateMixWarning>,
+)
 
 internal data class ManageCodeMaterialActionCandidate(
     val material: String,
@@ -445,10 +517,12 @@ fun ManageCodeScreen(
     jobFolderName: String,
     onlyMaterialName: String?,
     onBack: () -> Unit,
-    client: MixServiceClient = remember { MixServiceClient() }
 ) {
     val app = LocalContext.current.applicationContext as KKCApplication
     val coordinator = app.mixOperationCoordinator
+    // The application owns the one client shared by reads and durable mutation submission.
+    val serviceClient = app.mixServiceClient
+    val catalogRepository = app.mixCatalogRepository
     val operationSessions by coordinator.sessions.collectAsState()
     val restoreState by coordinator.restoreState.collectAsState()
     val operationSession = operationSessions[jobFolderName]
@@ -460,7 +534,7 @@ fun ManageCodeScreen(
         value = withContext(Dispatchers.IO) { unifiedEngine.getCncSnapshot(jobFolderName)?.job }
     }
     var reachable by remember { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(Unit) { reachable = client.isReachable() }
+    LaunchedEffect(Unit) { reachable = serviceClient.isReachable() }
     val screenPresentation = manageCodeScreenPresentation(
         reachable = reachable,
         restoreState = restoreState,
@@ -471,26 +545,35 @@ fun ManageCodeScreen(
 
     val materials = job?.materials.orEmpty().filter { onlyMaterialName == null || it.materialName == onlyMaterialName }
     var materialStates by remember { mutableStateOf<Map<String, ManageCodeMaterialState>>(emptyMap()) }
-    var mixNames by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
+    var materialCatalogs by remember { mutableStateOf<Map<String, MixCatalogSnapshot>>(emptyMap()) }
+    var catalogLoadErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var expandedMaterial by remember { mutableStateOf(onlyMaterialName) }
-    var pendingDuplicateWarning by remember { mutableStateOf<Pair<String, List<com.kkc.sheettracker.data.mixservice.DuplicateMixWarning>>?>(null) }
+    var pendingMixAction by remember { mutableStateOf<PendingMixAction?>(null) }
+    var pendingDuplicateWarning by remember { mutableStateOf<PendingDuplicateMixAction?>(null) }
+    var selectedTargets by remember { mutableStateOf<Map<String, MixGenerationTarget>>(emptyMap()) }
     var allowedDuplicateMaterials by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var refreshAttempt by remember { mutableIntStateOf(0) }
     var startRequest by remember { mutableIntStateOf(0) }
     var preflightMessage by remember { mutableStateOf<String?>(null) }
     var refreshedOperationIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
-    suspend fun loadMaterialState(material: com.kkc.sheettracker.data.models.Material): Pair<ManageCodeMaterialState, String?> {
-        val pgms = client.listPgms(jobFolderName, material.materialName)
-        val hasPgms = pgms.isNotEmpty()
+    suspend fun loadMaterialState(
+        material: com.kkc.sheettracker.data.models.Material,
+        catalog: MixCatalogSnapshot?,
+        loadLiveData: Boolean = true,
+    ): ManageCodeMaterialState {
+        val pgms = if (loadLiveData) serviceClient.listPgms(jobFolderName, material.materialName)
+            else emptyList<com.kkc.sheettracker.data.mixservice.PgmInventoryItem>()
+        val hasPgms = pgms.isNotEmpty() || (!loadLiveData && material.metadata?.pages.orEmpty().isNotEmpty())
         val pages = material.metadata?.pages.orEmpty()
         var rows = buildManageCodeRows(pages)
-        val mixLookup = client.getMix(jobFolderName, material.materialName)
-        val existingMix = (mixLookup as? com.kkc.sheettracker.data.mixservice.MixLookupResult.Found)?.definition
-        val mixConflict = (mixLookup as? com.kkc.sheettracker.data.mixservice.MixLookupResult.Conflict)?.names.orEmpty()
+        val existingMix = catalog?.entries
+            ?.filter { it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.ACTIVE }
+            ?.singleOrNull()
         if (existingMix != null) {
             rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(rows, existingMix.programs)
         }
-        val editHistory = client.listPgmEdits(jobFolderName, material.materialName)
+        val editHistory = if (loadLiveData) serviceClient.listPgmEdits(jobFolderName, material.materialName) else null
         val locked = rows.filter { row ->
             isRowLocked(progressStore.getSheetStatus(jobFolderName, material.pdfFilename, row.pageNumber, material.fileFingerprint))
         }.map { it.editablePgm }.toSet()
@@ -508,34 +591,52 @@ fun ManageCodeScreen(
             rows = rows,
             locked = locked,
             selections = selections,
-            mixConflict = mixConflict
+            mixConflict = emptyList(),
         )
-        return state to existingMix?.name
+        return state
     }
 
-    LaunchedEffect(job, reachable) {
-        if (job == null || reachable != true) return@LaunchedEffect
-        val nextStates = mutableMapOf<String, ManageCodeMaterialState>()
-        val nextNames = mutableMapOf<String, String?>()
+    LaunchedEffect(refreshAttempt) { reachable = serviceClient.isReachable() }
+
+    LaunchedEffect(job, reachable, refreshAttempt) {
+        if (job == null) return@LaunchedEffect
         for (material in materials) {
-            val (state, mixName) = loadMaterialState(material)
-            nextStates[material.materialName] = state
-            nextNames[material.materialName] = mixName
+            val materialName = material.materialName
+            val cached = catalogRepository.cached(jobFolderName, materialName)
+            if (cached != null) {
+                materialCatalogs = materialCatalogs + (materialName to cached)
+                materialStates = materialStates + (materialName to loadMaterialState(
+                    material, cached, loadLiveData = reachable == true
+                ))
+            } else if (materialStates[materialName] == null) {
+                materialStates = materialStates + (materialName to loadMaterialState(
+                    material, null, loadLiveData = reachable == true
+                ))
+            }
+            if (reachable != true) continue
+            when (val refreshed = catalogRepository.refresh(jobFolderName, materialName)) {
+                is MixCatalogFetchResult.Success -> {
+                    materialCatalogs = materialCatalogs + (materialName to refreshed.snapshot)
+                    materialStates = materialStates + (materialName to loadMaterialState(material, refreshed.snapshot))
+                    catalogLoadErrors = catalogLoadErrors - materialName
+                }
+                MixCatalogFetchResult.NetworkError -> {
+                    mixCatalogUnavailableMessage(refreshed)?.let { message ->
+                        catalogLoadErrors = catalogLoadErrors + (materialName to message)
+                    }
+                }
+            }
         }
-        materialStates = nextStates
-        mixNames = nextNames
     }
 
     fun updateSelection(materialName: String, editablePgm: String, selection: ManageCodeRowSelection) {
         val state = materialStates[materialName] ?: return
-        materialStates = materialStates + (materialName to state.copy(
-            selections = state.selections + (editablePgm to selection)
-        ))
+        materialStates = materialStates + (materialName to updateMixLayoutSelection(state, editablePgm, selection))
     }
 
     fun updateRows(materialName: String, rows: List<ManageCodeRow>) {
         val state = materialStates[materialName] ?: return
-        materialStates = materialStates + (materialName to state.copy(rows = rows))
+        materialStates = materialStates + (materialName to updateMixLayoutRows(state, rows))
     }
 
     suspend fun buildSession(): ManageCodeSessionPreparation {
@@ -544,45 +645,34 @@ fun ManageCodeScreen(
             val materialName = material.materialName
             val state = materialStates[materialName] ?: return ManageCodeSessionPreparation.Blocked("Material data is still loading")
             if (!state.hasPgmsOnThisCnc) continue
-            if (state.mixConflict.isNotEmpty()) {
-                candidates += ManageCodeMaterialActionCandidate(
-                    material = materialName,
-                    hasMixConflict = true,
-                    actions = emptyList(),
-                )
-                continue
+            val catalog = materialCatalogs[materialName]
+                ?: return ManageCodeSessionPreparation.Blocked("Mix catalog unavailable — refresh and try again")
+            if (catalog.entries.any { it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.EXTERNAL }) {
+                return ManageCodeSessionPreparation.SelectAction(PendingMixAction(materialName, catalog))
             }
-            val materialActions = mutableListOf<ManageCodeOperationAction>()
-            val existingName = mixNames[materialName]
+            val target = selectedTargets[materialName] ?: mixActionDialogContent(catalog).automaticTarget
+                ?: return ManageCodeSessionPreparation.SelectAction(PendingMixAction(materialName, catalog))
+            val plan = resolveMixGenerationTarget(target, catalog, materialName)
+                ?: return ManageCodeSessionPreparation.Blocked("Mix catalog changed — choose an action again")
             val change = buildManageCodeChange(
                 rows = state.rows,
                 selections = state.selections,
                 locked = state.locked,
-                originalPrograms = client.listMixes(jobFolderName, materialName)?.firstOrNull { it.name == existingName }?.programs.orEmpty()
+                originalPrograms = plan.programsBaseline,
             )
-            if (change.orderOrMembershipChanged && materialName !in allowedDuplicateMaterials) {
-                // The server check is job-wide, as is the client fallback. A PGM can collide
-                // with a mix that belongs to another material in this same job.
-                val duplicates = client.getPgmConflicts(jobFolderName, materialName, change.programs, existingName)
-                    ?: findCrossMixDuplicates(change.programs, existingName ?: "", client.listMixes(jobFolderName).orEmpty())
-                if (duplicates.isNotEmpty()) return ManageCodeSessionPreparation.Duplicate(materialName, duplicates)
-            }
             if (change.orderOrMembershipChanged) {
-                val name = existingName ?: "${materialName.replace(Regex("[^A-Za-z0-9 _-]"), "")}Mix"
-                materialActions += ManageCodeOperationAction.mix(
-                    material = materialName,
-                    name = name,
-                    programs = change.programs,
-                    replaceExisting = existingName != null,
-                )
+                val duplicates = findCrossMixDuplicates(change.programs, plan.name, catalog)
+                if (duplicates.isNotEmpty() && materialName !in allowedDuplicateMaterials) {
+                    return ManageCodeSessionPreparation.Duplicate(materialName, target, duplicates)
+                }
             }
-            if (change.editRows.isNotEmpty()) {
-                materialActions += ManageCodeOperationAction.pgmEdits(
-                    material = materialName,
-                    requestId = UUID.randomUUID().toString(),
-                    editRows = change.editRows,
-                )
-            }
+            val materialActions = buildManageCodeActions(
+                job = jobFolderName,
+                material = materialName,
+                plan = plan,
+                change = change,
+                requestId = UUID.randomUUID().toString(),
+            )
             candidates += ManageCodeMaterialActionCandidate(
                 material = materialName,
                 hasMixConflict = false,
@@ -607,11 +697,19 @@ fun ManageCodeScreen(
         when (val preparation = buildSession()) {
             is ManageCodeSessionPreparation.Ready -> {
                 preflightMessage = null
+                selectedTargets = emptyMap()
                 allowedDuplicateMaterials = emptySet()
                 coordinator.start(preparation.session)
             }
+            is ManageCodeSessionPreparation.SelectAction -> {
+                pendingMixAction = preparation.pending
+            }
             is ManageCodeSessionPreparation.Duplicate -> {
-                pendingDuplicateWarning = preparation.material to preparation.warnings
+                pendingDuplicateWarning = PendingDuplicateMixAction(
+                    materialName = preparation.material,
+                    target = preparation.target,
+                    duplicates = preparation.warnings,
+                )
             }
             is ManageCodeSessionPreparation.Blocked -> {
                 preflightMessage = preparation.message
@@ -624,14 +722,20 @@ fun ManageCodeScreen(
         ?.take(operationSession.currentActionIndex)
         .orEmpty()
     LaunchedEffect(completedActions, materials) {
-        completedActions.forEach { action ->
-            val operationId = action.operationId ?: return@forEach
-            if (operationId in refreshedOperationIds) return@forEach
-            val material = materials.firstOrNull { it.materialName == action.material } ?: return@forEach
-            val (state, mixName) = loadMaterialState(material)
-            materialStates = materialStates + (material.materialName to state)
-            mixNames = mixNames + (material.materialName to mixName)
-            refreshedOperationIds = refreshedOperationIds + operationId
+        completedActions.forEachIndexed { index, action ->
+            val refreshKey = "$index:${action.kind}:${action.material}"
+            if (refreshKey in refreshedOperationIds) return@forEachIndexed
+            val material = materials.firstOrNull { it.materialName == action.material } ?: return@forEachIndexed
+            val snapshot = catalogRepository.cached(jobFolderName, action.material)
+            if (snapshot != null) {
+                materialCatalogs = materialCatalogs + (material.materialName to snapshot)
+                materialStates = materialStates + (material.materialName to loadMaterialState(material, snapshot))
+            } else {
+                materialStates = materialStates + (
+                    material.materialName to loadMaterialState(material, null)
+                )
+            }
+            refreshedOperationIds = refreshedOperationIds + refreshKey
         }
     }
 
@@ -651,137 +755,174 @@ fun ManageCodeScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (reachable == false) {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
+            if (reachable == false || catalogLoadErrors.isNotEmpty()) {
+                Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Text(
-                        "Mix service unreachable — showing last known state",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        if (reachable == false) "Mix service unreachable — showing saved mix information"
+                        else catalogLoadErrors.values.first(),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f)
                     )
+                    TextButton(onClick = { reachable = null; refreshAttempt += 1 }) { Text("Retry") }
                 }
             }
             LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 160.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    itemsIndexed(materials, key = { _, m -> m.materialName }) { _, material ->
-                        val state = materialStates[material.materialName] ?: return@itemsIndexed
-                        val thumbnailCache = remember(material.materialName) { mutableStateMapOf<Int, ImageBitmap?>() }
-                        val loadThumbnail: suspend (ManageCodeRow) -> ImageBitmap? = loader@{ row ->
-                            if (thumbnailCache.containsKey(row.pageNumber)) return@loader thumbnailCache[row.pageNumber]
-                            val pdfFile = jobRepository.getPdfFile(jobFolderName, material.pdfFilename)
-                            val bitmap = withContext(Dispatchers.IO) {
-                                com.kkc.sheettracker.ui.viewer.loadSheetThumbnailForToc(pdfFile, row.pageNumber - 1, row.thumbnailPath)
-                            }?.asImageBitmap()
-                            thumbnailCache[row.pageNumber] = bitmap
-                            bitmap
-                        }
-                        ManageCodeMaterialCard(
-                            state = state,
-                            expanded = expandedMaterial == material.materialName,
-                            onExpandToggle = {
-                                expandedMaterial = if (expandedMaterial == material.materialName) null else material.materialName
-                            },
-                            onRowsReordered = { updateRows(material.materialName, it) },
-                            onSelectionChanged = { pgm, sel -> updateSelection(material.materialName, pgm, sel) },
-                            onSelectAll = { field, checked ->
-                                val updated = state.selections.mapValues { (pgm, selection) ->
-                                    if (pgm in state.locked) selection else when (field) {
-                                        "MIX" -> selection.copy(mix = checked)
-                                        "PUNLOAD" -> selection.copy(removePUnload = checked)
-                                        "2ND" -> toggleSecondPass(selection, checked)
-                                        "SUPER" -> toggleSuperPass(selection, checked)
-                                        else -> selection
-                                    }
-                                }
-                                materialStates = materialStates + (material.materialName to state.copy(selections = updated))
-                            },
-                            loadThumbnail = loadThumbnail
-                        )
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 160.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(materials, key = { _, m -> m.materialName }) { _, material ->
+                    val state = materialStates[material.materialName] ?: return@itemsIndexed
+                    val thumbnailCache = remember(material.materialName) { mutableStateMapOf<Int, ImageBitmap?>() }
+                    val loadThumbnail: suspend (ManageCodeRow) -> ImageBitmap? = loader@{ row ->
+                        if (thumbnailCache.containsKey(row.pageNumber)) return@loader thumbnailCache[row.pageNumber]
+                        val pdfFile = jobRepository.getPdfFile(jobFolderName, material.pdfFilename)
+                        val bitmap = withContext(Dispatchers.IO) {
+                            com.kkc.sheettracker.ui.viewer.loadSheetThumbnailForToc(pdfFile, row.pageNumber - 1, row.thumbnailPath)
+                        }?.asImageBitmap()
+                        thumbnailCache[row.pageNumber] = bitmap
+                        bitmap
                     }
-                    item {
-                        val isRetryable = operationUiState is ManageCodeOperationUiState.Failed
-                        Button(
-                            onClick = {
-                                if (screenPresentation.canRetryRestore) coordinator.restore()
-                                else if (isRetryable) retryCurrentOperation()
-                                else startRequest += 1
-                            },
-                            enabled = screenPresentation.actionEnabled,
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                when (operationUiState) {
-                                    is ManageCodeOperationUiState.Preparing -> LinearProgressIndicator(
-                                        progress = { operationUiState.fraction },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                    ManageCodeOperationUiState.Compiling -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                                    else -> Unit
+                    ManageCodeMaterialCard(
+                        state = state,
+                        expanded = expandedMaterial == material.materialName,
+                        onExpandToggle = {
+                            expandedMaterial = if (expandedMaterial == material.materialName) null else material.materialName
+                        },
+                        onRowsReordered = { updateRows(material.materialName, it) },
+                        onSelectionChanged = { pgm, sel -> updateSelection(material.materialName, pgm, sel) },
+                        onSelectAll = { field, checked ->
+                            val updated = state.selections.mapValues { (pgm, selection) ->
+                                if (pgm in state.locked) selection else when (field) {
+                                    "MIX" -> selection.copy(mix = checked)
+                                    "PUNLOAD" -> selection.copy(removePUnload = checked)
+                                    "2ND" -> toggleSecondPass(selection, checked)
+                                    "SUPER" -> toggleSuperPass(selection, checked)
+                                    else -> selection
                                 }
-                                Text(
-                                    when {
-                                        restoreState == MixOperationRestoreState.Restoring -> "Restoring prior session…"
-                                        screenPresentation.canRetryRestore -> "Retry session restore"
-                                        isRetryable -> "Retry — ${manageCodeOperationLabel(operationUiState, operationSession)}"
-                                        else -> manageCodeOperationLabel(operationUiState, operationSession)
-                                    },
-                                )
                             }
-                        }
-                        preflightMessage?.let { message ->
-                            Text(
-                                text = message,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(top = 4.dp),
+                            materialStates = materialStates + (
+                                material.materialName to updateMixLayoutSelections(state, updated)
                             )
-                        }
-                        (operationUiState as? ManageCodeOperationUiState.Failed)?.let { failed ->
-                            Text(
-                                text = failed.message,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
-                        screenPresentation.restoreError?.let { message ->
-                            Text(
-                                text = "Session restore failed: $message",
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
+                        },
+                        loadThumbnail = loadThumbnail
+                    )
+                    catalogLoadErrors[material.materialName]?.let { message ->
+                        Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
+                item {
+                    val isRetryable = operationUiState is ManageCodeOperationUiState.Failed
+                    Button(
+                        onClick = {
+                            if (screenPresentation.canRetryRestore) coordinator.restore()
+                            else if (isRetryable) retryCurrentOperation()
+                            else startRequest += 1
+                        },
+                        enabled = screenPresentation.actionEnabled,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            when (operationUiState) {
+                                is ManageCodeOperationUiState.Preparing -> LinearProgressIndicator(
+                                    progress = { operationUiState.fraction }, modifier = Modifier.fillMaxWidth()
+                                )
+                                ManageCodeOperationUiState.Compiling -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                else -> Unit
+                            }
+                            Text(
+                                when {
+                                    restoreState == MixOperationRestoreState.Restoring -> "Restoring prior session…"
+                                    screenPresentation.canRetryRestore -> "Retry session restore"
+                                    isRetryable -> "Retry — ${manageCodeOperationLabel(operationUiState, operationSession)}"
+                                    else -> manageCodeOperationLabel(operationUiState, operationSession)
+                                },
+                            )
+                        }
+                    }
+                    preflightMessage?.let { message ->
+                        Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    (operationUiState as? ManageCodeOperationUiState.Failed)?.let { failed ->
+                        Text(failed.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    screenPresentation.restoreError?.let { message ->
+                        Text("Session restore failed: $message", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+            }
         }
 
-        pendingDuplicateWarning?.let { (materialName, duplicates) ->
+        pendingMixAction?.let { pending ->
+            val originalName = pending.catalog.entries
+                .firstOrNull { it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.ACTIVE }
+                ?.name ?: defaultMixName(pending.catalog.material)
+            MixActionDialog(
+                catalog = pending.catalog,
+                originalName = originalName,
+                onDismiss = { pendingMixAction = null },
+                onTargetSelected = { target ->
+                    pendingMixAction = null
+                    selectedTargets = selectedTargets + (pending.materialName to target)
+                    if (target is MixGenerationTarget.ReplaceActive) {
+                        materialStates[pending.materialName]?.let { current ->
+                            materialStates = materialStates + (
+                                pending.materialName to selectReplacementTarget(current, target)
+                            )
+                        }
+                    }
+                    startRequest += 1
+                },
+                onDeleteExternal = { filename ->
+                    val action = buildExternalDeleteAction(
+                        job = jobFolderName,
+                        material = pending.materialName,
+                        catalog = pending.catalog,
+                        filename = filename,
+                    )
+                    pendingMixAction = null
+                    if (action != null) {
+                        preflightMessage = null
+                        coordinator.start(ManageCodeSession(jobFolderName, listOf(action)))
+                    }
+                },
+            )
+        }
+
+        pendingDuplicateWarning?.let { pending ->
             AlertDialog(
                 onDismissRequest = { pendingDuplicateWarning = null },
                 title = { Text("Already in another mix") },
-                text = { Text(duplicates.joinToString("\n") { "${it.pgm} is already in ${it.otherMixName}" }) },
+                text = { Text(pending.duplicates.joinToString("\n") { "${it.pgm} is already in ${it.otherMixName}" }) },
                 confirmButton = {
                     TextButton(onClick = {
                         pendingDuplicateWarning = null
-                        allowedDuplicateMaterials = allowedDuplicateMaterials + materialName
+                        allowedDuplicateMaterials = allowedDuplicateMaterials + pending.materialName
+                        selectedTargets = selectedTargets + (pending.materialName to pending.target)
                         startRequest += 1
                     }) { Text("Continue anyway") }
                 },
-                dismissButton = {
-                    TextButton(onClick = { pendingDuplicateWarning = null }) { Text("Go back and edit") }
-                }
+                dismissButton = { TextButton(onClick = { pendingDuplicateWarning = null }) { Text("Go back and edit") } }
             )
         }
     }
+}
+
+internal fun mixMutationErrorMessage(result: MixCatalogMutationResult): String = when (result) {
+    is MixCatalogMutationResult.Success, is MixCatalogMutationResult.SyncFailed -> ""
+    MixCatalogMutationResult.CatalogChanged -> "Mix catalog changed"
+    MixCatalogMutationResult.ExternalMixesPresent -> "External mix files must be removed first"
+    MixCatalogMutationResult.EditBusy -> "Another edit is in progress — try again"
+    MixCatalogMutationResult.CompileBusy -> "CNC is busy compiling another mix — try again"
+    MixCatalogMutationResult.WinxisoTimeout -> "Compile timed out — try again"
+    is MixCatalogMutationResult.DuplicateName ->
+        "A mix named ${result.name} already exists. Mix names are case-insensitive and must be unique across all definitions."
+    is MixCatalogMutationResult.MissingProgram -> "PGM file missing: ${result.pgm}"
+    is MixCatalogMutationResult.HistorySyncError -> result.message.ifBlank { "History sync failed" }
+    is MixCatalogMutationResult.BadRequest -> result.message.ifBlank { "Invalid mix request" }
+    MixCatalogMutationResult.NetworkError -> "Could not reach the mix service"
 }

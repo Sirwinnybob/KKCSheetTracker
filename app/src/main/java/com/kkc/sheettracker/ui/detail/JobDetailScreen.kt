@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -82,10 +83,13 @@ import com.kkc.sheettracker.data.models.MaterialUiModel
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
-import com.kkc.sheettracker.data.mixservice.MixDefinition
 import com.kkc.sheettracker.data.mixservice.MixServiceClient
+import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
+import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MaterialMixEntry
+import com.kkc.sheettracker.data.mixservice.activeMixRows
+import com.kkc.sheettracker.data.mixservice.pagesForMix
 import com.kkc.sheettracker.data.mixservice.ViewerMixSelection
-import com.kkc.sheettracker.data.mixservice.resolveMaterialMixEntries
 import com.kkc.sheettracker.data.mixservice.statusCountsForPages
 import com.kkc.sheettracker.data.mixservice.shouldShowPendingBadPartAction
 import com.kkc.sheettracker.ui.components.CountStatusChip
@@ -98,6 +102,7 @@ import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
 import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -136,6 +141,44 @@ internal fun jobDetailLoadKey(
     @Suppress("UNUSED_PARAMETER") scanGeneration: Long
 ): JobDetailLoadKey = JobDetailLoadKey(jobFolderName, retryAttempt)
 
+/** Projects only active catalog ownership into the established viewer route model. */
+internal fun catalogMaterialEntries(
+    material: Material,
+    catalog: MixCatalogSnapshot?
+): List<MaterialMixEntry> {
+    val naturalOrder = catalogTrackablePages(material)
+    return activeMixRows(material, catalog).mapNotNull { row ->
+        val activeMix = row.activeMix
+        if (activeMix == null) {
+            MaterialMixEntry(material = material, title = material.materialName, mixSelection = null)
+        } else {
+            val pageOrder = pagesForMix(
+                pages = material.metadata?.pages.orEmpty(),
+                naturalOrder = naturalOrder,
+                programs = activeMix.programs,
+            )
+            pageOrder.takeIf { it.isNotEmpty() }?.let {
+                MaterialMixEntry(
+                    material = material,
+                    title = row.title,
+                    mixSelection = ViewerMixSelection(activeMix.name, it),
+                )
+            }
+        }
+    }.ifEmpty {
+        listOf(MaterialMixEntry(material = material, title = material.materialName, mixSelection = null))
+    }
+}
+
+private fun catalogTrackablePages(material: Material): List<Int> {
+    val fromMetadata = material.metadata?.pages.orEmpty()
+        .filterNot { it.hiddenInApp || it.trackingExcluded || it.isPartListContinuation }
+        .mapNotNull { page -> page.pageNumber.takeIf { it in 1..material.pageCount } }
+        .distinct()
+        .sorted()
+    return fromMetadata.ifEmpty { (1..material.pageCount).toList() }
+}
+
 private data class JobDetailLoadResult(
     val job: Job?,
     val hasResolved: Boolean
@@ -168,6 +211,8 @@ fun JobDetailScreen(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
+    val app = LocalContext.current.applicationContext as com.kkc.sheettracker.KKCApplication
+    val catalogRepository = app.mixCatalogRepository
     val navBarDeco = LocalNavBarDecoration.current
     val adminEnabled by AdminModeController.enabled.collectAsState()
     LaunchedEffect(Unit) {
@@ -200,20 +245,30 @@ fun JobDetailScreen(
     }
     val job = jobLoadResult.job
     val jobLoadState = jobDetailLoadState(jobLoadResult.hasResolved, job != null)
-    val mixDefinitions by produceState<List<MixDefinition>?>(
-        initialValue = null,
+    val mixCatalogs by produceState<Map<String, MixCatalogSnapshot>>(
+        initialValue = emptyMap(),
         job,
         jobFolderName,
-        mixServiceClient
+        catalogRepository
     ) {
         val currentJob = job
-        val client = mixServiceClient
-        if (currentJob != null && client != null) {
-            value = client.listMixes(jobFolderName)
+        if (currentJob != null) {
+            currentJob.materials.forEach { material ->
+                catalogRepository.cached(jobFolderName, material.materialName)?.let { cached ->
+                    value = value + (material.materialName to cached)
+                }
+                if (!isActive) return@forEach
+                when (val refreshed = catalogRepository.refresh(jobFolderName, material.materialName)) {
+                    is MixCatalogFetchResult.Success -> value = value + (material.materialName to refreshed.snapshot)
+                    MixCatalogFetchResult.NetworkError -> Unit
+                }
+            }
         }
     }
-    val materialEntries = remember(job?.materials, mixDefinitions) {
-        resolveMaterialMixEntries(job?.materials.orEmpty(), mixDefinitions)
+    val materialEntries = remember(job?.materials, mixCatalogs) {
+        job?.materials.orEmpty().flatMap { material ->
+            catalogMaterialEntries(material, mixCatalogs[material.materialName])
+        }
     }
     val retryJob = {
         scanCoordinator.refreshJobOnOpen(jobFolderName)
