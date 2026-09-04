@@ -13,6 +13,9 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /** Strict JSON boundary for catalog snapshots. Gson's default adapters coerce malformed data. */
@@ -164,6 +167,11 @@ data class CachedMixCatalogSnapshot(
     val fetchedAtMillis: Long
 )
 
+/** Explicitly exposes snapshots visible in memory that still need disk persistence. */
+data class MixCatalogDurabilityState(
+    val pending: List<MixCatalogSnapshot> = emptyList(),
+)
+
 /** Boundary for publishing a validated mutation snapshot to the process-shared catalog cache. */
 fun interface MixCatalogPublisher {
     fun publish(snapshot: MixCatalogSnapshot): Boolean
@@ -183,6 +191,9 @@ class MixCatalogCache(
 ) : MixCatalogPublisher {
     private val gson = Gson()
     private val frontCache = mutableMapOf<Pair<String, String>, CachedMixCatalogSnapshot>()
+    private val pendingWrites = mutableMapOf<Pair<String, String>, CachedMixCatalogSnapshot>()
+    private val _durabilityState = MutableStateFlow(MixCatalogDurabilityState())
+    val durabilityState: StateFlow<MixCatalogDurabilityState> = _durabilityState.asStateFlow()
 
     @Synchronized
     fun read(job: String, material: String): MixCatalogSnapshot? =
@@ -193,12 +204,7 @@ class MixCatalogCache(
         if (job.isBlank() || material.isBlank()) return null
         val key = job to material
         frontCache[key]?.let { return it }
-        val file = cacheFile(job, material)
-        if (!file.isFile) return null
-        val cached = runCatching {
-            parseCachedSnapshot(file.readText(StandardCharsets.UTF_8))
-        }.getOrNull() ?: return null
-        if (cached.snapshot.job != job || cached.snapshot.material != material) return null
+        val cached = readBacking(job, material) ?: return null
         frontCache[key] = cached
         return cached
     }
@@ -207,6 +213,20 @@ class MixCatalogCache(
     @Synchronized
     fun write(snapshot: MixCatalogSnapshot?): Boolean {
         return writeInternal(snapshot) == MixCatalogCacheWriteResult.PUBLISHED
+    }
+
+    /** Retries disk publication of an acknowledged snapshot without resubmitting its mutation. */
+    @Synchronized
+    fun retryPendingWrites(): Boolean {
+        if (pendingWrites.isEmpty()) return true
+        val pending = pendingWrites.values.toList()
+        var allPublished = true
+        pending.forEach { cached ->
+            if (writeInternal(cached.snapshot, forceWrite = true) == MixCatalogCacheWriteResult.FAILED) {
+                allPublished = false
+            }
+        }
+        return allPublished
     }
 
     /** Publishes only when the cache still contains the state observed before a refresh began. */
@@ -218,8 +238,15 @@ class MixCatalogCache(
         return try {
             if (!MixCatalogJson.isValidSnapshot(snapshot)) return MixCatalogCacheWriteResult.FAILED
             snapshot ?: return MixCatalogCacheWriteResult.FAILED
+            val key = snapshot.job to snapshot.material
+            val pending = pendingWrites[key]
+            if (pending != null && snapshot.revision <= pending.snapshot.revision) {
+                // A server acknowledgement already visible to the app must not be replaced by
+                // an older/equal refresh while its durable file is waiting for recovery.
+                return MixCatalogCacheWriteResult.SUPERSEDED
+            }
             val existing = readCached(snapshot.job, snapshot.material)
-            if (existing?.snapshot?.revision == snapshot.revision) {
+            if (existing?.snapshot?.revision == snapshot.revision && key !in pendingWrites) {
                 return MixCatalogCacheWriteResult.UNCHANGED
             }
             if (existing != expected) return MixCatalogCacheWriteResult.SUPERSEDED
@@ -229,22 +256,58 @@ class MixCatalogCache(
         }
     }
 
-    private fun writeInternal(snapshot: MixCatalogSnapshot?): MixCatalogCacheWriteResult {
+    private fun writeInternal(
+        snapshot: MixCatalogSnapshot?,
+        forceWrite: Boolean = false,
+    ): MixCatalogCacheWriteResult {
         var temporary: File? = null
+        var pending: CachedMixCatalogSnapshot? = null
         try {
             if (!MixCatalogJson.isValidSnapshot(snapshot)) return MixCatalogCacheWriteResult.FAILED
             snapshot ?: return MixCatalogCacheWriteResult.FAILED
-            val existing = readCached(snapshot.job, snapshot.material)
-            if (existing?.snapshot?.revision == snapshot.revision) {
+            val cached = CachedMixCatalogSnapshot(snapshot, nowMillis())
+            pending = cached
+            val key = snapshot.job to snapshot.material
+            val acknowledged = pendingWrites[key]
+            if (!forceWrite && acknowledged != null && snapshot.revision <= acknowledged.snapshot.revision) {
                 return MixCatalogCacheWriteResult.UNCHANGED
             }
-            if (!root.isDirectory && !root.mkdirs()) return MixCatalogCacheWriteResult.FAILED
+            if (forceWrite && acknowledged != null && snapshot.revision < acknowledged.snapshot.revision) {
+                // A retry can be holding an older list entry while a newer acknowledgement for
+                // the same key is already pending. Never let the stale retry consume that entry.
+                return MixCatalogCacheWriteResult.UNCHANGED
+            }
+            val existing = readCached(snapshot.job, snapshot.material)
+            if (!forceWrite &&
+                existing?.snapshot?.revision == snapshot.revision &&
+                key !in pendingWrites
+            ) {
+                return MixCatalogCacheWriteResult.UNCHANGED
+            }
+            if (!root.isDirectory && !root.mkdirs()) {
+                rememberPending(cached)
+                return MixCatalogCacheWriteResult.FAILED
+            }
             val destination = cacheFile(snapshot.job, snapshot.material)
             temporary = File.createTempFile(destination.name, ".tmp", root)
-            val cached = CachedMixCatalogSnapshot(snapshot, nowMillis())
             FileOutputStream(temporary).use { output ->
                 output.write(gson.toJson(cached).toByteArray(StandardCharsets.UTF_8))
                 output.fd.sync()
+            }
+            if (forceWrite) {
+                val durable = readBacking(snapshot.job, snapshot.material)
+                if (durable != null && durable.snapshot.revision >= snapshot.revision) {
+                    val currentPending = pendingWrites[key]
+                    if (currentPending == null || currentPending.snapshot.revision <= durable.snapshot.revision) {
+                        pendingWrites.remove(key)
+                        frontCache[key] = durable
+                        publishDurabilityState()
+                    }
+                    // Another cache instance has already persisted this revision (or newer).
+                    // The acknowledged snapshot is therefore recovered without replacing the
+                    // durable winner; retain any still-newer pending acknowledgement above.
+                    return MixCatalogCacheWriteResult.UNCHANGED
+                }
             }
             try {
                 Files.move(
@@ -256,9 +319,12 @@ class MixCatalogCache(
             } catch (_: AtomicMoveNotSupportedException) {
                 Files.move(temporary!!.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
-            frontCache[snapshot.job to snapshot.material] = cached
+            frontCache[key] = cached
+            pendingWrites.remove(key)
+            publishDurabilityState()
             return MixCatalogCacheWriteResult.PUBLISHED
         } catch (_: Throwable) {
+            pending?.let(::rememberPending)
             return MixCatalogCacheWriteResult.FAILED
         } finally {
             try {
@@ -269,9 +335,51 @@ class MixCatalogCache(
         }
     }
 
-    override fun publish(snapshot: MixCatalogSnapshot): Boolean = write(snapshot)
+    private fun rememberPending(cached: CachedMixCatalogSnapshot) {
+        val key = cached.snapshot.job to cached.snapshot.material
+        // The server mutation has already been acknowledged. Make that result immediately
+        // observable even if this device cannot currently persist the cache file.
+        frontCache[key] = cached
+        pendingWrites[key] = cached
+        publishDurabilityState()
+    }
+
+    private fun publishDurabilityState() {
+        _durabilityState.value = MixCatalogDurabilityState(
+            pending = pendingWrites.values.map { it.snapshot },
+        )
+    }
+
+    /** Publisher semantics report durable success for both a write and an existing equal entry. */
+    override fun publish(snapshot: MixCatalogSnapshot): Boolean = synchronized(this) {
+        if (!MixCatalogJson.isValidSnapshot(snapshot)) return@synchronized false
+        val key = snapshot.job to snapshot.material
+        val current = readCached(snapshot.job, snapshot.material)
+        if (current != null && current.snapshot.revision > snapshot.revision) {
+            // A completed mutation can be restored after a newer refresh has already won. The
+            // newer cache is the durable result; never regress it while acknowledging recovery.
+            // Keep any in-memory pending write: the newer visible snapshot may itself still need
+            // persistence and must remain recoverable across the next coordinator restore.
+            return@synchronized true
+        }
+        val pending = pendingWrites[key]
+        val retryPending = pending != null && (
+            snapshot.revision > pending.snapshot.revision || snapshot == pending.snapshot
+        )
+        writeInternal(snapshot, forceWrite = retryPending) != MixCatalogCacheWriteResult.FAILED
+    }
 
     private fun cacheFile(job: String, material: String): File = File(root, "${key(job, material)}.json")
+
+    private fun readBacking(job: String, material: String): CachedMixCatalogSnapshot? {
+        val file = cacheFile(job, material)
+        if (!file.isFile) return null
+        val cached = runCatching {
+            parseCachedSnapshot(file.readText(StandardCharsets.UTF_8))
+        }.getOrNull() ?: return null
+        if (cached.snapshot.job != job || cached.snapshot.material != material) return null
+        return cached
+    }
 
     private fun key(job: String, material: String): String = MessageDigest.getInstance("SHA-256")
         .digest("$job\u0000$material".toByteArray(StandardCharsets.UTF_8))

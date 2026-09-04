@@ -76,7 +76,7 @@ data class ManageCodeMaterialState(
     val locked: Set<String>,
     val selections: Map<String, ManageCodeRowSelection>,
     val mixConflict: List<String> = emptyList(),
-    /** Set only by an operator row reorder or MIX toggle, never by target hydration. */
+    /** Set only by an operator row reorder or selection edit, never by target hydration. */
     val mixLayoutDirty: Boolean = false,
 )
 
@@ -120,15 +120,42 @@ internal fun externalDeleteSubmissionPath(
 internal fun catalogChangedRecoveryMessage(materialName: String): String =
     "Mix catalog changed — refresh and choose an action again"
 
+internal fun catalogRecoveryTriggerAfterRefresh(
+    materialName: String,
+    result: MixCatalogFetchResult,
+): String? = when (result) {
+    is MixCatalogFetchResult.Success -> null
+    MixCatalogFetchResult.NetworkError -> materialName
+}
+
+internal data class CatalogTargetRefreshDecision(
+    val target: MixGenerationTarget?,
+    val reopenAction: Boolean,
+)
+
+/** Drops only a target invalidated by a newer catalog revision and requests a fresh action path. */
+internal fun reconcileCatalogTargetAfterRefresh(
+    selectedTarget: MixGenerationTarget?,
+    catalog: MixCatalogSnapshot,
+    materialName: String,
+): CatalogTargetRefreshDecision {
+    if (selectedTarget == null) return CatalogTargetRefreshDecision(null, reopenAction = false)
+    return if (resolveMixGenerationTarget(selectedTarget, catalog, materialName) == null) {
+        CatalogTargetRefreshDecision(null, reopenAction = true)
+    } else {
+        CatalogTargetRefreshDecision(selectedTarget, reopenAction = false)
+    }
+}
+
 internal fun updateMixLayoutSelection(
     state: ManageCodeMaterialState,
     editablePgm: String,
     selection: ManageCodeRowSelection
 ): ManageCodeMaterialState {
-    val mixChanged = state.selections[editablePgm]?.mix != selection.mix
+    val selectionChanged = state.selections[editablePgm] != selection
     return state.copy(
         selections = state.selections + (editablePgm to selection),
-        mixLayoutDirty = state.mixLayoutDirty || mixChanged
+        mixLayoutDirty = state.mixLayoutDirty || selectionChanged
     )
 }
 
@@ -136,10 +163,10 @@ internal fun updateMixLayoutSelections(
     state: ManageCodeMaterialState,
     selections: Map<String, ManageCodeRowSelection>
 ): ManageCodeMaterialState {
-    val mixChanged = selections.any { (pgm, selection) -> state.selections[pgm]?.mix != selection.mix }
+    val selectionsChanged = state.selections != selections
     return state.copy(
         selections = selections,
-        mixLayoutDirty = state.mixLayoutDirty || mixChanged
+        mixLayoutDirty = state.mixLayoutDirty || selectionsChanged
     )
 }
 
@@ -149,6 +176,19 @@ internal fun updateMixLayoutRows(
 ): ManageCodeMaterialState {
     val orderChanged = state.rows.map { it.editablePgm } != rows.map { it.editablePgm }
     return state.copy(rows = rows, mixLayoutDirty = state.mixLayoutDirty || orderChanged)
+}
+
+/** Applies refreshed service metadata without replacing edits made while the request was away. */
+internal fun mergeCatalogRefreshMaterialState(
+    current: ManageCodeMaterialState?,
+    hydrated: ManageCodeMaterialState,
+): ManageCodeMaterialState {
+    if (current == null || !current.mixLayoutDirty) return hydrated
+    return hydrated.copy(
+        rows = current.rows,
+        selections = current.selections,
+        mixLayoutDirty = true,
+    )
 }
 
 /** Seeds an untouched multi-active screen from the chosen target without replacing operator edits. */
@@ -607,6 +647,19 @@ fun ManageCodeScreen(
     var catalogRecoveryMaterial by remember { mutableStateOf<String?>(null) }
     var catalogRecoveryAttempt by remember { mutableIntStateOf(0) }
 
+    fun applyRefreshedCatalog(materialName: String, snapshot: MixCatalogSnapshot) {
+        val decision = reconcileCatalogTargetAfterRefresh(
+            selectedTarget = selectedTargets[materialName],
+            catalog = snapshot,
+            materialName = materialName,
+        )
+        if (!decision.reopenAction) return
+        selectedTargets = selectedTargets - materialName
+        allowedDuplicateMaterials = allowedDuplicateMaterials - materialName
+        pendingMixAction = PendingMixAction(materialName, snapshot)
+        preflightMessage = "Catalog refreshed — choose a new action for $materialName"
+    }
+
     suspend fun loadMaterialState(
         material: com.kkc.sheettracker.data.models.Material,
         catalog: MixCatalogSnapshot?,
@@ -655,19 +708,25 @@ fun ManageCodeScreen(
             val cached = catalogRepository.cached(jobFolderName, materialName)
             if (cached != null) {
                 materialCatalogs = materialCatalogs + (materialName to cached)
-                materialStates = materialStates + (materialName to loadMaterialState(
-                    material, cached, loadLiveData = reachable == true
-                ))
+                val hydrated = loadMaterialState(material, cached, loadLiveData = reachable == true)
+                materialStates = materialStates + (
+                    materialName to mergeCatalogRefreshMaterialState(materialStates[materialName], hydrated)
+                )
             } else if (materialStates[materialName] == null) {
-                materialStates = materialStates + (materialName to loadMaterialState(
-                    material, null, loadLiveData = reachable == true
-                ))
+                val hydrated = loadMaterialState(material, null, loadLiveData = reachable == true)
+                materialStates = materialStates + (
+                    materialName to mergeCatalogRefreshMaterialState(materialStates[materialName], hydrated)
+                )
             }
             if (reachable != true) continue
             when (val refreshed = catalogRepository.refresh(jobFolderName, materialName)) {
                 is MixCatalogFetchResult.Success -> {
                     materialCatalogs = materialCatalogs + (materialName to refreshed.snapshot)
-                    materialStates = materialStates + (materialName to loadMaterialState(material, refreshed.snapshot))
+                    val hydrated = loadMaterialState(material, refreshed.snapshot)
+                    materialStates = materialStates + (
+                        materialName to mergeCatalogRefreshMaterialState(materialStates[materialName], hydrated)
+                    )
+                    applyRefreshedCatalog(materialName, refreshed.snapshot)
                     catalogLoadErrors = catalogLoadErrors - materialName
                 }
                 MixCatalogFetchResult.NetworkError -> {
@@ -697,10 +756,20 @@ fun ManageCodeScreen(
             if (!state.hasPgmsOnThisCnc) continue
             val catalog = materialCatalogs[materialName]
                 ?: return ManageCodeSessionPreparation.Blocked("Mix catalog unavailable — refresh and try again")
+            val selectedTarget = selectedTargets[materialName]
+            val selectedDecision = reconcileCatalogTargetAfterRefresh(selectedTarget, catalog, materialName)
+            if (selectedDecision.reopenAction) {
+                selectedTargets = selectedTargets - materialName
+                allowedDuplicateMaterials = allowedDuplicateMaterials - materialName
+                val pending = PendingMixAction(materialName, catalog)
+                pendingMixAction = pending
+                preflightMessage = "Catalog refreshed — choose a new action for $materialName"
+                return ManageCodeSessionPreparation.SelectAction(pending)
+            }
             if (catalog.entries.any { it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.EXTERNAL }) {
                 return ManageCodeSessionPreparation.SelectAction(PendingMixAction(materialName, catalog))
             }
-            val target = selectedTargets[materialName] ?: mixActionDialogContent(catalog).automaticTarget
+            val target = selectedDecision.target ?: mixActionDialogContent(catalog).automaticTarget
                 ?: return ManageCodeSessionPreparation.SelectAction(PendingMixAction(materialName, catalog))
             val plan = resolveMixGenerationTarget(target, catalog, materialName)
                 ?: return ManageCodeSessionPreparation.Blocked("Mix catalog changed — choose an action again")
@@ -796,10 +865,14 @@ fun ManageCodeScreen(
             val snapshot = catalogRepository.cached(jobFolderName, action.material)
             if (snapshot != null) {
                 materialCatalogs = materialCatalogs + (material.materialName to snapshot)
-                materialStates = materialStates + (material.materialName to loadMaterialState(material, snapshot))
-            } else {
+                val hydrated = loadMaterialState(material, snapshot)
                 materialStates = materialStates + (
-                    material.materialName to loadMaterialState(material, null)
+                    material.materialName to mergeCatalogRefreshMaterialState(materialStates[material.materialName], hydrated)
+                )
+            } else {
+                val hydrated = loadMaterialState(material, null)
+                materialStates = materialStates + (
+                    material.materialName to mergeCatalogRefreshMaterialState(materialStates[material.materialName], hydrated)
                 )
             }
             refreshedOperationIds = refreshedOperationIds + refreshKey
@@ -814,8 +887,13 @@ fun ManageCodeScreen(
         when (val refreshed = catalogRepository.refresh(jobFolderName, materialName)) {
             is MixCatalogFetchResult.Success -> {
                 materialCatalogs = materialCatalogs + (materialName to refreshed.snapshot)
-                materialStates = materialStates + (materialName to loadMaterialState(material, refreshed.snapshot))
+                val hydrated = loadMaterialState(material, refreshed.snapshot)
+                materialStates = materialStates + (
+                    materialName to mergeCatalogRefreshMaterialState(materialStates[materialName], hydrated)
+                )
+                applyRefreshedCatalog(materialName, refreshed.snapshot)
                 catalogLoadErrors = catalogLoadErrors - materialName
+                catalogRecoveryMaterial = catalogRecoveryTriggerAfterRefresh(materialName, refreshed)
                 pendingMixAction = PendingMixAction(materialName, refreshed.snapshot)
                 preflightMessage = "Catalog refreshed — choose a new action for $materialName"
             }

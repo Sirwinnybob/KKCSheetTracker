@@ -84,6 +84,7 @@ import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
+import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
 import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
 import com.kkc.sheettracker.data.mixservice.MaterialMixEntry
 import com.kkc.sheettracker.data.mixservice.activeMixRows
@@ -276,12 +277,20 @@ fun JobDetailScreen(
     tabletId: String,
     archiveClientFactory: suspend () -> ArchiveLifecycleClient?,
     onArchiveCompleted: () -> Unit,
+    mixCatalogRepository: MixCatalogRepository? = null,
+    loadMixCatalog: Boolean = true,
     clockInState: ClockInState? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val app = LocalContext.current.applicationContext as com.kkc.sheettracker.KKCApplication
-    val catalogRepository = app.mixCatalogRepository
+    // Archived jobs are self-contained snapshots. They must never consult the live process cache
+    // or network catalog, which may have unrelated revisions (or be unavailable altogether).
+    val catalogRepository = if (loadMixCatalog) {
+        mixCatalogRepository ?: app.mixCatalogRepository
+    } else {
+        null
+    }
     val navBarDeco = LocalNavBarDecoration.current
     val adminEnabled by AdminModeController.enabled.collectAsState()
     LaunchedEffect(Unit) {
@@ -318,6 +327,7 @@ fun JobDetailScreen(
     var catalogRetryMaterial by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var catalogRetryAttempt by remember(jobFolderName) { mutableIntStateOf(0) }
     LaunchedEffect(job, jobFolderName, catalogRepository, catalogRetryAttempt) {
+        val repository = catalogRepository ?: return@LaunchedEffect
         val currentJob = job ?: return@LaunchedEffect
         val requestedMaterial = catalogRetryMaterial
         val materialsToLoad = if (requestedMaterial == null) {
@@ -326,14 +336,14 @@ fun JobDetailScreen(
             currentJob.materials.filter { it.materialName == requestedMaterial }
         }
         materialsToLoad.forEach { material ->
-            val cached = catalogRepository.cached(jobFolderName, material.materialName)
+            val cached = repository.cached(jobFolderName, material.materialName)
             if (!isActive) return@forEach
             catalogState = jobDetailCatalogStateBeforeRefresh(
                 previous = catalogState,
                 materialName = material.materialName,
                 cached = cached,
             )
-            val refreshed = catalogRepository.refresh(jobFolderName, material.materialName)
+            val refreshed = repository.refresh(jobFolderName, material.materialName)
             catalogState = jobDetailCatalogStateAfterRefresh(
                 previous = catalogState,
                 materialName = material.materialName,

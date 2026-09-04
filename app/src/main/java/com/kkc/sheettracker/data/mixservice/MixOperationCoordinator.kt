@@ -2,12 +2,14 @@ package com.kkc.sheettracker.data.mixservice
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -41,6 +43,11 @@ class MixOperationCoordinator(
             val retrySession = lock.withLock {
                 val existing = _sessions.value[job] ?: return@launch
                 if (existing.current.state !in setOf("failed", "interrupted")) return@launch
+                // A catalog conflict is an acknowledged response for a stale revision. Never
+                // replay that mutation through the generic retry path, even if UI is bypassed.
+                if (existing.current.state == "failed" && existing.current.error == "catalog_changed") {
+                    return@launch
+                }
                 if (existing.currentAction?.material != material) return@launch
                 val index = existing.currentActionIndex
                 val resetActions = existing.actions.toMutableList().also {
@@ -65,20 +72,23 @@ class MixOperationCoordinator(
      * IDs). The replacement is saved before its first action is submitted, and the old action is
      * never replayed.
      */
-    suspend fun replaceCatalogChangedSession(replacement: ManageCodeSession): Boolean {
-        if (_restoreState.value != MixOperationRestoreState.Ready) return false
-        val shouldSubmit = lock.withLock {
-            if (_restoreState.value != MixOperationRestoreState.Ready) return false
-            val existing = _sessions.value[replacement.job] ?: return false
-            if (!existing.isFailedCatalogChangedSession()) return false
-            if (!replacement.isFreshReplacementSession()) return false
+    suspend fun replaceCatalogChangedSession(replacement: ManageCodeSession): Boolean =
+        withContext(NonCancellable) {
+            if (_restoreState.value != MixOperationRestoreState.Ready) return@withContext false
+            val shouldSubmit = lock.withLock {
+                if (_restoreState.value != MixOperationRestoreState.Ready) return@withLock false
+                val existing = _sessions.value[replacement.job] ?: return@withLock false
+                if (!existing.isFailedCatalogChangedSession()) return@withLock false
+                if (!replacement.isFreshReplacementSession()) return@withLock false
 
-            publishLocked(replacement)
-            true
+                publishLocked(replacement.retainCatalogPublicationRecovery(existing))
+                // The replacement is now durable. Keep submission on the coordinator's process
+                // scope so cancellation of a Compose caller cannot strand the queued action.
+                scope.launch { submitCurrentAction(replacement.job) }
+                true
+            }
+            shouldSubmit
         }
-        if (shouldSubmit) submitCurrentAction(replacement.job)
-        return shouldSubmit
-    }
 
     fun restore() {
         scope.launch {
@@ -100,11 +110,22 @@ class MixOperationCoordinator(
                 _restoreState.value = MixOperationRestoreState.Ready
                 restored.values.forEach { session ->
                     scope.launch {
-                        val action = session.currentAction ?: return@launch
+                        val recovered = restoreCatalogPublications(session)
+                        val action = recovered.currentAction ?: return@launch
                         val id = action.operationId
                         if (id == null) {
-                            if (action.isCatalogAction && session.current.state == "failed") return@launch
-                            markInterrupted(session.job, action.material, "submission was not acknowledged before restart")
+                            if (recovered.current.state == "queued") {
+                                // A queued action has been persisted but not marked as submitted.
+                                // It is safe to continue, including catalog replacements whose
+                                // request must not be reclassified as an interruption merely
+                                // because no server operation id exists yet.
+                                submitCurrentAction(session.job)
+                            } else if (action.isCatalogAction && recovered.current.state == "failed") {
+                                // Catalog failures are acknowledged responses, not retries.
+                                return@launch
+                            } else {
+                                markInterrupted(session.job, action.material, "submission was not acknowledged before restart")
+                            }
                         } else {
                             pollExistingOperation(session.job, id)
                         }
@@ -119,7 +140,7 @@ class MixOperationCoordinator(
             if (_restoreState.value != MixOperationRestoreState.Ready) return
             val existing = _sessions.value[session.job]
             if (existing != null && !existing.isCompletedSuccessfully) return
-            publishLocked(session)
+            publishLocked(session.retainCatalogPublicationRecovery(existing))
             true
         }
         if (shouldSubmit) submitCurrentAction(session.job)
@@ -129,6 +150,10 @@ class MixOperationCoordinator(
         val action = lock.withLock {
             val session = _sessions.value[job] ?: return
             val next = session.currentAction ?: return
+            // A next action is submitted either from its initial queued state or immediately
+            // after the previous action completed. Never resubmit while an action is submitting,
+            // running, failed, or interrupted.
+            if (session.current.state !in setOf("queued", "completed")) return
             if (next.operationId != null) return
             val submittedAction = if (next.isCatalogAction && next.job != job) {
                 next.copy(job = job)
@@ -247,6 +272,7 @@ class MixOperationCoordinator(
             currentActionIndex = nextIndex,
             completedMaterials = completedMaterialCount(session.actions, nextIndex),
             warnings = warning?.let { session.warnings + it } ?: session.warnings,
+            completedCatalogSnapshots = session.completedCatalogSnapshots + snapshot,
             current = MixServiceOperation(
                 kind = action.kind,
                 job = session.job,
@@ -272,11 +298,43 @@ class MixOperationCoordinator(
     ) {
         val updated = _sessions.value + (session.job to session)
         store.save(updated)
-        if (MixCatalogJson.isValidSnapshot(snapshot)) {
-            runCatching { catalogPublisher?.publish(snapshot) }
+        val published = publishCatalogSnapshot(snapshot)
+        val publishedSession = updated.getValue(session.job).withCatalogPublicationWarning(
+            // Once an earlier catalog snapshot failed publication, a later success must not
+            // clear the session-level recovery warning before restore has retried that snapshot.
+            pending = !published || session.hasPendingCatalogPublicationWarning(),
+        )
+        if (publishedSession != session) {
+            store.save(_sessions.value + (session.job to publishedSession))
         }
-        _sessions.value = updated
+        _sessions.value = _sessions.value + (session.job to publishedSession)
     }
+
+    private suspend fun restoreCatalogPublications(session: ManageCodeSession): ManageCodeSession {
+        if (session.completedCatalogSnapshots.isEmpty()) return session
+        // Attempt every acknowledged snapshot even when one publication fails. A multi-action
+        // session can contain independent job/material cache keys, so one bad key must not hide
+        // successful recovery for the others.
+        val published = session.completedCatalogSnapshots
+            .map(::publishCatalogSnapshot)
+            .all { it }
+        return lock.withLock {
+            val current = _sessions.value[session.job] ?: return@withLock session
+            val updated = current
+                .withCatalogPublicationWarning(pending = !published)
+                .copy(
+                    completedCatalogSnapshots = if (published) emptyList() else current.completedCatalogSnapshots,
+                )
+            if (updated != current) {
+                publishLocked(updated)
+            }
+            updated
+        }
+    }
+
+    private fun publishCatalogSnapshot(snapshot: MixCatalogSnapshot): Boolean =
+        MixCatalogJson.isValidSnapshot(snapshot) &&
+            runCatching { catalogPublisher?.publish(snapshot) ?: true }.getOrDefault(false)
 
     private fun catalogFailureOperation(
         job: String,
@@ -366,6 +424,49 @@ private fun ManageCodeSession.isFailedCatalogChangedSession(): Boolean =
     current.state == "failed" &&
         current.error == "catalog_changed" &&
         currentAction?.isCatalogAction == true
+
+private fun ManageCodeSession.hasPendingCatalogPublicationWarning(): Boolean =
+    warnings.any { it.code == CATALOG_PUBLICATION_WARNING_CODE } ||
+        current.warning?.code == CATALOG_PUBLICATION_WARNING_CODE
+
+private fun ManageCodeSession.retainCatalogPublicationRecovery(
+    previous: ManageCodeSession?,
+): ManageCodeSession {
+    if (previous == null || !previous.hasPendingCatalogPublicationWarning()) return this
+    val pendingWarnings = buildList {
+        addAll(previous.warnings.filter { it.code == CATALOG_PUBLICATION_WARNING_CODE })
+        previous.current.warning
+            ?.takeIf { it.code == CATALOG_PUBLICATION_WARNING_CODE }
+            ?.let(::add)
+    }
+    return copy(
+        warnings = (warnings + pendingWarnings).distinct(),
+        completedCatalogSnapshots = (previous.completedCatalogSnapshots + completedCatalogSnapshots)
+            .distinctBy { it.job to it.material to it.revision },
+    )
+}
+
+private fun ManageCodeSession.withCatalogPublicationWarning(pending: Boolean): ManageCodeSession {
+    val withoutPublicationWarning = warnings.filterNot { it.code == CATALOG_PUBLICATION_WARNING_CODE }
+    val updatedWarnings = if (pending) {
+        withoutPublicationWarning + MixOperationWarning(
+            code = CATALOG_PUBLICATION_WARNING_CODE,
+            message = "Catalog updated, but the saved catalog cache could not be written; retrying automatically",
+        )
+    } else {
+        withoutPublicationWarning
+    }
+    val currentWarning = current.warning
+        ?.takeUnless { it.code == CATALOG_PUBLICATION_WARNING_CODE }
+        ?.let { it }
+        ?: if (pending) updatedWarnings.lastOrNull() else null
+    return copy(
+        warnings = updatedWarnings,
+        current = current.copy(warning = currentWarning),
+    )
+}
+
+private const val CATALOG_PUBLICATION_WARNING_CODE = "catalog_cache_publication_pending"
 
 private fun ManageCodeSession.isFreshReplacementSession(): Boolean =
     actions.isNotEmpty() &&

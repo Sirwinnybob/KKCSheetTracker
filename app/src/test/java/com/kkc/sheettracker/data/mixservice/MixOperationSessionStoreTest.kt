@@ -108,6 +108,54 @@ class MixOperationSessionStoreTest {
         assertEquals("Manual.mix", restored.actions.last().externalMixFilename)
     }
 
+    @Test
+    fun `completed catalog snapshots survive durable session round trip`() = runBlocking {
+        val initial = preferencesOf()
+        val dataStore = FakePreferencesDataStore(flowOf(initial), current = initial)
+        val store = DataStoreMixOperationSessionStore(dataStore)
+        val snapshot = MixCatalogSnapshot(
+            job = "100 - Alpha",
+            material = "Maple",
+            revision = 9L,
+            entries = listOf(
+                MixCatalogEntry(
+                    name = "Current",
+                    mixFilename = "Current.mix",
+                    lifecycle = MixLifecycle.ACTIVE,
+                    programs = listOf("R1.pgm"),
+                ),
+            ),
+        )
+        val session = ManageCodeSession(
+            job = snapshot.job,
+            actions = listOf(ManageCodeOperationAction.catalogReplace(
+                job = snapshot.job,
+                material = snapshot.material,
+                name = "Current",
+                programs = listOf("R1.pgm"),
+                expectedRevision = 8L,
+            )),
+            currentActionIndex = 1,
+            current = MixServiceOperation(
+                job = snapshot.job,
+                material = snapshot.material,
+                state = "completed",
+                stage = "completed",
+                result = snapshot,
+            ),
+            completedCatalogSnapshots = listOf(snapshot),
+        )
+
+        store.save(mapOf(session.job to session))
+        val restoredStore = DataStoreMixOperationSessionStore(
+            FakePreferencesDataStore(flowOf(dataStore.current), current = dataStore.current)
+        )
+        val restored = (restoredStore.load() as MixOperationSessionLoadResult.Success)
+            .sessions.getValue(session.job)
+
+        assertEquals(listOf(snapshot), restored.completedCatalogSnapshots)
+    }
+
     private class FakePreferencesDataStore(
         override val data: Flow<Preferences>,
         var current: Preferences = preferencesOf(),

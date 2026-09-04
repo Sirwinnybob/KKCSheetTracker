@@ -340,6 +340,8 @@ private fun ArchiveCncDetail(
         tabletId = session.tabletId,
         archiveClientFactory = { null },
         onArchiveCompleted = {},
+        mixCatalogRepository = null,
+        loadMixCatalog = false,
     )
 }
 

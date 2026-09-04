@@ -244,6 +244,8 @@ data class ManageCodeSession(
     val completedMaterials: Int = 0,
     val warnings: List<MixOperationWarning> = emptyList(),
     val current: MixServiceOperation = MixServiceOperation(job = job),
+    /** Snapshots returned by acknowledged catalog mutations, retained for cache recovery. */
+    val completedCatalogSnapshots: List<MixCatalogSnapshot> = emptyList(),
 ) {
     val totalMaterials: Int get() = actions.map { it.material }.distinct().size
     val currentAction: ManageCodeOperationAction? get() = actions.getOrNull(currentActionIndex)

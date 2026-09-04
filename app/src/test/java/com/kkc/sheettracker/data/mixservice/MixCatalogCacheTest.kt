@@ -71,6 +71,26 @@ class MixCatalogCacheTest {
     }
 
     @Test
+    fun `publisher treats an equal revision as durably available`() {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(7L, "Current"))
+
+        assertTrue(cache.publish(snapshot(7L, "Changed")))
+        assertEquals("Current", cache.read("100 - Alpha", "Mat")?.entries?.single()?.name)
+    }
+
+    @Test
+    fun `publisher never regresses a newer current cache with an older completed snapshot`() {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(12L, "Current"))
+
+        assertTrue(cache.publish(snapshot(8L, "Completed")))
+
+        assertEquals(12L, cache.read("100 - Alpha", "Mat")?.revision)
+        assertEquals("Current", cache.read("100 - Alpha", "Mat")?.entries?.single()?.name)
+    }
+
+    @Test
     fun `cache replaces a snapshot when a different revision is fetched`() {
         val cache = MixCatalogCache(root)
         cache.write(snapshot(7L, "Current"))
@@ -213,12 +233,11 @@ class MixCatalogCacheTest {
     }
 
     @Test
-    fun `failed refresh publication retains cache and delivers contained callback`() = runBlocking {
+    fun `failed refresh publication retains the acknowledged snapshot and delivers contained callback`() = runBlocking {
         val cache = MixCatalogCache(root)
         cache.write(snapshot(7L, "Existing"))
         assertTrue(root.deleteRecursively())
         assertTrue(root.createNewFile())
-        assertFalse(cache.write(snapshot(8L, "DirectFailure")))
         val repository = MixCatalogRepository(
             FakeCatalogReader(MixCatalogFetchResult.Success(snapshot(8L, "Fresh"))),
             cache,
@@ -231,11 +250,94 @@ class MixCatalogCacheTest {
                 callback.complete(it)
             }?.revision)
             assertEquals(MixCatalogFetchResult.NetworkError, callback.await())
-            assertEquals(7L, repository.cached("100 - Alpha", "Mat")?.revision)
-            assertEquals("Existing", repository.cached("100 - Alpha", "Mat")?.entries?.single()?.name)
+            assertEquals(8L, repository.cached("100 - Alpha", "Mat")?.revision)
+            assertEquals("Fresh", repository.cached("100 - Alpha", "Mat")?.entries?.single()?.name)
         } finally {
             scope.cancel()
         }
+    }
+
+    @Test
+    fun `failed catalog persistence publishes an observable snapshot and records recovery state`() {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(7L, "Existing"))
+        assertTrue(root.deleteRecursively())
+        assertTrue(root.createNewFile())
+
+        assertFalse(cache.write(snapshot(8L, "Completed")))
+
+        assertEquals(8L, cache.read("100 - Alpha", "Mat")?.revision)
+        assertEquals("Completed", cache.read("100 - Alpha", "Mat")?.entries?.single()?.name)
+        assertEquals(listOf(8L), cache.durabilityState.value.pending.map { it.revision })
+    }
+
+    @Test
+    fun `pending acknowledged snapshot cannot be overwritten by an older refresh`() {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(7L, "Existing"))
+        assertTrue(root.deleteRecursively())
+        assertTrue(root.createNewFile())
+        assertFalse(cache.write(snapshot(8L, "Completed")))
+
+        val expected = cache.readCached("100 - Alpha", "Mat")
+        assertEquals(
+            MixCatalogCacheWriteResult.SUPERSEDED,
+            cache.writeIfUnchanged(snapshot(7L, "Stale"), expected),
+        )
+        assertEquals("Completed", cache.read("100 - Alpha", "Mat")?.entries?.single()?.name)
+        assertEquals(listOf(8L), cache.durabilityState.value.pending.map { it.revision })
+    }
+
+    @Test
+    fun `pending acknowledged snapshot can be durably retried without mutation replay`() {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(7L, "Existing"))
+        assertTrue(root.deleteRecursively())
+        assertTrue(root.createNewFile())
+        assertFalse(cache.write(snapshot(8L, "Completed")))
+
+        assertTrue(root.delete())
+        assertTrue(root.mkdirs())
+        assertTrue(cache.retryPendingWrites())
+
+        assertEquals(8L, MixCatalogCache(root).read("100 - Alpha", "Mat")?.revision)
+        assertTrue(cache.durabilityState.value.pending.isEmpty())
+    }
+
+    @Test
+    fun `retrying pending snapshot never regresses a newer revision from another cache instance`() {
+        val firstCache = MixCatalogCache(root)
+        firstCache.write(snapshot(7L, "Existing"))
+        assertTrue(root.deleteRecursively())
+        assertTrue(root.createNewFile())
+        assertFalse(firstCache.write(snapshot(8L, "Acknowledged")))
+
+        assertTrue(root.delete())
+        assertTrue(root.mkdirs())
+        val secondCache = MixCatalogCache(root)
+        assertTrue(secondCache.write(snapshot(9L, "Newer")))
+
+        assertTrue(firstCache.retryPendingWrites())
+
+        assertEquals(9L, MixCatalogCache(root).read("100 - Alpha", "Mat")?.revision)
+        assertEquals("Newer", MixCatalogCache(root).read("100 - Alpha", "Mat")?.entries?.single()?.name)
+        assertTrue(firstCache.durabilityState.value.pending.isEmpty())
+    }
+
+    @Test
+    fun `publisher retries an in-memory pending snapshot after persistence recovers`() {
+        val cache = MixCatalogCache(root)
+        assertTrue(root.deleteRecursively())
+        assertTrue(root.createNewFile())
+        val acknowledged = snapshot(8L, "Completed")
+        assertFalse(cache.publish(acknowledged))
+
+        assertTrue(root.delete())
+        assertTrue(root.mkdirs())
+        assertTrue(cache.publish(acknowledged))
+
+        assertEquals(8L, MixCatalogCache(root).read("100 - Alpha", "Mat")?.revision)
+        assertTrue(cache.durabilityState.value.pending.isEmpty())
     }
 
     private class SequencedCatalogReader : MixCatalogReader {

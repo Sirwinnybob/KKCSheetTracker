@@ -8,6 +8,7 @@ import com.kkc.sheettracker.data.mixservice.MixOperationRestoreState
 import com.kkc.sheettracker.data.mixservice.MixServiceOperation
 import com.kkc.sheettracker.data.mixservice.MixCatalogEntry
 import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
+import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
 import com.kkc.sheettracker.data.mixservice.MixLifecycle
 import com.kkc.sheettracker.data.mixservice.PgmEditRow
 import com.kkc.sheettracker.data.mixservice.ManageCodeChange
@@ -377,6 +378,73 @@ class ManageCodeOperationUiStateTest {
             externalDeleteSubmissionPath(networkFailure, "648"),
         )
     }
+
+    @Test
+    fun `catalog refresh retains operator page order and selections`() {
+        val current = ManageCodeMaterialState(
+            materialName = "Walnut",
+            hasPgmsOnThisCnc = true,
+            rows = listOf(
+                com.kkc.sheettracker.data.mixservice.ManageCodeRow(2, listOf("R2.pgm"), "R2.pgm", null),
+                com.kkc.sheettracker.data.mixservice.ManageCodeRow(1, listOf("R1.pgm"), "R1.pgm", null),
+            ),
+            locked = emptySet(),
+            selections = mapOf(
+                "R2.pgm" to com.kkc.sheettracker.data.mixservice.ManageCodeRowSelection(mix = true, secondPass = true),
+                "R1.pgm" to com.kkc.sheettracker.data.mixservice.ManageCodeRowSelection(removePUnload = true),
+            ),
+            mixLayoutDirty = true,
+        )
+        val hydrated = current.copy(
+            rows = current.rows.reversed(),
+            selections = current.selections.mapValues { com.kkc.sheettracker.data.mixservice.ManageCodeRowSelection() },
+            mixLayoutDirty = false,
+        )
+
+        val merged = mergeCatalogRefreshMaterialState(current, hydrated)
+
+        assertEquals(current.rows, merged.rows)
+        assertEquals(current.selections, merged.selections)
+        assertTrue(merged.mixLayoutDirty)
+    }
+
+    @Test
+    fun `catalog refresh reopens action selection for stale target but keeps valid target`() {
+        val stale = MixGenerationTarget.ReplaceActive("Current", 7L, listOf("R1.pgm"))
+        val refreshed = catalogSnapshot().copy(
+            revision = 8L,
+            entries = listOf(MixCatalogEntry("Current", "Current.mix", MixLifecycle.ACTIVE, listOf("R1.pgm"))),
+        )
+
+        val staleDecision = reconcileCatalogTargetAfterRefresh(stale, refreshed, "Walnut")
+
+        assertTrue(staleDecision.reopenAction)
+        assertEquals(null, staleDecision.target)
+
+        val valid = MixGenerationTarget.ReplaceActive("Current", 8L, listOf("R1.pgm"))
+        val validDecision = reconcileCatalogTargetAfterRefresh(valid, refreshed, "Walnut")
+
+        assertFalse(validDecision.reopenAction)
+        assertEquals(valid, validDecision.target)
+    }
+
+    @Test
+    fun `catalog recovery trigger clears only after successful refresh`() {
+        assertEquals(
+            null,
+            catalogRecoveryTriggerAfterRefresh("Walnut", MixCatalogFetchResult.Success(catalogSnapshot())),
+        )
+        assertEquals(
+            "Walnut",
+            catalogRecoveryTriggerAfterRefresh("Walnut", MixCatalogFetchResult.NetworkError),
+        )
+    }
+
+    private fun catalogSnapshot() = MixCatalogSnapshot(
+        job = "648",
+        material = "Walnut",
+        revision = 8L,
+    )
 
     private fun session(
         state: String = "running",

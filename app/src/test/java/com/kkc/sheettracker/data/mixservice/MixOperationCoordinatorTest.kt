@@ -1,12 +1,15 @@
 package com.kkc.sheettracker.data.mixservice
 
 import java.nio.file.Files
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -286,6 +289,222 @@ class MixOperationCoordinatorTest {
     }
 
     @Test
+    fun `retry rejects failed catalog changed action without resubmitting it`() = runBlocking {
+        val store = InMemorySessionStore()
+        val service = CatalogService(MixCatalogMutationResult.CatalogChanged)
+        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+        coordinator.start(
+            session(
+                actions = listOf(
+                    ManageCodeOperationAction.catalogReplace("M", "Current", listOf("R1.pgm"), 7L),
+                )
+            )
+        )
+        withTimeout(1_000) {
+            coordinator.sessions.first { it["648"]?.current?.error == "catalog_changed" }
+        }
+
+        coordinator.retry("648", "M")
+        delay(50)
+
+        assertEquals(1, service.submitCount)
+        assertEquals("catalog_changed", coordinator.sessions.value.getValue("648").current.error)
+    }
+
+    @Test
+    fun `completed catalog publications survive restore without resubmitting earlier actions`() = runBlocking {
+        val root = Files.createTempDirectory("mix-catalog-operation-recovery").toFile()
+        try {
+            assertTrue(root.deleteRecursively())
+            assertTrue(root.createNewFile())
+            val store = InMemorySessionStore()
+            val service = CatalogService()
+            val firstCache = MixCatalogCache(root)
+            val firstCoordinator = MixOperationCoordinator(
+                service = service,
+                store = store,
+                pollIntervalMillis = 1,
+                catalogPublisher = firstCache,
+            )
+            val actions = listOf(
+                ManageCodeOperationAction.catalogReplace("M1", "Current", listOf("R1.pgm"), 7L),
+                ManageCodeOperationAction.catalogReplace("M2", "Current", listOf("R2.pgm"), 11L),
+            )
+
+            firstCoordinator.restore()
+            withTimeout(1_000) { firstCoordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+            firstCoordinator.start(session(actions = actions))
+            val completed = withTimeout(1_000) {
+                firstCoordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true }
+            }.getValue("648")
+
+            assertEquals(2, service.submitCount)
+            assertEquals(2, completed.completedCatalogSnapshots.size)
+            assertEquals("catalog_cache_publication_pending", completed.warnings.single().code)
+            assertEquals(8L, firstCache.read("648", "M1")?.revision)
+            assertEquals(12L, firstCache.read("648", "M2")?.revision)
+
+            assertTrue(root.delete())
+            assertTrue(root.mkdirs())
+            val restoredCache = MixCatalogCache(root)
+            val restoredCoordinator = MixOperationCoordinator(
+                service = service,
+                store = store,
+                pollIntervalMillis = 1,
+                catalogPublisher = restoredCache,
+            )
+
+            restoredCoordinator.restore()
+            withTimeout(1_000) {
+                restoredCoordinator.sessions.first {
+                    it["648"]?.isCompletedSuccessfully == true &&
+                        it["648"]?.warnings?.none { warning -> warning.code == "catalog_cache_publication_pending" } == true
+                }
+            }
+
+            assertEquals(2, service.submitCount)
+            assertEquals(8L, restoredCache.read("648", "M1")?.revision)
+            assertEquals(12L, restoredCache.read("648", "M2")?.revision)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `restore attempts every completed catalog publication after an earlier failure`() = runBlocking {
+        val publications = mutableListOf<String>()
+        val publisher = MixCatalogPublisher { snapshot ->
+            publications += snapshot.material
+            snapshot.material == "M2"
+        }
+        val session = session(
+            actions = listOf(
+                ManageCodeOperationAction.catalogReplace("M1", "Current", listOf("R1.pgm"), 7L),
+                ManageCodeOperationAction.catalogReplace("M2", "Current", listOf("R2.pgm"), 11L),
+            ),
+        ).copy(
+            currentActionIndex = 2,
+            current = operation(state = "completed", stage = "completed"),
+            completedCatalogSnapshots = listOf(
+                MixCatalogSnapshot("648", "M1", 8L),
+                MixCatalogSnapshot("648", "M2", 12L),
+            ),
+        )
+        val coordinator = MixOperationCoordinator(
+            service = CatalogService(),
+            store = InMemorySessionStore(mapOf("648" to session)),
+            pollIntervalMillis = 1,
+            catalogPublisher = publisher,
+        )
+
+        coordinator.restore()
+        withTimeout(1_000) {
+            coordinator.sessions.first { it["648"]?.warnings?.any { warning ->
+                warning.code == "catalog_cache_publication_pending"
+            } == true }
+        }
+
+        assertEquals(listOf("M1", "M2"), publications)
+    }
+
+    @Test
+    fun `later successful catalog publication does not hide an earlier pending publication`() = runBlocking {
+        val publisher = MixCatalogPublisher { snapshot -> snapshot.material != "M1" }
+        val coordinator = MixOperationCoordinator(
+            service = CatalogService(),
+            store = InMemorySessionStore(),
+            pollIntervalMillis = 1,
+            catalogPublisher = publisher,
+        )
+
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+        coordinator.start(
+            session(
+                actions = listOf(
+                    ManageCodeOperationAction.catalogReplace("M1", "Current", listOf("R1.pgm"), 7L),
+                    ManageCodeOperationAction.catalogReplace("M2", "Current", listOf("R2.pgm"), 11L),
+                )
+            )
+        )
+
+        val completed = withTimeout(1_000) {
+            coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true }
+        }.getValue("648")
+
+        assertEquals("catalog_cache_publication_pending", completed.warnings.single().code)
+    }
+
+    @Test
+    fun `starting a new generation retains pending catalog publications for restart recovery`() = runBlocking {
+        val publications = mutableListOf<String>()
+        var allowPublication = false
+        val publisher = MixCatalogPublisher { snapshot ->
+            publications += snapshot.material
+            allowPublication
+        }
+        val store = InMemorySessionStore()
+        val service = CatalogService()
+        val coordinator = MixOperationCoordinator(
+            service = service,
+            store = store,
+            pollIntervalMillis = 1,
+            catalogPublisher = publisher,
+        )
+
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+        coordinator.start(
+            session(
+                actions = listOf(
+                    ManageCodeOperationAction.catalogReplace("M1", "Current", listOf("R1.pgm"), 7L),
+                )
+            )
+        )
+        withTimeout(1_000) { coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true } }
+
+        coordinator.start(
+            session(
+                actions = listOf(
+                    ManageCodeOperationAction.catalogReplace("M2", "Current", listOf("R2.pgm"), 11L),
+                )
+            )
+        )
+        val secondGeneration = withTimeout(1_000) {
+            coordinator.sessions.first {
+                it["648"]?.isCompletedSuccessfully == true &&
+                    it["648"]?.completedCatalogSnapshots?.size == 2
+            }
+        }.getValue("648")
+
+        assertEquals(listOf("M1", "M2"), secondGeneration.completedCatalogSnapshots.map { it.material })
+        assertEquals("catalog_cache_publication_pending", secondGeneration.warnings.single().code)
+
+        allowPublication = true
+        val restoredCoordinator = MixOperationCoordinator(
+            service = service,
+            store = store,
+            pollIntervalMillis = 1,
+            catalogPublisher = publisher,
+        )
+        restoredCoordinator.restore()
+        withTimeout(1_000) {
+            restoredCoordinator.sessions.first {
+                it["648"]?.isCompletedSuccessfully == true &&
+                    it["648"]?.warnings?.none { warning ->
+                        warning.code == "catalog_cache_publication_pending"
+                    } == true
+            }
+        }
+
+        assertTrue(publications.containsAll(listOf("M1", "M2")))
+        assertEquals(2, service.submitCount)
+    }
+
+    @Test
     fun `replacing catalog changed session persists fresh actions before submitting`() = runBlocking {
         val failed = session(
             actions = listOf(
@@ -345,6 +564,174 @@ class MixOperationCoordinatorTest {
         assertEquals("new-request", completed.actions[1].requestId)
         assertTrue(store.saved.indexOfFirst { it === replacement } >= 0)
     }
+
+    @Test
+    fun `replacing catalog changed session retains pending publication recovery across restart`() = runBlocking {
+        val pendingSnapshot = MixCatalogSnapshot(
+            job = "648",
+            material = "Previous",
+            revision = 8L,
+        )
+        val pendingWarning = MixOperationWarning(
+            code = "catalog_cache_publication_pending",
+            message = "cache publication pending",
+        )
+        val failed = failedCatalogSession().copy(
+            warnings = listOf(pendingWarning),
+            current = failedCatalogSession().current.copy(warning = pendingWarning),
+            completedCatalogSnapshots = listOf(pendingSnapshot),
+        )
+        val store = InMemorySessionStore(mapOf("648" to failed))
+        var allowPublication = false
+        val publications = mutableListOf<MixCatalogSnapshot>()
+        var persistedBeforeSubmit: ManageCodeSession? = null
+        val publisher = MixCatalogPublisher { snapshot ->
+            synchronized(publications) { publications += snapshot }
+            allowPublication
+        }
+        val service = CatalogService(onCatalogSubmit = {
+            persistedBeforeSubmit = store.currentSessions.getValue("648")
+        })
+        val coordinator = MixOperationCoordinator(
+            service = service,
+            store = store,
+            pollIntervalMillis = 1,
+            catalogPublisher = publisher,
+        )
+
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+        assertTrue(
+            coordinator.replaceCatalogChangedSession(
+                ManageCodeSession(
+                    job = "648",
+                    actions = listOf(
+                        ManageCodeOperationAction.catalogReplace(
+                            job = "648",
+                            material = "Replacement",
+                            name = "Current",
+                            programs = listOf("R2.pgm"),
+                            expectedRevision = 9L,
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        val completed = withTimeout(1_000) {
+            coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true }
+        }.getValue("648")
+        assertEquals(listOf(pendingSnapshot), persistedBeforeSubmit?.completedCatalogSnapshots)
+        assertEquals("catalog_cache_publication_pending", persistedBeforeSubmit?.warnings?.single()?.code)
+        assertEquals(listOf("Previous", "Replacement"), completed.completedCatalogSnapshots.map { it.material })
+        assertEquals(1, service.submitCount)
+
+        val publicationsBeforeRestart = synchronized(publications) { publications.size }
+        allowPublication = true
+        val restartedCoordinator = MixOperationCoordinator(
+            service = service,
+            store = store,
+            pollIntervalMillis = 1,
+            catalogPublisher = publisher,
+        )
+        restartedCoordinator.restore()
+        val recovered = withTimeout(1_000) {
+            restartedCoordinator.sessions.first {
+                it["648"]?.isCompletedSuccessfully == true &&
+                    it["648"]?.completedCatalogSnapshots?.isEmpty() == true &&
+                    it["648"]?.warnings?.none { warning ->
+                        warning.code == "catalog_cache_publication_pending"
+                    } == true
+            }
+        }.getValue("648")
+
+        assertTrue(recovered.isCompletedSuccessfully)
+        assertEquals(1, service.submitCount)
+        val retriedPublications = synchronized(publications) { publications.drop(publicationsBeforeRestart) }
+        assertEquals(listOf("Previous", "Replacement"), retriedPublications.map { it.material })
+    }
+
+    @Test
+    fun `replacement submission survives cancellation after replacement persistence`() = runBlocking {
+        val persisted = CompletableDeferred<Unit>()
+        val releaseSave = CompletableDeferred<Unit>()
+        val replacementStore = object : MixOperationSessionStore {
+            var sessions: Map<String, ManageCodeSession> = mapOf("648" to failedCatalogSession())
+
+            override suspend fun load(): MixOperationSessionLoadResult =
+                MixOperationSessionLoadResult.Success(sessions)
+
+            override suspend fun save(next: Map<String, ManageCodeSession>) {
+                sessions = next
+                if (next["648"]?.current?.state == "queued" && persisted.complete(Unit)) {
+                    releaseSave.await()
+                }
+            }
+        }
+        val service = CatalogService()
+        val coordinator = MixOperationCoordinator(service, replacementStore, pollIntervalMillis = 1)
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+        val replacement = ManageCodeSession(
+            job = "648",
+            actions = listOf(ManageCodeOperationAction.catalogReplace("M", "Current", listOf("R2.pgm"), 9L)),
+        )
+
+        val caller: Job = launch { coordinator.replaceCatalogChangedSession(replacement) }
+        persisted.await()
+        caller.cancel()
+        releaseSave.complete(Unit)
+        caller.join()
+
+        withTimeout(1_000) { coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true } }
+        assertEquals(1, service.submitCount)
+    }
+
+    @Test
+    fun `restore resumes a queued replacement without marking it interrupted`() = runBlocking {
+        val queued = ManageCodeSession(
+            job = "648",
+            actions = listOf(
+                ManageCodeOperationAction.catalogReplace(
+                    job = "648",
+                    material = "M",
+                    name = "Current",
+                    programs = listOf("R2.pgm"),
+                    expectedRevision = 9L,
+                ),
+            ),
+            current = operation(state = "queued", stage = "queued").copy(kind = "catalog_replace"),
+        )
+        val store = InMemorySessionStore(mapOf("648" to queued))
+        val service = CatalogService()
+        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+
+        coordinator.restore()
+
+        val completed = withTimeout(1_000) {
+            coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true }
+        }.getValue("648")
+        assertEquals("completed", completed.current.state)
+        assertEquals(1, service.submitCount)
+    }
+
+    private fun failedCatalogSession(): ManageCodeSession = ManageCodeSession(
+        job = "648",
+        actions = listOf(
+            ManageCodeOperationAction.catalogReplace(
+                job = "648",
+                material = "M",
+                name = "Current",
+                programs = listOf("R1.pgm"),
+                expectedRevision = 7L,
+            ),
+        ),
+        current = operation(state = "failed", stage = "failed").copy(
+            kind = "catalog_replace",
+            error = "catalog_changed",
+            result = MixCatalogMutationResult.CatalogChanged,
+        ),
+    )
 
     @Test
     fun `replacing catalog changed session rejects invalid existing states without submitting`() = runBlocking {
