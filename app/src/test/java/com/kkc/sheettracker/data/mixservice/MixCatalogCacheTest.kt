@@ -3,6 +3,11 @@ package com.kkc.sheettracker.data.mixservice
 import java.io.File
 import java.nio.file.Files
 import com.google.gson.Gson
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -159,6 +164,100 @@ class MixCatalogCacheTest {
 
         assertFalse(cache.write(malformed))
         assertEquals(7L, cache.read("100 - Alpha", "Mat")?.revision)
+    }
+
+    @Test
+    fun `out of order same key refreshes cannot overwrite the latest request`() = runBlocking {
+        val cache = MixCatalogCache(root)
+        val reader = SequencedCatalogReader()
+        val repository = MixCatalogRepository(reader, cache)
+
+        val first = async(Dispatchers.Default) {
+            repository.refresh("100 - Alpha", "Mat")
+        }
+        reader.firstStarted.await()
+        val second = async(Dispatchers.Default) {
+            repository.refresh("100 - Alpha", "Mat")
+        }
+        reader.secondStarted.await()
+
+        reader.secondResponse.complete(MixCatalogFetchResult.Success(snapshot(20L, "Latest")))
+        assertTrue(second.await() is MixCatalogFetchResult.Success)
+        reader.firstResponse.complete(MixCatalogFetchResult.Success(snapshot(10L, "Stale")))
+
+        assertEquals(MixCatalogFetchResult.NetworkError, first.await())
+        assertEquals(20L, repository.cached("100 - Alpha", "Mat")?.revision)
+        assertEquals("Latest", repository.cached("100 - Alpha", "Mat")?.entries?.single()?.name)
+    }
+
+    @Test
+    fun `external cache publication supersedes an in flight refresh`() = runBlocking {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(7L, "Existing"))
+        val reader = SequencedCatalogReader()
+        val repository = MixCatalogRepository(reader, cache)
+
+        val refresh = async(Dispatchers.Default) {
+            repository.refresh("100 - Alpha", "Mat")
+        }
+        reader.firstStarted.await()
+        assertTrue(cache.write(snapshot(9L, "ExternallyPublished")))
+        reader.firstResponse.complete(MixCatalogFetchResult.Success(snapshot(8L, "Stale")))
+
+        assertEquals(MixCatalogFetchResult.NetworkError, refresh.await())
+        assertEquals(9L, repository.cached("100 - Alpha", "Mat")?.revision)
+        assertEquals(
+            "ExternallyPublished",
+            repository.cached("100 - Alpha", "Mat")?.entries?.single()?.name,
+        )
+    }
+
+    @Test
+    fun `failed refresh publication retains cache and delivers contained callback`() = runBlocking {
+        val cache = MixCatalogCache(root)
+        cache.write(snapshot(7L, "Existing"))
+        assertTrue(root.deleteRecursively())
+        assertTrue(root.createNewFile())
+        assertFalse(cache.write(snapshot(8L, "DirectFailure")))
+        val repository = MixCatalogRepository(
+            FakeCatalogReader(MixCatalogFetchResult.Success(snapshot(8L, "Fresh"))),
+            cache,
+        )
+        val scope = CoroutineScope(Dispatchers.Default)
+        val callback = CompletableDeferred<MixCatalogFetchResult>()
+
+        try {
+            assertEquals(7L, repository.cachedAndRefresh("100 - Alpha", "Mat", scope) {
+                callback.complete(it)
+            }?.revision)
+            assertEquals(MixCatalogFetchResult.NetworkError, callback.await())
+            assertEquals(7L, repository.cached("100 - Alpha", "Mat")?.revision)
+            assertEquals("Existing", repository.cached("100 - Alpha", "Mat")?.entries?.single()?.name)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    private class SequencedCatalogReader : MixCatalogReader {
+        val firstStarted = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val firstResponse = CompletableDeferred<MixCatalogFetchResult>()
+        val secondResponse = CompletableDeferred<MixCatalogFetchResult>()
+        private var calls = 0
+
+        override suspend fun getMixCatalog(job: String, material: String): MixCatalogFetchResult {
+            return when (synchronized(this) { calls++ }) {
+                0 -> {
+                    firstStarted.complete(Unit)
+                    firstResponse.await()
+                }
+                1 -> {
+                    secondStarted.complete(Unit)
+                    secondResponse.await()
+                }
+                else -> error("unexpected catalog request")
+            }
+        }
     }
 
     private class FakeCatalogReader(private val result: MixCatalogFetchResult) : MixCatalogReader {

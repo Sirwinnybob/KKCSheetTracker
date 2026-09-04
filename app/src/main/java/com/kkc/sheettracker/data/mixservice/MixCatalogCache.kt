@@ -169,6 +169,13 @@ fun interface MixCatalogPublisher {
     fun publish(snapshot: MixCatalogSnapshot): Boolean
 }
 
+internal enum class MixCatalogCacheWriteResult {
+    PUBLISHED,
+    UNCHANGED,
+    SUPERSEDED,
+    FAILED,
+}
+
 /** Durable, per-job/material catalog snapshots. The enclosing cache directory is injected. */
 class MixCatalogCache(
     private val root: File,
@@ -199,34 +206,66 @@ class MixCatalogCache(
     /** Revision is a service equality token: only an identical revision is a no-op. */
     @Synchronized
     fun write(snapshot: MixCatalogSnapshot?): Boolean {
-        if (!MixCatalogJson.isValidSnapshot(snapshot)) return false
-        snapshot ?: return false
-        val existing = readCached(snapshot.job, snapshot.material)
-        if (existing?.snapshot?.revision == snapshot.revision) return false
+        return writeInternal(snapshot) == MixCatalogCacheWriteResult.PUBLISHED
+    }
 
-        if (!root.isDirectory && !root.mkdirs()) return false
-        val destination = cacheFile(snapshot.job, snapshot.material)
-        val temporary = File.createTempFile(destination.name, ".tmp", root)
-        val cached = CachedMixCatalogSnapshot(snapshot, nowMillis())
+    /** Publishes only when the cache still contains the state observed before a refresh began. */
+    @Synchronized
+    internal fun writeIfUnchanged(
+        snapshot: MixCatalogSnapshot?,
+        expected: CachedMixCatalogSnapshot?,
+    ): MixCatalogCacheWriteResult {
+        return try {
+            if (!MixCatalogJson.isValidSnapshot(snapshot)) return MixCatalogCacheWriteResult.FAILED
+            snapshot ?: return MixCatalogCacheWriteResult.FAILED
+            val existing = readCached(snapshot.job, snapshot.material)
+            if (existing?.snapshot?.revision == snapshot.revision) {
+                return MixCatalogCacheWriteResult.UNCHANGED
+            }
+            if (existing != expected) return MixCatalogCacheWriteResult.SUPERSEDED
+            writeInternal(snapshot)
+        } catch (_: Throwable) {
+            MixCatalogCacheWriteResult.FAILED
+        }
+    }
+
+    private fun writeInternal(snapshot: MixCatalogSnapshot?): MixCatalogCacheWriteResult {
+        var temporary: File? = null
         try {
+            if (!MixCatalogJson.isValidSnapshot(snapshot)) return MixCatalogCacheWriteResult.FAILED
+            snapshot ?: return MixCatalogCacheWriteResult.FAILED
+            val existing = readCached(snapshot.job, snapshot.material)
+            if (existing?.snapshot?.revision == snapshot.revision) {
+                return MixCatalogCacheWriteResult.UNCHANGED
+            }
+            if (!root.isDirectory && !root.mkdirs()) return MixCatalogCacheWriteResult.FAILED
+            val destination = cacheFile(snapshot.job, snapshot.material)
+            temporary = File.createTempFile(destination.name, ".tmp", root)
+            val cached = CachedMixCatalogSnapshot(snapshot, nowMillis())
             FileOutputStream(temporary).use { output ->
                 output.write(gson.toJson(cached).toByteArray(StandardCharsets.UTF_8))
                 output.fd.sync()
             }
             try {
                 Files.move(
-                    temporary.toPath(),
+                    temporary!!.toPath(),
                     destination.toPath(),
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
                 )
             } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temporary.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                Files.move(temporary!!.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
             frontCache[snapshot.job to snapshot.material] = cached
-            return true
+            return MixCatalogCacheWriteResult.PUBLISHED
+        } catch (_: Throwable) {
+            return MixCatalogCacheWriteResult.FAILED
         } finally {
-            temporary.delete()
+            try {
+                temporary?.delete()
+            } catch (_: Throwable) {
+                // Cache cleanup is best effort; persistence failures must stay contained.
+            }
         }
     }
 
@@ -262,6 +301,17 @@ class MixCatalogRepository(
     private val client: MixCatalogReader,
     private val cache: MixCatalogCache
 ) {
+    private data class CacheKey(val job: String, val material: String)
+
+    private data class RefreshAttempt(
+        val key: CacheKey,
+        val generation: Long,
+        val base: CachedMixCatalogSnapshot?,
+    )
+
+    private val refreshLock = Any()
+    private val latestGeneration = mutableMapOf<CacheKey, Long>()
+
     fun cached(job: String, material: String): MixCatalogSnapshot? = cache.read(job, material)
 
     fun cachedAndRefresh(
@@ -271,16 +321,40 @@ class MixCatalogRepository(
         onRefreshed: (MixCatalogFetchResult) -> Unit = {}
     ): MixCatalogSnapshot? {
         val cached = cached(job, material)
-        scope.launch { onRefreshed(refresh(job, material)) }
+        val attempt = beginRefresh(job, material)
+        scope.launch { onRefreshed(refresh(attempt)) }
         return cached
     }
 
-    suspend fun refresh(job: String, material: String): MixCatalogFetchResult {
-        val result = client.getMixCatalog(job, material)
-        if (result is MixCatalogFetchResult.Success) {
-            if (!MixCatalogJson.isValidSnapshot(result.snapshot)) return MixCatalogFetchResult.NetworkError
-            cache.write(result.snapshot)
+    suspend fun refresh(job: String, material: String): MixCatalogFetchResult =
+        refresh(beginRefresh(job, material))
+
+    private suspend fun refresh(attempt: RefreshAttempt): MixCatalogFetchResult {
+        val result = client.getMixCatalog(attempt.key.job, attempt.key.material)
+        if (result !is MixCatalogFetchResult.Success) return result
+        if (!MixCatalogJson.isValidSnapshot(result.snapshot)) return MixCatalogFetchResult.NetworkError
+
+        val publication = synchronized(refreshLock) {
+            if (latestGeneration[attempt.key] != attempt.generation) {
+                MixCatalogCacheWriteResult.SUPERSEDED
+            } else {
+                cache.writeIfUnchanged(result.snapshot, attempt.base)
+            }
         }
-        return result
+        return when (publication) {
+            MixCatalogCacheWriteResult.PUBLISHED,
+            MixCatalogCacheWriteResult.UNCHANGED -> result
+            MixCatalogCacheWriteResult.SUPERSEDED,
+            MixCatalogCacheWriteResult.FAILED -> MixCatalogFetchResult.NetworkError
+        }
+    }
+
+    private fun beginRefresh(job: String, material: String): RefreshAttempt {
+        val key = CacheKey(job, material)
+        synchronized(refreshLock) {
+            val generation = (latestGeneration[key] ?: 0L) + 1L
+            latestGeneration[key] = generation
+            return RefreshAttempt(key, generation, cache.readCached(job, material))
+        }
     }
 }
