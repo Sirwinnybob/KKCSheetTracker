@@ -41,3 +41,29 @@ Plan: `docs/superpowers/plans/2026-08-20-archive-job-detail-screens.md`.
 Archive-backed, no-persist job detail and child viewers are available for all work modes. Archive is a Library tile immediately after Safety / SDS, not a bottom-navigation destination. Archived CNC history is rendered with an archive-only, byte-length-compatible tracker fingerprint fallback because ZIP extraction changes file modification times; writable/live jobs retain strict fingerprint matching.
 
 Verification completed on 2026-08-20: focused archive/data/navigation tests, `:app:testDebugUnitTest`, and `:app:assembleDebug` all passed.
+
+# Cabinet spillover jump — awaiting manual verification
+
+Plan: `docs/superpowers/plans/2026-09-08-cabinet-spillover-jump.md`.
+
+Execution: Heavy route with isolated Android and backend worktrees. The automated implementation,
+task-level reviews, and final review are complete; Task 8 is intentionally pending because it writes
+the live Ready Jobs index and installs an APK on a connected tablet.
+
+Delivered:
+- Backend commit range `741d35a..e3e982d` reads per-page drawing/image signal, resolves a
+cabinet's nearest drawing page, preserves Plans adjacency, and annotates both raw and virtual
+combined indexes.
+- Android commit range `686ca120..1e63c4e` preserves the additive index fields, resolves drawing
+pages in the active navigator coordinate space, and uses them before the existing spillover fallback.
+
+Verification:
+- Fresh Android `:app:testDebugUnitTest` passed.
+- Fresh Android `:app:assembleRelease` passed.
+- Focused backend cabinet-reference regressions passed (62 tests); a fresh backend suite had
+3,009 passed and 12 skipped. Its 16 failures exactly match the prior Handoff/PDFme baseline caused
+by the absent `@pdfme/generator` worktree dependency.
+
+Pending external verification: authorize refreshing job 669's live index and installing the tablet
+APK with `adb install -r`, then confirm cabinet 12 jumps to drawing page 5, cabinet 5 retains the
+spillover fallback, and continuous mode uses the same resolved page.
