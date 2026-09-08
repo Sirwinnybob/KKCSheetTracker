@@ -205,12 +205,16 @@ internal fun jobDetailCatalogStateAfterRefresh(
     }
 }
 
-/** An empty scoped selection is an unavailable active mix, never an unscoped viewer fallback. */
+/**
+ * An empty scoped selection is an unavailable active mix, never an unscoped viewer fallback.
+ * A catalog that is unavailable (no cache, refresh failed) still opens: [catalogMaterialEntries]
+ * already falls back to the unscoped default PDF page order in that case, so there is nothing to
+ * block. Only a resolved-but-empty active mix selection blocks opening.
+ */
 internal fun canOpenCatalogMaterialEntry(
     entry: MaterialMixEntry,
-    catalogStatus: JobDetailCatalogStatus? = null,
-): Boolean = catalogStatus != JobDetailCatalogStatus.UNAVAILABLE &&
-    entry.mixSelection?.pageOrder?.isNotEmpty() != false
+    @Suppress("UNUSED_PARAMETER") catalogStatus: JobDetailCatalogStatus? = null,
+): Boolean = entry.mixSelection?.pageOrder?.isNotEmpty() != false
 
 /** Projects only active catalog ownership into the established viewer route model. */
 internal fun catalogMaterialEntries(

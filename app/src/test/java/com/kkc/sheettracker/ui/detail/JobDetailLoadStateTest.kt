@@ -172,7 +172,7 @@ class JobDetailLoadStateTest {
             title = "19mm",
             mixSelection = null,
         )
-        assertEquals(false, canOpenCatalogMaterialEntry(unscoped, JobDetailCatalogStatus.UNAVAILABLE))
+        assertTrue(canOpenCatalogMaterialEntry(unscoped, JobDetailCatalogStatus.UNAVAILABLE))
     }
 
     @Test
@@ -216,7 +216,7 @@ class JobDetailLoadStateTest {
     }
 
     @Test
-    fun `uncached catalog state blocks unscoped open while refresh is pending`() {
+    fun `uncached catalog state still allows unscoped open while refresh is pending`() {
         val material = Material(pdfFilename = "19mm.pdf", materialName = "19mm", pageCount = 2)
         val pending = jobDetailCatalogStateBeforeRefresh(
             previous = JobDetailCatalogState(),
@@ -227,6 +227,6 @@ class JobDetailLoadStateTest {
 
         assertEquals(null, entry.mixSelection)
         assertEquals(JobDetailCatalogStatus.UNAVAILABLE, pending.statuses[material.materialName])
-        assertEquals(false, canOpenCatalogMaterialEntry(entry, pending.statuses[material.materialName]))
+        assertTrue(canOpenCatalogMaterialEntry(entry, pending.statuses[material.materialName]))
     }
 }
