@@ -100,3 +100,7 @@ Each screen loads the raw `cutlist_index.json` (unchanged) plus its own mode's t
 - Unit: material-name matching (trim + case-insensitive) across doc types.
 - Unit: mode segregation — hiding `(docType, material)` in Hardwoods mode does not affect Specialty mode's effective-visibility for the same `(docType, material)`, and vice versa.
 - Manual/device: hide a material on tablet A, confirm it disappears on tablet B within a few seconds (live path) and after killing A's WebSocket connection (fallback path); confirm "show hidden materials" toggle and unhide flow round-trip; confirm hiding a material on the Hardwoods cutlist screen leaves it visible on the Specialty door panels screen.
+
+## Follow-up
+
+- Update the `kkc-metadata-map` skill's Ownership Map (both new file rows, per mode), Symptom Routing, and Common Mistakes once this ships — the map has no entries yet for `hidden_materials_global.json`/`hidden_materials.json` or the `.metadata\specialty\` subtree, and per its own instructions edits belong in the canonical copy (`C:\Users\chadc\.claude\skills\kkc-metadata-map`), not the per-repo mirrors, which are overwritten by a sync hook. This should be the last task in the implementation plan.
