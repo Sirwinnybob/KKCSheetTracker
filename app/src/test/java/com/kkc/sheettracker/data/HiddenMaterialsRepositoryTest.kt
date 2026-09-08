@@ -93,6 +93,27 @@ class HiddenMaterialsRepositoryTest {
     }
 
     @Test
+    fun fetchDocument_sanitizesExplicitNullFieldsInsteadOfCrashing() {
+        // Gson can populate a non-null Kotlin field with an actual null when the JSON key is
+        // explicitly present with a null value -- a document read off the shared drive must
+        // degrade gracefully rather than NPE on first use (e.g. isHiddenIn's material.trim()).
+        val baseDir = Files.createTempDirectory("hidden-materials-repo-null-fields").toFile()
+        writeJson(
+            hiddenMaterialsGlobalPath(baseDir, HiddenMaterialsMode.HARDWOODS),
+            """{"entries":[{"docType":"NAILER_CUT_LIST","material":null,"hiddenAt":null,"tabletId":null}]}"""
+        )
+        val repository = HiddenMaterialsRepository(baseDir)
+
+        val document = repository.fetchDocument(HiddenMaterialsMode.HARDWOODS, "123 - Job")
+
+        val entry = document.global.entries.single()
+        assertEquals("NAILER_CUT_LIST", entry.docType)
+        assertEquals("", entry.material)
+        assertEquals("", entry.hiddenAt)
+        assertEquals("", entry.tabletId)
+    }
+
+    @Test
     fun fetchDocument_hardwoodsAndSpecialtyNeverShareState() {
         val baseDir = Files.createTempDirectory("hidden-materials-repo-segregation").toFile()
         writeJson(
