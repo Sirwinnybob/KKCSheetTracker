@@ -20,6 +20,18 @@ data class ReferenceViewerData(
     val warningMessage: String?
 )
 
+internal fun remapVirtualPageDetails(
+    pageDetails: Map<String, CabinetPageDetail>,
+    oldToNewDisplayPage: Map<Int, Int>
+): Map<String, CabinetPageDetail> {
+    return pageDetails.mapNotNull { (oldPageKey, detail) ->
+        val oldPage = oldPageKey.toIntOrNull() ?: return@mapNotNull null
+        val newPage = oldToNewDisplayPage[oldPage] ?: return@mapNotNull null
+        val newDrawingPage = detail.drawingPage?.let { oldToNewDisplayPage[it] }
+        newPage.toString() to detail.copy(drawingPage = newDrawingPage)
+    }.toMap()
+}
+
 @Composable
 fun rememberReferenceViewerData(
     jobRepository: JobRepository,
@@ -110,11 +122,20 @@ fun rememberReferenceViewerData(
             ReferenceDocType.PULLS -> emptyMap()
         }
     }
-    val navigatorPageDetails = remember(docType, documentIndex, virtualMapping, sheetIndex) {
+    val navigatorPageDetails = remember(
+        docType,
+        documentIndex,
+        virtualMapping,
+        sheetIndex,
+        assemblyVirtualSanitized
+    ) {
         when (docType) {
             ReferenceDocType.ASSEMBLY -> {
                 if (virtualMapping != null) {
-                    sheetIndex?.documents?.assembly?.virtualCombined?.pageDetails.orEmpty()
+                    remapVirtualPageDetails(
+                        pageDetails = sheetIndex?.documents?.assembly?.virtualCombined?.pageDetails.orEmpty(),
+                        oldToNewDisplayPage = assemblyVirtualSanitized.oldToNewDisplayPage
+                    )
                 } else {
                     documentIndex?.pageDetails.orEmpty()
                 }

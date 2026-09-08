@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.viewer
 
+import com.kkc.sheettracker.data.models.CabinetPageDetail
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -104,6 +105,31 @@ class UnifiedReferenceViewerTest {
         assertEquals(listOf(1, 2), result.cabinetToPages["1"])
         assertEquals(listOf(3), result.cabinetToPages["2"])
         assertTrue(result.warningMessage?.contains("ignored", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun sanitizeVirtualAssemblyData_remapsVirtualPageDetailsAfterDroppingBase() {
+        val result = sanitizeVirtualAssemblyData(
+            totalVirtualPages = 3,
+            defaultPdfFilename = "fallback.pdf",
+            sourceByDisplayPage = mapOf(
+                1 to UnifiedVirtualPageSource("job_ff.pdf", 1, cabinet = "1", sourceVariant = "FACE_FRAME"),
+                2 to UnifiedVirtualPageSource("job_base.pdf", 1, cabinet = "1", sourceVariant = "BASE"),
+                3 to UnifiedVirtualPageSource("job_fl.pdf", 1, cabinet = "1", sourceVariant = "FRAMELESS")
+            ),
+            cabinetToPages = mapOf("1" to listOf(1, 2, 3))
+        )
+        val rawPageDetails = mapOf(
+            "1" to CabinetPageDetail(cabinets = listOf("1"), hasDrawing = true, drawingPage = 2),
+            "2" to CabinetPageDetail(cabinets = listOf("1"), hasDrawing = false, drawingPage = 2),
+            "3" to CabinetPageDetail(cabinets = listOf("1"), hasDrawing = true, drawingPage = 1)
+        )
+
+        val pageDetails = remapVirtualPageDetails(rawPageDetails, result.oldToNewDisplayPage)
+
+        assertEquals(setOf("1", "2"), pageDetails.keys)
+        assertEquals(null, pageDetails["1"]?.drawingPage)
+        assertEquals(1, pageDetails["2"]?.drawingPage)
     }
 
     @Test

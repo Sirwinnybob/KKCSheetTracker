@@ -93,6 +93,7 @@ data class UnifiedVirtualPageMapping(
 data class UnifiedVirtualSanitizationResult(
     val mapping: UnifiedVirtualPageMapping?,
     val cabinetToPages: Map<String, List<Int>> = emptyMap(),
+    val oldToNewDisplayPage: Map<Int, Int> = emptyMap(),
     val warningMessage: String? = null
 )
 
@@ -348,6 +349,7 @@ fun sanitizeVirtualAssemblyData(
     return UnifiedVirtualSanitizationResult(
         mapping = mapping,
         cabinetToPages = sanitizedCabinetToPages,
+        oldToNewDisplayPage = oldToNewDisplayPage,
         warningMessage = warningMessage
     )
 }
