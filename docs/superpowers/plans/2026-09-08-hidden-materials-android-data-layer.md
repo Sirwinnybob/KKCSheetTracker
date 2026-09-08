@@ -213,6 +213,27 @@ class HiddenMaterialsRepositoryTest {
     }
 
     @Test
+    fun fetchDocument_sanitizesExplicitNullFieldsInsteadOfCrashing() {
+        // Gson can populate a non-null Kotlin field with an actual null when the JSON key is
+        // explicitly present with a null value -- a document read off the shared drive must
+        // degrade gracefully rather than NPE on first use (e.g. isHiddenIn's material.trim()).
+        val baseDir = Files.createTempDirectory("hidden-materials-repo-null-fields").toFile()
+        writeJson(
+            hiddenMaterialsGlobalPath(baseDir, HiddenMaterialsMode.HARDWOODS),
+            """{"entries":[{"docType":"NAILER_CUT_LIST","material":null,"hiddenAt":null,"tabletId":null}]}"""
+        )
+        val repository = HiddenMaterialsRepository(baseDir)
+
+        val document = repository.fetchDocument(HiddenMaterialsMode.HARDWOODS, "123 - Job")
+
+        val entry = document.global.entries.single()
+        assertEquals("NAILER_CUT_LIST", entry.docType)
+        assertEquals("", entry.material)
+        assertEquals("", entry.hiddenAt)
+        assertEquals("", entry.tabletId)
+    }
+
+    @Test
     fun fetchDocument_hardwoodsAndSpecialtyNeverShareState() {
         val baseDir = Files.createTempDirectory("hidden-materials-repo-segregation").toFile()
         writeJson(
@@ -328,7 +349,51 @@ fun hiddenMaterialsJobPath(baseDir: File, mode: HiddenMaterialsMode, jobFolderNa
  */
 internal fun parseHiddenMaterialsDocument(json: String): HiddenMaterialsDocument =
     runCatching { hiddenMaterialsGson.fromJson(json, HiddenMaterialsDocument::class.java) }
-        .getOrNull() ?: HiddenMaterialsDocument()
+        .getOrNull().sanitized()
+
+/**
+ * Gson populates a Kotlin non-null field with an actual `null` when the JSON key is explicitly
+ * present with a `null` value (reflection bypasses Kotlin's compile-time null-safety here) --
+ * so a document read off the shared drive can violate these types even though they're declared
+ * non-null. Coalesce every field/list back to its declared default immediately after parsing,
+ * mirroring the Python backend's own defensive `str(entry.get("material", ""))`-style reads, so
+ * a partially-null document degrades gracefully instead of crashing on first use (e.g.
+ * [entryKey]'s `material.trim()`).
+ */
+@Suppress("SENSELESS_COMPARISON")
+private fun HiddenMaterialEntry?.sanitized(): HiddenMaterialEntry {
+    val entry = this ?: HiddenMaterialEntry()
+    return HiddenMaterialEntry(
+        docType = entry.docType ?: "",
+        material = entry.material ?: "",
+        hiddenAt = entry.hiddenAt ?: "",
+        tabletId = entry.tabletId ?: ""
+    )
+}
+
+@Suppress("SENSELESS_COMPARISON")
+private fun HiddenMaterialsGlobalDoc?.sanitized(): HiddenMaterialsGlobalDoc {
+    val doc = this ?: HiddenMaterialsGlobalDoc()
+    return HiddenMaterialsGlobalDoc(entries = (doc.entries ?: emptyList()).map { it.sanitized() })
+}
+
+@Suppress("SENSELESS_COMPARISON")
+private fun HiddenMaterialsJobDoc?.sanitized(): HiddenMaterialsJobDoc {
+    val doc = this ?: HiddenMaterialsJobDoc()
+    return HiddenMaterialsJobDoc(
+        hides = (doc.hides ?: emptyList()).map { it.sanitized() },
+        unhides = (doc.unhides ?: emptyList()).map { it.sanitized() }
+    )
+}
+
+@Suppress("SENSELESS_COMPARISON")
+private fun HiddenMaterialsDocument?.sanitized(): HiddenMaterialsDocument {
+    val doc = this ?: HiddenMaterialsDocument()
+    return HiddenMaterialsDocument(
+        global = doc.global.sanitized(),
+        jobs = (doc.jobs ?: emptyMap()).mapValues { it.value.sanitized() }
+    )
+}
 
 private fun normalizeMaterial(material: String): String = material.trim().lowercase()
 
@@ -377,7 +442,7 @@ class HiddenMaterialsRepository(private val baseDir: File) {
         if (!file.exists() || !file.isFile) return HiddenMaterialsGlobalDoc()
         return runCatching {
             hiddenMaterialsGson.fromJson(file.readText(), HiddenMaterialsGlobalDoc::class.java)
-        }.getOrNull() ?: HiddenMaterialsGlobalDoc()
+        }.getOrNull().sanitized()
     }
 
     private fun readJob(mode: HiddenMaterialsMode, jobFolderName: String): HiddenMaterialsJobDoc {
@@ -385,7 +450,7 @@ class HiddenMaterialsRepository(private val baseDir: File) {
         if (!file.exists() || !file.isFile) return HiddenMaterialsJobDoc()
         return runCatching {
             hiddenMaterialsGson.fromJson(file.readText(), HiddenMaterialsJobDoc::class.java)
-        }.getOrNull() ?: HiddenMaterialsJobDoc()
+        }.getOrNull().sanitized()
     }
 }
 ```
