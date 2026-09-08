@@ -135,7 +135,9 @@ data class CabinetPageDetail(
     val parts: List<AssemblySheetPart> = emptyList(),
     val sourceVariant: String? = null,
     val sourcePdfFilename: String? = null,
-    val sourcePage: Int? = null
+    val sourcePage: Int? = null,
+    val hasDrawing: Boolean = false,
+    val drawingPage: Int? = null
 )
 
 data class AssemblySourceDocumentIndex(

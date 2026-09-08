@@ -20,6 +20,43 @@ class UnifiedMetadataEngineTest {
     private val jobFolder = "1234 - Test Job"
 
     @Test
+    fun cabinetSheetIndex_preservesDrawingPageResolutionThroughSanitize() {
+        val baseDir = createTempBaseDir()
+        val jobFolder = "1234 - Test Job"
+        val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
+        val metadataDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(metadataDir, "deployment_gate.json").writeText("""{"deployed": true}""")
+        File(metadataDir, "cabinet_sheet_index.json").writeText(
+            """
+            {
+              "documents": {
+                "assembly": { "pdfFilename": "", "cabinetToPages": {}, "pageDetails": {} },
+                "plansElevations": {
+                  "pdfFilename": "1234 - Plans & Elevations.pdf",
+                  "cabinetToPages": { "12": [6] },
+                  "pageDetails": {
+                    "5": { "cabinets": ["5"], "room": "Room #1", "wall": "Wall #5", "hasDrawing": true, "drawingPage": 5 },
+                    "6": { "cabinets": ["12"], "room": "Room #1", "wall": "Wall #5", "hasDrawing": false, "drawingPage": 5 }
+                  }
+                },
+                "delivery": {}
+              }
+            }
+            """.trimIndent()
+        )
+
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+        val index = engine.getCabinetSheetIndex(jobFolder).index
+
+        val page6 = index?.documents?.plansElevations?.pageDetails?.get("6")
+        assertEquals(5, page6?.drawingPage)
+        assertEquals(false, page6?.hasDrawing)
+        val page5 = index?.documents?.plansElevations?.pageDetails?.get("5")
+        assertEquals(5, page5?.drawingPage)
+        assertEquals(true, page5?.hasDrawing)
+    }
+
+    @Test
     fun loadsCncHardwoodsAndAssemblySnapshotsFromExistingFiles() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)

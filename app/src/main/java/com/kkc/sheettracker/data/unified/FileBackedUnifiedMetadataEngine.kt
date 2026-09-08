@@ -1558,7 +1558,9 @@ class FileBackedUnifiedMetadataEngine(
             },
             sourceVariant = detail.sourceVariant,
             sourcePdfFilename = detail.sourcePdfFilename,
-            sourcePage = detail.sourcePage
+            sourcePage = detail.sourcePage,
+            hasDrawing = detail.hasDrawing,
+            drawingPage = detail.drawingPage
         )
     }
 
