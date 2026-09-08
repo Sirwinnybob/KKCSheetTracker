@@ -1874,6 +1874,7 @@ fun SheetViewerScreen(
             val refData = mainViewReferenceData ?: return@LaunchedEffect
             val target = com.kkc.sheettracker.ui.components.resolveJumpPage(
                 refData.navigatorCabinetToPages,
+                refData.navigatorPageDetails,
                 cabinet
             )
             if (target != null) {

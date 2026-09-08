@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.models.CabinetPageDetail
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ data class ReferenceViewerData(
     val defaultPdfFilename: String,
     val virtualMapping: UnifiedVirtualPageMapping?,
     val navigatorCabinetToPages: Map<String, List<Int>>,
+    val navigatorPageDetails: Map<String, CabinetPageDetail>,
     val navigatorPlanViewLabels: Map<Int, String>,
     val warningMessage: String?
 )
@@ -108,6 +110,21 @@ fun rememberReferenceViewerData(
             ReferenceDocType.PULLS -> emptyMap()
         }
     }
+    val navigatorPageDetails = remember(docType, documentIndex, virtualMapping, sheetIndex) {
+        when (docType) {
+            ReferenceDocType.ASSEMBLY -> {
+                if (virtualMapping != null) {
+                    sheetIndex?.documents?.assembly?.virtualCombined?.pageDetails.orEmpty()
+                } else {
+                    documentIndex?.pageDetails.orEmpty()
+                }
+            }
+            ReferenceDocType.PLANS_ELEVATIONS -> documentIndex?.pageDetails.orEmpty()
+            ReferenceDocType.DELIVERY_SHEETS -> emptyMap()
+            ReferenceDocType.SHEET -> emptyMap()
+            ReferenceDocType.PULLS -> emptyMap()
+        }
+    }
     val navigatorPlanViewLabels = remember(docType, documentIndex) {
         if (docType != ReferenceDocType.PLANS_ELEVATIONS) {
             emptyMap()
@@ -143,6 +160,7 @@ fun rememberReferenceViewerData(
         defaultPdfFilename = defaultPdfFilename,
         virtualMapping = virtualMapping,
         navigatorCabinetToPages = navigatorCabinetToPages,
+        navigatorPageDetails = navigatorPageDetails,
         navigatorPlanViewLabels = navigatorPlanViewLabels,
         warningMessage = if (docType == ReferenceDocType.ASSEMBLY) {
             assemblyVirtualSanitized.warningMessage

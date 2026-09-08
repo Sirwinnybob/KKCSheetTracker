@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.models.CabinetPageDetail
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import com.kkc.sheettracker.ui.viewer.DiagramView
@@ -112,9 +113,20 @@ data class ReferenceModalSnapshot(
     }
 }
 
-/** First page mapped to [cabinet] in the active doc's page space, or null if none. */
-fun resolveJumpPage(cabinetToPages: Map<String, List<Int>>, cabinet: Int): Int? =
-    cabinetToPages[cabinet.toString()]?.firstOrNull()
+/** Drawing-page-preferring jump target for [cabinet] in the active doc's page space, or null if none.
+ *
+ * Cabinet numbers spilling onto a following table/BOM-only page (Cabinet Vision emits these when
+ * too much doesn't fit on the drawing page) still resolve here, but redirect to the page that
+ * actually carries the drawing when the backend index knows one (see [CabinetPageDetail.drawingPage]).
+ */
+fun resolveJumpPage(
+    cabinetToPages: Map<String, List<Int>>,
+    pageDetails: Map<String, CabinetPageDetail>,
+    cabinet: Int
+): Int? {
+    val page = cabinetToPages[cabinet.toString()]?.firstOrNull() ?: return null
+    return pageDetails[page.toString()]?.drawingPage ?: page
+}
 
 /**
  * Resolves the doc type to show when opening the popup: keep the user's persisted [current] doc
@@ -288,6 +300,7 @@ fun ReferenceModalHost(
             defaultPdfFilename = sheetPdfFilename,
             virtualMapping = null,
             navigatorCabinetToPages = emptyMap(),
+            navigatorPageDetails = emptyMap(),
             navigatorPlanViewLabels = emptyMap(),
             warningMessage = null
         )
@@ -314,7 +327,7 @@ fun ReferenceModalHost(
         // Nothing to jump to on the Sheet tab — it IS the current sheet.
         if (snapshot.docType == ReferenceDocType.SHEET) return@LaunchedEffect
         val cabinet = selectedCabinet ?: return@LaunchedEffect
-        val target = resolveJumpPage(referenceData.navigatorCabinetToPages, cabinet)
+        val target = resolveJumpPage(referenceData.navigatorCabinetToPages, referenceData.navigatorPageDetails, cabinet)
         if (target != null) state.setPage(target) else state.showNoRefNote()
     }
 

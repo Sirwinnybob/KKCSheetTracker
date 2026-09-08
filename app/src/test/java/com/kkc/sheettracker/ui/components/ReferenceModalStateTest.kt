@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.components
 
+import com.kkc.sheettracker.data.models.CabinetPageDetail
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -50,17 +51,41 @@ class ReferenceModalStateTest {
     }
 
     @Test
-    fun resolveJumpPage_returnsFirstPageForCabinet() {
+    fun resolveJumpPage_returnsFirstPageForCabinetWhenNoPageDetails() {
         val map = mapOf("3" to listOf(5, 6), "8" to listOf(11))
-        assertEquals(5, resolveJumpPage(map, 3))
-        assertEquals(11, resolveJumpPage(map, 8))
+        assertEquals(5, resolveJumpPage(map, emptyMap(), 3))
+        assertEquals(11, resolveJumpPage(map, emptyMap(), 8))
     }
 
     @Test
     fun resolveJumpPage_returnsNullWhenCabinetAbsent() {
         val map = mapOf("3" to listOf(5))
-        assertNull(resolveJumpPage(map, 99))
-        assertNull(resolveJumpPage(emptyMap(), 3))
+        assertNull(resolveJumpPage(map, emptyMap(), 99))
+        assertNull(resolveJumpPage(emptyMap(), emptyMap(), 3))
+    }
+
+    @Test
+    fun resolveJumpPage_redirectsFromSpilloverPageToDrawingPage() {
+        val map = mapOf("12" to listOf(6))
+        val details = mapOf(
+            "6" to CabinetPageDetail(cabinets = listOf("12"), hasDrawing = false, drawingPage = 5)
+        )
+        assertEquals(5, resolveJumpPage(map, details, 12))
+    }
+
+    @Test
+    fun resolveJumpPage_staysOnPageThatAlreadyHasTheDrawing() {
+        val map = mapOf("5" to listOf(5))
+        val details = mapOf(
+            "5" to CabinetPageDetail(cabinets = listOf("5"), hasDrawing = true, drawingPage = 5)
+        )
+        assertEquals(5, resolveJumpPage(map, details, 5))
+    }
+
+    @Test
+    fun resolveJumpPage_fallsBackToRawPageWhenPageDetailsMissingForThatPage() {
+        val map = mapOf("3" to listOf(5))
+        assertEquals(5, resolveJumpPage(map, emptyMap(), 3))
     }
 
     @Test
