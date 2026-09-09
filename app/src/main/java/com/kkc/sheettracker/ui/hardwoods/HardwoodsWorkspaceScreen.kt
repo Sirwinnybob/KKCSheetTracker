@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.SecondaryScrollableTabRow
@@ -153,6 +154,7 @@ import com.kkc.sheettracker.data.filterDoorCutRowsToSheets
 import com.kkc.sheettracker.data.loadHardwoodsCutlistIndexRawJson
 import com.kkc.sheettracker.data.parseDoorCutUnitTypeMetadata
 import com.kkc.sheettracker.data.resolveSheetRipTallyState
+import com.kkc.sheettracker.data.submitHiddenMaterialsAction
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJob
@@ -1677,8 +1679,8 @@ fun HardwoodsWorkspaceScreen(
                                         collapsedPartSectionsByDoc =
                                             collapsedPartSectionsByDoc + (selectedDoc.docType.name to updated)
                                     },
-                                    headerActions = if (isNailerDoc) {
-                                        {
+                                    headerActions = {
+                                        if (isNailerDoc) {
                                             MaterialSkipPill(
                                                 skipped = sectionAllSkipped,
                                                 onClick = {
@@ -1693,9 +1695,38 @@ fun HardwoodsWorkspaceScreen(
                                                     }
                                                 }
                                             )
+                                            Spacer(Modifier.width(6.dp))
                                         }
-                                    } else {
-                                        null
+                                        if (sectionHidden) {
+                                            Text(
+                                                text = "HIDDEN",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.padding(end = 6.dp)
+                                            )
+                                        }
+                                        if (!pdfMarkupReadOnly) {
+                                            HiddenMaterialMenuButton(
+                                                hidden = sectionHidden,
+                                                onAction = { action, requestScope ->
+                                                    scope.launch {
+                                                        submitHiddenMaterialsAction(
+                                                            serverUrl = adminSyncConfig.getServerUrl(),
+                                                            requestStore = hiddenMaterialsRequestStore,
+                                                            mode = hiddenMaterialsMode,
+                                                            action = action,
+                                                            scope = requestScope,
+                                                            jobId = jobFolderName,
+                                                            docType = selectedDoc.docType.name,
+                                                            material = section.material,
+                                                            tabletId = hiddenMaterialsTabletId,
+                                                            requestedAt = java.time.Instant.now().toString()
+                                                        )
+                                                    }
+                                                }
+                                            )
+                                        }
                                     },
                                     modifier = Modifier.fillMaxWidth()
                                 )
@@ -2561,6 +2592,60 @@ private fun ReferencePane(
             ownsNavBarMarkupControls = ownsNavBarMarkupControls,
             continuousScrollEnabled = continuousScrollEnabled
         )
+    }
+}
+
+@Composable
+private fun HiddenMaterialMenuButton(
+    hidden: Boolean,
+    onAction: (action: String, scope: String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.size(28.dp)) {
+            Icon(
+                Icons.Default.MoreVert,
+                contentDescription = "Hide material options",
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        ) {
+            if (hidden) {
+                DropdownMenuItem(
+                    text = { Text("Unhide for this job") },
+                    onClick = {
+                        expanded = false
+                        onAction("unhide", "job")
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Remove from all-jobs auto-hide") },
+                    onClick = {
+                        expanded = false
+                        onAction("unhide", "global")
+                    }
+                )
+            } else {
+                DropdownMenuItem(
+                    text = { Text("Hide for this job") },
+                    onClick = {
+                        expanded = false
+                        onAction("hide", "job")
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Hide for all future jobs") },
+                    onClick = {
+                        expanded = false
+                        onAction("hide", "global")
+                    }
+                )
+            }
+        }
     }
 }
 
