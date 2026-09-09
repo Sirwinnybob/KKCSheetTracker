@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
@@ -1165,6 +1166,17 @@ fun HardwoodsWorkspaceScreen(
                                 tint = if (continuousScrollEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                         }
+                    }
+                    IconButton(onClick = {
+                        scope.launch {
+                            hiddenMaterialsVisibilityStore.setShowHidden(hiddenMaterialsMode, !showHiddenMaterials)
+                        }
+                    }) {
+                        Icon(
+                            if (showHiddenMaterials) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                            contentDescription = if (showHiddenMaterials) "Hide hidden materials" else "Show hidden materials",
+                            tint = if (showHiddenMaterials) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 },
                 
