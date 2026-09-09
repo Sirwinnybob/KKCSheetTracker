@@ -139,6 +139,14 @@ import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.HiddenMaterialsClientBinding
+import com.kkc.sheettracker.data.HiddenMaterialsLifecycleGate
+import com.kkc.sheettracker.data.HiddenMaterialsLiveClient
+import com.kkc.sheettracker.data.HiddenMaterialsRepository
+import com.kkc.sheettracker.data.HiddenMaterialsRequestStore
+import com.kkc.sheettracker.data.HiddenMaterialsStateStore
+import com.kkc.sheettracker.data.HiddenMaterialsVisibilityPreferencesStore
+import com.kkc.sheettracker.data.isHiddenIn
 import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.SheetRipProgressStore
 import com.kkc.sheettracker.data.filterDoorCutRowsToSheets
@@ -184,9 +192,14 @@ import com.kkc.sheettracker.data.MoldingLibraryRepository
 import com.kkc.sheettracker.data.models.MoldingLibraryItem
 import com.kkc.sheettracker.ui.standards.MoldingDetailOverlay
 import com.kkc.sheettracker.ui.standards.rememberSvgImageLoader
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
@@ -405,6 +418,114 @@ fun HardwoodsWorkspaceScreen(
             engine.getHardwoodsSnapshot(jobFolderName)?.job
         }
     }
+
+    val hiddenMaterialsRepository = remember(scanState.snapshot.basePath) {
+        HiddenMaterialsRepository(File(scanState.snapshot.basePath))
+    }
+    val hiddenMaterialsRequestStore = remember(scanState.snapshot.basePath) {
+        HiddenMaterialsRequestStore(File(scanState.snapshot.basePath))
+    }
+    val hiddenMaterialsVisibilityStore = remember { HiddenMaterialsVisibilityPreferencesStore.create(context) }
+    val showHiddenMaterials by hiddenMaterialsVisibilityStore.showHiddenFlow(hiddenMaterialsMode)
+        .collectAsState(initial = false)
+    val hiddenMaterialsTabletId = remember { prefs.getString("tablet_id", "") ?: "" }
+
+    val hiddenMaterialsStore = remember(jobFolderName, hiddenMaterialsMode, hiddenMaterialsRepository) {
+        HiddenMaterialsStateStore(
+            fallbackLoader = { hiddenMaterialsRepository.fetchDocument(hiddenMaterialsMode, jobFolderName) }
+        )
+    }
+    val hiddenMaterialsDocument by hiddenMaterialsStore.document.collectAsState()
+    val hiddenMaterialsLifecycleGate = remember(jobFolderName, hiddenMaterialsMode) { HiddenMaterialsLifecycleGate() }
+    val hiddenMaterialsClientBinding = remember(jobFolderName, hiddenMaterialsMode, hiddenMaterialsLifecycleGate) {
+        HiddenMaterialsClientBinding(hiddenMaterialsLifecycleGate)
+    }
+    val hiddenMaterialsClient = remember(
+        jobFolderName,
+        hiddenMaterialsMode,
+        hiddenMaterialsClientBinding,
+        hiddenMaterialsStore,
+        hiddenMaterialsTabletId
+    ) {
+        HiddenMaterialsLiveClient(
+            config = adminSyncConfig,
+            mode = hiddenMaterialsMode,
+            tabletId = hiddenMaterialsTabletId,
+            onDocument = hiddenMaterialsClientBinding.documentCallback(hiddenMaterialsStore),
+            onConnectionState = hiddenMaterialsClientBinding.connectionCallback(hiddenMaterialsStore)
+        )
+    }
+    val hiddenMaterialsLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(
+        hiddenMaterialsLifecycleOwner,
+        jobFolderName,
+        hiddenMaterialsMode,
+        hiddenMaterialsClient,
+        hiddenMaterialsClientBinding,
+        hiddenMaterialsStore
+    ) {
+        val sourceToken = hiddenMaterialsLifecycleGate.bindSource()
+        hiddenMaterialsClientBinding.bind(sourceToken)
+        var lifecycleJob: Job? = null
+
+        fun cancelLifecycleJob() {
+            lifecycleJob?.cancel()
+            lifecycleJob = null
+        }
+
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    val startToken = hiddenMaterialsLifecycleGate.begin(sourceToken)
+                    if (startToken != 0L) {
+                        cancelLifecycleJob()
+                        lifecycleJob = scope.launch(Dispatchers.IO) {
+                            if (!hiddenMaterialsLifecycleGate.isCurrent(sourceToken, startToken)) return@launch
+                            hiddenMaterialsStore.refreshFallback()
+                            if (!kotlinx.coroutines.currentCoroutineContext().isActive ||
+                                !hiddenMaterialsLifecycleGate.isCurrent(sourceToken, startToken)
+                            ) return@launch
+                            if (!pdfMarkupReadOnly) {
+                                hiddenMaterialsLifecycleGate.runIfCurrent(sourceToken, startToken) {
+                                    hiddenMaterialsClient.start()
+                                }
+                            }
+                        }
+                    }
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    val stopToken = hiddenMaterialsLifecycleGate.stop(sourceToken)
+                    cancelLifecycleJob()
+                    hiddenMaterialsClient.stop()
+                    if (stopToken != 0L) {
+                        hiddenMaterialsStore.markLiveDisconnected()
+                        lifecycleJob = scope.launch(Dispatchers.IO) {
+                            if (hiddenMaterialsLifecycleGate.isCurrent(sourceToken, stopToken)) {
+                                hiddenMaterialsStore.refreshFallback()
+                            }
+                        }
+                    }
+                }
+                else -> Unit
+            }
+        }
+        hiddenMaterialsLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            hiddenMaterialsLifecycleOwner.lifecycle.removeObserver(observer)
+            cancelLifecycleJob()
+            val cleanupToken = hiddenMaterialsLifecycleGate.dispose(sourceToken)
+            hiddenMaterialsClient.stop()
+            if (cleanupToken != 0L) {
+                hiddenMaterialsStore.markLiveDisconnected()
+                scope.launch(Dispatchers.IO) {
+                    if (hiddenMaterialsLifecycleGate.isCleanupCurrent(cleanupToken)) {
+                        hiddenMaterialsStore.refreshFallback()
+                    }
+                }
+            }
+        }
+    }
+
     val documents = remember(job?.index) { job?.index?.documents.orEmpty() }
     var availableDocuments by remember(documents, jobFolderName, isDarkTheme) { mutableStateOf<List<com.kkc.sheettracker.data.models.HardwoodDocumentIndex>>(emptyList()) }
     LaunchedEffect(documents, jobFolderName, isDarkTheme) {
