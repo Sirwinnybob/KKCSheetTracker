@@ -157,6 +157,7 @@ import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
+import com.kkc.sheettracker.data.models.HiddenMaterialsDocument
 import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.HiddenMaterialsMode
@@ -432,6 +433,7 @@ fun HardwoodsWorkspaceScreen(
 
     val hiddenMaterialsStore = remember(jobFolderName, hiddenMaterialsMode, hiddenMaterialsRepository) {
         HiddenMaterialsStateStore(
+            initialDocument = HiddenMaterialsDocument(),
             fallbackLoader = { hiddenMaterialsRepository.fetchDocument(hiddenMaterialsMode, jobFolderName) }
         )
     }
@@ -445,7 +447,8 @@ fun HardwoodsWorkspaceScreen(
         hiddenMaterialsMode,
         hiddenMaterialsClientBinding,
         hiddenMaterialsStore,
-        hiddenMaterialsTabletId
+        hiddenMaterialsTabletId,
+        adminSyncConfig
     ) {
         HiddenMaterialsLiveClient(
             config = adminSyncConfig,
