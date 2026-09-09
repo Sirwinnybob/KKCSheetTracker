@@ -10,6 +10,9 @@ class ArchiveLibraryStoreTest {
 
     private fun entry(id: String) = ArchiveJobEntry(id, id, "100", "Alpha", "2026-08-19T00:00:00Z", "v1")
 
+    private fun entryWithJobNumber(jobNumber: String) =
+        ArchiveJobEntry(jobNumber, jobNumber, jobNumber, "Alpha", "2026-08-19T00:00:00Z", "v1")
+
     @Test
     fun `applySnapshot replaces the full list and marks connected`() {
         val store = ArchiveLibraryStore()
@@ -41,5 +44,15 @@ class ArchiveLibraryStoreTest {
         store.setConnected(false)
         assertFalse(store.connected.value)
         assertEquals(listOf(entry("100 - Alpha")), store.entries.value)
+    }
+
+    @Test
+    fun `lettered job numbers sort next to their numeric neighbors, not last`() {
+        val store = ArchiveLibraryStore()
+        val jobs = listOf("541", "530b", "548", "530a", "520")
+        store.applySnapshot(jobs.associateBy { it }.mapValues { (_, jobNumber) -> entryWithJobNumber(jobNumber) })
+
+        val order = store.entries.value.map { it.jobNumber }
+        assertEquals(listOf("520", "530a", "530b", "541", "548"), order)
     }
 }

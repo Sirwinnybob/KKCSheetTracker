@@ -54,16 +54,22 @@ class ArchiveLibraryStore {
     }
 
     companion object {
+        private val LEADING_DIGITS = Regex("^\\d+")
+
         /**
-         * Numeric-aware job-number sort, matching the convention already used for
+         * Numeric-aware job-number sort. Unlike the plain `toIntOrNull()` used by
          * the live job list in [com.kkc.sheettracker.data.unified.FileBackedUnifiedMetadataEngine]
-         * and [com.kkc.sheettracker.data.unified.LiveAwareUnifiedMetadataEngine]
-         * (`it.jobNumber.toIntOrNull() ?: ...`) rather than a plain lexicographic
-         * string sort, which would order "1000" before "9". Ascending, with
-         * non-numeric job numbers sorted last and a string tiebreak for equal keys.
+         * and [com.kkc.sheettracker.data.unified.LiveAwareUnifiedMetadataEngine],
+         * this reads only the leading digit run so a lettered job number like
+         * "530a" sorts as 530 (next to "530"/"530b"/531) instead of falling
+         * through to Int.MAX_VALUE and landing at the end of the list -- the
+         * live list gets away with the plain version because it primarily sorts
+         * by lineupPosition, which the archive library has no equivalent of.
+         * Ascending, with a string tiebreak for equal numeric keys so "530a"
+         * sorts before "530b".
          */
         internal val ARCHIVE_JOB_NUMBER_ORDER: Comparator<ArchiveJobEntry> =
-            compareBy<ArchiveJobEntry> { it.jobNumber.toIntOrNull() ?: Int.MAX_VALUE }
+            compareBy<ArchiveJobEntry> { LEADING_DIGITS.find(it.jobNumber)?.value?.toIntOrNull() ?: Int.MAX_VALUE }
                 .thenBy { it.jobNumber }
     }
 }
