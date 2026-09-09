@@ -101,4 +101,28 @@ class HiddenMaterialsActionSubmitterTest {
         )
         assertTrue("expected sidecar request file to exist despite REST failure", sidecar.exists())
     }
+
+    @Test
+    fun `still posts the REST fast path when the sidecar write throws`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"applied":true}"""))
+
+        // scope = "job" with jobId = null makes HiddenMaterialsRequestStore.writeRequest's own
+        // requireNotNull(jobId) throw before any file I/O -- a deterministic stand-in for a
+        // transient write failure (VPN blip, disk-full, permission error).
+        submitHiddenMaterialsAction(
+            serverUrl = server.url("/").toString().trimEnd('/'),
+            requestStore = requestStore,
+            mode = HiddenMaterialsMode.HARDWOODS,
+            action = "hide",
+            scope = "job",
+            jobId = null,
+            docType = "NAILER_CUT_LIST",
+            material = "Maple",
+            tabletId = "tablet-1",
+            requestedAt = "2026-09-08T18:00:00Z"
+        )
+
+        val recorded = server.takeRequest()
+        assertTrue(recorded.path == "/api/admin-sync/hardwoods-hidden-materials")
+    }
 }
