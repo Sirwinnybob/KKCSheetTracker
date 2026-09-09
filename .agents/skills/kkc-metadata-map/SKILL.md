@@ -257,6 +257,14 @@ Get-Content "C:\Scripts\Ready Jobs Watcher\pending_queue.json"
 Get-Content "C:\Scripts\Ready Jobs Watcher\tracker_bad_parts_state.json"
 ```
 
+Hours Tracker's ported worker (the live RJW replacement as of 2026-08-18 — default to this, not old RJW, unless the user says otherwise):
+
+```powershell
+docker exec hourtracker-worker cat /data/ready-jobs-worker/worker_status.json
+docker exec hourtracker-worker cat /data/ready-jobs-worker/job_errors.json
+docker logs hourtracker-worker --tail 200
+```
+
 Hours Tracker:
 
 ```powershell
