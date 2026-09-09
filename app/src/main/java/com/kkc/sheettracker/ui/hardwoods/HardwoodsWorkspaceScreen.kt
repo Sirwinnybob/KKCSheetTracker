@@ -133,6 +133,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.BuildConfig
+import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.HardwoodsRepository
@@ -150,6 +151,7 @@ import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
+import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.BoardStockRow
@@ -355,6 +357,8 @@ fun HardwoodsWorkspaceScreen(
     jobFolderName: String,
     initialDocType: HardwoodDocType,
     initialRowId: String?,
+    hiddenMaterialsMode: HiddenMaterialsMode,
+    adminSyncConfig: AdminSyncConfig,
     continuousScrollDefault: Boolean = false,
     isDarkTheme: Boolean,
     isClockedInHere: Boolean = false,

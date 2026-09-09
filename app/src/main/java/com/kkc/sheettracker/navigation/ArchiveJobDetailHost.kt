@@ -9,18 +9,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.ArchiveSession
 import com.kkc.sheettracker.data.AssemblyPaneView
 import com.kkc.sheettracker.data.AssemblyViewLayout
 import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.ui.assembly.AssemblyJobDetailScreen
@@ -193,10 +196,11 @@ internal fun ArchiveJobDetailHost(
         }
 
         composable(
-            "hardwoods/workspace/{docType}/{rowId}",
+            "hardwoods/workspace/{docType}/{rowId}/{hiddenMaterialsMode}",
             arguments = listOf(
                 navArgument("docType") { type = NavType.StringType },
                 navArgument("rowId") { type = NavType.StringType },
+                navArgument("hiddenMaterialsMode") { type = NavType.StringType },
             ),
         ) { backStackEntry ->
             LaunchedEffect(session) {
@@ -207,6 +211,12 @@ internal fun ArchiveJobDetailHost(
                 .getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
             val rawRowId = URLDecoder.decode(backStackEntry.arguments?.getString("rowId").orEmpty(), "UTF-8")
             val rowId = rawRowId.takeIf { it.isNotBlank() && it != "_" }
+            val rawHiddenMaterialsMode = URLDecoder.decode(backStackEntry.arguments?.getString("hiddenMaterialsMode").orEmpty(), "UTF-8")
+            val hiddenMaterialsMode = runCatching {
+                HiddenMaterialsMode.valueOf(rawHiddenMaterialsMode)
+            }.getOrDefault(HiddenMaterialsMode.HARDWOODS)
+            val archiveContext = LocalContext.current
+            val archiveAdminSyncConfig = remember(archiveContext) { AdminSyncConfig.create(archiveContext) }
             HardwoodsWorkspaceScreen(
                 scanCoordinator = session.hardwoodsScanCoordinator,
                 hardwoodsRepository = session.hardwoodsRepository,
@@ -216,6 +226,8 @@ internal fun ArchiveJobDetailHost(
                 jobFolderName = session.folderName,
                 initialDocType = docType,
                 initialRowId = rowId,
+                hiddenMaterialsMode = hiddenMaterialsMode,
+                adminSyncConfig = archiveAdminSyncConfig,
                 continuousScrollDefault = continuousScrollDefault,
                 isDarkTheme = isDarkTheme && !useStandardSheets,
                 onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
@@ -358,11 +370,13 @@ private fun ArchiveHardwoodsDetail(
         specialtyStateStore = session.specialtyStateStore,
         jobFolderName = session.folderName,
         onOpenWorkspace = { docType ->
-            navController.navigate("hardwoods/workspace/${URLEncoder.encode(docType.name, "UTF-8")}/_")
+            navController.navigate(
+                "hardwoods/workspace/${URLEncoder.encode(docType.name, "UTF-8")}/_/${HiddenMaterialsMode.HARDWOODS.name}"
+            )
         },
         onOpenRipCutList = {
             navController.navigate(
-                "hardwoods/workspace/${URLEncoder.encode(HardwoodDocType.FACE_FRAME_CUT_LIST.name, "UTF-8")}/$HARDWOODS_RIP_CUT_LIST_ROW_ID"
+                "hardwoods/workspace/${URLEncoder.encode(HardwoodDocType.FACE_FRAME_CUT_LIST.name, "UTF-8")}/$HARDWOODS_RIP_CUT_LIST_ROW_ID/${HiddenMaterialsMode.HARDWOODS.name}"
             )
         },
         onOpenReferenceDocument = { docType, startPage ->
@@ -424,16 +438,18 @@ private fun ArchiveSpecialtyDetail(
         },
         onOpenDoorPanels = {
             navController.navigate(
-                "hardwoods/workspace/${HardwoodDocType.DOOR_CUT_LIST.name}/$HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID"
+                "hardwoods/workspace/${HardwoodDocType.DOOR_CUT_LIST.name}/$HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID/${HiddenMaterialsMode.SPECIALTY.name}"
             )
         },
         onOpenSawRipList = {
             navController.navigate(
-                "hardwoods/workspace/${HardwoodDocType.DOOR_CUT_LIST.name}/$HARDWOODS_SAW_RIP_LIST_ROW_ID"
+                "hardwoods/workspace/${HardwoodDocType.DOOR_CUT_LIST.name}/$HARDWOODS_SAW_RIP_LIST_ROW_ID/${HiddenMaterialsMode.SPECIALTY.name}"
             )
         },
         onOpenClosetRods = {
-            navController.navigate("hardwoods/workspace/${HardwoodDocType.CLOSET_ROD_CUT_LIST.name}/_")
+            navController.navigate(
+                "hardwoods/workspace/${HardwoodDocType.CLOSET_ROD_CUT_LIST.name}/_/${HiddenMaterialsMode.SPECIALTY.name}"
+            )
         },
         onOpenSplitView = {
             navController.navigate(assemblyViewerRoute(session.folderName, 1, 1))

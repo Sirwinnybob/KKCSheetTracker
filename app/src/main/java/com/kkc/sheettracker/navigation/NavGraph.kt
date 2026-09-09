@@ -2006,6 +2006,10 @@ private fun JobsTabHost(
             val docType = runCatching { HardwoodDocType.valueOf(rawDocType) }.getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
             val rowIdArg = URLDecoder.decode(backStack.arguments?.getString("startPage") ?: "", "UTF-8")
             val rowId = rowIdArg.takeIf { it.isNotBlank() && it != "_" }
+            val rawHiddenMaterialsMode = URLDecoder.decode(backStack.arguments?.getString("hiddenMaterialsMode") ?: "", "UTF-8")
+            val hiddenMaterialsMode = runCatching {
+                com.kkc.sheettracker.data.models.HiddenMaterialsMode.valueOf(rawHiddenMaterialsMode)
+            }.getOrDefault(com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
             val isClockedInHere = clockInState.snapshot.isActive &&
                 clockInState.snapshot.folderName == folderName &&
                 clockInState.snapshot.tabType == "hardwoods"
@@ -2018,6 +2022,8 @@ private fun JobsTabHost(
                 jobFolderName = folderName,
                 initialDocType = docType,
                 initialRowId = rowId,
+                hiddenMaterialsMode = hiddenMaterialsMode,
+                adminSyncConfig = adminSyncConfig,
                 continuousScrollDefault = continuousScrollDefault,
                 isDarkTheme = isDarkTheme,
                 isClockedInHere = isClockedInHere,
@@ -3431,6 +3437,10 @@ private fun LegacySingleStackNavigation(
                     val docType = runCatching { HardwoodDocType.valueOf(rawDocType) }.getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
                     val rowIdArg = URLDecoder.decode(backStack.arguments?.getString("startPage") ?: "", "UTF-8")
                     val rowId = rowIdArg.takeIf { it.isNotBlank() && it != "_" }
+                    val rawHiddenMaterialsMode = URLDecoder.decode(backStack.arguments?.getString("hiddenMaterialsMode") ?: "", "UTF-8")
+                    val hiddenMaterialsMode = runCatching {
+                        com.kkc.sheettracker.data.models.HiddenMaterialsMode.valueOf(rawHiddenMaterialsMode)
+                    }.getOrDefault(com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
                     val isClockedInHere = clockInState.snapshot.isActive &&
                         clockInState.snapshot.folderName == folderName &&
                         clockInState.snapshot.tabType == "hardwoods"
@@ -3443,6 +3453,8 @@ private fun LegacySingleStackNavigation(
                         jobFolderName = folderName,
                         initialDocType = docType,
                         initialRowId = rowId,
+                        hiddenMaterialsMode = hiddenMaterialsMode,
+                        adminSyncConfig = legacyAdminSyncConfig,
                         continuousScrollDefault = continuousScrollDefault,
                         isDarkTheme = preferDarkMode,
                         isClockedInHere = isClockedInHere,
