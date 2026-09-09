@@ -340,6 +340,65 @@ class MixCatalogCacheTest {
         assertTrue(cache.durabilityState.value.pending.isEmpty())
     }
 
+    // MixServiceOperation.result arrives from Gson already deserialized into generic maps
+    // (not raw JSON text), so parseMutationResult has to round-trip it back through Gson
+    // before reusing parseMutationSnapshot's string-based envelope parser. These cases mirror
+    // what used to be exercised through a synchronous 200 HTTP mutation response, before catalog
+    // mutations moved onto the async operation worker.
+    @Test
+    fun `parseMutationResult parses a completed operation result into a snapshot`() {
+        val result = mapOf(
+            "ok" to true,
+            "catalog" to mapOf(
+                "revision" to 19L,
+                "entries" to listOf(
+                    mapOf(
+                        "name" to "Current",
+                        "mixFilename" to "Current.mix",
+                        "lifecycle" to "active",
+                        "programs" to listOf("R1.pgm"),
+                    )
+                ),
+            ),
+        )
+
+        val snapshot = MixCatalogJson.parseMutationResult(result, "100 - Alpha", "Mat")
+
+        assertEquals(19L, snapshot?.revision)
+        assertEquals("Current", snapshot?.entries?.single()?.name)
+    }
+
+    @Test
+    fun `parseMutationResult rejects malformed operation results`() {
+        val malformed = listOf(
+            // Missing required lifecycle.
+            mapOf("ok" to true, "catalog" to mapOf(
+                "revision" to 18L,
+                "entries" to listOf(mapOf("name" to "Current", "mixFilename" to "Current.mix", "programs" to listOf("R1.pgm"))),
+            )),
+            // Unknown lifecycle.
+            mapOf("ok" to true, "catalog" to mapOf(
+                "revision" to 18L,
+                "entries" to listOf(
+                    mapOf(
+                        "name" to "Current", "mixFilename" to "Current.mix",
+                        "lifecycle" to "retired", "programs" to listOf("R1.pgm"),
+                    )
+                ),
+            )),
+            // Missing and null entry containers are not snapshots.
+            mapOf("ok" to true, "catalog" to mapOf("entries" to emptyList<Any?>())),
+            mapOf("ok" to true, "catalog" to mapOf("revision" to 18L, "entries" to null)),
+            // Not an accepted mutation envelope at all.
+            mapOf("ok" to false),
+            null,
+        )
+
+        malformed.forEach {
+            assertNull(MixCatalogJson.parseMutationResult(it, "100 - Alpha", "Mat"))
+        }
+    }
+
     private class SequencedCatalogReader : MixCatalogReader {
         val firstStarted = CompletableDeferred<Unit>()
         val secondStarted = CompletableDeferred<Unit>()

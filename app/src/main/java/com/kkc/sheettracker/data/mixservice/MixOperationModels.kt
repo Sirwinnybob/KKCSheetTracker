@@ -33,6 +33,8 @@ data class MixServiceOperation(
     val startedAt: String? = null,
     val finishedAt: String? = null,
     val error: String? = null,
+    /** Stable failure classification (catalog_changed, duplicate_mix, ...); null while non-terminal. */
+    val code: String? = null,
     val result: Any? = null,
     val warning: MixOperationWarning? = null,
 ) {
@@ -60,7 +62,8 @@ interface MixOperationService {
         files: List<PgmEditRow>,
     ): MixServiceOperation
 
-    suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixCatalogMutationResult
+    /** Returns the accepted (202) operation; the caller polls [getOperation] for progress and result. */
+    suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixServiceOperation
 
     suspend fun getOperation(id: String): MixServiceOperation
 

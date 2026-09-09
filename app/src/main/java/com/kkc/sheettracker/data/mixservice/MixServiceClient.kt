@@ -1,9 +1,6 @@
 package com.kkc.sheettracker.data.mixservice
 
 import com.google.gson.Gson
-import com.google.gson.JsonElement
-import com.google.gson.JsonParser
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -37,35 +34,12 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
     private data class PgmConflictsEnvelope(val ok: Boolean = false, val conflicts: List<PgmConflict> = emptyList())
     private data class OperationEnvelope(val ok: Boolean = false, val operation: MixServiceOperation? = null)
     private data class OperationsEnvelope(val ok: Boolean = false, val operations: List<MixServiceOperation> = emptyList())
-    private data class CatalogEnvelope(
-        val ok: Boolean = false,
-        val revision: Long? = null,
-        val entries: List<MixCatalogEntry> = emptyList(),
-    )
-    private data class CatalogMutationEnvelope(
-        val ok: Boolean = false,
-        val catalog: CatalogEnvelope? = null,
-    )
-    private data class CatalogSyncFailureEnvelope(
-        val ok: Boolean = false,
-        val code: String? = null,
-        val error: String? = null,
-        val mix: CatalogMutationEnvelope? = null,
-        val recoveryUrl: JsonElement? = null,
-        val recoveries: JsonElement? = null,
-    )
-    private data class CatalogErrorEnvelope(
-        val ok: Boolean = false,
-        val code: String? = null,
-        val error: String? = null,
-    )
 
     companion object {
         private val client = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
-        private val CHANGE_MAP_TYPE = object : TypeToken<Map<String, Any?>>() {}.type
     }
 
     suspend fun isReachable(): Boolean = withContext(Dispatchers.IO) {
@@ -206,7 +180,7 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
 
     override suspend fun submitCatalogMutation(
         action: ManageCodeOperationAction,
-    ): MixCatalogMutationResult {
+    ): MixServiceOperation {
         if (action.job.isBlank()) {
             throw MixOperationClientException("catalog mutation is missing its job")
         }
@@ -235,30 +209,24 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         }
     }
 
+    // Catalog mutations run on the service's background operation worker (winxiso compiles and
+    // second-pass CNC runs can take minutes) -- these routes reply 202 with an operation id
+    // immediately, same as submitMix/submitPgmEdits. The caller polls getOperation() for result.
     suspend fun createCatalogMix(
         job: String,
         material: String,
         name: String,
         programs: List<String>,
         expectedRevision: Long,
-    ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
-        val url = materialUrl(job, material).newBuilder()
-            .addPathSegment("mixes")
-            .build()
-        val body = gson.toJson(
-            mapOf(
-                "name" to name,
-                "programs" to programs,
-                "expectedRevision" to expectedRevision,
-            )
-        ).toRequestBody(jsonMediaType)
-        executeCatalogMutation(
-            Request.Builder().url(url).post(body).build(),
-            job,
-            material,
-            duplicateName = name,
-        )
-    }
+    ): MixServiceOperation = submitOperation(
+        url = materialUrl(job, material).newBuilder().addPathSegment("mixes").build(),
+        method = "POST",
+        payload = mapOf(
+            "name" to name,
+            "programs" to programs,
+            "expectedRevision" to expectedRevision,
+        ),
+    )
 
     suspend fun replaceMix(
         job: String,
@@ -266,38 +234,30 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         name: String,
         programs: List<String>,
         expectedRevision: Long,
-    ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
-        val url = materialUrl(job, material).newBuilder()
+    ): MixServiceOperation = submitOperation(
+        url = materialUrl(job, material).newBuilder()
             .addPathSegment("mixes")
             .addPathSegment(name)
             .addPathSegment("replace")
-            .build()
-        val body = gson.toJson(
-            mapOf("programs" to programs, "expectedRevision" to expectedRevision)
-        ).toRequestBody(jsonMediaType)
-        executeCatalogMutation(
-            Request.Builder().url(url).post(body).build(),
-            job,
-            material,
-        )
-    }
+            .build(),
+        method = "POST",
+        payload = mapOf("programs" to programs, "expectedRevision" to expectedRevision),
+    )
 
     suspend fun deleteExternalMix(
         job: String,
         material: String,
         filename: String,
         expectedRevision: Long,
-    ): MixCatalogMutationResult = withContext(Dispatchers.IO) {
+    ): MixServiceOperation = withContext(Dispatchers.IO) {
         val url = materialUrl(job, material).newBuilder()
             .addPathSegment("external-mixes")
             .addPathSegment(filename)
             .addQueryParameter("expectedRevision", expectedRevision.toString())
             .build()
-        executeCatalogMutation(
-            Request.Builder().url(url).delete().build(),
-            job,
-            material,
-        )
+        val request = Request.Builder().url(url).delete().build()
+        runCatching { client.newCall(request).execute().use(::parseAcceptedOperation) }
+            .getOrElse { throw MixOperationClientException(it.message ?: "external mix deletion failed") }
     }
 
     suspend fun listPgmEdits(job: String, material: String, historyLimit: Int = 20): PgmEditHistoryView? =
@@ -383,103 +343,6 @@ class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477")
         runCatching { client.newCall(request).execute().use(::parseAcceptedOperation) }
             .getOrElse { throw MixOperationClientException(it.message ?: "operation submission failed") }
     }
-
-    private fun executeCatalogMutation(
-        request: Request,
-        job: String,
-        material: String,
-        duplicateName: String? = null,
-    ): MixCatalogMutationResult = runCatching {
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (response.code == 200) {
-                return@use MixCatalogJson.parseMutationSnapshot(body, job, material)
-                    ?.let(MixCatalogMutationResult::Success)
-                    ?: MixCatalogMutationResult.NetworkError
-            }
-            parseCatalogMutationFailure(response.code, body, job, material, duplicateName)
-        }
-    }.getOrDefault(MixCatalogMutationResult.NetworkError)
-
-    private fun parseCatalogMutationFailure(
-        statusCode: Int,
-        body: String,
-        job: String,
-        material: String,
-        duplicateName: String?,
-    ): MixCatalogMutationResult {
-        val bodyObject = runCatching {
-            JsonParser.parseString(body).takeIf(JsonElement::isJsonObject)?.asJsonObject
-        }.getOrNull()
-        val syncSnapshot = bodyObject?.get("mix")?.let { mix ->
-            MixCatalogJson.parseMutationSnapshot(mix, job, material)
-        }
-        val syncFailure = runCatching {
-            gson.fromJson(body, CatalogSyncFailureEnvelope::class.java)
-        }.getOrNull()?.let { envelope ->
-            syncSnapshot?.let { snapshot ->
-                val recoveryUrl = envelope.recoveryUrl.asNonBlankString()
-                MixCatalogMutationResult.SyncFailed(
-                    snapshot = snapshot,
-                    code = envelope.code ?: "history_sync_failed",
-                    recoveryUrl = recoveryUrl,
-                    recoveries = normalizeRecoveries(envelope.recoveries).ifEmpty {
-                        recoveryUrl?.let { listOf(MixOperationRecovery(url = it)) }
-                            ?: emptyList()
-                    },
-                )
-            }
-        }
-        if (syncFailure != null) return syncFailure
-
-        val error = runCatching {
-            gson.fromJson(body, CatalogErrorEnvelope::class.java)
-        }.getOrNull()
-        val code = error?.code.orEmpty()
-        val message = error?.error.orEmpty()
-        return when (code) {
-            "catalog_changed" -> MixCatalogMutationResult.CatalogChanged
-            "external_mixes_present" -> MixCatalogMutationResult.ExternalMixesPresent
-            "edit_busy" -> MixCatalogMutationResult.EditBusy
-            "compile_busy" -> MixCatalogMutationResult.CompileBusy
-            "winxiso_timeout" -> MixCatalogMutationResult.WinxisoTimeout
-            "duplicate_mix" -> MixCatalogMutationResult.DuplicateName(duplicateName ?: message)
-            "missing_program" -> MixCatalogMutationResult.MissingProgram(
-                message.removePrefix("missing program:").trim()
-            )
-            "history_sync_failed" -> MixCatalogMutationResult.HistorySyncError(message)
-            else -> when (statusCode) {
-                400, 404, 422 -> MixCatalogMutationResult.BadRequest(message)
-                else -> MixCatalogMutationResult.NetworkError
-            }
-        }
-    }
-
-    private fun normalizeRecoveries(recoveries: JsonElement?): List<MixOperationRecovery> {
-        if (recoveries?.isJsonArray != true) return emptyList()
-        return recoveries.asJsonArray.mapNotNull { element ->
-            parseRecovery(element)
-        }
-    }
-
-    private fun parseRecovery(element: JsonElement): MixOperationRecovery? {
-        if (!element.isJsonObject) return null
-        val recovery = element.asJsonObject
-        val url = recovery["url"].asNonBlankString() ?: return null
-        val method = recovery["method"].asNonBlankString() ?: return null
-        val changeElement = recovery["change"] ?: return null
-        if (!changeElement.isJsonObject) return null
-        val change = runCatching {
-            gson.fromJson<Map<String, Any?>>(changeElement, CHANGE_MAP_TYPE)
-        }.getOrNull() ?: return null
-        return MixOperationRecovery(url = url, method = method, change = change)
-    }
-
-    private fun JsonElement?.asNonBlankString(): String? =
-        this
-            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
-            ?.asString
-            ?.takeIf { it.isNotBlank() }
 
     private fun materialUrl(job: String, material: String) = "$root/jobs/".toHttpUrl().newBuilder()
         .addPathSegment(job)

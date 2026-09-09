@@ -42,6 +42,14 @@ internal object MixCatalogJson {
             parseMutationSnapshot(JsonParser.parseString(content), job, material)
         }.getOrNull()
 
+    /**
+     * A completed async catalog operation's [MixServiceOperation.result] arrives already
+     * Gson-deserialized into generic maps/lists rather than raw JSON text. Round-trip it back
+     * through Gson so the existing string-based envelope parser can be reused unchanged.
+     */
+    fun parseMutationResult(result: Any?, job: String, material: String): MixCatalogSnapshot? =
+        runCatching { parseMutationSnapshot(Gson().toJson(result), job, material) }.getOrNull()
+
     /** Parses a nested mutation envelope, used by both HTTP 200 and sync-failure responses. */
     fun parseMutationSnapshot(
         element: JsonElement?,

@@ -289,6 +289,68 @@ class MixOperationCoordinatorTest {
     }
 
     @Test
+    fun `catalog compile-busy failure from the async operation worker is durably mapped`() = runBlocking {
+        val store = InMemorySessionStore()
+        val service = CatalogService(MixCatalogMutationResult.CompileBusy)
+        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+        coordinator.start(
+            session(actions = listOf(ManageCodeOperationAction.catalogReplace("M", "Current", listOf("R1.pgm"), 7L)))
+        )
+
+        val failed = withTimeout(1_000) {
+            coordinator.sessions.first { it["648"]?.current?.state == "failed" }
+        }.getValue("648")
+
+        assertEquals("compile_busy", failed.current.error)
+        assertEquals(MixCatalogMutationResult.CompileBusy, failed.current.result)
+    }
+
+    @Test
+    fun `catalog duplicate-name failure reports the submitted mix name`() = runBlocking {
+        val store = InMemorySessionStore()
+        val service = CatalogService(MixCatalogMutationResult.DuplicateName("New Mix"))
+        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+        coordinator.start(
+            session(
+                actions = listOf(
+                    ManageCodeOperationAction.catalogCreate("M", "New Mix", listOf("R1.pgm"), 7L)
+                )
+            )
+        )
+
+        val failed = withTimeout(1_000) {
+            coordinator.sessions.first { it["648"]?.current?.state == "failed" }
+        }.getValue("648")
+
+        assertEquals(MixCatalogMutationResult.DuplicateName("New Mix"), failed.current.result)
+    }
+
+    @Test
+    fun `catalog missing-program failure recovers the pgm name from the operation error`() = runBlocking {
+        val store = InMemorySessionStore()
+        val service = CatalogService(MixCatalogMutationResult.MissingProgram("R590401N.pgm"))
+        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+        coordinator.start(
+            session(actions = listOf(ManageCodeOperationAction.catalogReplace("M", "Current", listOf("R1.pgm"), 7L)))
+        )
+
+        val failed = withTimeout(1_000) {
+            coordinator.sessions.first { it["648"]?.current?.state == "failed" }
+        }.getValue("648")
+
+        assertEquals(MixCatalogMutationResult.MissingProgram("R590401N.pgm"), failed.current.result)
+    }
+
+    @Test
     fun `retry rejects failed catalog changed action without resubmitting it`() = runBlocking {
         val store = InMemorySessionStore()
         val service = CatalogService(MixCatalogMutationResult.CatalogChanged)
@@ -1063,6 +1125,32 @@ class MixOperationCoordinatorTest {
         stage = stage,
     )
 
+    /** Mirrors what MixCatalogJson.parseMutationResult expects on MixServiceOperation.result. */
+    private fun MixCatalogSnapshot.toOperationResult(): Map<String, Any?> = mapOf(
+        "ok" to true,
+        "catalog" to mapOf(
+            "revision" to revision,
+            "entries" to entries.map { entry ->
+                mapOf(
+                    "name" to entry.name,
+                    "mixFilename" to entry.mixFilename,
+                    "lifecycle" to when (entry.lifecycle) {
+                        MixLifecycle.ACTIVE -> "active"
+                        MixLifecycle.HISTORY -> "history"
+                        MixLifecycle.EXTERNAL -> "external"
+                    },
+                    "programs" to entry.programs,
+                    "status" to entry.status,
+                    "createdAt" to entry.createdAt,
+                    "updatedAt" to entry.updatedAt,
+                    "lastCompiledAt" to entry.lastCompiledAt,
+                    "lastCompileOk" to entry.lastCompileOk,
+                    "lastCompileError" to entry.lastCompileError,
+                )
+            },
+        ),
+    )
+
     private class InMemorySessionStore(
         initial: Map<String, ManageCodeSession> = emptyMap(),
         initialLoad: MixOperationSessionLoadResult = MixOperationSessionLoadResult.Success(initial),
@@ -1087,22 +1175,17 @@ class MixOperationCoordinatorTest {
         var submitCount = 0
         val submitted = mutableListOf<ManageCodeOperationAction>()
         val submissionKinds = mutableListOf<String>()
+        private var lastSubmitted: ManageCodeOperationAction? = null
 
-        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixCatalogMutationResult {
+        // The real service accepts (202) immediately and completes the mutation on its
+        // background operation worker; getOperation("catalog") below stands in for that worker.
+        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixServiceOperation {
             onCatalogSubmit(action)
             submitCount += 1
             submitted += action
             submissionKinds += action.kind
-            return when (val mutation = result) {
-                is MixCatalogMutationResult.Success -> mutation.copy(
-                    snapshot = mutation.snapshot.copy(
-                        job = action.job,
-                        material = action.material,
-                        revision = action.expectedRevision + 1,
-                    )
-                )
-                else -> mutation
-            }
+            lastSubmitted = action
+            return operation(id = "catalog", state = "queued", stage = "queued").copy(kind = action.kind)
         }
 
         override suspend fun submitMix(
@@ -1123,8 +1206,48 @@ class MixOperationCoordinatorTest {
             return operation(id = "edit", state = "queued", stage = "queued").copy(kind = "pgm_edit")
         }
 
-        override suspend fun getOperation(id: String): MixServiceOperation =
-            operation(id = id, state = "completed", stage = "completed").copy(kind = "pgm_edit")
+        override suspend fun getOperation(id: String): MixServiceOperation {
+            if (id != "catalog") {
+                return operation(id = id, state = "completed", stage = "completed").copy(kind = "pgm_edit")
+            }
+            val action = requireNotNull(lastSubmitted) { "catalog operation polled before submission" }
+            return when (val mutation = result) {
+                is MixCatalogMutationResult.Success -> {
+                    val snapshot = mutation.snapshot.copy(
+                        job = action.job,
+                        material = action.material,
+                        revision = action.expectedRevision + 1,
+                    )
+                    operation(id = id, state = "completed", stage = "completed")
+                        .copy(kind = action.kind, result = snapshot.toOperationResult())
+                }
+                is MixCatalogMutationResult.SyncFailed -> operation(id = id, state = "completed", stage = "completed")
+                    .copy(
+                        kind = action.kind,
+                        result = mutation.snapshot.toOperationResult(),
+                        warning = MixOperationWarning(
+                            code = mutation.code,
+                            message = mutation.code,
+                            recoveries = mutation.recoveries,
+                        ),
+                    )
+                MixCatalogMutationResult.CatalogChanged -> operation(id = id, state = "failed", stage = "failed")
+                    .copy(kind = action.kind, code = "catalog_changed", error = "catalog_changed")
+                MixCatalogMutationResult.ExternalMixesPresent -> operation(id = id, state = "failed", stage = "failed")
+                    .copy(kind = action.kind, code = "external_mixes_present")
+                MixCatalogMutationResult.EditBusy -> operation(id = id, state = "failed", stage = "failed")
+                    .copy(kind = action.kind, code = "edit_busy")
+                MixCatalogMutationResult.CompileBusy -> operation(id = id, state = "failed", stage = "failed")
+                    .copy(kind = action.kind, code = "compile_busy")
+                MixCatalogMutationResult.WinxisoTimeout -> operation(id = id, state = "failed", stage = "failed")
+                    .copy(kind = action.kind, code = "winxiso_timeout")
+                is MixCatalogMutationResult.DuplicateName -> operation(id = id, state = "failed", stage = "failed")
+                    .copy(kind = action.kind, code = "duplicate_mix")
+                is MixCatalogMutationResult.MissingProgram -> operation(id = id, state = "failed", stage = "failed")
+                    .copy(kind = action.kind, code = "missing_program", error = "missing program: ${mutation.pgm}")
+                else -> error("Not used by this test: $mutation")
+            }
+        }
 
         override suspend fun listJobOperations(job: String): List<MixServiceOperation> = emptyList()
     }
@@ -1168,7 +1291,7 @@ class MixOperationCoordinatorTest {
             return operation(id = "edit", state = "queued", stage = "queued").copy(kind = "pgm_edit")
         }
 
-        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixCatalogMutationResult =
+        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixServiceOperation =
             error("Not used by this test")
 
         override suspend fun getOperation(id: String): MixServiceOperation {
@@ -1203,7 +1326,7 @@ class MixOperationCoordinatorTest {
         override suspend fun submitPgmEdits(job: String, material: String, requestId: String, files: List<PgmEditRow>): MixServiceOperation =
             error("Not used by this test")
 
-        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixCatalogMutationResult =
+        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixServiceOperation =
             error("Not used by this test")
 
         override suspend fun getOperation(id: String): MixServiceOperation {
@@ -1238,7 +1361,7 @@ class MixOperationCoordinatorTest {
             return operation(id = "edit-$editSubmits", state = "queued", stage = "queued").copy(kind = "pgm_edit")
         }
 
-        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixCatalogMutationResult =
+        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixServiceOperation =
             error("Not used by this test")
 
         override suspend fun getOperation(id: String): MixServiceOperation = when (id) {
@@ -1281,7 +1404,7 @@ class MixOperationCoordinatorTest {
             error("must not submit")
         }
 
-        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixCatalogMutationResult {
+        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixServiceOperation {
             submitCount += 1
             error("must not submit")
         }

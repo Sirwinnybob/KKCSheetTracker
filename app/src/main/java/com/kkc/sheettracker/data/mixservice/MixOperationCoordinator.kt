@@ -126,6 +126,8 @@ class MixOperationCoordinator(
                             } else {
                                 markInterrupted(session.job, action.material, "submission was not acknowledged before restart")
                             }
+                        } else if (action.isCatalogAction) {
+                            pollCatalogOperation(session.job, action, id)
                         } else {
                             pollExistingOperation(session.job, id)
                         }
@@ -216,49 +218,90 @@ class MixOperationCoordinator(
         pollExistingOperation(job, operation.id)
     }
 
+    /**
+     * Catalog mutations (create/replace/delete) run on the service's background operation
+     * worker -- a compile or second-pass CNC run can take minutes, so the submit call returns
+     * as soon as the server accepts the request (202) rather than blocking for the full run.
+     * [pollCatalogOperation] then reports live progress the same way [pollExistingOperation]
+     * already does for plain mix/pgm-edit actions.
+     */
     private suspend fun submitCatalogAction(job: String, action: ManageCodeOperationAction) {
-        val result = runCatching { service.submitCatalogMutation(action) }
-        if (result.isFailure) {
+        val accepted = runCatching { service.submitCatalogMutation(action) }
+        if (accepted.isFailure) {
             markInterrupted(
                 job,
                 action.material,
-                result.exceptionOrNull()?.message ?: "catalog submission was not acknowledged",
+                accepted.exceptionOrNull()?.message ?: "catalog submission was not acknowledged",
             )
             return
         }
+        val operation = accepted.getOrThrow()
+        val submittedAction = lock.withLock {
+            val session = _sessions.value[job] ?: return
+            if (session.currentAction != action) return
+            val updated = action.copy(operationId = operation.id)
+            val actions = session.actions.toMutableList().also { it[session.currentActionIndex] = updated }
+            publishLocked(session.copy(actions = actions, current = operation))
+            updated
+        }
+        pollCatalogOperation(job, submittedAction, operation.id)
+    }
 
-        val nextJob = lock.withLock {
-            val session = _sessions.value[job] ?: return@withLock null
-            if (session.currentAction != action) return@withLock null
-            when (val mutation = result.getOrThrow()) {
-                is MixCatalogMutationResult.Success -> completeCatalogAction(
-                    session,
-                    action,
-                    mutation.snapshot,
-                    warning = null,
-                )
-                is MixCatalogMutationResult.SyncFailed -> completeCatalogAction(
-                    session,
-                    action,
-                    mutation.snapshot,
-                    warning = MixOperationWarning(
-                        code = mutation.code,
-                        message = mutation.code,
-                        recoveries = mutation.recoveries.ifEmpty {
-                            mutation.recoveryUrl?.let { listOf(MixOperationRecovery(url = it)) }
-                                ?: emptyList()
-                        },
-                    ),
-                )
-                else -> {
-                    publishLocked(
-                        session.copy(current = catalogFailureOperation(job, action, mutation))
+    private suspend fun pollCatalogOperation(
+        job: String,
+        action: ManageCodeOperationAction,
+        operationId: String,
+    ) {
+        while (true) {
+            val operation = runCatching { service.getOperation(operationId) }.getOrNull()
+            if (operation == null) {
+                delay(pollIntervalMillis)
+                continue
+            }
+            if (!operation.isTerminal) {
+                lock.withLock {
+                    val session = _sessions.value[job] ?: return
+                    if (session.currentAction != action) return
+                    publishLocked(session.copy(current = operation))
+                }
+                delay(pollIntervalMillis)
+                continue
+            }
+            val mutation = operation.toCatalogMutationResult(job, action)
+            val nextJob = lock.withLock {
+                val session = _sessions.value[job] ?: return
+                if (session.currentAction != action) return
+                when (mutation) {
+                    is MixCatalogMutationResult.Success -> completeCatalogAction(
+                        session,
+                        action,
+                        mutation.snapshot,
+                        warning = null,
                     )
-                    null
+                    is MixCatalogMutationResult.SyncFailed -> completeCatalogAction(
+                        session,
+                        action,
+                        mutation.snapshot,
+                        warning = MixOperationWarning(
+                            code = mutation.code,
+                            message = mutation.code,
+                            recoveries = mutation.recoveries.ifEmpty {
+                                mutation.recoveryUrl?.let { listOf(MixOperationRecovery(url = it)) }
+                                    ?: emptyList()
+                            },
+                        ),
+                    )
+                    else -> {
+                        publishLocked(
+                            session.copy(current = catalogFailureOperation(job, action, mutation))
+                        )
+                        null
+                    }
                 }
             }
+            if (nextJob != null) submitCurrentAction(nextJob)
+            return
         }
-        if (nextJob != null) submitCurrentAction(nextJob)
     }
 
     private suspend fun completeCatalogAction(
@@ -480,6 +523,46 @@ private val ManageCodeOperationAction.isCatalogAction: Boolean
         ManageCodeOperationAction.CATALOG_REPLACE,
         ManageCodeOperationAction.EXTERNAL_DELETE,
     )
+
+/** Converts a terminal catalog-mutation [MixServiceOperation] back into the typed result the
+ * rest of the coordinator (and the UI) already switches on. [MixServiceOperation.code] is the
+ * stable classification the service attaches to a failed operation; an operation predating that
+ * field (or any code the client doesn't recognize) falls back to [MixCatalogMutationResult.BadRequest]
+ * rather than the old blanket [MixCatalogMutationResult.NetworkError]. */
+private fun MixServiceOperation.toCatalogMutationResult(
+    job: String,
+    action: ManageCodeOperationAction,
+): MixCatalogMutationResult {
+    if (state == "completed") {
+        val snapshot = MixCatalogJson.parseMutationResult(result, job, action.material)
+            ?: return MixCatalogMutationResult.NetworkError
+        val warn = warning
+        return if (warn != null) {
+            MixCatalogMutationResult.SyncFailed(
+                snapshot = snapshot,
+                code = warn.code,
+                recoveryUrl = null,
+                recoveries = warn.recoveries,
+            )
+        } else {
+            MixCatalogMutationResult.Success(snapshot)
+        }
+    }
+    return when (code) {
+        "catalog_changed" -> MixCatalogMutationResult.CatalogChanged
+        "external_mixes_present" -> MixCatalogMutationResult.ExternalMixesPresent
+        "edit_busy" -> MixCatalogMutationResult.EditBusy
+        "compile_busy" -> MixCatalogMutationResult.CompileBusy
+        "winxiso_timeout" -> MixCatalogMutationResult.WinxisoTimeout
+        "duplicate_mix" -> MixCatalogMutationResult.DuplicateName(action.name)
+        "missing_program" -> MixCatalogMutationResult.MissingProgram(
+            error.orEmpty().removePrefix("missing program:").trim()
+        )
+        else -> MixCatalogMutationResult.BadRequest(
+            error?.takeIf { it.isNotBlank() } ?: "mix generation failed"
+        )
+    }
+}
 
 private fun MixCatalogMutationResult.failureCode(): String = when (this) {
     MixCatalogMutationResult.CatalogChanged -> "catalog_changed"
