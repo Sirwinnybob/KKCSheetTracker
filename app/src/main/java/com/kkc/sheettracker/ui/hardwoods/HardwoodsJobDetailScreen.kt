@@ -60,13 +60,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
+import com.kkc.sheettracker.data.HiddenMaterialsRepository
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.SpecialtyStateStore
+import com.kkc.sheettracker.data.isHiddenIn
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
+import com.kkc.sheettracker.data.models.HiddenMaterialsDocument
+import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
@@ -94,6 +98,27 @@ private data class HardwoodsDetailProgress(
     val rowProgressMap: Map<Pair<String, String>, HardwoodRowProgress> = emptyMap(),
     val totalsDoneMap: Map<String, Int> = emptyMap()
 )
+
+/**
+ * Drops rows whose (docType, material) is hidden for this job under Hardwoods mode, so
+ * every progress aggregate downstream (job-level and per-doc-type badges, rip-cut-list
+ * board stock) matches what the tablet's cutlist screen itself already shows -- hidden
+ * materials are excluded from both the numerator and denominator, not just hidden from
+ * the section list. Availability checks (which PDFs exist, which doc types can be
+ * opened) intentionally do NOT use this filtered job -- hiding a material never removes
+ * a doc type's ability to be opened, only its contribution to the progress numbers.
+ */
+internal fun HardwoodJob.filteredForHiddenMaterials(hiddenDocument: HiddenMaterialsDocument): HardwoodJob {
+    val index = this.index ?: return this
+    val filteredDocuments = index.documents.map { doc ->
+        doc.copy(
+            rows = doc.rows.filter { row ->
+                !isHiddenIn(hiddenDocument, folderName, doc.docType.name, row.material.orEmpty())
+            }
+        )
+    }
+    return copy(index = index.copy(documents = filteredDocuments))
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,15 +164,30 @@ fun HardwoodsJobDetailScreen(
         }
     }
     val resolvedJob = job ?: emptyJob
+    val hiddenMaterialsRepository = remember(scanState.snapshot.basePath) {
+        HiddenMaterialsRepository(File(scanState.snapshot.basePath))
+    }
+    val hiddenMaterialsDocument by produceState(
+        initialValue = HiddenMaterialsDocument(),
+        hiddenMaterialsRepository,
+        jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) {
+            hiddenMaterialsRepository.fetchDocument(HiddenMaterialsMode.HARDWOODS, jobFolderName)
+        }
+    }
+    val progressJob = remember(resolvedJob, hiddenMaterialsDocument) {
+        resolvedJob.filteredForHiddenMaterials(hiddenMaterialsDocument)
+    }
     val detailProgress by produceState(
         initialValue = HardwoodsDetailProgress(),
-        resolvedJob,
+        progressJob,
         jobFolderName,
         progressVersion
     ) {
         value = withContext(Dispatchers.IO) {
             HardwoodsDetailProgress(
-                summary = progressStore.summarizeJob(resolvedJob),
+                summary = progressStore.summarizeJob(progressJob),
                 rowProgressMap = progressStore.getRowProgressMap(jobFolderName),
                 totalsDoneMap = progressStore.getTotalsRip10DoneMap(jobFolderName)
             )
@@ -195,6 +235,9 @@ fun HardwoodsJobDetailScreen(
     }
     val docSummariesByType = remember(summary.documents) {
         summary.documents.associateBy { it.docType }
+    }
+    val filteredDocsByType = remember(progressJob.index) {
+        progressJob.index?.documents.orEmpty().associateBy { it.docType }
     }
     var suppressLeavePrompt by remember { mutableStateOf(false) }
     var showPrintDialog by remember { mutableStateOf(false) }
@@ -381,19 +424,20 @@ fun HardwoodsJobDetailScreen(
             val visibleDocTypes = HardwoodDocType.entries.filter { it in availableDocsByType.keys }
             for (docType in visibleDocTypes) {
                 val doc = availableDocsByType[docType] ?: continue
+                val filteredDoc = filteredDocsByType[docType] ?: doc.copy(rows = emptyList())
                 val docSummary = docSummariesByType[docType]
                 val available = true
                 val counts = docSummary?.counts ?: com.kkc.sheettracker.data.models.HardwoodStatusCounts()
                 val statusCounts = counts.toStatusCounts()
                 val materialSegments = if (available && docType != HardwoodDocType.DOOR_LIST) {
-                    buildHardwoodsMaterialSegments(doc, rowProgressMap)
+                    buildHardwoodsMaterialSegments(filteredDoc, rowProgressMap)
                 } else {
                     null
                 }
                 val expanded = docType.name in expandedDocs
                 ProgressCard(
                     title = docType.uiLabel(),
-                    subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done • ${doc.rows.size} rows",
+                    subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done • ${filteredDoc.rows.size} rows",
                     fraction = if (!available) 0f else counts.completionFraction,
                     expanded = expanded,
                     segmentedStatusCounts = statusCounts,
