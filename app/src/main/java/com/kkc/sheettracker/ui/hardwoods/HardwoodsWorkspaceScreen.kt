@@ -1630,6 +1630,15 @@ fun HardwoodsWorkspaceScreen(
                             if (sectionRows.isEmpty()) {
                                 return@forEach
                             }
+                            val sectionHidden = isHiddenIn(
+                                hiddenMaterialsDocument,
+                                jobFolderName,
+                                selectedDoc.docType.name,
+                                section.material
+                            )
+                            if (sectionHidden && !showHiddenMaterials) {
+                                return@forEach
+                            }
                             val sectionKey = section.material
                             val sectionStateKey = "${selectedDoc.docType.name}|$sectionKey"
                             val isCollapsed = sectionStateKey in collapsedPartSections
@@ -1656,7 +1665,7 @@ fun HardwoodsWorkspaceScreen(
                                     itemCount = section.rows.size,
                                     done = sectionProgress.donePieces,
                                     total = sectionProgress.totalPieces,
-                                    dimmed = sectionAllSkipped,
+                                    dimmed = sectionAllSkipped || sectionHidden,
                                     skipped = sectionAllSkipped,
                                     expanded = !isCollapsed,
                                     onToggleExpanded = {
