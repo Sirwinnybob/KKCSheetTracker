@@ -239,6 +239,8 @@ Second caveat: if a Cabinet Vision molding profile is renamed or removed, Ready 
 | PDF markup missing | `.metadata\pdf_markup\.tracker\<tablet>.markup.json`, then tablet app version |
 | Supply item/status wrong | `.supply\items`, `.supply\status`, `.supply\comments`, then Hours Tracker supply backend |
 | Safety concern submitted on tablet not showing on Hours Tracker | Confirm the file landed in `.safety\concerns` under the SAME base path the rest of Hours Tracker uses (`.metadata`, `.supply`, `job_board.json`) -- check `safety_store.get_safety_dir()` resolves via `get_base_path()`, not a separately-derived path (audit-style bug, see Common Mistakes) |
+| A material a tablet hid is still visible on another tablet | Check that mode's `hidden_materials_global.json`/`hidden_materials.json` content directly, then the hidden-materials live WebSocket connection state on the affected tablet, then the backend's sidecar-request poller logs |
+| Hiding a material in Hardwoods mode also hid it in Specialty (or vice versa) | Mode-segregation bug -- the two modes must never read/write each other's files. Check `hiddenMaterialsModeSubdir`/the route's `hiddenMaterialsMode` argument (`HardwoodsWorkspaceScreen`'s param, threaded from the route that navigated in), and the backend's `(mode, docType, material)` dedup key |
 | Production order/lineup wrong | `production_order.json`, Hours Tracker admin, then Ready Jobs Watcher cache refresh |
 | Delivery schedule wrong | `Y:\Ready Jobs\.metadata\delivery_schedule.json`, Hours Tracker |
 | Digital hours wrong | `.time_cards\<Employee>\<week>.json`, locks, `pending_edits.json` |
