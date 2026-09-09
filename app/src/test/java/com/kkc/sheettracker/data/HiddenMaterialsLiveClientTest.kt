@@ -364,6 +364,181 @@ class HiddenMaterialsLiveClientTest {
         client.stop()
     }
 
+    /**
+     * These five tests were carried over from DeliveryScheduleLiveClientTest.kt's own suite,
+     * where they were added to lock in fixes for real production bugs in this exact
+     * generation/lock/backoff machinery (see that file's git history, 2026-08-27, "fix: guard
+     * live socket lifecycle" / "fix: protect tablet live state"). This class shares the identical
+     * lifecycle code, so it needs the identical regression coverage.
+     */
+
+    @Test
+    fun `ignores stale callbacks from an old socket after a newer socket exists`() = runBlocking {
+        val sockets = listOf(mock<WebSocket>(), mock<WebSocket>())
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val documents = CopyOnWriteArrayList<HiddenMaterialsDocument>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val connectAttempts = AtomicInteger()
+        val client = client(
+            fakeSocket = sockets[0],
+            onDocument = { documents.add(it) },
+            onConnectionState = { connectionStates.add(it) },
+            reconnectDelayMs = { 0L },
+            webSocketFactory = { _, listener ->
+                val index = connectAttempts.getAndIncrement()
+                listeners.add(listener)
+                sockets[index.coerceAtMost(sockets.lastIndex)]
+            }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onFailure(sockets[0], RuntimeException("first"), null)
+        waitUntil { listeners.size == 2 }
+
+        val staleSnapshot =
+            """{"type":"snapshot","revision":1,"hiddenMaterials":{"global":{"entries":[{"docType":"NAILER_CUT_LIST","material":"588"}]},"jobs":{}}}"""
+        listeners[0].onMessage(sockets[0], staleSnapshot)
+        listeners[0].onClosed(sockets[0], 1001, "stale")
+        listeners[0].onFailure(sockets[0], RuntimeException("stale"), null)
+
+        Thread.sleep(200L)
+        assertTrue(documents.isEmpty())
+        assertEquals(listOf(false), connectionStates)
+        assertEquals(2, listeners.size)
+        client.stop()
+    }
+
+    @Test
+    fun `rapid stop and start suppresses stale reconnect from prior lifecycle`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val connectAttempts = AtomicInteger()
+        val client = client(
+            fakeSocket = fakeSocket,
+            reconnectDelayMs = { 200L },
+            webSocketFactory = { _, listener ->
+                connectAttempts.incrementAndGet()
+                listeners.add(listener)
+                fakeSocket
+            }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onFailure(fakeSocket, RuntimeException("old lifecycle"), null)
+        client.stop()
+        client.start()
+        waitUntil { listeners.size == 2 }
+
+        Thread.sleep(400L)
+        assertEquals(2, connectAttempts.get())
+        client.stop()
+    }
+
+    @Test
+    fun `duplicate close callbacks schedule only one reconnect`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val scheduleCount = AtomicInteger()
+        val client = client(
+            fakeSocket = fakeSocket,
+            reconnectDelayMs = { scheduleCount.incrementAndGet(); 100L },
+            webSocketFactory = { _, listener ->
+                listeners.add(listener)
+                fakeSocket
+            }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onClosed(fakeSocket, 1001, "first")
+        listeners[0].onClosed(fakeSocket, 1001, "second")
+
+        Thread.sleep(300L)
+        assertEquals(1, scheduleCount.get())
+        assertEquals(2, listeners.size)
+        client.stop()
+    }
+
+    @Test
+    fun `reconnect snapshot can replace a prior session despite a lower revision`() = runBlocking {
+        val sockets = listOf(mock<WebSocket>(), mock<WebSocket>())
+        val listeners = CopyOnWriteArrayList<WebSocketListener>()
+        val documents = CopyOnWriteArrayList<HiddenMaterialsDocument>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val connectAttempts = AtomicInteger()
+        val client = client(
+            fakeSocket = sockets[0],
+            onDocument = { documents.add(it) },
+            onConnectionState = { connectionStates.add(it) },
+            reconnectDelayMs = { 0L },
+            webSocketFactory = { _, listener ->
+                val index = connectAttempts.getAndIncrement()
+                listeners.add(listener)
+                sockets[index.coerceAtMost(sockets.lastIndex)]
+            }
+        )
+
+        client.start()
+        waitUntil { listeners.size == 1 }
+        listeners[0].onMessage(
+            sockets[0],
+            """{"type":"snapshot","revision":10,"hiddenMaterials":{"global":{"entries":[{"docType":"NAILER_CUT_LIST","material":"old-session"}]},"jobs":{}}}"""
+        )
+        listeners[0].onFailure(sockets[0], RuntimeException("reconnect"), null)
+        waitUntil { listeners.size == 2 }
+        listeners[1].onMessage(
+            sockets[1],
+            """{"type":"snapshot","revision":1,"hiddenMaterials":{"global":{"entries":[{"docType":"NAILER_CUT_LIST","material":"new-session"}]},"jobs":{}}}"""
+        )
+
+        assertEquals(
+            listOf("old-session", "new-session"),
+            documents.map { it.global.entries.single().material }
+        )
+        assertEquals(listOf(true, false, true), connectionStates)
+        client.stop()
+    }
+
+    @Test
+    fun `requires a nonnegative revision before an initial snapshot can establish live state`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val capturedListener = AtomicReference<WebSocketListener>()
+        val documents = CopyOnWriteArrayList<HiddenMaterialsDocument>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val client = client(
+            fakeSocket = fakeSocket,
+            capturedListener = capturedListener,
+            onDocument = { documents.add(it) },
+            onConnectionState = { connectionStates.add(it) }
+        )
+
+        client.start()
+        waitUntil { capturedListener.get() != null }
+        val listener = capturedListener.get()
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"snapshot","hiddenMaterials":{"global":{"entries":[{"docType":"NAILER_CUT_LIST","material":"missing"}]},"jobs":{}}}"""
+        )
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"snapshot","revision":-1,"hiddenMaterials":{"global":{"entries":[{"docType":"NAILER_CUT_LIST","material":"negative"}]},"jobs":{}}}"""
+        )
+
+        assertTrue(documents.isEmpty())
+        assertTrue(connectionStates.isEmpty())
+
+        listener.onMessage(
+            fakeSocket,
+            """{"type":"snapshot","revision":0,"hiddenMaterials":{"global":{"entries":[{"docType":"NAILER_CUT_LIST","material":"valid"}]},"jobs":{}}}"""
+        )
+
+        assertEquals("valid", documents.single().global.entries.single().material)
+        assertEquals(listOf(true), connectionStates)
+        client.stop()
+    }
+
     private fun client(
         fakeSocket: WebSocket,
         mode: HiddenMaterialsMode = HiddenMaterialsMode.HARDWOODS,
