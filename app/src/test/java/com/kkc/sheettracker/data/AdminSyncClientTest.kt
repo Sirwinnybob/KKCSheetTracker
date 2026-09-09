@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -129,5 +130,67 @@ class AdminSyncClientTest {
         assertEquals(listOf("Job-A"), result)
         val recorded = server.takeRequest()
         assertEquals("/api/admin-sync/production-order", recorded.path)
+    }
+
+    @Test
+    fun `applyHiddenMaterialsAction returns true on success`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"applied":true}"""))
+
+        val result = client.applyHiddenMaterialsAction(
+            mode = HiddenMaterialsMode.HARDWOODS,
+            action = "hide",
+            scope = "global",
+            docType = "NAILER_CUT_LIST",
+            material = "Maple",
+            tabletId = "tablet-1",
+            jobId = null,
+            requestedAt = "2026-09-08T18:00:00Z"
+        )
+
+        assertTrue(result)
+        val recorded = server.takeRequest()
+        assertEquals("/api/admin-sync/hardwoods-hidden-materials", recorded.path)
+        val bodyText = recorded.body.readUtf8()
+        assertTrue(bodyText.contains("\"mode\":\"HARDWOODS\""))
+        assertTrue(bodyText.contains("\"tabletId\":\"tablet-1\""))
+        assertTrue(bodyText.contains("\"requestedAt\":\"2026-09-08T18:00:00Z\""))
+        assertFalse(bodyText.contains("jobId"))
+    }
+
+    @Test
+    fun `applyHiddenMaterialsAction includes jobId when scope is job`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"applied":true}"""))
+
+        client.applyHiddenMaterialsAction(
+            mode = HiddenMaterialsMode.SPECIALTY,
+            action = "hide",
+            scope = "job",
+            docType = "DOOR_LIST",
+            material = "Oak",
+            tabletId = "tablet-1",
+            jobId = "123 - Job",
+            requestedAt = "2026-09-08T18:00:00Z"
+        )
+
+        val bodyText = server.takeRequest().body.readUtf8()
+        assertTrue(bodyText.contains("\"jobId\":\"123 - Job\""))
+    }
+
+    @Test
+    fun `applyHiddenMaterialsAction returns false on server error`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(400))
+
+        val result = client.applyHiddenMaterialsAction(
+            mode = HiddenMaterialsMode.HARDWOODS,
+            action = "hide",
+            scope = "global",
+            docType = "NAILER_CUT_LIST",
+            material = "Maple",
+            tabletId = "tablet-1",
+            jobId = null,
+            requestedAt = "2026-09-08T18:00:00Z"
+        )
+
+        assertFalse(result)
     }
 }

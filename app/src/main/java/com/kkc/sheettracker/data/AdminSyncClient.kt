@@ -109,4 +109,38 @@ class AdminSyncClient(serverUrl: String) {
                 }
             }.getOrNull()
         }
+
+    /**
+     * Fast path for a tablet-authored hide/unhide, covering both Hardwoods and Specialty (see
+     * `mode`). Returns true on success, false on ANY failure (caller should fall back to
+     * HiddenMaterialsRequestStore) -- same contract as applyJobBoardEdits, no retry loop here.
+     */
+    suspend fun applyHiddenMaterialsAction(
+        mode: com.kkc.sheettracker.data.models.HiddenMaterialsMode,
+        action: String,
+        scope: String,
+        docType: String,
+        material: String,
+        tabletId: String,
+        jobId: String?,
+        requestedAt: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("mode", mode.name)
+            put("action", action)
+            put("scope", scope)
+            put("docType", docType)
+            put("material", material)
+            put("tabletId", tabletId)
+            put("requestedAt", requestedAt)
+            if (jobId != null) put("jobId", jobId)
+        }.toString().toRequestBody(jsonMediaType)
+        val request = Request.Builder()
+            .url("$baseUrl/api/admin-sync/hardwoods-hidden-materials")
+            .post(body)
+            .build()
+        runCatching {
+            client.newCall(request).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+    }
 }
