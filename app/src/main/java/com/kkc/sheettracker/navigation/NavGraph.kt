@@ -1009,7 +1009,9 @@ private fun MultiBackStackNavigation(
                                 val docType = runCatching { HardwoodDocType.valueOf(parts[1]) }
                                     .getOrDefault(HardwoodDocType.FACE_FRAME_CUT_LIST)
                                 val rowId = parts[2]
-                                coordinator.openHardwoodsRouteInJobs(hardwoodsWorkspaceRoute(folderName, docType, rowId))
+                                coordinator.openHardwoodsRouteInJobs(
+                                    hardwoodsWorkspaceRoute(folderName, docType, rowId, com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
+                                )
                             } else {
                                 coordinator.openHardwoodsJobInJobs(payload)
                             }
@@ -1565,7 +1567,9 @@ private fun JobsTabHost(
                 onTogglePin = onTogglePin,
                 onJobClick = { model -> model.onCardClick() },
                 onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                    navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
+                    navController.navigate(
+                        hardwoodsWorkspaceRoute(jobFolderName, docType, rowId, com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
+                    ) {
                         launchSingleTop = true
                     }
                 },
@@ -1721,7 +1725,8 @@ private fun JobsTabHost(
                         hardwoodsWorkspaceRoute(
                             folderName,
                             HardwoodDocType.DOOR_CUT_LIST,
-                            HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                            HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID,
+                            com.kkc.sheettracker.data.models.HiddenMaterialsMode.SPECIALTY
                         )
                     ) {
                         launchSingleTop = true
@@ -1732,7 +1737,8 @@ private fun JobsTabHost(
                         hardwoodsWorkspaceRoute(
                             folderName,
                             HardwoodDocType.DOOR_CUT_LIST,
-                            HARDWOODS_SAW_RIP_LIST_ROW_ID
+                            HARDWOODS_SAW_RIP_LIST_ROW_ID,
+                            com.kkc.sheettracker.data.models.HiddenMaterialsMode.SPECIALTY
                         )
                     ) { launchSingleTop = true }
                 },
@@ -1741,7 +1747,8 @@ private fun JobsTabHost(
                         hardwoodsWorkspaceRoute(
                             folderName,
                             HardwoodDocType.CLOSET_ROD_CUT_LIST,
-                            null
+                            null,
+                            com.kkc.sheettracker.data.models.HiddenMaterialsMode.SPECIALTY
                         )
                     ) { launchSingleTop = true }
                 },
@@ -1777,7 +1784,8 @@ private fun JobsTabHost(
                     hardwoodsWorkspaceRoute(
                         folderName,
                         HardwoodDocType.DOOR_CUT_LIST,
-                        HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                        HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID,
+                        com.kkc.sheettracker.data.models.HiddenMaterialsMode.SPECIALTY
                     )
                 ) {
                     launchSingleTop = true
@@ -1935,7 +1943,9 @@ private fun JobsTabHost(
                     }
                 },
                 onOpenWorkspace = { docType ->
-                    navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
+                    navController.navigate(
+                        hardwoodsWorkspaceRoute(folderName, docType, null, com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
+                    ) {
                         launchSingleTop = true
                     }
                 },
@@ -1944,7 +1954,8 @@ private fun JobsTabHost(
                         hardwoodsWorkspaceRoute(
                             folderName,
                             HardwoodDocType.FACE_FRAME_CUT_LIST,
-                            HARDWOODS_RIP_CUT_LIST_ROW_ID
+                            HARDWOODS_RIP_CUT_LIST_ROW_ID,
+                            com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS
                         )
                     ) {
                         launchSingleTop = true
@@ -1982,11 +1993,12 @@ private fun JobsTabHost(
         }
 
         composable(
-            "hardwoods/workspace/{folderName}/{docType}/{startPage}",
+            "hardwoods/workspace/{folderName}/{docType}/{startPage}/{hiddenMaterialsMode}",
             arguments = listOf(
                 navArgument("folderName") { type = NavType.StringType },
                 navArgument("docType") { type = NavType.StringType },
-                navArgument("startPage") { type = NavType.StringType }
+                navArgument("startPage") { type = NavType.StringType },
+                navArgument("hiddenMaterialsMode") { type = NavType.StringType }
             )
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
@@ -2991,7 +3003,9 @@ private fun LegacySingleStackNavigation(
                             onTogglePin = onTogglePin,
                             onJobClick = { model -> model.onCardClick() },
                             onOpenHardwoodsChange = { jobFolderName, docType, rowId ->
-                                navController.navigate(hardwoodsWorkspaceRoute(jobFolderName, docType, rowId)) {
+                                navController.navigate(
+                                    hardwoodsWorkspaceRoute(jobFolderName, docType, rowId, com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
+                                ) {
                                     launchSingleTop = true
                                 }
                             },
@@ -3115,7 +3129,8 @@ private fun LegacySingleStackNavigation(
                                 hardwoodsWorkspaceRoute(
                                     folderName,
                                     HardwoodDocType.DOOR_CUT_LIST,
-                                    HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                                    HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID,
+                                    com.kkc.sheettracker.data.models.HiddenMaterialsMode.SPECIALTY
                                 )
                             ) {
                                 launchSingleTop = true
@@ -3126,7 +3141,8 @@ private fun LegacySingleStackNavigation(
                                 hardwoodsWorkspaceRoute(
                                     folderName,
                                     HardwoodDocType.DOOR_CUT_LIST,
-                                    HARDWOODS_SAW_RIP_LIST_ROW_ID
+                                    HARDWOODS_SAW_RIP_LIST_ROW_ID,
+                                    com.kkc.sheettracker.data.models.HiddenMaterialsMode.SPECIALTY
                                 )
                             ) { launchSingleTop = true }
                         },
@@ -3135,7 +3151,8 @@ private fun LegacySingleStackNavigation(
                                 hardwoodsWorkspaceRoute(
                                     folderName,
                                     HardwoodDocType.CLOSET_ROD_CUT_LIST,
-                                    null
+                                    null,
+                                    com.kkc.sheettracker.data.models.HiddenMaterialsMode.SPECIALTY
                                 )
                             ) { launchSingleTop = true }
                         },
@@ -3197,7 +3214,8 @@ private fun LegacySingleStackNavigation(
                             hardwoodsWorkspaceRoute(
                                 folderName,
                                 HardwoodDocType.DOOR_CUT_LIST,
-                                HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
+                                HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID,
+                                com.kkc.sheettracker.data.models.HiddenMaterialsMode.SPECIALTY
                             )
                         ) {
                             launchSingleTop = true
@@ -3350,7 +3368,9 @@ private fun LegacySingleStackNavigation(
                         clockInState = clockInState,
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
                         onOpenWorkspace = { docType ->
-                            navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, null)) {
+                            navController.navigate(
+                                hardwoodsWorkspaceRoute(folderName, docType, null, com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
+                            ) {
                                 launchSingleTop = true
                             }
                         },
@@ -3359,7 +3379,8 @@ private fun LegacySingleStackNavigation(
                                 hardwoodsWorkspaceRoute(
                                     folderName,
                                     HardwoodDocType.FACE_FRAME_CUT_LIST,
-                                    HARDWOODS_RIP_CUT_LIST_ROW_ID
+                                    HARDWOODS_RIP_CUT_LIST_ROW_ID,
+                                    com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS
                                 )
                             ) {
                                 launchSingleTop = true
@@ -3397,11 +3418,12 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable(
-                    "hardwoods/workspace/{folderName}/{docType}/{startPage}",
+                    "hardwoods/workspace/{folderName}/{docType}/{startPage}/{hiddenMaterialsMode}",
                     arguments = listOf(
                         navArgument("folderName") { type = NavType.StringType },
                         navArgument("docType") { type = NavType.StringType },
-                        navArgument("startPage") { type = NavType.StringType }
+                        navArgument("startPage") { type = NavType.StringType },
+                        navArgument("hiddenMaterialsMode") { type = NavType.StringType }
                     )
                 ) { backStack ->
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
@@ -3531,7 +3553,9 @@ private fun LegacySingleStackNavigation(
                             HardwoodsSearchScreen(
                                 scanCoordinator = hardwoodsScanCoordinator,
                                 onResultClick = { folderName, docType, rowId ->
-                                    navController.navigate(hardwoodsWorkspaceRoute(folderName, docType, rowId)) {
+                                    navController.navigate(
+                                        hardwoodsWorkspaceRoute(folderName, docType, rowId, com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
+                                    ) {
                                         launchSingleTop = true
                                     }
                                 },
@@ -3952,9 +3976,14 @@ internal fun assemblyViewerRoute(
     return if (query.isEmpty()) base else "$base?${query.joinToString("&")}"
 }
 
-internal fun hardwoodsWorkspaceRoute(jobFolderName: String, docType: HardwoodDocType, rowId: String?): String {
+internal fun hardwoodsWorkspaceRoute(
+    jobFolderName: String,
+    docType: HardwoodDocType,
+    rowId: String?,
+    mode: com.kkc.sheettracker.data.models.HiddenMaterialsMode
+): String {
     val encodedRowId = URLEncoder.encode(rowId ?: "_", "UTF-8")
-    return "hardwoods/workspace/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(docType.name, "UTF-8")}/$encodedRowId"
+    return "hardwoods/workspace/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(docType.name, "UTF-8")}/$encodedRowId/${mode.name}"
 }
 
 private fun isCurrentViewerTarget(
