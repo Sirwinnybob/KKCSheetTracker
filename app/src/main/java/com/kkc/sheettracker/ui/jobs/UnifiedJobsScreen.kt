@@ -241,10 +241,10 @@ fun UnifiedJobsScreen(
         UnifiedJobsDeliveryScheduleBinding(deliverySchedule, onDeliveryScheduleApplied)
     }
 
-    val badgeCache = remember(scanGeneration) { mutableStateMapOf<String, Set<JobBadge>>() }
+    val badgeCache = remember(spec.modeName, scanGeneration) { mutableStateMapOf<String, Set<JobBadge>>() }
     var localJobEdits by remember { mutableStateOf<Map<String, LocalJobEdit>>(emptyMap()) }
 
-    val cards = remember(scanGeneration, progressVersion, localJobEdits) {
+    val cards = remember(spec.modeName, scanGeneration, progressVersion, localJobEdits) {
         spec.deriveJobCards().map { card ->
             val edit = localJobEdits[card.folderName]
             if (edit != null) {
@@ -280,7 +280,7 @@ fun UnifiedJobsScreen(
     val pendingCards = remember(filteredCards) { filteredCards.filter { it.boardSection == 1 } }
     val activeCardsByFolder = remember(activeCards) { activeCards.associateBy { it.folderName } }
 
-    val activeOrder = remember(scanGeneration) {
+    val activeOrder = remember(spec.modeName, scanGeneration) {
         mutableStateListOf(*activeCards.map { it.folderName }.toTypedArray())
     }
     val dragOffset = 2 + if (pinnedCards.isNotEmpty()) pinnedCards.size + 2 else 0
