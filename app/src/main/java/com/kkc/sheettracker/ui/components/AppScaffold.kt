@@ -38,7 +38,8 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flag
@@ -726,13 +727,14 @@ private fun MorphingNavBar(
                                                     shape = MaterialTheme.shapes.extraLarge
                                                 ) {
                                                     Icon(
-                                                        Icons.Default.Check,
+                                                        if (isComplete) Icons.Default.CheckBox
+                                                        else Icons.Default.CheckBoxOutlineBlank,
                                                         contentDescription = null,
                                                         modifier = Modifier.size(14.dp)
                                                     )
                                                     Spacer(Modifier.width(3.dp))
                                                     Text(
-                                                        if (isComplete) "Done" else "Complete",
+                                                        "Done",
                                                         style = MaterialTheme.typography.labelMedium
                                                     )
                                                 }
