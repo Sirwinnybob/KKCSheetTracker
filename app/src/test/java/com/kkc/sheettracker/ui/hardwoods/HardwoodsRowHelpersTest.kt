@@ -3,6 +3,11 @@ package com.kkc.sheettracker.ui.hardwoods
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
+import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.HardwoodRevisionEntry
+import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
+import com.kkc.sheettracker.data.models.HardwoodRevisionRowSnapshot
+import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.data.models.BoardStockSource
@@ -13,6 +18,58 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HardwoodsRowHelpersTest {
+    @Test
+    fun completedRemovedRowsForDocument_showsOnlyFullyCompletedRowsFromCurrentRevision() {
+        val priorRevisionRow = HardwoodRevisionRowSnapshot(
+            docType = HardwoodDocType.DOOR_CUT_LIST.name,
+            rowId = "prior",
+            qty = 1,
+            material = "Armor Core",
+            description = "Prior door"
+        )
+        val completedRemovedRow = HardwoodRevisionRowSnapshot(
+            docType = HardwoodDocType.DOOR_CUT_LIST.name,
+            rowId = "removed-complete",
+            qty = 2,
+            material = "Armor Core",
+            description = "Completed door",
+            width = "18",
+            length = "24",
+            cabinets = listOf("65")
+        )
+        val partiallyCompletedRow = HardwoodRevisionRowSnapshot(
+            docType = HardwoodDocType.DOOR_CUT_LIST.name,
+            rowId = "removed-partial",
+            qty = 2,
+            material = "Armor Core",
+            description = "Partial door"
+        )
+        val history = HardwoodRevisionHistory(
+            currentRevision = 2,
+            revisions = listOf(
+                HardwoodRevisionEntry(revision = 1, removed = listOf(priorRevisionRow)),
+                HardwoodRevisionEntry(
+                    revision = 2,
+                    removed = listOf(completedRemovedRow, partiallyCompletedRow)
+                )
+            )
+        )
+
+        val entries = completedRemovedRowsForDocument(
+            history = history,
+            docType = HardwoodDocType.DOOR_CUT_LIST,
+            progressByRow = mapOf(
+                HardwoodDocType.DOOR_CUT_LIST.name to "prior" to HardwoodRowProgress(doneCount = 1),
+                HardwoodDocType.DOOR_CUT_LIST.name to "removed-complete" to HardwoodRowProgress(doneCount = 2),
+                HardwoodDocType.DOOR_CUT_LIST.name to "removed-partial" to HardwoodRowProgress(doneCount = 1)
+            )
+        )
+
+        assertEquals(listOf("removed-complete"), entries.map { it.row.rowId })
+        assertEquals("Armor Core", entries.single().row.material)
+        assertEquals(2, entries.single().doneCount)
+    }
+
     @Test
     fun hardwoodsRowBackgroundTint_usesVeryFaintSkipWashForSkippedStates() {
         val expected = LightStatusColors.skipBg.copy(alpha = 0.08f)

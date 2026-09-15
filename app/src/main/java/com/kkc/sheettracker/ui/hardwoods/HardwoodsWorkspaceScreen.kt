@@ -130,6 +130,7 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
@@ -162,6 +163,7 @@ import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.data.models.HiddenMaterialsDocument
 import com.kkc.sheettracker.data.models.HardwoodRowRevisionState
+import com.kkc.sheettracker.data.models.HardwoodRevisionHistory
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import com.kkc.sheettracker.data.models.ReferenceDocType
@@ -218,6 +220,47 @@ internal data class HardwoodsLazyRowEntry(
     val key: String,
     val row: HardwoodCutlistRow
 )
+
+internal data class CompletedRemovedHardwoodsRow(
+    val row: HardwoodCutlistRow,
+    val doneCount: Int
+)
+
+/**
+ * Display-only rows removed by the most recent cutlist revision. Keeping them
+ * separate from the active index means they cannot affect production totals or
+ * create new tracker actions, while their prior completion remains visible.
+ */
+internal fun completedRemovedRowsForDocument(
+    history: HardwoodRevisionHistory?,
+    docType: HardwoodDocType,
+    progressByRow: Map<Pair<String, String>, HardwoodRowProgress>
+): List<CompletedRemovedHardwoodsRow> {
+    val currentRevision = history?.currentRevision ?: return emptyList()
+    val revision = history.revisions.lastOrNull { it.revision == currentRevision }
+        ?: return emptyList()
+    return revision.removed.mapNotNull { snapshot ->
+        if (snapshot.docType != docType.name || snapshot.rowId.isBlank()) return@mapNotNull null
+        val qty = snapshot.qty.coerceAtLeast(0)
+        val doneCount = progressByRow[docType.name to snapshot.rowId]?.doneCount ?: 0
+        if (qty <= 0 || doneCount < qty) return@mapNotNull null
+        CompletedRemovedHardwoodsRow(
+            row = HardwoodCutlistRow(
+                rowId = snapshot.rowId,
+                page = snapshot.page,
+                rowOrdinal = snapshot.rowOrdinal,
+                qty = qty,
+                material = snapshot.material,
+                description = snapshot.description,
+                width = snapshot.width,
+                length = snapshot.length,
+                cabinets = snapshot.cabinets,
+                rawCabinetText = snapshot.cabinets.joinToString(", ")
+            ),
+            doneCount = doneCount
+        )
+    }
+}
 
 internal data class BoardStockLazyRowEntry(
     val key: String,
@@ -352,6 +395,7 @@ internal fun isVisibleInHardwoodsRipList(
 private data class HardwoodsProgressBundle(
     val rowProgressMap: Map<Pair<String, String>, HardwoodRowProgress> = emptyMap(),
     val rowRevisionStateMap: Map<Pair<String, String>, HardwoodRowRevisionState> = emptyMap(),
+    val revisionHistory: HardwoodRevisionHistory? = null,
     val skippedCabinetMap: Map<Pair<String, String>, Set<String>> = emptyMap(),
     val totalsDoneMap: Map<String, Int> = emptyMap()
 )
@@ -639,9 +683,13 @@ fun HardwoodsWorkspaceScreen(
         scanState.snapshot.generation, progressVersion, jobFolderName
     ) {
         value = withContext(Dispatchers.IO) {
+            val revisionHistory = hardwoodsRepository.loadHardwoodsRevisionHistory(jobFolderName)
             HardwoodsProgressBundle(
                 rowProgressMap = hardwoodsProgressStore.getRowProgressMap(jobFolderName),
-                rowRevisionStateMap = hardwoodsRepository.getRowRevisionStates(jobFolderName),
+                rowRevisionStateMap = revisionHistory?.currentRowStates
+                    ?.associateBy { it.docType to it.rowId }
+                    ?: emptyMap(),
+                revisionHistory = revisionHistory,
                 skippedCabinetMap = hardwoodsProgressStore.getSkippedCabinetMap(jobFolderName),
                 totalsDoneMap = hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)
             )
@@ -649,6 +697,7 @@ fun HardwoodsWorkspaceScreen(
     }
     val rowProgressMap = progressBundle.rowProgressMap
     val rowRevisionStateMap = progressBundle.rowRevisionStateMap
+    val revisionHistory = progressBundle.revisionHistory
     val totalsDoneMap = progressBundle.totalsDoneMap
     var highlightedRowId by remember(jobFolderName, initialRowId) {
         mutableStateOf(
@@ -694,6 +743,15 @@ fun HardwoodsWorkspaceScreen(
         pendingChangedByDoc.values.any { it.isNotEmpty() }
     }
     val selectedDocPendingChanged = pendingChangedByDoc[selectedDocType].orEmpty()
+    val completedRemovedRows = remember(revisionHistory, selectedDoc?.docType, rowProgressMap) {
+        selectedDoc?.let { document ->
+            completedRemovedRowsForDocument(
+                history = revisionHistory,
+                docType = document.docType,
+                progressByRow = rowProgressMap
+            )
+        } ?: emptyList()
+    }
 
     LaunchedEffect(hasAnyPendingChanged) {
         if (!hasAnyPendingChanged && showChangedOnly) {
@@ -1837,6 +1895,38 @@ fun HardwoodsWorkspaceScreen(
                                 }
                             }
                         }
+                        if (completedRemovedRows.isNotEmpty()) {
+                            item(key = "removed-section:${selectedDoc.docType.name}") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 14.dp)
+                                ) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                    Text(
+                                        text = "REMOVED FROM CUTLIST",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 12.dp)
+                                    )
+                                    Text(
+                                        text = "Completed parts kept here for history only",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            items(
+                                items = completedRemovedRows,
+                                key = { entry -> "removed:${selectedDoc.docType.name}:${entry.row.rowId}" }
+                            ) { entry ->
+                                RemovedHardwoodsPartRow(
+                                    entry = entry,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1975,6 +2065,49 @@ fun HardwoodsWorkspaceScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemovedHardwoodsPartRow(
+    entry: CompletedRemovedHardwoodsRow,
+    modifier: Modifier = Modifier
+) {
+    val row = entry.row
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(
+                text = "REMOVED • COMPLETED",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = muted
+            )
+            Text(
+                text = row.description.ifBlank { "Cutlist part" },
+                style = MaterialTheme.typography.bodyLarge,
+                color = muted,
+                textDecoration = TextDecoration.LineThrough
+            )
+            Text(
+                text = "${entry.doneCount}/${row.qty} completed • ${cutlistDimensionDisplay(row)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+                textDecoration = TextDecoration.LineThrough
+            )
+            row.material?.takeIf { it.isNotBlank() }?.let { material ->
+                Text(
+                    text = material,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = muted,
+                    textDecoration = TextDecoration.LineThrough
+                )
             }
         }
     }
