@@ -32,8 +32,9 @@ internal fun resolveBrandedTitleKind(header: KKCThemeHeaderTokens): BrandedTitle
 
 /**
  * Replaces the literal "KKC Dashboard" title text with a theme's badge (logo image or styled
- * text) when one is set, appending " - $modeSuffix" either way. Used by both the Dashboard and
- * Jobs screen top bars so the two don't duplicate this priority logic.
+ * text) when one is set, appending " - $modeSuffix" either way. Intended for use by both the
+ * Dashboard and Jobs screen top bars (wired in a later task) so the two don't duplicate this
+ * priority logic.
  */
 @Composable
 fun KKCBrandedTitle(modeSuffix: String, modifier: Modifier = Modifier) {
