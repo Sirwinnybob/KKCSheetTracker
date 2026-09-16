@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 
 /**
  * The two stops a bold-mode gradient blends between: a theme's primary and, when set, secondary
@@ -18,6 +19,17 @@ fun boldGradientColors(palette: KKCThemePalette): List<Color> {
 
 /** A `Brush` built from [boldGradientColors] — the actual fill used by bold-mode chrome. */
 fun boldGradientBrush(palette: KKCThemePalette): Brush = Brush.linearGradient(boldGradientColors(palette))
+
+/**
+ * Legible text color for content placed on top of a bold-mode gradient chip: black when the
+ * gradient's average color is light (e.g. a team's gold/yellow), white when it's dark. Prevents
+ * low-contrast white-on-light-color text for teams whose brand colors are pale.
+ */
+fun boldChipTextColor(palette: KKCThemePalette): Color {
+    val colors = boldGradientColors(palette)
+    val averageLuminance = colors.map { it.luminance() }.average()
+    return if (averageLuminance > 0.5) Color.Black else Color.White
+}
 
 /**
  * A single blended tint for frosted-glass "glow" surfaces (navbar, Timeclock, Calculator): the

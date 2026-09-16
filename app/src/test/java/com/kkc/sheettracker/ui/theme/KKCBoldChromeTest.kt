@@ -42,4 +42,26 @@ class KKCBoldChromeTest {
         val glow = boldGlowColor(paletteWithoutSecondary, alpha = 0.4f)
         assertEquals(Color(0xFFE31837).copy(alpha = 0.4f), glow)
     }
+
+    @Test
+    fun boldChipTextColorIsBlackOnLightGradient() {
+        val lightPalette = KKCThemePalette(
+            primary = Color(0xFFFFB612),
+            secondary = Color(0xFFFFFFFF),
+            background = Color.White,
+            surface = Color.White
+        )
+        assertEquals(Color.Black, boldChipTextColor(lightPalette))
+    }
+
+    @Test
+    fun boldChipTextColorIsWhiteOnDarkGradient() {
+        val darkPalette = KKCThemePalette(
+            primary = Color(0xFFE31837),
+            secondary = Color(0xFF000000),
+            background = Color.White,
+            surface = Color.White
+        )
+        assertEquals(Color.White, boldChipTextColor(darkPalette))
+    }
 }

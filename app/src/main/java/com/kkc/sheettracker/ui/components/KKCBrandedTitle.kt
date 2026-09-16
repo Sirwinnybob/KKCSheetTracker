@@ -2,7 +2,6 @@ package com.kkc.sheettracker.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -14,9 +13,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -26,6 +25,7 @@ import coil.decode.SvgDecoder
 import com.kkc.sheettracker.ui.theme.KKCThemeHeaderTokens
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.theme.boldChipTextColor
 import com.kkc.sheettracker.ui.theme.boldGradientBrush
 import java.io.File
 
@@ -50,7 +50,8 @@ internal fun resolveBrandedTitleKind(header: KKCThemeHeaderTokens): BrandedTitle
  */
 @Composable
 fun KKCBrandedTitle(modeSuffix: String, modifier: Modifier = Modifier) {
-    val header = LocalKKCThemeTokens.current.header
+    val tokens = LocalKKCThemeTokens.current
+    val header = tokens.header
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         when (resolveBrandedTitleKind(header)) {
             BrandedTitleKind.LOGO -> {
@@ -66,22 +67,27 @@ fun KKCBrandedTitle(modeSuffix: String, modifier: Modifier = Modifier) {
                 )
             }
             BrandedTitleKind.TEXT -> {
-                val tokens = LocalKKCThemeTokens.current
                 if (tokens.boldMode) {
                     val palette = tokens.palette(LocalKKCIsDarkTheme.current)
+                    val textColor = boldChipTextColor(palette)
+                    val shadowColor = if (textColor == Color.White) {
+                        Color.Black.copy(alpha = 0.4f)
+                    } else {
+                        Color.White.copy(alpha = 0.4f)
+                    }
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(boldGradientBrush(palette))
-                            .padding(PaddingValues(horizontal = 10.dp, vertical = 3.dp))
+                            .padding(horizontal = 10.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = header.badgeText!!.uppercase(),
-                            color = Color.White,
+                            color = textColor,
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.titleMedium.copy(
                                 shadow = Shadow(
-                                    color = Color.Black.copy(alpha = 0.4f),
+                                    color = shadowColor,
                                     offset = Offset(0f, 1f),
                                     blurRadius = 3f
                                 )
