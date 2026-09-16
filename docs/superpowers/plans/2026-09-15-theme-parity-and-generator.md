@@ -34,7 +34,7 @@ Excluded from migration (reviewed, not status-meaning): `SheetViewerScreen.kt:32
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/theme/KKCThemeRepository.kt:118-190`
 - Test: `app/src/test/java/com/kkc/sheettracker/ui/theme/KKCThemeRepositoryTest.kt`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `KKCThemeRepositoryTest.kt` (after the existing `statusBgAndBorderFallBackToBaseKeyWhenNoDedicatedKeyGiven` test):
 
@@ -90,12 +90,12 @@ Add to `KKCThemeRepositoryTest.kt` (after the existing `statusBgAndBorderFallBac
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.theme.KKCThemeRepositoryTest`
 Expected: FAIL — `statusColorsSupportFullParityFields` fails because `notStarted`/`remakeBg`/etc. still resolve to built-in defaults instead of the JSON values (the second test, `...FallBackToBuiltIn...`, will actually pass already since fallback already works today — that's expected and fine, it locks in the no-regression behavior before the parsing change).
 
-- [ ] **Step 3: Extend the JSON parsing**
+- [x] **Step 3: Extend the JSON parsing**
 
 In `KKCThemeRepository.kt`, replace the `lightStatus`/`darkStatus` construction (lines 133–156) with:
 
@@ -159,12 +159,12 @@ Add the `colorArray` helper next to the existing `color(obj, key)` helper (near 
     }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.theme.KKCThemeRepositoryTest`
 Expected: PASS — all tests including the two new ones.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/theme/KKCThemeRepository.kt app/src/test/java/com/kkc/sheettracker/ui/theme/KKCThemeRepositoryTest.kt
@@ -178,7 +178,7 @@ git commit -m "fix: extend theme JSON parsing to cover all KKCStatusColors field
 **Files:**
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/dashboard/DashboardSurfacePrimitives.kt:1-79`
 
-- [ ] **Step 1: Replace the three accent-resolution functions**
+- [x] **Step 1: Replace the three accent-resolution functions**
 
 Add the import (near the other `com.kkc.sheettracker.ui.theme` import):
 
@@ -229,19 +229,19 @@ Replace `accentWash`, `outlineColor`, and `accentColor` in `DashboardSurfaceDefa
 
 Note: `outlineColor`'s original NEUTRAL case used `scheme.outlineVariant` (a fixed, low-alpha gray line), not an alpha-scaled accent. `status.notStarted.copy(alpha = 0.4f)` is the closest theme-aware equivalent — a muted gray outline — and keeps the same final `* 0.9f` scaling the original applied to every branch.
 
-- [ ] **Step 2: Build and verify no compile errors**
+- [x] **Step 2: Build and verify no compile errors**
 
 Run: `.\gradlew.bat :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL. This function is called from ~25 sites across `DashboardWidgetFactories.kt`, `SupplyDashboardScreen.kt`, `SupplyItemDetailScreen.kt`, and others — a successful compile confirms none of them broke.
 
-- [ ] **Step 3: Run existing dashboard/supply unit tests**
+- [x] **Step 3: Run existing dashboard/supply unit tests**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.dashboard.UnifiedDashboardFactoriesTest --tests com.kkc.sheettracker.ui.supply.SupplyModalChromeTest`
 
 (Note: `SupplyModalChromeTest` was later deleted in Task 3, once `supplyStatusColor`/`supplyStatusHeaderTint` became `@Composable` and could no longer be called from plain JUnit — see Task 3's commit message. Re-running this exact command after Task 3 lands will report "no tests found" for that class; that's expected, not a regression.)
 Expected: PASS — these tests exercise status/accent logic and must show no regression from the color-sourcing change (they assert on data/state, not exact pixel colors, so they should be unaffected).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/dashboard/DashboardSurfacePrimitives.kt
@@ -256,7 +256,7 @@ git commit -m "fix: resolve dashboard accent colors from theme status tokens, no
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/supply/SupplyDashboardScreen.kt:1236-1257`
 - Test: `app/src/test/java/com/kkc/sheettracker/ui/supply/SupplyStatusAccentTest.kt` (new)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `app/src/test/java/com/kkc/sheettracker/ui/supply/SupplyStatusAccentTest.kt`:
 
@@ -299,12 +299,12 @@ class SupplyStatusAccentTest {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.supply.SupplyStatusAccentTest`
 Expected: FAIL with "unresolved reference: supplyTierAccent" (function doesn't exist yet).
 
-- [ ] **Step 3: Replace the hardcoded tier table**
+- [x] **Step 3: Replace the hardcoded tier table**
 
 In `SupplyDashboardScreen.kt`, replace `supplyStatusColor`/`supplyStatusHeaderTint` (lines 1236–1249) with:
 
@@ -329,17 +329,17 @@ fun supplyStatusHeaderTint(status: String?): Color? {
 
 Add the import for `DashboardSurfaceDefaults` if not already present in this file (it's in the same `com.kkc.sheettracker.ui.dashboard` package as `DashboardAccent`, which this file already imports — check the existing `import com.kkc.sheettracker.ui.dashboard.*` or add `import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceDefaults` explicitly if the file uses individual imports).
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.supply.SupplyStatusAccentTest`
 Expected: PASS.
 
-- [ ] **Step 5: Build and verify all ~25 call sites still compile**
+- [x] **Step 5: Build and verify all ~25 call sites still compile**
 
 Run: `.\gradlew.bat :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL. `supplyStatusColor`/`supplyStatusHeaderTint` became `@Composable`; every existing call site (`SupplyDashboardScreen.kt`, `SupplyItemDetailScreen.kt`, `SupplyItemEditScreen.kt`, `SupplyBarcodeResultSheets.kt`, `DashboardWidgetFactories.kt`) already calls them from inside other `@Composable` functions, so this should compile without touching those call sites. If any call site errors with "@Composable invocations can only happen from the context of a @Composable function", that call site needs its enclosing function marked `@Composable` — none are expected, but this is the check that catches it.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/supply/SupplyDashboardScreen.kt app/src/test/java/com/kkc/sheettracker/ui/supply/SupplyStatusAccentTest.kt
@@ -353,7 +353,7 @@ git commit -m "fix: derive supply tier colors from the shared theme-aware accent
 **Files:**
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/dashboard/DashboardWidgetFactories.kt:889-916`
 
-- [ ] **Step 1: Replace `getSoftStatusColors`**
+- [x] **Step 1: Replace `getSoftStatusColors`**
 
 The existing function hardcodes pastel bg/text pairs and includes a fragile `Color` equality check (`baseColor == Color(0xFF388E3C)`) to special-case one status. Now that `supplyStatusColor` (Task 3) and `getSoftStatusColors`'s callers both resolve through the same `DashboardAccent` system, this collapses to a direct delegation. Replace lines 889–916:
 
@@ -368,17 +368,17 @@ fun getSoftStatusColors(status: String, baseColor: Color): Pair<Color, Color> {
 }
 ```
 
-- [ ] **Step 2: Build and verify**
+- [x] **Step 2: Build and verify**
 
 Run: `.\gradlew.bat :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL. `baseColor` becomes an unused parameter — expect a compiler warning, not an error, at every call site; this is intentional per the comment above (removing the parameter would require touching ~10 call sites across 4 files for no behavioral gain).
 
-- [ ] **Step 3: Run existing dashboard tests**
+- [x] **Step 3: Run existing dashboard tests**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.dashboard.UnifiedDashboardFactoriesTest`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/dashboard/DashboardWidgetFactories.kt
@@ -392,7 +392,7 @@ git commit -m "fix: derive soft status chip colors from the shared accent resolv
 **Files:**
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/components/BatteryIndicator.kt:65-81`
 
-- [ ] **Step 1: Replace the hardcoded literals**
+- [x] **Step 1: Replace the hardcoded literals**
 
 Add the import:
 
@@ -414,12 +414,12 @@ Replace the `defaultColor` block (lines 75–80):
 
 (The `level <= 15` critical case already uses the theme's `error` color and is left as-is — it's already theme-aware, just not through `KKCStatusColors`. Unifying it with `status.bad` is a further option but changes behavior for themes where `error` and `bad` diverge; out of scope for this mechanical migration.)
 
-- [ ] **Step 2: Build and verify**
+- [x] **Step 2: Build and verify**
 
 Run: `.\gradlew.bat :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/components/BatteryIndicator.kt
@@ -433,7 +433,7 @@ git commit -m "fix: route battery indicator colors through theme status tokens"
 **Files:**
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/standards/SafetyDocumentsScreen.kt:1066-1087`
 
-- [ ] **Step 1: Replace the hardcoded literals**
+- [x] **Step 1: Replace the hardcoded literals**
 
 Add the import:
 
@@ -469,12 +469,12 @@ private fun StatusBadge(status: String) {
 }
 ```
 
-- [ ] **Step 2: Build and verify**
+- [x] **Step 2: Build and verify**
 
 Run: `.\gradlew.bat :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/standards/SafetyDocumentsScreen.kt
@@ -490,7 +490,7 @@ This is the "throwaway distinctive theme" verification called for in the spec's 
 **Files:**
 - Create (temporary, not committed): a test theme JSON on a connected device or emulator's synced-themes folder equivalent (see `debug-android-tablet` skill for how to push files to a connected tablet's app-private storage; if no device is connected, this step can run against the debug build in an emulator using the same `.metadata/themes` path under the app's external files directory).
 
-- [ ] **Step 1: Author a distinctive test theme**
+- [x] **Step 1: Author a distinctive test theme**
 
 Create a local scratch file (not committed — this is a manual verification aid) with deliberately clashing, easy-to-spot colors:
 
@@ -513,15 +513,15 @@ Create a local scratch file (not committed — this is a manual verification aid
 }
 ```
 
-- [ ] **Step 2: Push it to a connected tablet and select it**
+- [x] **Step 2: Push it to a connected tablet and select it**
 
 Follow the `debug-android-tablet` skill to push this file into the app's synced themes folder on a connected device, then select "Parity Verification" from Settings' theme dropdown.
 
-- [ ] **Step 3: Visually confirm every migrated surface picked up the neon colors**
+- [x] **Step 3: Visually confirm every migrated surface picked up the neon colors**
 
 Check: Dashboard accent cards (danger/warning/info/success tiles), Supply dashboard status dots and chips, Supply item detail/edit status chips, Battery indicator (drain to ≤30% or force-charge to see the tint, or read the code path to confirm — physical battery state isn't always reproducible on demand), Safety document status badges (OPEN/ACKNOWLEDGED/IN PROGRESS/RESOLVED). Anything still showing the old muted colors instead of the neon test values means a spot was missed — go back to the relevant task and find it.
 
-- [ ] **Step 4: Remove the test theme from the device**
+- [x] **Step 4: Remove the test theme from the device**
 
 Delete the test theme file from the tablet's synced themes folder and re-select the normal production theme, so the tablet isn't left on the verification theme.
 
@@ -537,7 +537,7 @@ Delete the test theme file from the tablet's synced themes folder and re-select 
 - Create: `.agents/skills/kkc-theme-generator/SKILL.md` (mirror)
 - Create: `.agents/skills/kkc-theme-generator/scripts/validate_theme.py` (mirror)
 
-- [ ] **Step 1: Write the validator script**
+- [x] **Step 1: Write the validator script**
 
 Create `.claude/skills/kkc-theme-generator/scripts/validate_theme.py`:
 
@@ -688,7 +688,7 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Write the validator's self-tests**
+- [x] **Step 2: Write the validator's self-tests**
 
 Create `.claude/skills/kkc-theme-generator/scripts/test_validate_theme.py`:
 
@@ -757,12 +757,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 3: Run the self-tests**
+- [x] **Step 3: Run the self-tests**
 
 Run: `python .claude/skills/kkc-theme-generator/scripts/test_validate_theme.py -v`
 Expected: `OK` with 8 tests passed. If `test_good_theme_passes` fails, the hue bands or thresholds in `validate_theme.py` are miscalibrated against the app's own built-in colors — fix the bands/thresholds, not the test.
 
-- [ ] **Step 4: Write the skill file**
+- [x] **Step 4: Write the skill file**
 
 Create `.claude/skills/kkc-theme-generator/SKILL.md`:
 
@@ -858,7 +858,7 @@ Seed colors: `#E31837` (red) and `#FFB612` (gold) — Kansas City Chiefs.
   `themes/generated/nfl-chiefs.json`.
 ```
 
-- [ ] **Step 5: Mirror to `.agents/skills`**
+- [x] **Step 5: Mirror to `.agents/skills`**
 
 ```bash
 mkdir -p .agents/skills/kkc-theme-generator/scripts
@@ -867,7 +867,7 @@ cp .claude/skills/kkc-theme-generator/scripts/validate_theme.py .agents/skills/k
 cp .claude/skills/kkc-theme-generator/scripts/test_validate_theme.py .agents/skills/kkc-theme-generator/scripts/test_validate_theme.py
 ```
 
-- [ ] **Step 6: Dry-run the skill end to end**
+- [x] **Step 6: Dry-run the skill end to end**
 
 Run the validator against the known-good theme used in the self-tests, saved to a scratch file, to confirm the CLI invocation documented in the skill actually works as written:
 
@@ -879,7 +879,7 @@ rm scratch-theme.json
 
 Expected: prints `PASS`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add .claude/skills/kkc-theme-generator .agents/skills/kkc-theme-generator
@@ -892,12 +892,12 @@ git commit -m "feat: add kkc-theme-generator skill with hue-locked status color 
 
 **Files:** none modified — verification only.
 
-- [ ] **Step 1: Run the full unit test suite**
+- [x] **Step 1: Run the full unit test suite**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest`
 Expected: BUILD SUCCESSFUL, 0 failures. This confirms `HardwoodsRowHelpersTest` and every other existing suite stayed green — Tasks 1-6 changed color *sourcing* only, never status-derivation logic, so no existing test should need updating.
 
-- [ ] **Step 2: Assemble the debug APK**
+- [x] **Step 2: Assemble the debug APK**
 
 Run: `.\gradlew.bat :app:assembleDebug`
 Expected: BUILD SUCCESSFUL.
