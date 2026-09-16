@@ -110,7 +110,7 @@ fun BatteryIndicator(
             Icon(
                 imageVector = Icons.Filled.Bolt,
                 contentDescription = "Charging",
-                tint = Color(0xFF2E7D32),
+                tint = status.complete,
                 modifier = Modifier.size(16.dp)
             )
         }
