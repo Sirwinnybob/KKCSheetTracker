@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
+import com.kkc.sheettracker.ui.components.KKCBrandedTitle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -397,15 +398,11 @@ fun DashboardShell(
         topBar = {
             KKCTopAppBar(
                 title = {
-                    val displayTitle = if (!subtitle.isNullOrBlank()) {
-                        "KKC Dashboard - $subtitle"
+                    if (!subtitle.isNullOrBlank()) {
+                        KKCBrandedTitle(modeSuffix = subtitle)
                     } else {
-                        title
+                        Text(title, style = MaterialTheme.typography.titleMedium)
                     }
-                    Text(
-                        displayTitle,
-                        style = MaterialTheme.typography.titleMedium
-                    )
                 },
                 actions = {
                     if (onRefresh != null) {
