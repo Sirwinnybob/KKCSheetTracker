@@ -3,6 +3,7 @@ package com.kkc.sheettracker.ui.dashboard
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -888,11 +889,14 @@ private fun pluralize(word: String, count: Int): String = if (count == 1) word e
 
 @Composable
 fun getSoftStatusColors(status: String, baseColor: Color): Pair<Color, Color> {
-    // baseColor is kept for call-site compatibility (it's still passed at every call site)
-    // but is no longer used — the status string alone now determines the accent, via the
-    // same DashboardAccent resolver used everywhere else, so the two can't drift apart again.
-    val accent = supplyAccent(status)
-    return DashboardSurfaceDefaults.accentWash(accent) to DashboardSurfaceDefaults.accentColor(accent)
+    // status is kept for call-site compatibility but unused: baseColor is already the
+    // theme-aware, tier-derived color for this status (every caller computes it via
+    // supplyStatusColor(tier) before calling this). Deriving a separate DashboardAccent
+    // bucket from the status string here caused a real bug — the string "ORDERED" is
+    // ambiguous (used both for a supply-order tier and a completed to-order tier with a
+    // different intended color), so the tier-derived baseColor is the only source of
+    // truth that's actually unambiguous. Use it directly for both the wash and text color.
+    return baseColor.copy(alpha = KKCAlpha.statusBadgeBg) to baseColor
 }
 
 @OptIn(ExperimentalFoundationApi::class)
