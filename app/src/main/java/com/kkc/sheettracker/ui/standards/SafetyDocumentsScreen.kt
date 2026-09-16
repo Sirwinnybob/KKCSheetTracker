@@ -38,7 +38,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +52,7 @@ import com.kkc.sheettracker.data.models.SAFETY_CATEGORIES
 import com.kkc.sheettracker.data.models.SafetyComment
 import com.kkc.sheettracker.data.models.SafetyItem
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
+import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1066,11 +1066,16 @@ private fun SafetyConcernCard(
 
 @Composable
 private fun StatusBadge(status: String) {
+    // Hue-family reuse: purple/blue borrowed from hardwoods' remake/misc tokens so hue
+    // meaning stays consistent app-wide (purple=active/special-case, blue=info,
+    // orange=attention, green=good, gray=neutral) rather than Safety inventing its own
+    // independent palette. remakeBg/miscBg are pastel-only (no dark sibling token exists
+    // yet), so their text uses onSurface instead of the token itself for legible contrast.
     val statusColors = KKCThemeColors.statusColors
     val (bgColor, textColor) = when (status.uppercase()) {
         "OPEN" -> statusColors.skip.copy(alpha = 0.15f) to statusColors.skip
-        "ACKNOWLEDGED" -> statusColors.miscBg.copy(alpha = 0.25f) to statusColors.miscBg
-        "IN PROGRESS" -> statusColors.remakeBg.copy(alpha = 0.25f) to statusColors.remakeBg
+        "ACKNOWLEDGED" -> statusColors.miscBg.copy(alpha = 0.25f) to MaterialTheme.colorScheme.onSurface
+        "IN PROGRESS" -> statusColors.remakeBg.copy(alpha = 0.25f) to MaterialTheme.colorScheme.onSurface
         "RESOLVED" -> statusColors.complete.copy(alpha = 0.15f) to statusColors.complete
         else -> statusColors.notStarted.copy(alpha = 0.2f) to statusColors.notStarted
     }
