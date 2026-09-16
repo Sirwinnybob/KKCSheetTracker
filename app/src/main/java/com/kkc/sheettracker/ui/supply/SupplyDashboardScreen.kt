@@ -1233,16 +1233,18 @@ private fun toInventoryItemModel(
     )
 }
 
-fun supplyStatusColor(tier: Int): Color = when (tier) {
-    1, 2 -> Color(0xFFD32F2F)        // red   — OUT / ASAP / NEED
-    3 -> Color(0xFFEF6C00)            // orange — LOW
-    4 -> Color(0xFF1565C0)            // blue  — ORDERED / IN PROCESS
-    5 -> Color(0xFF2E7D32)            // green — IN STOCK / COMPLETE
-    6 -> Color(0xFFF59E0B)            // amber — NOT ORDERED
-    7 -> Color(0xFF388E3C)            // green — ORDERED (To Order)
-    else -> Color(0xFF2E7D32)         // default green
+fun supplyTierAccent(tier: Int): DashboardAccent = when (tier) {
+    1, 2 -> DashboardAccent.DANGER     // OUT / ASAP / NEED
+    3, 6 -> DashboardAccent.WARNING    // LOW / NOT ORDERED
+    4 -> DashboardAccent.INFO          // ORDERED / IN PROCESS
+    5, 7 -> DashboardAccent.SUCCESS    // IN STOCK / COMPLETE / ORDERED (To Order)
+    else -> DashboardAccent.SUCCESS    // default, matches prior fallback
 }
 
+@Composable
+fun supplyStatusColor(tier: Int): Color = DashboardSurfaceDefaults.accentColor(supplyTierAccent(tier))
+
+@Composable
 fun supplyStatusHeaderTint(status: String?): Color? {
     val normalized = status?.takeIf { it.isNotBlank() } ?: return null
     return supplyStatusColor(SUPPLY_STATUS_PRIORITY[normalized] ?: 99)
