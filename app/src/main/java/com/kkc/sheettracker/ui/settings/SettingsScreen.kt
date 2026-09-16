@@ -373,14 +373,20 @@ fun SettingsScreen(
                             shape = RoundedCornerShape(12.dp)
                         )
                         val filteredFootballThemes = filterThemesByQuery(footballThemes, footballTeamSearchText)
-                        if (filteredFootballThemes.isNotEmpty()) {
-                            ExposedDropdownMenu(
-                                expanded = true,
-                                onDismissRequest = {
-                                    footballTeamSearchMode = false
-                                    footballTeamSearchText = ""
-                                }
-                            ) {
+                        ExposedDropdownMenu(
+                            expanded = true,
+                            onDismissRequest = {
+                                footballTeamSearchMode = false
+                                footballTeamSearchText = ""
+                            }
+                        ) {
+                            if (filteredFootballThemes.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("No matching teams") },
+                                    onClick = {},
+                                    enabled = false
+                                )
+                            } else {
                                 filteredFootballThemes.forEach { theme ->
                                     DropdownMenuItem(
                                         text = { Text(theme.name) },
