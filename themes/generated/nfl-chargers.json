@@ -1,0 +1,19 @@
+{
+  "id": "nfl-chargers",
+  "name": "Los Angeles Chargers",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#0080C6",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#0080C6",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "CHARGERS"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "nfl-jaguars",
+  "name": "Jacksonville Jaguars",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#101820",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#101820",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "JAGUARS"
+  }
+}

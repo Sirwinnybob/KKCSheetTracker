@@ -1,0 +1,19 @@
+{
+  "id": "nfl-panthers",
+  "name": "Carolina Panthers",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#0085CA",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#0085CA",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "PANTHERS"
+  }
+}

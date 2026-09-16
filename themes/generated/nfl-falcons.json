@@ -1,0 +1,19 @@
+{
+  "id": "nfl-falcons",
+  "name": "Atlanta Falcons",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#A71930",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#A71930",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "FALCONS"
+  }
+}

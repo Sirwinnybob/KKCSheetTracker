@@ -1,0 +1,19 @@
+{
+  "id": "nfl-giants",
+  "name": "New York Giants",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#0B2265",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#0B2265",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "GIANTS"
+  }
+}

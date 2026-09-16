@@ -1,0 +1,19 @@
+{
+  "id": "nfl-ravens",
+  "name": "Baltimore Ravens",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#241773",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#241773",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "RAVENS"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "nfl-dolphins",
+  "name": "Miami Dolphins",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#008E97",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#008E97",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "DOLPHINS"
+  }
+}

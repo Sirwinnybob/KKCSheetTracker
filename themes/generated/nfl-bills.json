@@ -1,0 +1,19 @@
+{
+  "id": "nfl-bills",
+  "name": "Buffalo Bills",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#00338D",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#00338D",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "BILLS"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "nfl-vikings",
+  "name": "Minnesota Vikings",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#4F2683",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#4F2683",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "VIKINGS"
+  }
+}

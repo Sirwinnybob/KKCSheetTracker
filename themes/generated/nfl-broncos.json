@@ -1,0 +1,19 @@
+{
+  "id": "nfl-broncos",
+  "name": "Denver Broncos",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#FB4F14",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#FB4F14",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "BRONCOS"
+  }
+}

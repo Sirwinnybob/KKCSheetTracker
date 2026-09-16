@@ -1,0 +1,19 @@
+{
+  "id": "nfl-49ers",
+  "name": "San Francisco 49ers",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#AA0000",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#AA0000",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "49ERS"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "nfl-browns",
+  "name": "Cleveland Browns",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#311D00",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#311D00",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "BROWNS"
+  }
+}

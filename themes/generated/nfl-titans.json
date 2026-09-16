@@ -1,0 +1,19 @@
+{
+  "id": "nfl-titans",
+  "name": "Tennessee Titans",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#0C2340",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#0C2340",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "TITANS"
+  }
+}

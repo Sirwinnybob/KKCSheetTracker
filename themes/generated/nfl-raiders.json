@@ -1,0 +1,19 @@
+{
+  "id": "nfl-raiders",
+  "name": "Las Vegas Raiders",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#000000",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#000000",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "RAIDERS"
+  }
+}

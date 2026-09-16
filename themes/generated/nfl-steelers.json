@@ -1,0 +1,19 @@
+{
+  "id": "nfl-steelers",
+  "name": "Pittsburgh Steelers",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#FFB612",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#FFB612",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "STEELERS"
+  }
+}

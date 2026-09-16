@@ -1,0 +1,19 @@
+{
+  "id": "nfl-seahawks",
+  "name": "Seattle Seahawks",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#002244",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF"
+  },
+  "dark": {
+    "primary": "#002244",
+    "background": "#000000",
+    "surface": "#162438"
+  },
+  "header": {
+    "badgeText": "SEAHAWKS"
+  }
+}
