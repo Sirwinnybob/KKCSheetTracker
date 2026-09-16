@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
+import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -499,6 +501,17 @@ fun DashboardWidgetRenderer(
         widgets.forEach { widget ->
             when (widget) {
                 is DashboardWidgetModel.Hero -> DashboardHeroSurface(accent = widget.accent) {
+                    // In bold mode the card background is a team gradient, not colorScheme.surface,
+                    // so onSurfaceVariant (tuned for a light/dark neutral surface) can lose contrast.
+                    // DashboardHeroSurface provides a contrasting LocalContentColor for bold mode;
+                    // muting via alpha on that (instead of hardcoding onSurfaceVariant) keeps the
+                    // secondary/tertiary text visible against either background.
+                    val boldMode = LocalKKCThemeTokens.current.boldMode
+                    val mutedContentColor = if (boldMode) {
+                        LocalContentColor.current.copy(alpha = 0.75f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                     Text(
                         widget.title,
                         style = MaterialTheme.typography.titleMedium,
@@ -510,13 +523,13 @@ fun DashboardWidgetRenderer(
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     )
                     widget.secondaryValue?.let {
-                        Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(it, color = mutedContentColor)
                     }
                     widget.tertiaryValue?.let {
                         Text(
                             it,
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = mutedContentColor
                         )
                     }
                     widget.progressFraction?.let { fraction ->
