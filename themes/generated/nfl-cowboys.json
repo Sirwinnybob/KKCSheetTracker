@@ -4,12 +4,12 @@
   "version": 1,
   "category": "nfl",
   "light": {
-    "primary": "#003594",
+    "primary": "#041E42",
     "background": "#FFFFFF",
     "surface": "#FFFFFF"
   },
   "dark": {
-    "primary": "#003594",
+    "primary": "#041E42",
     "background": "#000000",
     "surface": "#162438"
   },
