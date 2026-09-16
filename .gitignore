@@ -27,6 +27,10 @@ captures/
 # Test and QA artifacts
 qa_artifacts/
 
+# Python caches (kkc-theme-generator skill scripts)
+__pycache__/
+*.pyc
+
 # OS files
 .DS_Store
 Thumbs.db

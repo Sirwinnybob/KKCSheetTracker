@@ -20,13 +20,13 @@ HUE_BANDS = {
 # light notStarted #78909C ~= 0.154, dark notStarted #90A4AE ~= 0.156.
 NOT_STARTED_MAX_SATURATION = 0.17
 
-# 24.0 (not 60.0): the app's own inProgress (#1565C0) and miscBg (#1976D2)
-# are two shades of the *same* locked blue band (200-230) by design — miscBg
-# is meant to be a close, lighter relative of inProgress, not a separately
-# distinguishable color. Their real RGB distance is ~25.1, so 60 rejected the
-# app's own built-in palette. 24.0 keeps every other real pair (closest is
-# bad/skip at ~65.6) comfortably distinct while allowing that one same-family
-# pair.
+# 24.0 (not 60.0): the app's own dark-mode inProgress (#64B5F6) and miscBg
+# (#42A5F5) are two shades of the *same* locked blue band (200-230) by
+# design — miscBg is meant to be a close, lighter relative of inProgress, not
+# a separately distinguishable color. Their real RGB distance is ~37.6, so 60
+# rejected the app's own built-in palette. 24.0 keeps every other real pair
+# (closest is light-mode bad/skip at ~65.6) comfortably distinct while
+# allowing that one same-family pair.
 MIN_PAIRWISE_DISTANCE = 24.0  # Euclidean distance in 0-255 RGB space
 MIN_CONTRAST_RATIO = 4.5  # WCAG AA for normal text
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Self-tests for validate_theme.py — run with: python3 test_validate_theme.py"""
+import os
 import sys
 import unittest
 
-sys.path.insert(0, ".")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from validate_theme import validate_theme, hex_to_rgb, contrast_ratio, euclidean_distance
 
 
@@ -17,7 +18,13 @@ GOOD_THEME = {
         "inProgress": "#1565C0",
         "notStarted": "#78909C",
         "remakeBg": "#8E24AA",
-        "miscBg": "#1976D2",
+        # #2A78D1 (not the fabricated #1976D2): this is the app's own
+        # progressGradientStart/End base color (KKCColors.kt), and it sits
+        # ~33 RGB units from inProgress — the same same-band-but-close
+        # relationship as the real dark-mode inProgress/miscBg pair
+        # (#64B5F6/#42A5F5, ~37.6), which is what MIN_PAIRWISE_DISTANCE is
+        # calibrated against.
+        "miscBg": "#2A78D1",
     },
 }
 
