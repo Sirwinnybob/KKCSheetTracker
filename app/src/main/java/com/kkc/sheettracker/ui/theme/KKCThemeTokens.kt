@@ -39,7 +39,9 @@ data class KKCThemeSurfaceTokens(
 data class KKCThemeHeaderTokens(
     val backgroundPath: String?,
     val alpha: Float,
-    val contentScale: KKCThemeHeaderContentScale
+    val contentScale: KKCThemeHeaderContentScale,
+    val badgeText: String? = null,
+    val badgeLogoPath: String? = null
 )
 
 enum class KKCThemeHeaderContentScale {

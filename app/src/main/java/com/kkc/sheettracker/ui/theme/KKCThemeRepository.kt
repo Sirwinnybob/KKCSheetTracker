@@ -220,11 +220,26 @@ class KKCThemeRepository(
         } else {
             resolveHeaderBackground(themeDir, background, loadMessages)
         }
+        val badgeText = string(obj, "badgeText")?.trim()?.takeIf { it.isNotBlank() }
+        val badgeLogo = string(obj, "badgeLogoPath")?.trim()
+        val resolvedBadgeLogoPath = if (badgeLogo.isNullOrBlank()) {
+            null
+        } else {
+            resolveBadgeLogoPath(themeDir, badgeLogo, loadMessages)
+        }
         return KKCThemeHeaderTokens(
             backgroundPath = resolvedPath,
             alpha = (float(obj, "alpha") ?: BuiltInKKCThemeTokens.header.alpha).coerceIn(0f, 1f),
-            contentScale = headerContentScale(string(obj, "contentScale"))
+            contentScale = headerContentScale(string(obj, "contentScale")),
+            badgeText = badgeText,
+            badgeLogoPath = resolvedBadgeLogoPath
         )
+    }
+
+    private fun isPathWithinThemeDir(root: File, file: File): Boolean {
+        // Separator-aware containment: a raw startsWith would let a sibling like
+        // "<root>-evil/x.svg" pass because its path shares the "<root>" prefix.
+        return file.path == root.path || file.path.startsWith(root.path + File.separator)
     }
 
     private fun resolveHeaderBackground(
@@ -238,14 +253,36 @@ class KKCThemeRepository(
         }
         val root = themeDir.canonicalFile
         val file = File(root, relativePath).canonicalFile
-        // Separator-aware containment: a raw startsWith would let a sibling like
-        // "<root>-evil/x.svg" pass because its path shares the "<root>" prefix.
-        if (file.path != root.path && !file.path.startsWith(root.path + File.separator)) {
+        if (!isPathWithinThemeDir(root, file)) {
             loadMessages += "Header background '$relativePath' points outside the theme folder. Using header gradient fallback."
             return null
         }
         if (!file.isFile) {
             loadMessages += "Header background '$relativePath' was not found. Using header gradient fallback."
+            return null
+        }
+        return file.absolutePath
+    }
+
+    private fun resolveBadgeLogoPath(
+        themeDir: File,
+        relativePath: String,
+        loadMessages: MutableList<String>
+    ): String? {
+        val allowedExtensions = setOf("svg", "png", "jpg", "jpeg")
+        val extension = relativePath.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+        if (extension !in allowedExtensions) {
+            loadMessages += "Badge logo '$relativePath' must be .svg, .png, or .jpg. Ignoring badge logo."
+            return null
+        }
+        val root = themeDir.canonicalFile
+        val file = File(root, relativePath).canonicalFile
+        if (!isPathWithinThemeDir(root, file)) {
+            loadMessages += "Badge logo '$relativePath' points outside the theme folder. Ignoring badge logo."
+            return null
+        }
+        if (!file.isFile) {
+            loadMessages += "Badge logo '$relativePath' was not found. Ignoring badge logo."
             return null
         }
         return file.absolutePath
