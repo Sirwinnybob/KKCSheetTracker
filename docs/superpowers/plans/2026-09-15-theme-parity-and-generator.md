@@ -237,6 +237,8 @@ Expected: BUILD SUCCESSFUL. This function is called from ~25 sites across `Dashb
 - [ ] **Step 3: Run existing dashboard/supply unit tests**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests com.kkc.sheettracker.ui.dashboard.UnifiedDashboardFactoriesTest --tests com.kkc.sheettracker.ui.supply.SupplyModalChromeTest`
+
+(Note: `SupplyModalChromeTest` was later deleted in Task 3, once `supplyStatusColor`/`supplyStatusHeaderTint` became `@Composable` and could no longer be called from plain JUnit — see Task 3's commit message. Re-running this exact command after Task 3 lands will report "no tests found" for that class; that's expected, not a regression.)
 Expected: PASS — these tests exercise status/accent logic and must show no regression from the color-sourcing change (they assert on data/state, not exact pixel colors, so they should be unaffected).
 
 - [ ] **Step 4: Commit**
