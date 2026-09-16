@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
-import com.kkc.sheettracker.ui.components.KKCBrandedTitle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,6 +59,7 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.models.SupplyCategory
 import com.kkc.sheettracker.data.models.SupplyItem
 import com.kkc.sheettracker.data.models.SpecialtyJobCard
+import com.kkc.sheettracker.ui.components.KKCBrandedTitle
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.MarkdownText
 import com.kkc.sheettracker.ui.components.RefreshIconButton
