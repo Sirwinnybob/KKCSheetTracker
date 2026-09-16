@@ -130,6 +130,7 @@ class KKCThemeRepository(
             // the base status key, then to the built-in default. This lets a theme JSON set
             // distinct shades (e.g. a soft completeBg with a darker completeBorder) instead of
             // forcing all three to the single base color.
+            val widthBand = colorArray(statusObj, "widthBand")
             val lightStatus = LightStatusColors.copy(
                 complete = color(statusObj, "complete") ?: LightStatusColors.complete,
                 completeBg = color(statusObj, "completeBg") ?: color(statusObj, "complete") ?: LightStatusColors.completeBg,
@@ -140,7 +141,13 @@ class KKCThemeRepository(
                 skipBg = color(statusObj, "skipBg") ?: color(statusObj, "skip") ?: LightStatusColors.skipBg,
                 skipBorder = color(statusObj, "skipBorder") ?: color(statusObj, "skip") ?: LightStatusColors.skipBorder,
                 inProgress = color(statusObj, "inProgress") ?: LightStatusColors.inProgress,
-                inProgressBorder = color(statusObj, "inProgressBorder") ?: color(statusObj, "inProgress") ?: LightStatusColors.inProgressBorder
+                inProgressBorder = color(statusObj, "inProgressBorder") ?: color(statusObj, "inProgress") ?: LightStatusColors.inProgressBorder,
+                notStarted = color(statusObj, "notStarted") ?: LightStatusColors.notStarted,
+                remakeBg = color(statusObj, "remakeBg") ?: LightStatusColors.remakeBg,
+                miscBg = color(statusObj, "miscBg") ?: LightStatusColors.miscBg,
+                widthBandPalette = widthBand ?: LightStatusColors.widthBandPalette,
+                progressGradientStart = color(statusObj, "progressGradientStart") ?: LightStatusColors.progressGradientStart,
+                progressGradientEnd = color(statusObj, "progressGradientEnd") ?: LightStatusColors.progressGradientEnd
             )
             val darkStatus = DarkStatusColors.copy(
                 complete = color(statusObj, "complete") ?: DarkStatusColors.complete,
@@ -152,7 +159,13 @@ class KKCThemeRepository(
                 skipBg = color(statusObj, "skipBg") ?: color(statusObj, "skip") ?: DarkStatusColors.skipBg,
                 skipBorder = color(statusObj, "skipBorder") ?: color(statusObj, "skip") ?: DarkStatusColors.skipBorder,
                 inProgress = color(statusObj, "inProgress") ?: DarkStatusColors.inProgress,
-                inProgressBorder = color(statusObj, "inProgressBorder") ?: color(statusObj, "inProgress") ?: DarkStatusColors.inProgressBorder
+                inProgressBorder = color(statusObj, "inProgressBorder") ?: color(statusObj, "inProgress") ?: DarkStatusColors.inProgressBorder,
+                notStarted = color(statusObj, "notStarted") ?: DarkStatusColors.notStarted,
+                remakeBg = color(statusObj, "remakeBg") ?: DarkStatusColors.remakeBg,
+                miscBg = color(statusObj, "miscBg") ?: DarkStatusColors.miscBg,
+                widthBandPalette = widthBand ?: DarkStatusColors.widthBandPalette,
+                progressGradientStart = color(statusObj, "progressGradientStart") ?: DarkStatusColors.progressGradientStart,
+                progressGradientEnd = color(statusObj, "progressGradientEnd") ?: DarkStatusColors.progressGradientEnd
             )
             val surfaceObj = root.getAsJsonObject("surface")
             val headerObj = root.getAsJsonObject("header")
@@ -271,6 +284,22 @@ class KKCThemeRepository(
             else -> return null
         }
         return Color(argb.toLong(16).toInt())
+    }
+
+    private fun colorArray(obj: JsonObject?, key: String): List<Color>? {
+        val array = obj?.get(key)?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
+        val hexStrings = array.mapNotNull { runCatching { it.asString }.getOrNull() }
+        val colors = hexStrings.mapNotNull { hex ->
+            if (!HEX_COLOR.matches(hex)) return@mapNotNull null
+            val normalized = hex.removePrefix("#")
+            val argb = when (normalized.length) {
+                6 -> "FF$normalized"
+                8 -> normalized
+                else -> return@mapNotNull null
+            }
+            Color(argb.toLong(16).toInt())
+        }
+        return colors.takeIf { it.isNotEmpty() }
     }
 
     private fun string(obj: JsonObject?, key: String): String? {

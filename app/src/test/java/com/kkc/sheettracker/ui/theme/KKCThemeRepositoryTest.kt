@@ -256,6 +256,56 @@ class KKCThemeRepositoryTest {
     }
 
     @Test
+    fun statusColorsSupportFullParityFields() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "full-parity.json",
+            body = validThemeJson(id = "kkc-full-parity").replace(
+                """"status": { "complete": "#388E3C", "bad": "#C62828", "skip": "#E65100", "inProgress": "#1565C0" }""",
+                """"status": {
+                    "complete": "#388E3C", "bad": "#C62828", "skip": "#E65100", "inProgress": "#1565C0",
+                    "notStarted": "#123456", "remakeBg": "#654321", "miscBg": "#ABCDEF",
+                    "widthBand": ["#111111", "#222222", "#333333", "#444444", "#555555"],
+                    "progressGradientStart": "#33334455", "progressGradientEnd": "#1A334455"
+                  }"""
+            )
+        )
+
+        val status = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-full-parity" }.tokens.lightStatus
+
+        assertEquals(Color(0xFF123456), status.notStarted)
+        assertEquals(Color(0xFF654321), status.remakeBg)
+        assertEquals(Color(0xFFABCDEF), status.miscBg)
+        assertEquals(
+            listOf(
+                Color(0xFF111111), Color(0xFF222222), Color(0xFF333333),
+                Color(0xFF444444), Color(0xFF555555)
+            ),
+            status.widthBandPalette
+        )
+        assertEquals(Color(0x33334455), status.progressGradientStart)
+        assertEquals(Color(0x1A334455), status.progressGradientEnd)
+    }
+
+    @Test
+    fun statusColorsFallBackToBuiltInWhenNewFieldsAreAbsent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(baseDir, "shop-blue.json", validThemeJson(id = "kkc-shop-blue"))
+
+        val status = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shop-blue" }.tokens.lightStatus
+
+        assertEquals(LightStatusColors.notStarted, status.notStarted)
+        assertEquals(LightStatusColors.remakeBg, status.remakeBg)
+        assertEquals(LightStatusColors.miscBg, status.miscBg)
+        assertEquals(LightStatusColors.widthBandPalette, status.widthBandPalette)
+        assertEquals(LightStatusColors.progressGradientStart, status.progressGradientStart)
+        assertEquals(LightStatusColors.progressGradientEnd, status.progressGradientEnd)
+    }
+
+    @Test
     fun themeHeaderSvgSiblingPrefixDirectoryIsRejected() {
         val baseDir = temp.newFolder("Ready Jobs")
         // Sibling directory sharing the theme dir's name prefix (".metadata/themes-evil").
