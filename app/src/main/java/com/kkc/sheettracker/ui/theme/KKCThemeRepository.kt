@@ -125,6 +125,7 @@ class KKCThemeRepository(
             val name = string(root, "name")?.takeIf { it.isNotBlank() } ?: id
             val version = int(root, "version") ?: 1
             val category = string(root, "category")?.trim()?.takeIf { it.isNotBlank() } ?: "custom"
+            val boldMode = boolean(root, "boldMode") ?: false
             val light = palette(root, "light")
             val dark = palette(root, "dark")
             val statusObj = root.getAsJsonObject("status")
@@ -203,7 +204,8 @@ class KKCThemeRepository(
                         mediumDp = float(shapeObj, "mediumDp") ?: BuiltInKKCThemeTokens.shape.mediumDp,
                         largeDp = float(shapeObj, "largeDp") ?: BuiltInKKCThemeTokens.shape.largeDp
                     ),
-                    spacingScale = float(root, "spacingScale") ?: BuiltInKKCThemeTokens.spacingScale
+                    spacingScale = float(root, "spacingScale") ?: BuiltInKKCThemeTokens.spacingScale,
+                    boldMode = boldMode
                 )
             )
         }
@@ -310,7 +312,8 @@ class KKCThemeRepository(
         return KKCThemePalette(
             primary = requiredColor(obj, "primary", "$key.primary"),
             background = requiredColor(obj, "background", "$key.background"),
-            surface = requiredColor(obj, "surface", "$key.surface")
+            surface = requiredColor(obj, "surface", "$key.surface"),
+            secondary = color(obj, "secondary")
         )
     }
 
@@ -359,6 +362,13 @@ class KKCThemeRepository(
         val value = obj?.get(key) ?: return null
         return runCatching {
             if (value.isJsonPrimitive && value.asJsonPrimitive.isNumber) value.asFloat else null
+        }.getOrNull()
+    }
+
+    private fun boolean(obj: JsonObject?, key: String): Boolean? {
+        val value = obj?.get(key) ?: return null
+        return runCatching {
+            if (value.isJsonPrimitive && value.asJsonPrimitive.isBoolean) value.asBoolean else null
         }.getOrNull()
     }
 

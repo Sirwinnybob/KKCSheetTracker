@@ -471,6 +471,66 @@ class KKCThemeRepositoryTest {
         assertTrue(catalog.loadMessages.any { it.contains("outside the theme folder") })
     }
 
+    @Test
+    fun paletteSecondaryIsNullByDefault() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(baseDir, "shop-blue.json", validThemeJson(id = "kkc-shop-blue"))
+
+        val light = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shop-blue" }.tokens.light
+
+        assertEquals(null, light.secondary)
+    }
+
+    @Test
+    fun paletteSecondaryParsesFromJsonWhenPresent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(id = "nfl-chiefs").replace(
+                """"light": { "primary": "#1E5FAF", "background": "#EFF4FA", "surface": "#FFFFFF" }""",
+                """"light": { "primary": "#E31837", "secondary": "#FFB612", "background": "#EFF4FA", "surface": "#FFFFFF" }"""
+            )
+        )
+
+        val light = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "nfl-chiefs" }.tokens.light
+
+        assertEquals(Color(0xFFFFB612), light.secondary)
+    }
+
+    @Test
+    fun boldModeDefaultsToFalseWhenAbsent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(baseDir, "shop-blue.json", validThemeJson(id = "kkc-shop-blue"))
+
+        val tokens = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shop-blue" }.tokens
+
+        assertEquals(false, tokens.boldMode)
+    }
+
+    @Test
+    fun boldModeParsesFromJsonWhenPresent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(id = "nfl-chiefs", extra = """, "boldMode": true""")
+        )
+
+        val tokens = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "nfl-chiefs" }.tokens
+
+        assertEquals(true, tokens.boldMode)
+    }
+
+    @Test
+    fun builtInThemeBoldModeIsFalse() {
+        assertEquals(false, BuiltInKKCThemeTokens.boldMode)
+    }
+
     private fun writeTheme(baseDir: File, filename: String, body: String) {
         val themeDir = File(baseDir, ".metadata/themes").apply { mkdirs() }
         File(themeDir, filename).writeText(body)
