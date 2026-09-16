@@ -276,30 +276,25 @@ class KKCThemeRepository(
 
     private fun color(obj: JsonObject?, key: String): Color? {
         val value = string(obj, key) ?: return null
-        if (!HEX_COLOR.matches(value)) return null
-        val normalized = value.removePrefix("#")
+        return parseHexColor(value)
+    }
+
+    private fun colorArray(obj: JsonObject?, key: String): List<Color>? {
+        val array = obj?.get(key)?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
+        val hexStrings = array.mapNotNull { runCatching { it.asString }.getOrNull() }
+        val colors = hexStrings.mapNotNull { hex -> parseHexColor(hex) }
+        return colors.takeIf { it.isNotEmpty() }
+    }
+
+    private fun parseHexColor(hex: String): Color? {
+        if (!HEX_COLOR.matches(hex)) return null
+        val normalized = hex.removePrefix("#")
         val argb = when (normalized.length) {
             6 -> "FF$normalized"
             8 -> normalized
             else -> return null
         }
         return Color(argb.toLong(16).toInt())
-    }
-
-    private fun colorArray(obj: JsonObject?, key: String): List<Color>? {
-        val array = obj?.get(key)?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
-        val hexStrings = array.mapNotNull { runCatching { it.asString }.getOrNull() }
-        val colors = hexStrings.mapNotNull { hex ->
-            if (!HEX_COLOR.matches(hex)) return@mapNotNull null
-            val normalized = hex.removePrefix("#")
-            val argb = when (normalized.length) {
-                6 -> "FF$normalized"
-                8 -> normalized
-                else -> return@mapNotNull null
-            }
-            Color(argb.toLong(16).toInt())
-        }
-        return colors.takeIf { it.isNotEmpty() }
     }
 
     private fun string(obj: JsonObject?, key: String): String? {
