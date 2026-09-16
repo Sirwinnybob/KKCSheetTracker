@@ -39,6 +39,7 @@ data class KKCThemeDefinition(
     val id: String,
     val name: String,
     val version: Int,
+    val category: String = "custom",
     val tokens: KKCThemeTokens
 )
 
@@ -123,6 +124,7 @@ class KKCThemeRepository(
                 ?: throw IllegalArgumentException("Missing id")
             val name = string(root, "name")?.takeIf { it.isNotBlank() } ?: id
             val version = int(root, "version") ?: 1
+            val category = string(root, "category")?.trim()?.takeIf { it.isNotBlank() } ?: "custom"
             val light = palette(root, "light")
             val dark = palette(root, "dark")
             val statusObj = root.getAsJsonObject("status")
@@ -179,6 +181,7 @@ class KKCThemeRepository(
                 id = id,
                 name = name,
                 version = version,
+                category = category,
                 tokens = KKCThemeTokens(
                     id = id,
                     name = name,

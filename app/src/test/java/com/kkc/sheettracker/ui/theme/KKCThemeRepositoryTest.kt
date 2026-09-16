@@ -311,6 +311,37 @@ class KKCThemeRepositoryTest {
     }
 
     @Test
+    fun themeCategoryDefaultsToCustomWhenAbsent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(baseDir, "shop-blue.json", validThemeJson(id = "kkc-shop-blue"))
+
+        val theme = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shop-blue" }
+
+        assertEquals("custom", theme.category)
+    }
+
+    @Test
+    fun themeCategoryParsesFromJsonWhenPresent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(id = "nfl-chiefs", name = "Kansas City Chiefs", extra = """, "category": "nfl"""")
+        )
+
+        val theme = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "nfl-chiefs" }
+
+        assertEquals("nfl", theme.category)
+    }
+
+    @Test
+    fun builtInThemeCategoryIsCustom() {
+        assertEquals("custom", KKCThemeRepository.builtInThemeDefinition().category)
+    }
+
+    @Test
     fun themeHeaderSvgSiblingPrefixDirectoryIsRejected() {
         val baseDir = temp.newFolder("Ready Jobs")
         // Sibling directory sharing the theme dir's name prefix (".metadata/themes-evil").
