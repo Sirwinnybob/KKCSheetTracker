@@ -73,11 +73,11 @@ fun BatteryIndicator(
     val level = batteryStatus.level
     val isCharging = batteryStatus.isCharging
 
-    val status = KKCThemeColors.statusColors
+    val statusColors = KKCThemeColors.statusColors
     val defaultColor = when {
-        isCharging -> status.complete
+        isCharging -> statusColors.complete
         level <= 15 -> MaterialTheme.colorScheme.error
-        level <= 30 -> status.skip
+        level <= 30 -> statusColors.skip
         else -> MaterialTheme.colorScheme.onSurface
     }
     val effectiveColor = contentColor ?: defaultColor
@@ -110,7 +110,7 @@ fun BatteryIndicator(
             Icon(
                 imageVector = Icons.Filled.Bolt,
                 contentDescription = "Charging",
-                tint = status.complete,
+                tint = statusColors.complete,
                 modifier = Modifier.size(16.dp)
             )
         }
