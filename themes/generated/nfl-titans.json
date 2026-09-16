@@ -6,14 +6,17 @@
   "light": {
     "primary": "#0C2340",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#4B92DB"
   },
   "dark": {
     "primary": "#0C2340",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#4B92DB"
   },
   "header": {
     "badgeText": "TITANS"
-  }
+  },
+  "boldMode": true
 }

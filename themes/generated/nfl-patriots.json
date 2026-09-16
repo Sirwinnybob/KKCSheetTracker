@@ -6,14 +6,17 @@
   "light": {
     "primary": "#002244",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#C60C30"
   },
   "dark": {
     "primary": "#002244",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#C60C30"
   },
   "header": {
     "badgeText": "PATRIOTS"
-  }
+  },
+  "boldMode": true
 }

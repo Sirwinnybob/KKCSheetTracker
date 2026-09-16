@@ -6,14 +6,17 @@
   "light": {
     "primary": "#041E42",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#869397"
   },
   "dark": {
     "primary": "#041E42",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#869397"
   },
   "header": {
     "badgeText": "COWBOYS"
-  }
+  },
+  "boldMode": true
 }

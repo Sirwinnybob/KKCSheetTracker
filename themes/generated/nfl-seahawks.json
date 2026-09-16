@@ -6,14 +6,17 @@
   "light": {
     "primary": "#002244",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#69BE28"
   },
   "dark": {
     "primary": "#002244",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#69BE28"
   },
   "header": {
     "badgeText": "SEAHAWKS"
-  }
+  },
+  "boldMode": true
 }

@@ -6,14 +6,17 @@
   "light": {
     "primary": "#03202F",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#A71930"
   },
   "dark": {
     "primary": "#03202F",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#A71930"
   },
   "header": {
     "badgeText": "TEXANS"
-  }
+  },
+  "boldMode": true
 }

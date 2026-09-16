@@ -6,14 +6,17 @@
   "light": {
     "primary": "#311D00",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#FF3C00"
   },
   "dark": {
     "primary": "#311D00",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#FF3C00"
   },
   "header": {
     "badgeText": "BROWNS"
-  }
+  },
+  "boldMode": true
 }

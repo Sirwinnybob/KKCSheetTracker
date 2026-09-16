@@ -6,14 +6,17 @@
   "light": {
     "primary": "#FFB612",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#101820"
   },
   "dark": {
     "primary": "#FFB612",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#101820"
   },
   "header": {
     "badgeText": "STEELERS"
-  }
+  },
+  "boldMode": true
 }

@@ -6,14 +6,17 @@
   "light": {
     "primary": "#101820",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#006778"
   },
   "dark": {
     "primary": "#101820",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#006778"
   },
   "header": {
     "badgeText": "JAGUARS"
-  }
+  },
+  "boldMode": true
 }

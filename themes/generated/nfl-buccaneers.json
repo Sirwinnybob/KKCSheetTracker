@@ -6,14 +6,17 @@
   "light": {
     "primary": "#D50A0A",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#34302B"
   },
   "dark": {
     "primary": "#D50A0A",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#34302B"
   },
   "header": {
     "badgeText": "BUCCANEERS"
-  }
+  },
+  "boldMode": true
 }

@@ -6,14 +6,17 @@
   "light": {
     "primary": "#0076B6",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#B0B7BC"
   },
   "dark": {
     "primary": "#0076B6",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#B0B7BC"
   },
   "header": {
     "badgeText": "LIONS"
-  }
+  },
+  "boldMode": true
 }

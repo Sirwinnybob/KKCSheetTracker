@@ -6,14 +6,17 @@
   "light": {
     "primary": "#000000",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#A5ACAF"
   },
   "dark": {
     "primary": "#000000",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#A5ACAF"
   },
   "header": {
     "badgeText": "RAIDERS"
-  }
+  },
+  "boldMode": true
 }

@@ -6,14 +6,17 @@
   "light": {
     "primary": "#5A1414",
     "background": "#FFFFFF",
-    "surface": "#FFFFFF"
+    "surface": "#FFFFFF",
+    "secondary": "#FFB612"
   },
   "dark": {
     "primary": "#5A1414",
     "background": "#000000",
-    "surface": "#162438"
+    "surface": "#162438",
+    "secondary": "#FFB612"
   },
   "header": {
     "badgeText": "COMMANDERS"
-  }
+  },
+  "boldMode": true
 }
