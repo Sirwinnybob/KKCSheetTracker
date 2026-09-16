@@ -888,31 +888,11 @@ private fun pluralize(word: String, count: Int): String = if (count == 1) word e
 
 @Composable
 fun getSoftStatusColors(status: String, baseColor: Color): Pair<Color, Color> {
-    val statusUpper = status.uppercase()
-    return when {
-        statusUpper in setOf("OUT", "ASAP", "MALFUNCTIONING", "NEED") -> {
-            MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
-        }
-        statusUpper == "LOW" -> {
-            MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
-        }
-        statusUpper in setOf("ORDERED", "IN PROCESS", "ACKNOWLEDGED") -> {
-            if (statusUpper == "ORDERED" && (baseColor == Color(0xFF388E3C) || baseColor == Color(0xFF2E7D32))) {
-                Color(0xFFE8F5E9) to Color(0xFF2E7D32)
-            } else {
-                MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
-            }
-        }
-        statusUpper in setOf("IN STOCK", "COMPLETE", "RECEIVED") -> {
-            Color(0xFFE8F5E9) to Color(0xFF2E7D32)
-        }
-        statusUpper in setOf("NOT ORDERED", "OPEN") -> {
-            Color(0xFFFFF8E1) to Color(0xFFEF6C00)
-        }
-        else -> {
-            MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
-        }
-    }
+    // baseColor is kept for call-site compatibility (it's still passed at every call site)
+    // but is no longer used — the status string alone now determines the accent, via the
+    // same DashboardAccent resolver used everywhere else, so the two can't drift apart again.
+    val accent = supplyAccent(status)
+    return DashboardSurfaceDefaults.accentWash(accent) to DashboardSurfaceDefaults.accentColor(accent)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
