@@ -133,6 +133,10 @@ fun DashboardSurfaceCard(
     }
 }
 
+/**
+ * [accent] is ignored when the active theme's `boldMode` is on — the gradient chrome replaces
+ * any accent-driven tint entirely in that case.
+ */
 @Composable
 fun DashboardHeroSurface(
     modifier: Modifier = Modifier,
