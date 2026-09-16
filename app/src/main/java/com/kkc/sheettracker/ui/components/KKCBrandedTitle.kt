@@ -1,13 +1,22 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -15,7 +24,9 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import com.kkc.sheettracker.ui.theme.KKCThemeHeaderTokens
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.theme.boldGradientBrush
 import java.io.File
 
 internal enum class BrandedTitleKind { LOGO, TEXT, DEFAULT }
@@ -34,7 +45,8 @@ internal fun resolveBrandedTitleKind(header: KKCThemeHeaderTokens): BrandedTitle
  * Replaces the literal "KKC Dashboard" title text with a theme's badge (logo image or styled
  * text) when one is set, appending " - $modeSuffix" either way. Intended for use by both the
  * Dashboard and Jobs screen top bars (wired in a later task) so the two don't duplicate this
- * priority logic.
+ * priority logic. When the active theme's `boldMode` is on, styled text renders on a gradient
+ * chip instead of plain colored text on the app bar background.
  */
 @Composable
 fun KKCBrandedTitle(modeSuffix: String, modifier: Modifier = Modifier) {
@@ -54,12 +66,36 @@ fun KKCBrandedTitle(modeSuffix: String, modifier: Modifier = Modifier) {
                 )
             }
             BrandedTitleKind.TEXT -> {
-                Text(
-                    text = header.badgeText!!.uppercase(),
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium
-                )
+                val tokens = LocalKKCThemeTokens.current
+                if (tokens.boldMode) {
+                    val palette = tokens.palette(LocalKKCIsDarkTheme.current)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(boldGradientBrush(palette))
+                            .padding(PaddingValues(horizontal = 10.dp, vertical = 3.dp))
+                    ) {
+                        Text(
+                            text = header.badgeText!!.uppercase(),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                shadow = Shadow(
+                                    color = Color.Black.copy(alpha = 0.4f),
+                                    offset = Offset(0f, 1f),
+                                    blurRadius = 3f
+                                )
+                            )
+                        )
+                    }
+                } else {
+                    Text(
+                        text = header.badgeText!!.uppercase(),
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
             }
             BrandedTitleKind.DEFAULT -> {
                 Text("KKC Dashboard", style = MaterialTheme.typography.titleMedium)
