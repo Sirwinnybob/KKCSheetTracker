@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1065,12 +1066,13 @@ private fun SafetyConcernCard(
 
 @Composable
 private fun StatusBadge(status: String) {
+    val statusColors = KKCThemeColors.statusColors
     val (bgColor, textColor) = when (status.uppercase()) {
-        "OPEN" -> Color(0xFFFFF3E0) to Color(0xFFE65100)
-        "ACKNOWLEDGED" -> Color(0xFFE3F2FD) to Color(0xFF1565C0)
-        "IN PROGRESS" -> Color(0xFFF3E5F5) to Color(0xFF7B1FA2)
-        "RESOLVED" -> Color(0xFFE8F5E9) to Color(0xFF2E7D32)
-        else -> Color(0xFFEEEEEE) to Color(0xFF616161)
+        "OPEN" -> statusColors.skip.copy(alpha = 0.15f) to statusColors.skip
+        "ACKNOWLEDGED" -> statusColors.miscBg.copy(alpha = 0.25f) to statusColors.miscBg
+        "IN PROGRESS" -> statusColors.remakeBg.copy(alpha = 0.25f) to statusColors.remakeBg
+        "RESOLVED" -> statusColors.complete.copy(alpha = 0.15f) to statusColors.complete
+        else -> statusColors.notStarted.copy(alpha = 0.2f) to statusColors.notStarted
     }
     Box(
         modifier = Modifier
