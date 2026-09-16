@@ -253,6 +253,8 @@ class KKCThemeRepositoryTest {
         // No completeBg key present -> falls back to the base "complete" color.
         assertEquals(status.complete, status.completeBg)
         assertEquals(status.complete, status.completeBorder)
+        assertEquals(status.complete, status.completeBgRow)
+        assertEquals(status.skip, status.skipBgRow)
     }
 
     @Test
@@ -267,7 +269,8 @@ class KKCThemeRepositoryTest {
                     "complete": "#388E3C", "bad": "#C62828", "skip": "#E65100", "inProgress": "#1565C0",
                     "notStarted": "#123456", "remakeBg": "#654321", "miscBg": "#ABCDEF",
                     "widthBand": ["#111111", "#222222", "#333333", "#444444", "#555555"],
-                    "progressGradientStart": "#33334455", "progressGradientEnd": "#1A334455"
+                    "progressGradientStart": "#33334455", "progressGradientEnd": "#1A334455",
+                    "completeBgRow": "#AABBCC", "skipBgRow": "#DDEEFF"
                   }"""
             )
         )
@@ -287,6 +290,8 @@ class KKCThemeRepositoryTest {
         )
         assertEquals(Color(0x33334455), status.progressGradientStart)
         assertEquals(Color(0x1A334455), status.progressGradientEnd)
+        assertEquals(Color(0xFFAABBCC), status.completeBgRow)
+        assertEquals(Color(0xFFDDEEFF), status.skipBgRow)
     }
 
     @Test
