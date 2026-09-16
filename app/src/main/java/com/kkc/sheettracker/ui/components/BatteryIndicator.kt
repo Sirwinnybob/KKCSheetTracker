@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.KKCThemeColors
 
 data class BatteryStatus(
     val level: Int = 100,
@@ -72,10 +73,11 @@ fun BatteryIndicator(
     val level = batteryStatus.level
     val isCharging = batteryStatus.isCharging
 
+    val status = KKCThemeColors.statusColors
     val defaultColor = when {
-        isCharging -> Color(0xFF2E7D32) // Green tint when charging
+        isCharging -> status.complete
         level <= 15 -> MaterialTheme.colorScheme.error
-        level <= 30 -> Color(0xFFE65100) // Orange tint for low
+        level <= 30 -> status.skip
         else -> MaterialTheme.colorScheme.onSurface
     }
     val effectiveColor = contentColor ?: defaultColor
