@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
+import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 
 object DashboardSurfaceDefaults {
@@ -45,36 +46,39 @@ object DashboardSurfaceDefaults {
 
     @Composable
     fun accentWash(accent: DashboardAccent): Color {
-        val scheme = MaterialTheme.colorScheme
+        val status = KKCThemeColors.statusColors
         return when (accent) {
-            DashboardAccent.NEUTRAL -> scheme.surfaceVariant.copy(alpha = 0.18f)
-            DashboardAccent.INFO -> scheme.primaryContainer.copy(alpha = 0.22f)
-            DashboardAccent.SUCCESS -> scheme.secondaryContainer.copy(alpha = 0.24f)
-            DashboardAccent.WARNING -> scheme.tertiaryContainer.copy(alpha = 0.20f)
-            DashboardAccent.DANGER -> scheme.errorContainer.copy(alpha = 0.16f)
+            DashboardAccent.NEUTRAL -> status.notStarted.copy(alpha = 0.18f)
+            DashboardAccent.INFO -> status.inProgress.copy(alpha = 0.22f)
+            DashboardAccent.SUCCESS -> status.complete.copy(alpha = 0.24f)
+            DashboardAccent.WARNING -> status.skip.copy(alpha = 0.20f)
+            DashboardAccent.DANGER -> status.bad.copy(alpha = 0.16f)
         }
     }
 
     @Composable
     fun outlineColor(accent: DashboardAccent): Color {
-        val scheme = MaterialTheme.colorScheme
+        val status = KKCThemeColors.statusColors
         val base = when (accent) {
-            DashboardAccent.NEUTRAL -> scheme.outlineVariant
-            DashboardAccent.INFO -> scheme.primary.copy(alpha = 0.22f)
-            DashboardAccent.SUCCESS -> scheme.primary.copy(alpha = 0.18f)
-            DashboardAccent.WARNING -> scheme.tertiary.copy(alpha = 0.2f)
-            DashboardAccent.DANGER -> scheme.error.copy(alpha = 0.2f)
+            DashboardAccent.NEUTRAL -> status.notStarted.copy(alpha = 0.4f)
+            DashboardAccent.INFO -> status.inProgress.copy(alpha = 0.22f)
+            DashboardAccent.SUCCESS -> status.complete.copy(alpha = 0.18f)
+            DashboardAccent.WARNING -> status.skip.copy(alpha = 0.2f)
+            DashboardAccent.DANGER -> status.bad.copy(alpha = 0.2f)
         }
-        return base.copy(alpha = 0.9f)
+        return base.copy(alpha = base.alpha * 0.9f)
     }
 
     @Composable
-    fun accentColor(accent: DashboardAccent): Color = when (accent) {
-        DashboardAccent.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
-        DashboardAccent.INFO -> MaterialTheme.colorScheme.primary
-        DashboardAccent.SUCCESS -> MaterialTheme.colorScheme.primary
-        DashboardAccent.WARNING -> MaterialTheme.colorScheme.tertiary
-        DashboardAccent.DANGER -> MaterialTheme.colorScheme.error
+    fun accentColor(accent: DashboardAccent): Color {
+        val status = KKCThemeColors.statusColors
+        return when (accent) {
+            DashboardAccent.NEUTRAL -> status.notStarted
+            DashboardAccent.INFO -> status.inProgress
+            DashboardAccent.SUCCESS -> status.complete
+            DashboardAccent.WARNING -> status.skip
+            DashboardAccent.DANGER -> status.bad
+        }
     }
 }
 
