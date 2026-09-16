@@ -120,6 +120,8 @@ fun SettingsScreen(
     var adminSyncIpSaved by remember { mutableStateOf(false) }
 
     var themeDropdownExpanded by remember { mutableStateOf(false) }
+    var footballTeamSearchMode by remember { mutableStateOf(false) }
+    var footballTeamSearchText by remember { mutableStateOf("") }
     val timecardScope = rememberCoroutineScope()
     val idlePowerSaveConfig by idlePowerSaveStore.configFlow.collectAsState(initial = IdlePowerSaveConfig())
     val idlePowerSaveScope = rememberCoroutineScope()
@@ -351,38 +353,83 @@ fun SettingsScreen(
                 HorizontalDivider()
 
                 ExposedDropdownMenuBox(
-                    expanded = themeDropdownExpanded,
-                    onExpandedChange = { themeDropdownExpanded = it }
+                    expanded = if (footballTeamSearchMode) true else themeDropdownExpanded,
+                    onExpandedChange = { if (!footballTeamSearchMode) themeDropdownExpanded = it }
                 ) {
                     val selectedId = themeCatalog.overrideThemeId
                     val selectedThemeName = selectedId
                         ?.let { id -> themeCatalog.themes.firstOrNull { it.id == id }?.name }
                         ?: themeCatalog.activeTheme.name
-                    OutlinedTextField(
-                        value = selectedThemeName,
-                        onValueChange = {},
-                        label = { Text("This tablet") },
-                        supportingText = {
-                            Text(if (selectedId == null) "Using fleet default" else "Applies only to this tablet")
-                        },
-                        colors = filledFieldColors(),
-                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                        readOnly = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = themeDropdownExpanded,
-                        onDismissRequest = { themeDropdownExpanded = false }
-                    ) {
-                        themeCatalog.themes.forEach { theme ->
-                            DropdownMenuItem(
-                                text = { Text(theme.name) },
-                                onClick = {
-                                    onThemeFollowSyncedDefaultChanged(false)
-                                    onThemeOverrideChanged(theme.id)
-                                    themeDropdownExpanded = false
+                    val footballThemes = footballTeamThemes(themeCatalog.themes)
+                    if (footballTeamSearchMode) {
+                        OutlinedTextField(
+                            value = footballTeamSearchText,
+                            onValueChange = { footballTeamSearchText = it },
+                            label = { Text("Search NFL team") },
+                            supportingText = { Text("Applies only to this tablet") },
+                            colors = filledFieldColors(),
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        val filteredFootballThemes = filterThemesByQuery(footballThemes, footballTeamSearchText)
+                        if (filteredFootballThemes.isNotEmpty()) {
+                            ExposedDropdownMenu(
+                                expanded = true,
+                                onDismissRequest = {
+                                    footballTeamSearchMode = false
+                                    footballTeamSearchText = ""
                                 }
-                            )
+                            ) {
+                                filteredFootballThemes.forEach { theme ->
+                                    DropdownMenuItem(
+                                        text = { Text(theme.name) },
+                                        onClick = {
+                                            onThemeFollowSyncedDefaultChanged(false)
+                                            onThemeOverrideChanged(theme.id)
+                                            footballTeamSearchMode = false
+                                            footballTeamSearchText = ""
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        OutlinedTextField(
+                            value = selectedThemeName,
+                            onValueChange = {},
+                            label = { Text("This tablet") },
+                            supportingText = {
+                                Text(if (selectedId == null) "Using fleet default" else "Applies only to this tablet")
+                            },
+                            colors = filledFieldColors(),
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                            readOnly = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = themeDropdownExpanded,
+                            onDismissRequest = { themeDropdownExpanded = false }
+                        ) {
+                            customThemes(themeCatalog.themes).forEach { theme ->
+                                DropdownMenuItem(
+                                    text = { Text(theme.name) },
+                                    onClick = {
+                                        onThemeFollowSyncedDefaultChanged(false)
+                                        onThemeOverrideChanged(theme.id)
+                                        themeDropdownExpanded = false
+                                    }
+                                )
+                            }
+                            if (footballThemes.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("Football Team") },
+                                    onClick = {
+                                        themeDropdownExpanded = false
+                                        footballTeamSearchMode = true
+                                    }
+                                )
+                            }
                         }
                     }
                 }
