@@ -66,6 +66,7 @@ object DashboardSurfaceDefaults {
             DashboardAccent.WARNING -> status.skip.copy(alpha = 0.2f)
             DashboardAccent.DANGER -> status.bad.copy(alpha = 0.2f)
         }
+        // Scales each branch's own alpha by 0.9 rather than flattening it; sole caller overrides via its own .copy(alpha=...) anyway.
         return base.copy(alpha = base.alpha * 0.9f)
     }
 
