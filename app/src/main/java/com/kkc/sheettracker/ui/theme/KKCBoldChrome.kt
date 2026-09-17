@@ -21,14 +21,15 @@ fun boldGradientColors(palette: KKCThemePalette): List<Color> {
 fun boldGradientBrush(palette: KKCThemePalette): Brush = Brush.linearGradient(boldGradientColors(palette))
 
 /**
- * Legible text color for content placed on top of a bold-mode gradient chip: black when the
- * gradient's average color is light (e.g. a team's gold/yellow), white when it's dark. Prevents
- * low-contrast white-on-light-color text for teams whose brand colors are pale.
+ * Legible text color for content placed on top of a bold-mode gradient: black when [KKCThemePalette.primary]
+ * is light, white when it's dark. Anchored on `primary` alone (not blended with `secondary`) because
+ * `boldGradientBrush` always starts its gradient at `primary` in the corner where this text is
+ * positioned (header badge, Dashboard hero card title/value) — averaging in `secondary`'s luminance
+ * previously picked white text for teams with a light `primary` and a dark `secondary` (e.g. Steelers'
+ * gold `primary` with a black `secondary`), which is unreadable at the corner the text actually sits on.
  */
 fun boldChipTextColor(palette: KKCThemePalette): Color {
-    val colors = boldGradientColors(palette)
-    val averageLuminance = colors.map { it.luminance() }.average()
-    return if (averageLuminance > 0.5) Color.Black else Color.White
+    return if (palette.primary.luminance() > 0.5) Color.Black else Color.White
 }
 
 /**

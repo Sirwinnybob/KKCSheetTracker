@@ -64,4 +64,31 @@ class KKCBoldChromeTest {
         )
         assertEquals(Color.White, boldChipTextColor(darkPalette))
     }
+
+    @Test
+    fun boldChipTextColorIsBlackWhenPrimaryIsLightEvenWithDarkSecondary() {
+        // Steelers-like: light gold primary, black secondary. Averaging the two (the old
+        // implementation) put the blend under the black/white threshold and picked white —
+        // unreadable on the gold corner where this text is actually positioned.
+        val steelersLike = KKCThemePalette(
+            primary = Color(0xFFFFB612),
+            secondary = Color(0xFF101820),
+            background = Color.White,
+            surface = Color.White
+        )
+        assertEquals(Color.Black, boldChipTextColor(steelersLike))
+    }
+
+    @Test
+    fun boldChipTextColorIsWhiteWhenPrimaryIsDarkEvenWithLightSecondary() {
+        // Chiefs-like: dark red primary, light gold secondary. Text sits on the dark primary
+        // corner, so white must win regardless of the lighter secondary.
+        val chiefsLike = KKCThemePalette(
+            primary = Color(0xFFE31837),
+            secondary = Color(0xFFFFB612),
+            background = Color.White,
+            surface = Color.White
+        )
+        assertEquals(Color.White, boldChipTextColor(chiefsLike))
+    }
 }
