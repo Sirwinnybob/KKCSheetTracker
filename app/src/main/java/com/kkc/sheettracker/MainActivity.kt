@@ -43,6 +43,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.kkc.sheettracker.clock.ClockInNotificationContract
 import com.kkc.sheettracker.crash.CrashReporter
+import com.kkc.sheettracker.perf.CpuSpikeMonitor
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
@@ -179,6 +180,12 @@ class MainActivity : ComponentActivity() {
             workMode = prefs.getString("work_mode", null) ?: WorkMode.CNC.name
         )
         CrashReporter.flushPending(basePath)
+        CpuSpikeMonitor.updateContext(
+            tabletId = tabletId,
+            basePath = basePath,
+            workMode = prefs.getString("work_mode", null) ?: WorkMode.CNC.name
+        )
+        CpuSpikeMonitor.flushPending(basePath)
 
         val useLegacyUpdatePrompt = DeviceOwnerUpdateFallback(this)
             .shouldUseLegacyPrompt(basePath = basePath, tabletId = tabletId)
@@ -314,6 +321,7 @@ class MainActivity : ComponentActivity() {
             }
             LaunchedEffect(workMode) {
                 CrashReporter.updateContext(workMode = workMode.name)
+                CpuSpikeMonitor.updateContext(workMode = workMode.name)
             }
             val syncthingStatus by syncthingSupervisor.status.collectAsState()
             val syncthingApiKey by syncthingSupervisor.apiKey.collectAsState()
@@ -399,6 +407,7 @@ class MainActivity : ComponentActivity() {
                             workMode = mode
                             prefs.edit().putString("work_mode", mode.name).apply()
                             CrashReporter.updateContext(workMode = mode.name)
+                            CpuSpikeMonitor.updateContext(workMode = mode.name)
                         },
                         onFlexibleModeChanged = { enabled ->
                             flexibleModeEnabled = enabled

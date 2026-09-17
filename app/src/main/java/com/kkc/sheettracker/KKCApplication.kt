@@ -2,6 +2,7 @@ package com.kkc.sheettracker
 
 import android.app.Application
 import com.kkc.sheettracker.crash.CrashReporter
+import com.kkc.sheettracker.perf.CpuSpikeMonitor
 import com.kkc.sheettracker.data.mixservice.MixCatalogCache
 import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
 import com.kkc.sheettracker.data.mixservice.MixOperationCoordinator
@@ -31,6 +32,7 @@ class KKCApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
+        CpuSpikeMonitor.install(this)
         mixOperationCoordinator.restore()
     }
 }

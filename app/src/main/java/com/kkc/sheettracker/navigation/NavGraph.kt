@@ -75,6 +75,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.kkc.sheettracker.clock.ClockInNotificationContract
 import com.kkc.sheettracker.crash.CrashReporter
+import com.kkc.sheettracker.perf.CpuSpikeMonitor
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyPaneView
@@ -772,6 +773,11 @@ private fun MultiBackStackNavigation(
         activeJobFolderName.value = folderName
         appStateStore.notifyJobFocus(folderName)
         CrashReporter.updateNavigationContext(
+            currentTab = selectedTab.route,
+            currentRoute = if (selectedTab == TopLevelTab.JOBS) route.ifBlank { selectedTab.route } else selectedTab.route,
+            activeJobFolderName = folderName
+        )
+        CpuSpikeMonitor.updateNavigationContext(
             currentTab = selectedTab.route,
             currentRoute = if (selectedTab == TopLevelTab.JOBS) route.ifBlank { selectedTab.route } else selectedTab.route,
             activeJobFolderName = folderName
@@ -2701,6 +2707,22 @@ private fun LegacySingleStackNavigation(
             currentRoute == "standards" || currentRoute?.startsWith("standards/") == true -> NavDestination.STANDARDS
             else -> if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) NavDestination.JOBS else NavDestination.DASHBOARD
         }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(currentNavDest, currentRoute) {
+        val folderName = if (currentNavDest == NavDestination.JOBS) {
+            backStackEntry?.arguments?.getString("folderName")
+        } else null
+        CrashReporter.updateNavigationContext(
+            currentTab = currentNavDest.route,
+            currentRoute = currentRoute ?: currentNavDest.route,
+            activeJobFolderName = folderName
+        )
+        CpuSpikeMonitor.updateNavigationContext(
+            currentTab = currentNavDest.route,
+            currentRoute = currentRoute ?: currentNavDest.route,
+            activeJobFolderName = folderName
+        )
     }
 
     val isInViewer = currentRoute?.startsWith("viewer/") == true ||
