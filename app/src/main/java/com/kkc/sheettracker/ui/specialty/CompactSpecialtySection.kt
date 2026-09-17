@@ -20,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -38,7 +39,9 @@ import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.requiresStationSplit
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class SpecialtySurfaceMode {
     CNC,
@@ -127,8 +130,14 @@ fun CompactSpecialtySection(
 ) {
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
-    val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
-        specialtyStateStore.getResolvedItems(jobFolderName)
+    // See SpecialtyJobDetailScreen for why this must not run synchronously on the main thread.
+    val resolvedItems by produceState(
+        initialValue = emptyList<SpecialtyResolvedItem>(),
+        key1 = scanState.snapshot.generation,
+        key2 = progressVersion,
+        key3 = jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) { specialtyStateStore.getResolvedItems(jobFolderName) }
     }
     val rowModels = remember(resolvedItems, mode) {
         buildSpecialtySectionRows(resolvedItems, mode)

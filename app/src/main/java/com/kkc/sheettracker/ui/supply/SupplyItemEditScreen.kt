@@ -137,16 +137,21 @@ fun SupplyItemEditScreen(
         }
     }
 
-    SideEffect {
-        onChromeStateChanged(
-            SupplyItemEditorChromeState(
-                canSave = canSave,
-                isSaving = isSaving,
-                status = selectedStatus.takeIf { it.isNotBlank() },
-                onSave = ::save
-            )
+    // Memoized so the fresh-object-every-recomposition pattern (a data class with a lambda field,
+    // which self-feeds an infinite recomposition loop once published via SideEffect and read by
+    // the parent) doesn't happen here -- same bug class already fixed for NavBarDecoration sites.
+    // ::save is re-bound fresh every recomposition, so it's routed through rememberUpdatedState
+    // rather than included directly in the remember key.
+    val currentSave = rememberUpdatedState(::save)
+    val chromeState = remember(canSave, isSaving, selectedStatus) {
+        SupplyItemEditorChromeState(
+            canSave = canSave,
+            isSaving = isSaving,
+            status = selectedStatus.takeIf { it.isNotBlank() },
+            onSave = { currentSave.value() }
         )
     }
+    SideEffect { onChromeStateChanged(chromeState) }
 
     if (isLoading) {
         Box(

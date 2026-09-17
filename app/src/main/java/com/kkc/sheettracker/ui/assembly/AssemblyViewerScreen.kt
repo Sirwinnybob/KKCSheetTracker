@@ -117,6 +117,7 @@ import com.kkc.sheettracker.data.models.JobPdfCatalog
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.ScanStatus
+import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.SplitFullscreen
 import com.kkc.sheettracker.ui.components.headerBackground
@@ -1564,8 +1565,14 @@ private fun ChecklistPane(
 ) {
     val scanState by specialtyStateStore.scanState.collectAsState()
     val progressVersion by specialtyStateStore.progressVersion.collectAsState()
-    val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
-        specialtyStateStore.getResolvedItems(jobFolderName)
+    // See SpecialtyJobDetailScreen for why this must not run synchronously on the main thread.
+    val resolvedItems by produceState(
+        initialValue = emptyList<SpecialtyResolvedItem>(),
+        key1 = scanState.snapshot.generation,
+        key2 = progressVersion,
+        key3 = jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) { specialtyStateStore.getResolvedItems(jobFolderName) }
     }
     val completionOverrides = remember(jobFolderName) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     val inFlight = remember(jobFolderName) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }

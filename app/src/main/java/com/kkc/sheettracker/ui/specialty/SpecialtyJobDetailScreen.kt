@@ -61,6 +61,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -122,7 +123,9 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.standards.MoldingDetailOverlay
 import com.kkc.sheettracker.ui.standards.rememberSvgImageLoader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
@@ -161,9 +164,19 @@ internal fun SpecialtyJobDetailScreen(
     var editingItem by remember(jobFolderName) { mutableStateOf<com.kkc.sheettracker.data.models.SpecialtyItem?>(null) }
     var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var expandedSectionIds by remember(jobFolderName) { mutableStateOf<Set<String>?>(null) }
-    val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
-        specialtyStateStore.getResolvedItems(jobFolderName)
-            .filter { isItemRelevantToMode(it, SpecialtySurfaceMode.SPECIALTY) }
+    // getResolvedItems on a cache miss parses specialty_items.json + checklist.json + every
+    // tablet's tracker sidecar file for this job -- and setCompletion() invalidates that cache on
+    // every checkbox toggle, so this must not run synchronously on the main thread.
+    val resolvedItems by produceState(
+        initialValue = emptyList<SpecialtyResolvedItem>(),
+        key1 = scanState.snapshot.generation,
+        key2 = progressVersion,
+        key3 = jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) {
+            specialtyStateStore.getResolvedItems(jobFolderName)
+                .filter { isItemRelevantToMode(it, SpecialtySurfaceMode.SPECIALTY) }
+        }
     }
 
     val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()

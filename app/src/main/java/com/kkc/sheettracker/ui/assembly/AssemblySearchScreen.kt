@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -96,8 +97,15 @@ fun AssemblySearchScreen(
     val scanState by assemblyScanCoordinator.state.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
 
-    val all = remember(scanState.snapshot.generation, specialtyProgressVersionHint) {
-        assemblyStateStore.deriveSearchIndex()
+    // deriveSearchIndex() deserializes every cached job's on-disk JSON to build the cross-job
+    // search index -- that fan-out is unavoidable for search, but it must not block the main
+    // thread. See AssemblyViewerScreen's single-job equivalent for the same class of bug.
+    val all by produceState(
+        initialValue = emptyList<AssemblySearchEntry>(),
+        key1 = scanState.snapshot.generation,
+        key2 = specialtyProgressVersionHint
+    ) {
+        value = withContext(Dispatchers.IO) { assemblyStateStore.deriveSearchIndex() }
     }
     var searchMatches by remember { mutableStateOf(AssemblySearchMatches(emptyList(), 0)) }
     val results = searchMatches.results

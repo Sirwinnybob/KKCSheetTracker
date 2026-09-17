@@ -768,10 +768,14 @@ fun UnifiedJobsScreen(
     DisposableEffect(navBarDeco) {
         onDispose { navBarDeco.extendedControls = null }
     }
-    SideEffect {
-        navBarDeco.extendedControls = if (labelEditJob != null) {
-            {
-                JobLabelEditorNavBarControls(
+    // Memoized so the fresh-lambda-every-recomposition pattern (which self-feeds an infinite
+    // recomposition loop once published via SideEffect and read elsewhere) doesn't recur here --
+    // same bug class already fixed for this screen's search decoration, extracted to JobsSearchNavBar.kt.
+    val labelEditorControls: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? =
+        remember(labelEditJob, allLabels) {
+            if (labelEditJob != null) {
+                val content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
+                    JobLabelEditorNavBarControls(
                     jobTitle = listOf(labelEditJob.jobNumber, labelEditJob.jobName)
                         .filter { it.isNotBlank() }.joinToString(" — ").ifBlank { labelEditJob.folderName },
                     allLabels = allLabels,
@@ -825,10 +829,12 @@ fun UnifiedJobsScreen(
                         }
                     },
                     onDismiss = { editingLabelsFor = null }
-                )
-            }
-        } else null
-    }
+                    )
+                }
+                content
+            } else null
+        }
+    SideEffect { navBarDeco.extendedControls = labelEditorControls }
 }
 
 private data class LocalJobEdit(

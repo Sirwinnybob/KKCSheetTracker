@@ -82,6 +82,7 @@ import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.MaterialUiModel
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
 import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
@@ -638,8 +639,14 @@ fun JobDetailScreen(
                 item(key = "specialty-compact-section") {
                     val specialtyScanState by specialtyStateStore.scanState.collectAsState()
                     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
-                    val resolvedItems = remember(specialtyScanState.snapshot.generation, specialtyProgressVersion, jobFolderName) {
-                        specialtyStateStore.getResolvedItems(jobFolderName)
+                    // See SpecialtyJobDetailScreen for why this must not run synchronously on the main thread.
+                    val resolvedItems by produceState(
+                        initialValue = emptyList<SpecialtyResolvedItem>(),
+                        key1 = specialtyScanState.snapshot.generation,
+                        key2 = specialtyProgressVersion,
+                        key3 = jobFolderName
+                    ) {
+                        value = withContext(Dispatchers.IO) { specialtyStateStore.getResolvedItems(jobFolderName) }
                     }
                     val hasSpecialty = remember(resolvedItems) {
                         com.kkc.sheettracker.ui.specialty.buildSpecialtySectionRows(

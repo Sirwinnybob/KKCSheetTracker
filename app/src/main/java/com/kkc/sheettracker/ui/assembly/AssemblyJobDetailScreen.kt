@@ -40,6 +40,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -50,6 +51,7 @@ import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
@@ -60,7 +62,9 @@ import com.kkc.sheettracker.ui.specialty.finishInFlightUpdate
 import com.kkc.sheettracker.ui.specialty.isChecklistItemComplete
 import com.kkc.sheettracker.ui.specialty.isItemRelevantToMode
 import com.kkc.sheettracker.ui.specialty.startInFlightUpdate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,9 +93,17 @@ fun AssemblyJobDetailScreen(
     var toggleErrorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var showPrintDialog by remember { mutableStateOf(false) }
 
-    val resolvedItems = remember(scanState.snapshot.generation, progressVersion, jobFolderName) {
-        specialtyStateStore.getResolvedItems(jobFolderName)
-            .filter { isItemRelevantToMode(it, SpecialtySurfaceMode.ASSEMBLY) }
+    // See SpecialtyJobDetailScreen for why this must not run synchronously on the main thread.
+    val resolvedItems by produceState(
+        initialValue = emptyList<SpecialtyResolvedItem>(),
+        key1 = scanState.snapshot.generation,
+        key2 = progressVersion,
+        key3 = jobFolderName
+    ) {
+        value = withContext(Dispatchers.IO) {
+            specialtyStateStore.getResolvedItems(jobFolderName)
+                .filter { isItemRelevantToMode(it, SpecialtySurfaceMode.ASSEMBLY) }
+        }
     }
     val completedItems = resolvedItems.count { resolved ->
         isChecklistItemComplete(resolved, completionOverrides)
