@@ -510,6 +510,10 @@ fun UnifiedReferenceViewer(
     showDocControls: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null,
     missingText: String = "Reference PDF not found",
     unreadableText: String = "Unable to read PDF",
+    // True while the caller is still resolving which PDF file to show (async lookup not yet
+    // complete) — shows a loading spinner instead of missingText so a job that legitimately has
+    // the PDF doesn't flash a false "not found" during the lookup.
+    isResolving: Boolean = false,
     onTotalPagesChanged: (Int) -> Unit = {},
     onViewportStateChange: (PdfViewportState) -> Unit = {},
     showHeaderRow: Boolean = true,
@@ -821,7 +825,11 @@ fun UnifiedReferenceViewer(
             // mode had no equivalent at all — an empty LazyColumn (0 items) just renders blank,
             // silently, with no explanation to the user.
             Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                Text(missingText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (isResolving) {
+                    CircularProgressIndicator()
+                } else {
+                    Text(missingText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         } else if (effectiveTotalPages <= 0) {
             Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {

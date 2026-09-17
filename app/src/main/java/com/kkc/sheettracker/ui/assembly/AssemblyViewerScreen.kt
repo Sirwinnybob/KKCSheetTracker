@@ -243,8 +243,13 @@ fun AssemblyViewerScreen(
     val initialPaneSource = parseInitialSource(initialSource)
 
     val enteredVia3D = initialPaneSource == PaneSource.THREE_D
-    val assemblyFilename by produceState<String>(
-        initialValue = "",
+    // Nullable so "still resolving" (null) is distinguishable from "resolved, no such PDF" ("") --
+    // produceState resets to initialValue every time a key changes (e.g. once sheetIndex itself
+    // finishes loading), so without this the pane would flash "PDF not found" during that reset,
+    // not just on first entry. assemblyFilename below is the non-loading-aware convenience value
+    // for everything that doesn't care about the distinction.
+    val assemblyFilenameOrNull by produceState<String?>(
+        initialValue = null,
         key1 = sheetIndex,
         key2 = jobFolderName,
         key3 = refreshGeneration
@@ -254,6 +259,7 @@ fun AssemblyViewerScreen(
                 jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.ASSEMBLY)
             }.orEmpty()
     }
+    val assemblyFilename = assemblyFilenameOrNull.orEmpty()
     val assemblyVirtualRawMap = remember(sheetIndex) {
         sheetIndex?.documents?.assembly?.virtualCombined?.virtualPageToSource
             ?.mapNotNull { (virtualPageKey, source) ->
@@ -295,8 +301,9 @@ fun AssemblyViewerScreen(
             sheetIndex?.documents?.assembly?.cabinetToPages.orEmpty()
         }
     }
-    val plansFilename by produceState<String>(
-        initialValue = "",
+    // See assemblyFilenameOrNull above for why this stays nullable.
+    val plansFilenameOrNull by produceState<String?>(
+        initialValue = null,
         key1 = sheetIndex,
         key2 = jobFolderName,
         key3 = refreshGeneration
@@ -306,6 +313,7 @@ fun AssemblyViewerScreen(
                 jobRepository.findReferencePdfFilename(jobFolderName, ReferenceDocType.PLANS_ELEVATIONS)
             }.orEmpty()
     }
+    val plansFilename = plansFilenameOrNull.orEmpty()
     val plansNavigatorPlanViewLabels = remember(sheetIndex) {
         val pageToRoom = sheetIndex?.documents?.plansElevations?.pageDetails
             .orEmpty()
@@ -641,6 +649,19 @@ fun AssemblyViewerScreen(
         PaneSource.CHECKLIST -> null
     }
 
+    // True while this source's PDF filename is still being resolved asynchronously -- lets the
+    // pane show a loading spinner instead of a false "PDF not found" while the lookup is in
+    // flight (see assemblyFilenameOrNull/plansFilenameOrNull/pdfCatalog above).
+    fun sourceIsLoading(source: PaneSource): Boolean = when (source) {
+        PaneSource.PLANS -> plansFilenameOrNull == null
+        PaneSource.ASSEMBLY -> assemblyFilenameOrNull == null
+        PaneSource.DELIVERY -> pdfCatalog == null
+        PaneSource.PULLS -> pdfCatalog == null
+        PaneSource.OTHER -> false
+        PaneSource.THREE_D -> false
+        PaneSource.CHECKLIST -> false
+    }
+
     // THREE_D/CHECKLIST have no entry in `pages` — page defaults to 1 / writes are no-ops.
     fun sourcePage(source: PaneSource, pages: Map<PaneSource, MutableIntState>): Int =
         pages[source]?.intValue ?: 1
@@ -845,6 +866,7 @@ fun AssemblyViewerScreen(
                         },
                         missingText = firstMissingText,
                         unreadableText = firstUnreadableText,
+                        isResolving = sourceIsLoading(firstPaneSource),
                         sourceControlsInline = if (portraitSplit) null else {
                             {
                                 PaneSourceControlsInline(
@@ -946,6 +968,7 @@ fun AssemblyViewerScreen(
                         },
                         missingText = secondMissingText,
                         unreadableText = secondUnreadableText,
+                        isResolving = sourceIsLoading(secondPaneSource),
                         sourceControlsInline = if (portraitSplit) null else {
                             {
                                 PaneSourceControlsInline(
@@ -1199,6 +1222,7 @@ private fun PdfPaneWithFloatingControls(
     navigatorWarningMessage: String? = null,
     missingText: String = "$title PDF not found",
     unreadableText: String = "Unable to read $title",
+    isResolving: Boolean = false,
     sourceControlsInline: (@Composable RowScope.() -> Unit)? = null,
     isFullscreen: Boolean = false,
     onToggleFullscreen: () -> Unit,
@@ -1284,6 +1308,7 @@ private fun PdfPaneWithFloatingControls(
                 navigatorWarningMessage = navigatorWarningMessage,
                 missingText = missingText,
                 unreadableText = unreadableText,
+                isResolving = isResolving,
                 onTotalPagesChanged = onTotalPagesChanged,
                 showHeaderRow = false,
                 showNavigationButtons = false,
