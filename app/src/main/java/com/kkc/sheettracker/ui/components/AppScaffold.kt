@@ -71,7 +71,10 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.theme.boldGradientBrush
+import com.kkc.sheettracker.ui.theme.kkcFrostedBaseColor
 import com.kkc.sheettracker.ui.timecard.BgPickerSheet
 import com.kkc.sheettracker.ui.timecard.TimecardIcon
 import com.kkc.sheettracker.ui.components.SupplyIcon
@@ -232,6 +235,16 @@ private fun MorphingNavIconRow(
     ) {
         val indicatorShape = MaterialTheme.shapes.medium
         val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
+        val navBoldTokens = LocalKKCThemeTokens.current
+        val navBoldPalette = navBoldTokens.palette(LocalKKCIsDarkTheme.current)
+        fun Modifier.navSelectionBackground(active: Boolean): Modifier {
+            if (!active) return this
+            return if (navBoldTokens.boldMode) {
+                background(brush = boldGradientBrush(navBoldPalette), shape = indicatorShape, alpha = 0.55f)
+            } else {
+                background(color = indicatorColor, shape = indicatorShape)
+            }
+        }
 
         destinations.forEach { dest ->
             // Calculator slot before HOURS destination
@@ -244,10 +257,7 @@ private fun MorphingNavIconRow(
                     Column(
                         modifier = Modifier
                             .clip(indicatorShape)
-                            .background(
-                                color = if (isCalculatorOpen) indicatorColor else Color.Transparent,
-                                shape = indicatorShape
-                            )
+                            .navSelectionBackground(isCalculatorOpen)
                             .clickable { onCalculatorClick() }
                             .padding(horizontal = hPad, vertical = vPad),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -313,10 +323,7 @@ private fun MorphingNavIconRow(
                     Column(
                         modifier = Modifier
                             .clip(indicatorShape)
-                            .background(
-                                color = if (selected) indicatorColor else Color.Transparent,
-                                shape = indicatorShape
-                            )
+                            .navSelectionBackground(selected)
                             .clickable { onNavigate(dest) }
                             .padding(horizontal = hPad, vertical = vPad),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -445,7 +452,7 @@ private fun MorphingNavBar(
         // One constant removes the race entirely: only the height moves.
         val cornerRadius = 20.dp
         val minNavShape = remember { RoundedCornerShape(cornerRadius) }
-        val minHazeSurface = MaterialTheme.colorScheme.surface
+        val minHazeSurface = kkcFrostedBaseColor()
         val frostedTokens = LocalKKCThemeTokens.current.frosted
         Surface(
             modifier       = Modifier.fillMaxWidth(),

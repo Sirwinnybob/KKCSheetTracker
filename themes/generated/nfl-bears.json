@@ -1,0 +1,22 @@
+{
+  "id": "nfl-bears",
+  "name": "Chicago Bears",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#0B162A",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF",
+    "secondary": "#C83803"
+  },
+  "dark": {
+    "primary": "#0B162A",
+    "background": "#000000",
+    "surface": "#162438",
+    "secondary": "#C83803"
+  },
+  "header": {
+    "badgeText": "BEARS"
+  },
+  "boldMode": true
+}

@@ -8,14 +8,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,7 +32,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.theme.boldChipTextColor
+import com.kkc.sheettracker.ui.theme.boldGradientBrush
 
 object DashboardSurfaceDefaults {
     val heroShape: Shape
@@ -128,19 +136,45 @@ fun DashboardSurfaceCard(
     }
 }
 
+/**
+ * [accent] is ignored when the active theme's `boldMode` is on — the gradient chrome replaces
+ * any accent-driven tint entirely in that case.
+ */
 @Composable
 fun DashboardHeroSurface(
     modifier: Modifier = Modifier,
     accent: DashboardAccent = DashboardAccent.INFO,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    DashboardSurfaceCard(
-        modifier = modifier,
-        accent = accent,
-        shape = DashboardSurfaceDefaults.heroShape,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        content = content
-    )
+    val tokens = LocalKKCThemeTokens.current
+    if (tokens.boldMode) {
+        val lowEnd = LocalLowEndMode.current
+        val shape = DashboardSurfaceDefaults.heroShape
+        val palette = tokens.palette(LocalKKCIsDarkTheme.current)
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .shadow(elevation = if (lowEnd.shadowsDisabled) 0.dp else 3.dp, shape = shape, clip = false)
+                .clip(shape)
+                .background(boldGradientBrush(palette))
+        ) {
+            CompositionLocalProvider(LocalContentColor provides boldChipTextColor(palette)) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    content = content
+                )
+            }
+        }
+    } else {
+        DashboardSurfaceCard(
+            modifier = modifier,
+            accent = accent,
+            shape = DashboardSurfaceDefaults.heroShape,
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            content = content
+        )
+    }
 }
 
 @Composable
@@ -149,10 +183,22 @@ fun DashboardSectionHeader(
     modifier: Modifier = Modifier,
     subtitle: String? = null
 ) {
+    val tokens = LocalKKCThemeTokens.current
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        if (tokens.boldMode) {
+            val palette = tokens.palette(LocalKKCIsDarkTheme.current)
+            Box(
+                modifier = Modifier
+                    .width(36.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(boldGradientBrush(palette))
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+        }
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,

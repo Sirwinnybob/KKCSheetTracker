@@ -1,0 +1,22 @@
+{
+  "id": "nfl-eagles",
+  "name": "Philadelphia Eagles",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#004C54",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF",
+    "secondary": "#A5ACAF"
+  },
+  "dark": {
+    "primary": "#004C54",
+    "background": "#000000",
+    "surface": "#162438",
+    "secondary": "#A5ACAF"
+  },
+  "header": {
+    "badgeText": "EAGLES"
+  },
+  "boldMode": true
+}

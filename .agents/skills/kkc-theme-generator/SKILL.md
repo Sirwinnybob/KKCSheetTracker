@@ -62,7 +62,31 @@ it back.
    shape). Leave `surface`/`header`/`frosted`/`shape` at built-in defaults
    unless the request specifically asks for a custom shape or header image.
 
-4. **Validate.** Run:
+4. **Set `category` and, optionally, `header.badgeText`.** A theme's top-level `category` field
+   defaults to `"custom"` when absent — set it explicitly (e.g. `"nfl"` for a sports-team theme)
+   so the Settings picker can group it correctly. `header.badgeText` (e.g. `"CHIEFS"`) replaces
+   the app's default "KKC Dashboard" header title with that text, styled in the theme's `primary`
+   color, when the theme is active — set it to the team's short name/nickname for team themes.
+
+   **Minimal themes are valid.** Every field under `status`, `surface`, `frosted`, `shape`, and
+   `spacingScale` falls back to the built-in, already-validated default when omitted. A theme
+   whose only real customization is its brand color needs nothing more than:
+   ```json
+   {
+     "id": "nfl-chiefs",
+     "name": "Kansas City Chiefs",
+     "version": 1,
+     "category": "nfl",
+     "light": { "primary": "#E31837", "background": "#FFFFFF", "surface": "#FFFFFF" },
+     "dark": { "primary": "#E31837", "background": "#000000", "surface": "#162438" },
+     "header": { "badgeText": "CHIEFS" }
+   }
+   ```
+   This inherits every hue-locked status color from the built-in defaults untouched — there is
+   nothing left to validate beyond the background-contrast check, which passes automatically
+   since `background` matches the built-in theme's own already-valid white/black.
+
+5. **Validate.** Run:
 
    ```
    python .claude/skills/kkc-theme-generator/scripts/validate_theme.py <path-to-theme.json>
@@ -72,7 +96,7 @@ it back.
    *within the locked hue band* (never change the band itself), and
    re-run. Repeat until it prints `PASS`.
 
-5. **Save the output** to `themes/generated/<team-id>.json` (create the
+6. **Save the output** to `themes/generated/<team-id>.json` (create the
    `themes/generated/` directory if it doesn't exist yet). Do not sync it to
    a tablet automatically — that's a separate deployment step the user
    controls (see `debug-android-tablet` skill for pushing files to a

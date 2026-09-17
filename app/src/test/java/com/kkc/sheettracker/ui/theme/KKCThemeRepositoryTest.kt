@@ -311,6 +311,137 @@ class KKCThemeRepositoryTest {
     }
 
     @Test
+    fun themeCategoryDefaultsToCustomWhenAbsent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(baseDir, "shop-blue.json", validThemeJson(id = "kkc-shop-blue"))
+
+        val theme = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shop-blue" }
+
+        assertEquals("custom", theme.category)
+    }
+
+    @Test
+    fun themeCategoryParsesFromJsonWhenPresent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(id = "nfl-chiefs", name = "Kansas City Chiefs", extra = """, "category": "nfl"""")
+        )
+
+        val theme = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "nfl-chiefs" }
+
+        assertEquals("nfl", theme.category)
+    }
+
+    @Test
+    fun builtInThemeCategoryIsCustom() {
+        assertEquals("custom", KKCThemeRepository.builtInThemeDefinition().category)
+    }
+
+    @Test
+    fun headerBadgeFieldsAreNullByDefault() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(baseDir, "shop-blue.json", validThemeJson(id = "kkc-shop-blue"))
+
+        val header = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shop-blue" }.tokens.header
+
+        assertEquals(null, header.badgeText)
+        assertEquals(null, header.badgeLogoPath)
+    }
+
+    @Test
+    fun headerBadgeTextParsesFromJson() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(
+                id = "nfl-chiefs",
+                header = """
+                  ,"header": { "badgeText": "CHIEFS" }
+                """
+            )
+        )
+
+        val header = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "nfl-chiefs" }.tokens.header
+
+        assertEquals("CHIEFS", header.badgeText)
+        assertEquals(null, header.badgeLogoPath)
+    }
+
+    @Test
+    fun headerBadgeLogoPathResolvesRelativeToThemeDirectory() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        val logoFile = writeHeaderSvg(baseDir, "graphics/chiefs-logo.svg")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(
+                id = "nfl-chiefs",
+                header = """
+                  ,"header": { "badgeLogoPath": "graphics/chiefs-logo.svg" }
+                """
+            )
+        )
+
+        val header = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "nfl-chiefs" }.tokens.header
+
+        assertEquals(logoFile.absolutePath, header.badgeLogoPath)
+    }
+
+    @Test
+    fun headerBadgeLogoPathRejectsDisallowedExtension() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        val themeDir = File(baseDir, ".metadata/themes").apply { mkdirs() }
+        File(themeDir, "logo.txt").writeText("not an image")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(
+                id = "nfl-chiefs",
+                header = """
+                  ,"header": { "badgeLogoPath": "logo.txt" }
+                """
+            )
+        )
+
+        val catalog = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+        val header = catalog.themes.first { it.id == "nfl-chiefs" }.tokens.header
+
+        assertEquals(null, header.badgeLogoPath)
+        assertTrue(catalog.loadMessages.any { it.contains("must be .svg, .png, or .jpg") })
+    }
+
+    @Test
+    fun headerBadgeLogoPathSiblingPrefixDirectoryIsRejected() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        val evilDir = File(baseDir, ".metadata/themes-evil").apply { mkdirs() }
+        File(evilDir, "logo.png").writeBytes(byteArrayOf(1, 2, 3))
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(
+                id = "nfl-chiefs",
+                header = """
+                  ,"header": { "badgeLogoPath": "../themes-evil/logo.png" }
+                """
+            )
+        )
+
+        val catalog = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+        val header = catalog.themes.first { it.id == "nfl-chiefs" }.tokens.header
+
+        assertEquals(null, header.badgeLogoPath)
+        assertTrue(catalog.loadMessages.any { it.contains("outside the theme folder") })
+    }
+
+    @Test
     fun themeHeaderSvgSiblingPrefixDirectoryIsRejected() {
         val baseDir = temp.newFolder("Ready Jobs")
         // Sibling directory sharing the theme dir's name prefix (".metadata/themes-evil").
@@ -338,6 +469,66 @@ class KKCThemeRepositoryTest {
 
         assertEquals(null, theme.tokens.header.backgroundPath)
         assertTrue(catalog.loadMessages.any { it.contains("outside the theme folder") })
+    }
+
+    @Test
+    fun paletteSecondaryIsNullByDefault() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(baseDir, "shop-blue.json", validThemeJson(id = "kkc-shop-blue"))
+
+        val light = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shop-blue" }.tokens.light
+
+        assertEquals(null, light.secondary)
+    }
+
+    @Test
+    fun paletteSecondaryParsesFromJsonWhenPresent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(id = "nfl-chiefs").replace(
+                """"light": { "primary": "#1E5FAF", "background": "#EFF4FA", "surface": "#FFFFFF" }""",
+                """"light": { "primary": "#E31837", "secondary": "#FFB612", "background": "#EFF4FA", "surface": "#FFFFFF" }"""
+            )
+        )
+
+        val light = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "nfl-chiefs" }.tokens.light
+
+        assertEquals(Color(0xFFFFB612), light.secondary)
+    }
+
+    @Test
+    fun boldModeDefaultsToFalseWhenAbsent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(baseDir, "shop-blue.json", validThemeJson(id = "kkc-shop-blue"))
+
+        val tokens = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "kkc-shop-blue" }.tokens
+
+        assertEquals(false, tokens.boldMode)
+    }
+
+    @Test
+    fun boldModeParsesFromJsonWhenPresent() {
+        val baseDir = temp.newFolder("Ready Jobs")
+        writeTheme(
+            baseDir = baseDir,
+            filename = "nfl-chiefs.json",
+            body = validThemeJson(id = "nfl-chiefs", extra = """, "boldMode": true""")
+        )
+
+        val tokens = KKCThemeRepository(baseDir, FakeThemePreferences()).loadCatalog()
+            .themes.first { it.id == "nfl-chiefs" }.tokens
+
+        assertEquals(true, tokens.boldMode)
+    }
+
+    @Test
+    fun builtInThemeBoldModeIsFalse() {
+        assertEquals(false, BuiltInKKCThemeTokens.boldMode)
     }
 
     private fun writeTheme(baseDir: File, filename: String, body: String) {

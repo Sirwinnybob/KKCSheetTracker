@@ -85,6 +85,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import com.kkc.sheettracker.ui.components.JobBoardItem
+import com.kkc.sheettracker.ui.components.KKCBrandedTitle
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
@@ -365,10 +366,7 @@ fun UnifiedJobsScreen(
         topBar = {
             KKCTopAppBar(
                 title = {
-                    Text(
-                        "KKC Dashboard - ${sanitizeModeTitle(spec.modeName)}",
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    KKCBrandedTitle(modeSuffix = sanitizeModeTitle(spec.modeName))
                 },
                 actions = {
                     if (restoreActionVisible(adminEnabled = adminMode)) {

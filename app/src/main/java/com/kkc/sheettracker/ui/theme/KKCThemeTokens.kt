@@ -16,7 +16,8 @@ data class KKCThemeTokens(
     val header: KKCThemeHeaderTokens,
     val frosted: KKCThemeFrostedTokens,
     val shape: KKCThemeShapeTokens,
-    val spacingScale: Float
+    val spacingScale: Float,
+    val boldMode: Boolean = false
 ) {
     fun palette(darkTheme: Boolean): KKCThemePalette = if (darkTheme) dark else light
     fun status(darkTheme: Boolean): KKCStatusColors = if (darkTheme) darkStatus else lightStatus
@@ -26,7 +27,8 @@ data class KKCThemeTokens(
 data class KKCThemePalette(
     val primary: Color,
     val background: Color,
-    val surface: Color
+    val surface: Color,
+    val secondary: Color? = null
 )
 
 @Immutable
@@ -39,7 +41,9 @@ data class KKCThemeSurfaceTokens(
 data class KKCThemeHeaderTokens(
     val backgroundPath: String?,
     val alpha: Float,
-    val contentScale: KKCThemeHeaderContentScale
+    val contentScale: KKCThemeHeaderContentScale,
+    val badgeText: String? = null,
+    val badgeLogoPath: String? = null
 )
 
 enum class KKCThemeHeaderContentScale {

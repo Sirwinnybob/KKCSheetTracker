@@ -1,0 +1,22 @@
+{
+  "id": "nfl-colts",
+  "name": "Indianapolis Colts",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#002C5F",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF",
+    "secondary": "#A2AAAD"
+  },
+  "dark": {
+    "primary": "#002C5F",
+    "background": "#000000",
+    "surface": "#162438",
+    "secondary": "#A2AAAD"
+  },
+  "header": {
+    "badgeText": "COLTS"
+  },
+  "boldMode": true
+}

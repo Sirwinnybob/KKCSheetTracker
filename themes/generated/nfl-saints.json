@@ -1,0 +1,22 @@
+{
+  "id": "nfl-saints",
+  "name": "New Orleans Saints",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#D3BC8D",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF",
+    "secondary": "#101820"
+  },
+  "dark": {
+    "primary": "#D3BC8D",
+    "background": "#000000",
+    "surface": "#162438",
+    "secondary": "#101820"
+  },
+  "header": {
+    "badgeText": "SAINTS"
+  },
+  "boldMode": true
+}

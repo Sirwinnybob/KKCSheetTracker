@@ -60,6 +60,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.zIndex
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.theme.kkcFrostedBaseColor
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -418,14 +419,14 @@ private fun FullscreenCalculator(
         Modifier.hazeEffect(
             state = hazeState,
             style = HazeDefaults.style(
-                backgroundColor = MaterialTheme.colorScheme.surface.copy(
+                backgroundColor = kkcFrostedBaseColor().copy(
                     alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)
                 ),
                 blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
             )
         )
     } else {
-        Modifier.background(MaterialTheme.colorScheme.surface)
+        Modifier.background(kkcFrostedBaseColor())
     }
     Surface(
         modifier = Modifier
@@ -509,14 +510,14 @@ private fun ResizableModalCalculator(
             Modifier.hazeEffect(
                 state = hazeState,
                 style = HazeDefaults.style(
-                    backgroundColor = MaterialTheme.colorScheme.surface.copy(
+                    backgroundColor = kkcFrostedBaseColor().copy(
                         alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)
                     ),
                     blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
                 )
             )
         } else {
-            Modifier.background(MaterialTheme.colorScheme.surface)
+            Modifier.background(kkcFrostedBaseColor())
         }
 
         Box(

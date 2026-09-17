@@ -1,0 +1,22 @@
+{
+  "id": "nfl-packers",
+  "name": "Green Bay Packers",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#203731",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF",
+    "secondary": "#FFB612"
+  },
+  "dark": {
+    "primary": "#203731",
+    "background": "#000000",
+    "surface": "#162438",
+    "secondary": "#FFB612"
+  },
+  "header": {
+    "badgeText": "PACKERS"
+  },
+  "boldMode": true
+}

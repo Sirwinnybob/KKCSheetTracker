@@ -1,0 +1,22 @@
+{
+  "id": "nfl-cardinals",
+  "name": "Arizona Cardinals",
+  "version": 1,
+  "category": "nfl",
+  "light": {
+    "primary": "#97233F",
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF",
+    "secondary": "#000000"
+  },
+  "dark": {
+    "primary": "#97233F",
+    "background": "#000000",
+    "surface": "#162438",
+    "secondary": "#000000"
+  },
+  "header": {
+    "badgeText": "CARDINALS"
+  },
+  "boldMode": true
+}

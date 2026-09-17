@@ -47,6 +47,7 @@ import com.kkc.sheettracker.ui.components.BatteryIndicator
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.FixedDensityWrapper
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.theme.kkcFrostedBaseColor
 
 private val ClockInGreen = Color(0xFF2E7D32)
 private val ClockOutRed = Color(0xFFC62828)
@@ -325,12 +326,12 @@ private fun DisplayCard(
                     m.hazeEffect(
                         state = hazeState,
                         style = HazeDefaults.style(
-                            backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)),
+                            backgroundColor = kkcFrostedBaseColor().copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)),
                             blurRadius = (frostedTokens.blurDp * 1.7f).coerceAtLeast(1f).dp
                         )
                     )
                 } else {
-                    m.background(MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)), RoundedCornerShape(10.dp))
+                    m.background(kkcFrostedBaseColor().copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)), RoundedCornerShape(10.dp))
                 }
             },
         shape = RoundedCornerShape(10.dp),
@@ -503,12 +504,12 @@ private fun NumpadKey(
                     m.hazeEffect(
                         state = hazeState,
                         style = HazeDefaults.style(
-                            backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
+                            backgroundColor = kkcFrostedBaseColor().copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
                             blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
                         )
                     )
                 } else {
-                    m.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f), RoundedCornerShape(7.dp))
+                    m.background(kkcFrostedBaseColor().copy(alpha = 0.72f), RoundedCornerShape(7.dp))
                 }
             }
             .clickable(
