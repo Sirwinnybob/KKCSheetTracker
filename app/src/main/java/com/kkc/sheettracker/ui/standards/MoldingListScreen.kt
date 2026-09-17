@@ -123,6 +123,24 @@ fun MoldingListScreen(
     val currentSearchQuery = searchQuery
     val ownerId = "standards_molding_list"
 
+    // Keep the decoration's identity stable across recompositions where the visible query
+    // text hasn't changed -- constructing a fresh NavBarSearchDecoration (data class, fresh
+    // lambdas) every recomposition made every reader see a "changed" value each time,
+    // self-sustaining a recompose loop. Same bug and fix as UnifiedJobsScreen/JobsSearchNavBar.kt.
+    val moldingSearchDecoration = remember(currentSearchQuery) {
+        NavBarSearchDecoration(
+            searchTextValue = currentSearchQuery,
+            onSearchTextChange = { searchQuery = it },
+            onGo = { focusManager.clearFocus() },
+            isPartsEnabled = false,
+            onParts = {},
+            contextLine = if (currentSearchQuery.text.isNotBlank())
+                "Filtering moldings by \"${currentSearchQuery.text}\"" else "",
+            placeholder = "Search moldings...",
+            showParts = false,
+            onScan = null
+        )
+    }
     SideEffect {
         if (expandedItem != null) {
             if (navBarDeco.owner == ownerId) {
@@ -131,18 +149,7 @@ fun MoldingListScreen(
             }
         } else {
             navBarDeco.owner = ownerId
-            navBarDeco.searchDecoration = NavBarSearchDecoration(
-                searchTextValue = currentSearchQuery,
-                onSearchTextChange = { searchQuery = it },
-                onGo = { focusManager.clearFocus() },
-                isPartsEnabled = false,
-                onParts = {},
-                contextLine = if (currentSearchQuery.text.isNotBlank())
-                    "Filtering moldings by \"${currentSearchQuery.text}\"" else "",
-                placeholder = "Search moldings...",
-                showParts = false,
-                onScan = null
-            )
+            navBarDeco.searchDecoration = moldingSearchDecoration
         }
     }
 

@@ -216,10 +216,21 @@ internal fun SpecialtyJobDetailScreen(
     DisposableEffect(navBarDeco) {
         onDispose { navBarDeco.specialtyDecoration = null }
     }
-    SideEffect {
-        navBarDeco.specialtyDecoration = NavBarSpecialtyDecoration(
+    // Must NOT be a fresh NavBarSpecialtyDecoration instance every recomposition: it's a data
+    // class, so a fresh instance (with a fresh onAddItem lambda) always compares unequal to
+    // what's already published, making every reader of navBarDeco.specialtyDecoration see a
+    // "changed" value and recompose -- which re-runs this SideEffect and publishes another
+    // fresh instance, forever, at full frame rate. (Same bug as UnifiedJobsScreen/JobsSearchNavBar.kt
+    // and AssemblyViewerScreen's assemblySearchDecoration.) onAddItem only closes over the
+    // editingItem/showAddSheet vars remembered against jobFolderName, so keying on jobFolderName
+    // keeps this decoration's identity stable across recompositions where nothing relevant changed.
+    val specialtyDecoration = remember(jobFolderName) {
+        NavBarSpecialtyDecoration(
             onAddItem = { editingItem = null; showAddSheet = true }
         )
+    }
+    SideEffect {
+        navBarDeco.specialtyDecoration = specialtyDecoration
     }
 
     SharedTransitionLayout {

@@ -1103,153 +1103,169 @@ fun SheetViewerScreen(
             navBarDeco.extendedControls = null
         }
     }
-    SideEffect {
-        navBarDeco.cncDecoration = if (showUi) {
-            NavBarCncDecoration(
-                currentPage = displayPageNumber,
-                totalPages = visibleTotalPages,
-                sheetStatus = sheetStatus,
-                onPrevPage = {
-                    if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex > 0) {
-                        currentPage = effectiveVisiblePages[currentVisibleIndex - 1]
-                        selectedPartNumber = null
-                        selectedCabinetNumber = null
+    // Build the decoration inside remember(), keyed on the fields that actually vary
+    // (currentPage/totalPages/sheetStatus). Without this, a fresh NavBarCncDecoration
+    // instance was constructed every recomposition — since it's a data class holding
+    // fresh lambdas each time, structural equals() always saw it as "changed", which
+    // made every reader recompose, which re-ran this SideEffect, which published another
+    // fresh instance: a self-feeding infinite recomposition loop at display refresh rate.
+    // (Same bug, independently discovered, as UnifiedJobsScreen/JobsSearchNavBar.kt and
+    // AssemblyViewerScreen.kt.) The callback lambdas below read live vars (currentPage,
+    // fileFingerprint, etc.) at invocation time rather than snapshotting them, so they
+    // stay correct even though remember only re-fires when the three keyed fields change.
+    val cncDecoration = remember(displayPageNumber, visibleTotalPages, sheetStatus) {
+        NavBarCncDecoration(
+            currentPage = displayPageNumber,
+            totalPages = visibleTotalPages,
+            sheetStatus = sheetStatus,
+            onPrevPage = {
+                if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex > 0) {
+                    currentPage = effectiveVisiblePages[currentVisibleIndex - 1]
+                    selectedPartNumber = null
+                    selectedCabinetNumber = null
+                }
+            },
+            onNextPage = {
+                if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
+                    currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
+                    selectedPartNumber = null
+                    selectedCabinetNumber = null
+                }
+            },
+            onOpenToc = { showSheetToc = true },
+            onToggleSkip = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                val page = currentPage
+                val fp = fileFingerprint
+                val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, page, fp)
+                        if (skipped) progressStore.unmarkSheetSkipped(jobFolderName, pdfFilename, page, fp)
+                        else progressStore.markSheetSkipped(jobFolderName, pdfFilename, page, fp)
                     }
-                },
-                onNextPage = {
-                    if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
-                        currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
-                        selectedPartNumber = null
-                        selectedCabinetNumber = null
-                    }
-                },
-                onOpenToc = { showSheetToc = true },
-                onToggleSkip = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val page = currentPage
-                    val fp = fileFingerprint
-                    val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, page, fp)
-                            if (skipped) progressStore.unmarkSheetSkipped(jobFolderName, pdfFilename, page, fp)
-                            else progressStore.markSheetSkipped(jobFolderName, pdfFilename, page, fp)
-                        }
-                        if (BuildConfig.DEBUG) {
-                            val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                            check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during skip toggle" }
-                        }
-                    }
-                },
-                onToggleComplete = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val page = currentPage
-                    val fp = fileFingerprint
-                    // Derive the display number and remake parts from the live `page`, not
-                    // the composition snapshots (displayPageNumber / currentPageRemakeParts).
-                    // The decoration reaches the nav bar via SideEffect, so if `currentPage`
-                    // changed between the last push and this tap, those snapshots would lag —
-                    // marking one sheet complete while resolving remake parts / reporting the
-                    // page number of another. Recomputing from `page` keeps all three in sync.
-                    val displayNo = if (effectiveVisiblePages.isNotEmpty())
-                        effectiveVisiblePages.indexOf(page).let { if (it >= 0) it + 1 else page }
-                    else page
-                    val remakeParts = resolvePageMetadata(currentMaterial, page)?.remake?.remadeParts
-                        ?.mapNotNull { remade -> remade.partNumber.takeIf { it > 0 } }
-                        ?.toSet()
-                        .orEmpty()
-                    val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                    scope.launch {
-                        val wasComplete = withContext(Dispatchers.IO) {
-                            progressStore.isSheetComplete(jobFolderName, pdfFilename, page, fp)
-                        }
-                        if (wasComplete) {
-                            withContext(Dispatchers.IO) {
-                                progressStore.unmarkSheetComplete(jobFolderName, pdfFilename, page, fp)
-                            }
-                            snackbarHostState.showSnackbar("Sheet $displayNo marked incomplete")
-                        } else {
-                            val (wasSkipped, resolvedRemakeCount) = withContext(Dispatchers.IO) {
-                                val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, page, fp)
-                                progressStore.markSheetComplete(jobFolderName, pdfFilename, page, fp)
-                                val resolved = progressStore.resolveSpecificBadParts(
-                                    jobFolderName = jobFolderName,
-                                    pdfFilename = pdfFilename,
-                                    page = page,
-                                    fileFingerprint = fp,
-                                    partNumbers = remakeParts
-                                )
-                                skipped to resolved
-                            }
-                            val baseMessage =
-                                if (wasSkipped) "Sheet $displayNo marked complete (skip removed)"
-                                else "Sheet $displayNo marked complete"
-                            snackbarHostState.showSnackbar(
-                                if (resolvedRemakeCount > 0) {
-                                    "$baseMessage • auto-resolved $resolvedRemakeCount remake bad part(s)"
-                                } else {
-                                    baseMessage
-                                }
-                            )
-                            if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
-                                currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
-                                selectedPartNumber = null
-                                selectedCabinetNumber = null
-                            }
-                        }
-                        if (BuildConfig.DEBUG) {
-                            val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
-                            check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during complete toggle" }
-                        }
-                    }
-                },
-                onOpenSearch = { showCncSearch = true },
-                onToggleRenested = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val page = currentPage
-                    val fp = fileFingerprint
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            val renested = progressStore.isSheetRenested(jobFolderName, pdfFilename, page, fp)
-                            if (renested) progressStore.unmarkSheetRenested(jobFolderName, pdfFilename, page, fp)
-                            else progressStore.markSheetRenested(jobFolderName, pdfFilename, page, fp)
-                        }
+                    if (BuildConfig.DEBUG) {
+                        val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                        check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during skip toggle" }
                     }
                 }
-            )
-        } else {
-            null
-        }
-        navBarDeco.extendedControls = if (showUi && penMarkupOverlayActive) {
-            {
-                PdfMarkupToolbar(
-                    state = markupToolState,
-                    hasUndo = hasMarkupHistory,
-                    onUndo = {
-                        val store = pdfMarkupStore
-                        val page = currentPage
-                        val deletedSnapshot = localMarkupDeletedIds.toSet()
-                        scope.launch {
-                            val latestVisible = withContext(Dispatchers.IO) {
-                                store
-                                    ?.loadTabletPageMarkup(jobFolderName, pdfFilename, page)
-                                    ?.strokes
-                                    ?.lastOrNull { it.id !in deletedSnapshot }
-                            }
-                            if (latestVisible != null) {
-                                localMarkupDeletedIds.add(latestVisible.id)
-                                persistCurrentPageMarkup()
-                            }
+            },
+            onToggleComplete = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                val page = currentPage
+                val fp = fileFingerprint
+                // Derive the display number and remake parts from the live `page`, not
+                // the composition snapshots (displayPageNumber / currentPageRemakeParts).
+                // The decoration reaches the nav bar via SideEffect, so if `currentPage`
+                // changed between the last push and this tap, those snapshots would lag —
+                // marking one sheet complete while resolving remake parts / reporting the
+                // page number of another. Recomputing from `page` keeps all three in sync.
+                val displayNo = if (effectiveVisiblePages.isNotEmpty())
+                    effectiveVisiblePages.indexOf(page).let { if (it >= 0) it + 1 else page }
+                else page
+                val remakeParts = resolvePageMetadata(currentMaterial, page)?.remake?.remadeParts
+                    ?.mapNotNull { remade -> remade.partNumber.takeIf { it > 0 } }
+                    ?.toSet()
+                    .orEmpty()
+                val identityBefore = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                scope.launch {
+                    val wasComplete = withContext(Dispatchers.IO) {
+                        progressStore.isSheetComplete(jobFolderName, pdfFilename, page, fp)
+                    }
+                    if (wasComplete) {
+                        withContext(Dispatchers.IO) {
+                            progressStore.unmarkSheetComplete(jobFolderName, pdfFilename, page, fp)
                         }
-                    },
-                    strokesVisible = markupStrokesVisible,
-                    onToggleVisibility = { markupStrokesVisible = !markupStrokesVisible },
-                    onHide = { markupEnabled = false }
-                )
+                        snackbarHostState.showSnackbar("Sheet $displayNo marked incomplete")
+                    } else {
+                        val (wasSkipped, resolvedRemakeCount) = withContext(Dispatchers.IO) {
+                            val skipped = progressStore.isSheetSkipped(jobFolderName, pdfFilename, page, fp)
+                            progressStore.markSheetComplete(jobFolderName, pdfFilename, page, fp)
+                            val resolved = progressStore.resolveSpecificBadParts(
+                                jobFolderName = jobFolderName,
+                                pdfFilename = pdfFilename,
+                                page = page,
+                                fileFingerprint = fp,
+                                partNumbers = remakeParts
+                            )
+                            skipped to resolved
+                        }
+                        val baseMessage =
+                            if (wasSkipped) "Sheet $displayNo marked complete (skip removed)"
+                            else "Sheet $displayNo marked complete"
+                        snackbarHostState.showSnackbar(
+                            if (resolvedRemakeCount > 0) {
+                                "$baseMessage • auto-resolved $resolvedRemakeCount remake bad part(s)"
+                            } else {
+                                baseMessage
+                            }
+                        )
+                        if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex < effectiveVisiblePages.lastIndex) {
+                            currentPage = effectiveVisiblePages[currentVisibleIndex + 1]
+                            selectedPartNumber = null
+                            selectedCabinetNumber = null
+                        }
+                    }
+                    if (BuildConfig.DEBUG) {
+                        val identityAfter = currentMaterial?.let { "${it.pdfFilename}|${it.fileFingerprint}" }
+                        check(identityBefore == identityAfter) { "CACHE_IDENTITY_CHANGED during complete toggle" }
+                    }
+                }
+            },
+            onOpenSearch = { showCncSearch = true },
+            onToggleRenested = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                val page = currentPage
+                val fp = fileFingerprint
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        val renested = progressStore.isSheetRenested(jobFolderName, pdfFilename, page, fp)
+                        if (renested) progressStore.unmarkSheetRenested(jobFolderName, pdfFilename, page, fp)
+                        else progressStore.markSheetRenested(jobFolderName, pdfFilename, page, fp)
+                    }
+                }
             }
-        } else {
-            null
+        )
+    }
+    // Same bug as cncDecoration above, just without the data-class wrapper: a raw lambda has
+    // no structural equals() either -- two lambda literals compare by reference, so a fresh
+    // `{ PdfMarkupToolbar(...) }` built inside the SideEffect every recomposition would still
+    // look "changed" to every reader of navBarDeco.extendedControls every single time, feeding
+    // the identical infinite recompose loop. Remembering it against what actually determines
+    // its *shape* (not the live state it reads on each invocation, like hasMarkupHistory/
+    // markupStrokesVisible -- Compose already re-tracks those correctly each time this
+    // remembered lambda is invoked) keeps its identity stable.
+    val markupToolbarContent: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = remember(penMarkupOverlayActive, markupToolState) {
+        {
+            PdfMarkupToolbar(
+                state = markupToolState,
+                hasUndo = hasMarkupHistory,
+                onUndo = {
+                    val store = pdfMarkupStore
+                    val page = currentPage
+                    val deletedSnapshot = localMarkupDeletedIds.toSet()
+                    scope.launch {
+                        val latestVisible = withContext(Dispatchers.IO) {
+                            store
+                                ?.loadTabletPageMarkup(jobFolderName, pdfFilename, page)
+                                ?.strokes
+                                ?.lastOrNull { it.id !in deletedSnapshot }
+                        }
+                        if (latestVisible != null) {
+                            localMarkupDeletedIds.add(latestVisible.id)
+                            persistCurrentPageMarkup()
+                        }
+                    }
+                },
+                strokesVisible = markupStrokesVisible,
+                onToggleVisibility = { markupStrokesVisible = !markupStrokesVisible },
+                onHide = { markupEnabled = false }
+            )
         }
+    }
+    SideEffect {
+        navBarDeco.cncDecoration = if (showUi) cncDecoration else null
+        navBarDeco.extendedControls = if (showUi && penMarkupOverlayActive) markupToolbarContent else null
     }
 
     Scaffold(

@@ -95,19 +95,25 @@ fun ArchiveLibraryScreen(
     val focusManager = LocalFocusManager.current
     val currentQuery = query
     val screenBottomPadding = archiveScreenBottomPadding()
-    val archiveSearchDecoration = NavBarSearchDecoration(
-        searchTextValue = currentQuery,
-        onSearchTextChange = { query = it },
-        onGo = { focusManager.clearFocus() },
-        isPartsEnabled = false,
-        onParts = {},
-        contextLine = currentQuery.text.takeIf { it.isNotBlank() }
-            ?.let { "Filtering archived jobs by \"$it\"" }
-            .orEmpty(),
-        placeholder = "Search archive…",
-        showParts = false,
-        onScan = null,
-    )
+    // Keep the decoration's identity stable across recompositions where the visible query
+    // text hasn't changed -- constructing a fresh NavBarSearchDecoration (data class, fresh
+    // lambdas) every recomposition made every reader see a "changed" value each time,
+    // self-sustaining a recompose loop. Same bug and fix as UnifiedJobsScreen/JobsSearchNavBar.kt.
+    val archiveSearchDecoration = remember(currentQuery) {
+        NavBarSearchDecoration(
+            searchTextValue = currentQuery,
+            onSearchTextChange = { query = it },
+            onGo = { focusManager.clearFocus() },
+            isPartsEnabled = false,
+            onParts = {},
+            contextLine = currentQuery.text.takeIf { it.isNotBlank() }
+                ?.let { "Filtering archived jobs by \"$it\"" }
+                .orEmpty(),
+            placeholder = "Search archive…",
+            showParts = false,
+            onScan = null,
+        )
+    }
 
     SideEffect {
         updateArchiveNavBarDecoration(navBarDeco, active, archiveSearchDecoration)

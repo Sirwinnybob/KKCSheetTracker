@@ -656,44 +656,67 @@ fun UnifiedReferenceViewer(
         }
     }
     val navBarDeco = LocalNavBarDecoration.current
+    // The toolbar content lambda (and the NavBarPenDecoration that can wrap it) must NOT be
+    // rebuilt from scratch every recomposition: NavBarPenDecoration is a data class, so a fresh
+    // instance (with a fresh lambda field) always compares unequal to what's already published,
+    // making every reader of navBarDeco.penDecoration/extendedControls see a "changed" value and
+    // recompose -- which re-runs this SideEffect and publishes another fresh instance, forever,
+    // at full frame rate. (Same bug as UnifiedJobsScreen/JobsSearchNavBar.kt and
+    // AssemblyViewerScreen's assemblySearchDecoration.) Remembering it against every field that
+    // actually varies -- including the plain (non-State) locals closed over by onUndo, which
+    // would otherwise go stale once the remembered closure stops being rebuilt -- keeps its
+    // identity stable across recompositions where none of them changed.
+    val toolbar: (@Composable RowScope.() -> Unit)? = remember(
+        markupEnabled,
+        markupToolState,
+        hasMarkupHistory,
+        markupStrokesVisible,
+        pdfMarkupStore,
+        pdfMarkupJobFolderName,
+        resolvedPdfFilename,
+        sourcePage,
+        onToggleMarkupEnabled
+    ) {
+        if (markupEnabled && markupToolState != null) {
+            {
+                PdfMarkupToolbar(
+                    state = markupToolState,
+                    hasUndo = hasMarkupHistory,
+                    onUndo = {
+                        val store = pdfMarkupStore
+                        val jobFolder = pdfMarkupJobFolderName
+                        val pdfName = resolvedPdfFilename
+                        val page = sourcePage
+                        val deletedSnapshot = localDeletedIds.toSet()
+                        scope.launch {
+                            val latestVisible = withContext(Dispatchers.IO) {
+                                store
+                                    ?.loadTabletPageMarkup(jobFolder, pdfName, page)
+                                    ?.strokes
+                                    ?.lastOrNull { it.id !in deletedSnapshot }
+                            }
+                            if (latestVisible != null) {
+                                localDeletedIds.add(latestVisible.id)
+                                persistMarkupState()
+                            }
+                        }
+                    },
+                    strokesVisible = markupStrokesVisible,
+                    onToggleVisibility = { markupStrokesVisible = !markupStrokesVisible },
+                    onHide = onToggleMarkupEnabled
+                )
+            }
+        } else {
+            null
+        }
+    }
+    // Pen slides in as a tab against the search decoration — no full-bar swap. Remembered on
+    // `toolbar` alone so this wrapper is also identity-stable whenever the content is unchanged.
+    val penDecoration = remember(toolbar) { toolbar?.let { NavBarPenDecoration(content = it) } }
     SideEffect {
         if (ownsNavBarMarkupControls) {
-            val toolbar: (@Composable RowScope.() -> Unit)? =
-                if (markupEnabled && markupToolState != null) {
-                    {
-                        PdfMarkupToolbar(
-                            state = markupToolState,
-                            hasUndo = hasMarkupHistory,
-                            onUndo = {
-                                val store = pdfMarkupStore
-                                val jobFolder = pdfMarkupJobFolderName
-                                val pdfName = resolvedPdfFilename
-                                val page = sourcePage
-                                val deletedSnapshot = localDeletedIds.toSet()
-                                scope.launch {
-                                    val latestVisible = withContext(Dispatchers.IO) {
-                                        store
-                                            ?.loadTabletPageMarkup(jobFolder, pdfName, page)
-                                            ?.strokes
-                                            ?.lastOrNull { it.id !in deletedSnapshot }
-                                    }
-                                    if (latestVisible != null) {
-                                        localDeletedIds.add(latestVisible.id)
-                                        persistMarkupState()
-                                    }
-                                }
-                            },
-                            strokesVisible = markupStrokesVisible,
-                            onToggleVisibility = { markupStrokesVisible = !markupStrokesVisible },
-                            onHide = onToggleMarkupEnabled
-                        )
-                    }
-                } else {
-                    null
-                }
             if (markupControlsAsSlidingTab) {
-                // Pen slides in as a tab against the search decoration — no full-bar swap.
-                navBarDeco.penDecoration = toolbar?.let { NavBarPenDecoration(content = it) }
+                navBarDeco.penDecoration = penDecoration
             } else {
                 navBarDeco.extendedControls = toolbar
             }

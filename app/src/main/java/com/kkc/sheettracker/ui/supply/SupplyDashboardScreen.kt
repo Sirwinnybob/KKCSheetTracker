@@ -164,23 +164,34 @@ fun SupplyDashboardScreen(
     var unknownBarcodeResult by remember { mutableStateOf<String?>(null) }
 
     // ── Scaffold nav bar search decoration ─────────────────────────────────────
+    // Publishing a fresh NavBarSearchDecoration every recomposition (data class,
+    // fresh lambda instances) makes every reader of navBarDeco.searchDecoration see
+    // a "changed" value each time, invalidating them and feeding another publication
+    // -- the same self-sustaining recompose loop found and fixed in UnifiedJobsScreen
+    // (see JobsSearchNavBar.kt). Keep the decoration's identity stable across
+    // recompositions where the visible query text hasn't changed by remembering it
+    // on `searchQuery` and routing the callbacks through rememberUpdatedState so
+    // they still call the latest closures without forcing a new decoration.
     val navBarDeco = LocalNavBarDecoration.current
     val currentSearchQuery = searchQuery
+    val supplySearchDecoration = remember(currentSearchQuery) {
+        NavBarSearchDecoration(
+            searchTextValue    = currentSearchQuery,
+            onSearchTextChange = { searchQuery = it },
+            onGo               = {},          // free-text filter: no explicit submit needed
+            isPartsEnabled     = false,
+            onParts            = {},
+            contextLine        = if (currentSearchQuery.text.isNotBlank())
+                                   "Filtering buckets by \"${currentSearchQuery.text}\"" else "",
+            placeholder        = "Search Inventory...",
+            showParts          = false,
+            onScan             = { barcodeStore.setScanMode(ScanMode.Global) }
+        )
+    }
     SideEffect {
         if (active) {
             navBarDeco.owner = "supply"
-            navBarDeco.searchDecoration = NavBarSearchDecoration(
-                searchTextValue    = currentSearchQuery,
-                onSearchTextChange = { searchQuery = it },
-                onGo               = {},          // free-text filter: no explicit submit needed
-                isPartsEnabled     = false,
-                onParts            = {},
-                contextLine        = if (currentSearchQuery.text.isNotBlank())
-                                       "Filtering buckets by \"${currentSearchQuery.text}\"" else "",
-                placeholder        = "Search Inventory...",
-                showParts          = false,
-                onScan             = { barcodeStore.setScanMode(ScanMode.Global) }
-            )
+            navBarDeco.searchDecoration = supplySearchDecoration
         }
     }
     // After transition settles, reset keepSearchDeco to allow icons to shrink to 18dp

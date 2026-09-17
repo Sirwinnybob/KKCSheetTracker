@@ -55,6 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
@@ -737,6 +738,11 @@ private fun MultiBackStackNavigation(
         tween(286), label = "navBarAlpha"
     )
     val hazeState = remember { HazeState() }
+    // Only the selected tab is actually composed (see TabLayer below); this holder preserves each
+    // inactive tab's rememberSaveable UI state (scroll position, expanded rows, etc.) across the
+    // decompose/recompose that happens when switching away from and back to a tab. Each tab's own
+    // NavHostController (dashboardNavController etc.) is hoisted above and unaffected either way.
+    val tabStateHolder = rememberSaveableStateHolder()
     val navBarDeco = remember { NavBarDecorationState() }
 
     // Safety net for leaving a viewer route (e.g. the hardwoods workspace's Classic cut
@@ -911,7 +917,7 @@ private fun MultiBackStackNavigation(
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
                 ) {
-                TabLayer(visible = selectedTab == TopLevelTab.DASHBOARD) {
+                TabLayer(tabKey = "dashboard", visible = selectedTab == TopLevelTab.DASHBOARD, stateHolder = tabStateHolder) {
                     DashboardTabHost(
                         navController = dashboardNavController,
                         scanCoordinator = scanCoordinator,
@@ -945,7 +951,7 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
-                TabLayer(visible = selectedTab == TopLevelTab.JOBS) {
+                TabLayer(tabKey = "jobs", visible = selectedTab == TopLevelTab.JOBS, stateHolder = tabStateHolder) {
                     JobsTabHost(
                         navController = jobsNavController,
                         scanCoordinator = scanCoordinator,
@@ -988,7 +994,7 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
-                TabLayer(visible = selectedTab == TopLevelTab.SEARCH) {
+                TabLayer(tabKey = "search", visible = selectedTab == TopLevelTab.SEARCH, stateHolder = tabStateHolder) {
                     SearchTabHost(
                         navController = searchNavController,
                         scanCoordinator = scanCoordinator,
@@ -1029,7 +1035,7 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
-                TabLayer(visible = selectedTab == TopLevelTab.HOURS) {
+                TabLayer(tabKey = "hours", visible = selectedTab == TopLevelTab.HOURS, stateHolder = tabStateHolder) {
                     HoursTabHost(
                         navController = hoursNavController,
                         employeeName = employeeName,
@@ -1045,11 +1051,11 @@ private fun MultiBackStackNavigation(
                         timecardStore.reset()
                     }
                 }
-                TabLayer(visible = selectedTab == TopLevelTab.TIMECARD) {
+                TabLayer(tabKey = "timecard", visible = selectedTab == TopLevelTab.TIMECARD, stateHolder = tabStateHolder) {
                     TimecardScreen(store = timecardStore)
                 }
 
-                TabLayer(visible = selectedTab == TopLevelTab.SETTINGS) {
+                TabLayer(tabKey = "settings", visible = selectedTab == TopLevelTab.SETTINGS, stateHolder = tabStateHolder) {
                     SettingsTabHost(
                         navController = settingsNavController,
                         tabletId = tabletId,
@@ -1092,7 +1098,7 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
-                TabLayer(visible = selectedTab == TopLevelTab.STANDARDS) {
+                TabLayer(tabKey = "standards", visible = selectedTab == TopLevelTab.STANDARDS, stateHolder = tabStateHolder) {
                     StandardsTabHost(
                         navController = standardsNavController,
                         basePath = basePath,
@@ -1112,7 +1118,7 @@ private fun MultiBackStackNavigation(
                     )
                 }
 
-                TabLayer(visible = selectedTab == TopLevelTab.SUPPLY) {
+                TabLayer(tabKey = "supply", visible = selectedTab == TopLevelTab.SUPPLY, stateHolder = tabStateHolder) {
                     SupplyTabHost(
                         navController = supplyNavController,
                         basePath = basePath,
@@ -1230,7 +1236,9 @@ private fun MultiBackStackNavigation(
 
 @Composable
 private fun TabLayer(
+    tabKey: String,
     visible: Boolean,
+    stateHolder: androidx.compose.runtime.saveable.SaveableStateHolder,
     content: @Composable () -> Unit
 ) {
     Box(
@@ -1239,7 +1247,15 @@ private fun TabLayer(
             .zIndex(if (visible) 1f else 0f)
             .alpha(if (visible) 1f else 0f)
     ) {
-        content()
+        // Only the active tab is actually composed — an invisible tab used to stay fully live
+        // (composed/laid out/drawn every frame via alpha=0), which multiplied recomposition and
+        // frame-rate-voting overhead by the number of tabs even while idle. stateHolder preserves
+        // each tab's rememberSaveable state across this decompose/recompose.
+        if (visible) {
+            stateHolder.SaveableStateProvider(tabKey) {
+                content()
+            }
+        }
     }
 }
 

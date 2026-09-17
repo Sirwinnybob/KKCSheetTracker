@@ -88,7 +88,6 @@ import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
-import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.animateEntrance
@@ -200,38 +199,15 @@ fun UnifiedJobsScreen(
     val navBarDeco = LocalNavBarDecoration.current
     val listBottomPadding = if (navBarDeco.searchDecoration != null) 172.dp else 112.dp
     val focusManager = LocalFocusManager.current
-    val currentQuery = query
     val ownerId = "jobs_unified_${spec.modeName.lowercase()}"
-    SideEffect {
-        if (active) {
-            navBarDeco.owner = ownerId
-            navBarDeco.searchDecoration = NavBarSearchDecoration(
-                searchTextValue    = currentQuery,
-                onSearchTextChange = { query = it },
-                onGo               = { focusManager.clearFocus() },
-                isPartsEnabled     = false,
-                onParts            = {},
-                contextLine        = if (currentQuery.text.isNotBlank())
-                                       "Filtering jobs by \"${currentQuery.text}\"" else "",
-                placeholder        = "Search jobs...",
-                showParts          = false,
-                onScan             = null
-            )
-        } else if (navBarDeco.owner == ownerId) {
-            navBarDeco.searchDecoration = null
-            navBarDeco.keepSearchDeco = false
-            navBarDeco.owner = ""
-        }
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            if (navBarDeco.owner == ownerId) {
-                navBarDeco.searchDecoration = null
-                navBarDeco.keepSearchDeco = false
-                navBarDeco.owner = ""
-            }
-        }
-    }
+    JobsSearchNavBar(
+        navBarDeco = navBarDeco,
+        ownerId = ownerId,
+        active = active,
+        query = query,
+        onQueryChange = { query = it },
+        onGo = { focusManager.clearFocus() },
+    )
 
     val scanStatus by spec.scanStatus.collectAsState()
     val scanGeneration by spec.scanGeneration.collectAsState()

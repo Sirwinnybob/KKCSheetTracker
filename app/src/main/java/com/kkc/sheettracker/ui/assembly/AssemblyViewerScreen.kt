@@ -1061,28 +1061,36 @@ fun AssemblyViewerScreen(
             )
 
             // Search bar lives inside the floating nav bar pill (see NavBarDecoration.kt).
-            // State stays here; we push it up on every frame via SideEffect.
+            // State stays here; we push it up via SideEffect.
+            //
+            // The decoration itself must NOT be a fresh NavBarSearchDecoration instance every
+            // recomposition: it's a data class, so a fresh instance (with fresh lambdas) always
+            // compares unequal to what's already published, making every reader of
+            // navBarDeco.searchDecoration see a "changed" value and recompose -- which re-runs
+            // this SideEffect and publishes another fresh instance, forever, at full frame rate.
+            // (Same bug, independently discovered, as UnifiedJobsScreen/JobsSearchNavBar.kt.)
+            // Remembering it against every field that actually varies keeps its identity stable
+            // across recompositions where none of them changed.
             val navBarDeco = LocalNavBarDecoration.current
             val currentSearchText = searchText  // read during composition → subscribes to state, triggers recompose on change
+            val assemblySearchDecoration = remember(currentSearchText, lastSearchedCabinet, contextLine) {
+                NavBarSearchDecoration(
+                    searchTextValue = currentSearchText,
+                    onSearchTextChange = { searchText = it },
+                    // Read the live search state at click time, NOT the composition
+                    // snapshot `currentSearchText`. The decoration (and its onGo) is
+                    // pushed to the nav bar via SideEffect, so it trails `searchText`
+                    // by a commit; capturing the snapshot made "Go" fire with the
+                    // previous cabinet after fast type-then-Go (confirmed on-device:
+                    // field showed the new number but navigation used the old one).
+                    onGo = { jumpToCabinet(searchText.text) },
+                    isPartsEnabled = lastSearchedCabinet.isNotBlank(),
+                    onParts = { showPartsSheet = true },
+                    contextLine = contextLine
+                )
+            }
             SideEffect {
-                navBarDeco.searchDecoration = if (showUi) {
-                    NavBarSearchDecoration(
-                        searchTextValue = currentSearchText,
-                        onSearchTextChange = { searchText = it },
-                        // Read the live search state at click time, NOT the composition
-                        // snapshot `currentSearchText`. The decoration (and its onGo) is
-                        // pushed to the nav bar via SideEffect, so it trails `searchText`
-                        // by a commit; capturing the snapshot made "Go" fire with the
-                        // previous cabinet after fast type-then-Go (confirmed on-device:
-                        // field showed the new number but navigation used the old one).
-                        onGo = { jumpToCabinet(searchText.text) },
-                        isPartsEnabled = lastSearchedCabinet.isNotBlank(),
-                        onParts = { showPartsSheet = true },
-                        contextLine = contextLine
-                    )
-                } else {
-                    null
-                }
+                navBarDeco.searchDecoration = if (showUi) assemblySearchDecoration else null
             }
             DisposableEffect(Unit) {
                 onDispose { navBarDeco.searchDecoration = null }
