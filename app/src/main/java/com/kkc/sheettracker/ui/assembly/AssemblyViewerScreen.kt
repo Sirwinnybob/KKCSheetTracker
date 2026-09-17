@@ -110,6 +110,7 @@ import com.kkc.sheettracker.data.models.AssemblyBomEntry
 import com.kkc.sheettracker.data.models.AssemblyCabinetParts
 import com.kkc.sheettracker.data.models.AssemblyCncPart
 import com.kkc.sheettracker.data.models.AssemblyHardwoodRow
+import com.kkc.sheettracker.data.models.AssemblyJob
 import androidx.compose.material3.Card
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.JobPdfCatalog
@@ -219,8 +220,17 @@ fun AssemblyViewerScreen(
             assemblyStateStore.getCabinetSheetIndex(jobFolderName)
         }
     }
-    val assemblyJobInfo = remember(jobFolderName) {
-        assemblyStateStore.getJobs().firstOrNull { it.folderName == jobFolderName }
+    // Only used for the Clock-In button's job number/name label -- not needed to resolve or
+    // render the Plans/Assembly PDF panes, so it loads off the main thread like the panes'
+    // own data below and never blocks the split view from painting.
+    val assemblyJobInfo by produceState<AssemblyJob?>(
+        initialValue = null,
+        key1 = jobFolderName,
+        key2 = refreshGeneration
+    ) {
+        value = withContext(Dispatchers.IO) {
+            assemblyStateStore.getJob(jobFolderName)
+        }
     }
     val clockInJobNumber = assemblyJobInfo?.jobNumber ?: jobFolderName
     val clockInJobName = assemblyJobInfo?.jobName ?: ""

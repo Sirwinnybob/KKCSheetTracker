@@ -34,6 +34,11 @@ class AssemblyStateStore(
         }
     }
 
+    /** Looks up a single job directly instead of parsing every cached job just to filter one out. */
+    fun getJob(jobFolderName: String): AssemblyJob? {
+        return engine().getAssemblySnapshot(jobFolderName)?.job
+    }
+
     fun getCabinetSheetIndex(jobFolderName: String): CabinetSheetIndex? {
         return engine().getCabinetSheetIndex(jobFolderName).index
     }
