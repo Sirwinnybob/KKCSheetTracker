@@ -295,22 +295,6 @@ class TimecardStore(
      * has no dependency on a matching employee folder existing on disk, so
      * a rename can never break it.
      */
-    private fun getCustomDisplayName(pin: String): String? {
-        val employeesFile = File(File(baseDir, ".time_cards"), "employees.json")
-        if (!employeesFile.isFile) return null
-
-        return try {
-            val jsonArray = org.json.JSONArray(employeesFile.readText())
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                if (obj.optString("id") == pin) {
-                    val displayName = obj.optString("displayName", "").trim()
-                    return if (displayName.isNotBlank()) displayName else null
-                }
-            }
-            null
-        } catch (e: Exception) {
-            null
-        }
-    }
+    private fun getCustomDisplayName(pin: String): String? =
+        getCustomDisplayNameForTest(baseDir, pin)
 }
