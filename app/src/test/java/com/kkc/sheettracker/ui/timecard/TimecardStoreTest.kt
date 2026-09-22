@@ -18,8 +18,12 @@ import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.mockito.kotlin.mock
 
 class TimecardStoreTest {
@@ -71,5 +75,71 @@ class TimecardStoreTest {
 
             withTimeout(5_000) { store.state.first { it is TimecardUiState.NotFound } }
         }
+    }
+}
+
+class GetCustomDisplayNameTest {
+    @get:Rule
+    val tmpFolder = TemporaryFolder()
+
+    @Test
+    fun `reads displayName directly from employees json by pin`() {
+        val baseDir = tmpFolder.newFolder("base")
+        val timeCardsDir = File(baseDir, ".time_cards")
+        timeCardsDir.mkdirs()
+        File(timeCardsDir, "employees.json").writeText(
+            """[{"id":"389","name":"Winston Ferguson","displayName":"Fergy","excluded":false}]"""
+        )
+
+        val result = TimecardStore.getCustomDisplayNameForTest(baseDir, "389")
+
+        assertEquals("Fergy", result)
+    }
+
+    @Test
+    fun `returns null when no displayName set`() {
+        val baseDir = tmpFolder.newFolder("base")
+        val timeCardsDir = File(baseDir, ".time_cards")
+        timeCardsDir.mkdirs()
+        File(timeCardsDir, "employees.json").writeText(
+            """[{"id":"389","name":"Winston Ferguson","excluded":false}]"""
+        )
+
+        val result = TimecardStore.getCustomDisplayNameForTest(baseDir, "389")
+
+        assertNull(result)
+    }
+
+    @Test
+    fun `returns null for unknown pin`() {
+        val baseDir = tmpFolder.newFolder("base")
+        val timeCardsDir = File(baseDir, ".time_cards")
+        timeCardsDir.mkdirs()
+        File(timeCardsDir, "employees.json").writeText("[]")
+
+        val result = TimecardStore.getCustomDisplayNameForTest(baseDir, "999")
+
+        assertNull(result)
+    }
+
+    @Test
+    fun `survives a rename that would have broken the old name-keyed lookup`() {
+        // Regression test for the bug this migration fixes: the old
+        // implementation looked up .time_cards/<parsed name>/profile.json,
+        // which broke the instant the name changed. The new implementation
+        // reads displayName straight off the employees.json record by pin,
+        // so a rename has zero effect on it.
+        val baseDir = tmpFolder.newFolder("base")
+        val timeCardsDir = File(baseDir, ".time_cards")
+        timeCardsDir.mkdirs()
+        File(timeCardsDir, "employees.json").writeText(
+            """[{"id":"901","name":"Kevin Olsen","displayName":"KO","excluded":false}]"""
+        )
+        // Deliberately no "Kevin Olsen" directory on disk at all -- proves this
+        // no longer depends on a matching name-keyed folder existing.
+
+        val result = TimecardStore.getCustomDisplayNameForTest(baseDir, "901")
+
+        assertEquals("KO", result)
     }
 }

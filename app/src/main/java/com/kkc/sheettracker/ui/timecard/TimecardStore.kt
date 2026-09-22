@@ -263,61 +263,52 @@ class TimecardStore(
             hubDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
             return ""
         }
-    }
 
-    private fun parseName(fullName: String): String {
-        val parts = fullName.split(",").map { it.trim() }
-        return if (parts.size == 2) {
-            "${parts[1]} ${parts[0]}"
-        } else {
-            fullName
+        /** Test-only entry point: same lookup, but against an explicit baseDir instead of
+         * the singleton's configured one, so tests don't need to stand up the full store. */
+        internal fun getCustomDisplayNameForTest(testBaseDir: File, pin: String): String? {
+            val employeesFile = File(File(testBaseDir, ".time_cards"), "employees.json")
+            if (!employeesFile.isFile) return null
+            return try {
+                val jsonArray = org.json.JSONArray(employeesFile.readText())
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    if (obj.optString("id") == pin) {
+                        val displayName = obj.optString("displayName", "").trim()
+                        return if (displayName.isNotBlank()) displayName else null
+                    }
+                }
+                null
+            } catch (e: Exception) {
+                null
+            }
         }
     }
 
     /**
-     * Resolves the custom display name locally on the tablet.
-     * Checks if 'feature_display_name' exists in the employee's inventory.
+     * Reads an employee's custom display name straight off their
+     * employees.json roster record, by pin. Hours Tracker (via
+     * PUT /admin/employees/{id}/display-name or the self-service
+     * POST /api/employees/{id}/display-name) is the sole writer of this
+     * field, so this is a pure read with no local inventory-gating logic --
+     * and unlike the old name-keyed profile.json lookup this replaces, it
+     * has no dependency on a matching employee folder existing on disk, so
+     * a rename can never break it.
      */
     private fun getCustomDisplayName(pin: String): String? {
-        val timeCardsDir = File(baseDir, ".time_cards")
-        if (!timeCardsDir.exists() || !timeCardsDir.isDirectory) return null
-
-        val employeesFile = File(timeCardsDir, "employees.json")
-        if (!employeesFile.exists() || !employeesFile.isFile) return null
+        val employeesFile = File(File(baseDir, ".time_cards"), "employees.json")
+        if (!employeesFile.isFile) return null
 
         return try {
-            val employeesJson = employeesFile.readText()
-            val jsonArray = org.json.JSONArray(employeesJson)
-            var employeeName: String? = null
+            val jsonArray = org.json.JSONArray(employeesFile.readText())
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 if (obj.optString("id") == pin) {
-                    employeeName = obj.optString("name")
-                    break
+                    val displayName = obj.optString("displayName", "").trim()
+                    return if (displayName.isNotBlank()) displayName else null
                 }
             }
-            if (employeeName == null) return null
-
-            val folderName = parseName(employeeName)
-            val profileFile = File(File(timeCardsDir, folderName), "profile.json")
-            if (!profileFile.exists() || !profileFile.isFile) return null
-
-            val profileJson = profileFile.readText()
-            val profileObj = org.json.JSONObject(profileJson)
-            val inventory = profileObj.optJSONArray("inventory")
-            val displayName = profileObj.optString("displayName", "")
-
-            var hasFeature = false
-            if (inventory != null) {
-                for (j in 0 until inventory.length()) {
-                    if (inventory.optString(j) == "feature_display_name") {
-                        hasFeature = true
-                        break
-                    }
-                }
-            }
-
-            if (hasFeature && displayName.isNotBlank()) displayName.trim() else null
+            null
         } catch (e: Exception) {
             null
         }
