@@ -3,6 +3,8 @@ package com.kkc.sheettracker.ui.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -36,7 +38,11 @@ fun ModeSwitcherRow(
             FilterChip(
                 selected = mode == selected,
                 onClick = { onSelect(mode) },
-                label = { Text(mode.shortLabel()) }
+                label = { Text(mode.shortLabel()) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             )
         }
     }
