@@ -6,7 +6,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
-data class EmployeeRecord(val pin: String, val name: String)
+data class EmployeeRecord(
+    val pin: String,
+    val name: String,
+    val displayName: String = "",
+    val rtcId: Int? = null,
+    val addedBy: String = "rtc"
+)
 
 object EmployeeDirectory {
     // Offline fallback, used only when `.time_cards\employees.json` hasn't been read yet
@@ -24,7 +30,7 @@ object EmployeeDirectory {
         EmployeeRecord("501", "Cameron Baker"),
         EmployeeRecord("623", "Tye Lewin"),
         EmployeeRecord("701", "Nate Hoseteetter"),
-        EmployeeRecord("901", "Kevin Olson"),
+        EmployeeRecord("901", "Kevin Olsen"),
         EmployeeRecord("989", "Kevin Palmer")
     )
 
@@ -50,9 +56,13 @@ object EmployeeDirectory {
                 val obj = jsonArray.getJSONObject(i)
                 val pin = obj.optString("id").trim()
                 if (pin.isBlank() || obj.optBoolean("excluded", false)) continue
+                if (obj.optBoolean("timeclockInactive", false)) continue
                 val rawName = obj.optString("name").trim()
                 if (rawName.isBlank()) continue
-                result.add(EmployeeRecord(pin, formatName(rawName)))
+                val displayName = obj.optString("displayName", "").trim()
+                val rtcId = if (obj.has("rtcId") && !obj.isNull("rtcId")) obj.optInt("rtcId") else null
+                val addedBy = obj.optString("addedBy", "rtc")
+                result.add(EmployeeRecord(pin, formatName(rawName), displayName, rtcId, addedBy))
             }
             result
         } catch (e: Exception) {
@@ -67,7 +77,11 @@ object EmployeeDirectory {
 
     fun suggestions(query: String): List<EmployeeRecord> {
         if (query.isBlank()) return emptyList()
-        return records.filter { it.name.contains(query, ignoreCase = true) || it.pin.contains(query) }
+        return records.filter {
+            it.name.contains(query, ignoreCase = true) ||
+            it.pin.contains(query) ||
+            it.displayName.contains(query, ignoreCase = true)
+        }
     }
 
     fun resolveNameOrPin(input: String): String {
