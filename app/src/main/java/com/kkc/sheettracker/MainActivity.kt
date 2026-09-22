@@ -421,6 +421,19 @@ class MainActivity : ComponentActivity() {
                             prefs.edit().putBoolean("flexible_mode_enabled", enabled).apply()
                         },
                         onReinstallLatest = { updateManager.reinstallLatest() },
+                        hasPendingUpdates = updateManager.pendingUpdateApk != null || updateManager.pendingExternalUpdates.isNotEmpty(),
+                        pendingSelfUpdate = updateManager.pendingUpdateApk,
+                        pendingExternalUpdates = updateManager.pendingExternalUpdates,
+                        onInstallSelfUpdate = { updateManager.installPendingUpdate() },
+                        onInstallExternalUpdate = { update -> updateManager.installExternalUpdate(update) },
+                        onInstallAll = {
+                            // Hours Tracker must install first: installing Sheet Tracker over itself
+                            // kills this process, so anything queued after that point won't fire.
+                            updateManager.pendingExternalUpdates.firstOrNull()?.let {
+                                updateManager.installExternalUpdate(it)
+                            }
+                            updateManager.installPendingUpdate()
+                        },
                         onBasePathChanged = { newPath ->
                             prefs.edit().putString("base_path", newPath).apply()
                             recreate()
