@@ -35,6 +35,8 @@ fun VerticalSplitLayout(
     initialTopWeight: Float = DEFAULT_TOP_WEIGHT,
     aspectRatio: Float? = null,
     fullscreen: SplitFullscreen = SplitFullscreen.NONE,
+    clipTop: Boolean = true,
+    clipBottom: Boolean = true,
     topContent: @Composable (Modifier) -> Unit,
     bottomContent: @Composable (Modifier) -> Unit,
     topDividerControls: (@Composable RowScope.() -> Unit)? = null,
@@ -110,14 +112,14 @@ fun VerticalSplitLayout(
     ) {
         when (fullscreen) {
             SplitFullscreen.FIRST -> {
-                topContent(Modifier.fillMaxWidth().weight(1f).clipToBounds())
+                topContent(Modifier.fillMaxWidth().weight(1f).clipToBoundsIf(clipTop))
             }
             SplitFullscreen.SECOND -> {
-                bottomContent(Modifier.fillMaxWidth().weight(1f).clipToBounds())
+                bottomContent(Modifier.fillMaxWidth().weight(1f).clipToBoundsIf(clipBottom))
             }
             SplitFullscreen.NONE -> {
                 val topHeightDp = with(density) { topHeightPx.coerceAtLeast(minTopPx).toDp() }
-                topContent(Modifier.fillMaxWidth().height(topHeightDp).clipToBounds())
+                topContent(Modifier.fillMaxWidth().height(topHeightDp).clipToBoundsIf(clipTop))
 
                 if (topDividerControls != null && dividerControlsVisible) {
                     Surface(
@@ -203,8 +205,11 @@ fun VerticalSplitLayout(
                     }
                 }
 
-                bottomContent(Modifier.weight(1f).clipToBounds())
+                bottomContent(Modifier.weight(1f).clipToBoundsIf(clipBottom))
             }
         }
     }
 }
+
+private fun Modifier.clipToBoundsIf(clip: Boolean): Modifier =
+    if (clip) this.clipToBounds() else this

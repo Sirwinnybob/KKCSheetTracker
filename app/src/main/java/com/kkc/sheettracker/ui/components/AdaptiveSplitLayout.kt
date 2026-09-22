@@ -41,6 +41,8 @@ fun AdaptiveSplitLayout(
     modifier: Modifier = Modifier,
     initialFirstWeight: Float = DEFAULT_FIRST_WEIGHT,
     fullscreen: SplitFullscreen = SplitFullscreen.NONE,
+    clipFirst: Boolean = true,
+    clipSecond: Boolean = true,
     firstContent: @Composable (Modifier) -> Unit,
     secondContent: @Composable (Modifier) -> Unit,
     topDividerControls: (@Composable RowScope.() -> Unit)? = null,
@@ -54,6 +56,8 @@ fun AdaptiveSplitLayout(
             modifier = modifier,
             initialLeftWeight = initialFirstWeight,
             fullscreen = fullscreen,
+            clipLeft = clipFirst,
+            clipRight = clipSecond,
             leftContent = firstContent,
             rightContent = secondContent
         )
@@ -62,6 +66,8 @@ fun AdaptiveSplitLayout(
             modifier = modifier,
             initialTopWeight = initialFirstWeight,
             fullscreen = fullscreen,
+            clipTop = clipFirst,
+            clipBottom = clipSecond,
             topContent = firstContent,
             bottomContent = secondContent,
             topDividerControls = topDividerControls,
@@ -76,6 +82,8 @@ private fun HorizontalSplitLayout(
     modifier: Modifier = Modifier,
     initialLeftWeight: Float = DEFAULT_FIRST_WEIGHT,
     fullscreen: SplitFullscreen = SplitFullscreen.NONE,
+    clipLeft: Boolean = true,
+    clipRight: Boolean = true,
     leftContent: @Composable (Modifier) -> Unit,
     rightContent: @Composable (Modifier) -> Unit
 ) {
@@ -103,14 +111,14 @@ private fun HorizontalSplitLayout(
     ) {
         when (fullscreen) {
             SplitFullscreen.FIRST -> {
-                leftContent(Modifier.fillMaxHeight().weight(1f).clipToBounds())
+                leftContent(Modifier.fillMaxHeight().weight(1f).clipToBoundsIf(clipLeft))
             }
             SplitFullscreen.SECOND -> {
-                rightContent(Modifier.fillMaxHeight().weight(1f).clipToBounds())
+                rightContent(Modifier.fillMaxHeight().weight(1f).clipToBoundsIf(clipRight))
             }
             SplitFullscreen.NONE -> {
                 val leftDp = with(density) { leftWidthPx.coerceAtLeast(minLeftPx).toDp() }
-                leftContent(Modifier.fillMaxHeight().width(leftDp).clipToBounds())
+                leftContent(Modifier.fillMaxHeight().width(leftDp).clipToBoundsIf(clipLeft))
 
                 Box(
                     modifier = Modifier
@@ -150,9 +158,16 @@ private fun HorizontalSplitLayout(
                     )
                 }
 
-                rightContent(Modifier.weight(1f).clipToBounds())
+                rightContent(Modifier.weight(1f).clipToBoundsIf(clipRight))
             }
         }
     }
 }
+
+// clipToBounds() forces the subtree into an offscreen RenderNode layer. A hardware-accelerated
+// WebView (e.g. Model3DPane) drawn inside that layer null-derefs in Chromium's GLFunctorDrawable
+// (RenderThread SIGSEGV) because it expects to draw directly to the window's hw canvas. Panes
+// hosting such content must opt out of clipping via clipLeft/clipRight.
+private fun Modifier.clipToBoundsIf(clip: Boolean): Modifier =
+    if (clip) this.clipToBounds() else this
 

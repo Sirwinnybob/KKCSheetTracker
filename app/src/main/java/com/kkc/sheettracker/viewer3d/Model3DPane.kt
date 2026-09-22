@@ -56,7 +56,7 @@ fun Model3DPane(
         "http://127.0.0.1:$serverPort/viewer.html?job=$encodedJob&room=$encodedRoom&dark=$darkParam"
     } else ""
     val paneId = remember(encodedUrl) {
-        "pane_${encodedUrl.hashCode()}_${System.currentTimeMillis()}"
+        "pane_${encodedUrl.hashCode()}"
     }
     DisposableEffect(paneId) {
         onDispose {

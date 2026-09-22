@@ -816,6 +816,11 @@ fun AssemblyViewerScreen(
                     FullscreenPane.SECOND -> SplitFullscreen.SECOND
                     FullscreenPane.NONE -> SplitFullscreen.NONE
                 },
+                // Model3DPane's WebView must not be clipped: clipToBounds() forces it into an
+                // offscreen RenderNode layer, which null-derefs Chromium's hardware-accelerated
+                // GLFunctorDrawable (RenderThread SIGSEGV) on draw.
+                clipFirst = firstPaneSource != PaneSource.THREE_D,
+                clipSecond = secondPaneSource != PaneSource.THREE_D,
                 firstContent = { paneModifier ->
                     PdfPaneWithFloatingControls(
                         modifier = paneModifier,
@@ -1282,7 +1287,7 @@ private fun PdfPaneWithFloatingControls(
     // The canvasPad inset reveals that blue-grey as a consistent 8dp border on all sides.
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (customContent != null) {
-            Box(Modifier.fillMaxSize().padding(canvasPad).hazeSource(hazeState)) {
+            Box(Modifier.fillMaxSize().padding(canvasPad)) {
                 customContent()
             }
         } else {
