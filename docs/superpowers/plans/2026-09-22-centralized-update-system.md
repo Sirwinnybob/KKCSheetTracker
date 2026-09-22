@@ -1210,10 +1210,10 @@ class PendingUpdatesSettingsWiringTest {
         assertEquals("Expected exactly two SettingsScreen call sites", 2, settingsScreenCallSites)
 
         val onInstallAllForwards = Regex("onInstallAll = onInstallAll").findAll(source).count()
-        // AppNavigation forwards it to both MultiBackStackNavigation and LegacySingleStackNavigation (2),
-        // MultiBackStackNavigation's SettingsTabHost call forwards it again (1), and
-        // LegacySingleStackNavigation forwards it directly into its own SettingsScreen call (1).
-        assertEquals("onInstallAll must be forwarded at every hop in both chains", 4, onInstallAllForwards)
+        // Chain A has 3 hops: AppNavigation -> MultiBackStackNavigation -> SettingsTabHost -> SettingsScreen.
+        // Chain B has 2 hops: AppNavigation -> LegacySingleStackNavigation -> SettingsScreen.
+        // Total forwarding call sites across both chains: 3 + 2 = 5.
+        assertEquals("onInstallAll must be forwarded at every hop in both chains", 5, onInstallAllForwards)
 
         val pendingSelfUpdateDeclarations = Regex("pendingSelfUpdate: File\\? = null").findAll(source).count()
         // AppNavigation, MultiBackStackNavigation, SettingsTabHost, LegacySingleStackNavigation
