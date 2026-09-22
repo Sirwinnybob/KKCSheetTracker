@@ -2,6 +2,7 @@ package com.kkc.sheettracker
 
 import com.kkc.sheettracker.testutil.SourceFiles
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MainActivityUpdateWiringTest {
@@ -27,5 +28,13 @@ class MainActivityUpdateWiringTest {
         assertFalse("UpdateManager.kt must not expose canSkip", updateManagerSource.contains("canSkip"))
         assertFalse("UpdateManager.kt must not expose skipExternalUpdate", updateManagerSource.contains("skipExternalUpdate"))
         assertFalse("UpdateManager.kt must not persist skipped versions", updateManagerSource.contains("skipped_version_"))
+    }
+
+    @Test
+    fun periodicRescanLoopIsWired() {
+        val mainActivitySource = SourceFiles.mainSource("com/kkc/sheettracker/MainActivity.kt").readText()
+
+        assertTrue("MainActivity.kt must define UPDATE_RESCAN_INTERVAL_MS", mainActivitySource.contains("UPDATE_RESCAN_INTERVAL_MS"))
+        assertTrue("MainActivity.kt must repeat the update scan on STARTED", mainActivitySource.contains("repeatOnLifecycle(Lifecycle.State.STARTED)"))
     }
 }

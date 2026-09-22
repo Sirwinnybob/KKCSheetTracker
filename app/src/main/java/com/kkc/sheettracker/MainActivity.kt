@@ -75,7 +75,9 @@ import com.kkc.sheettracker.sync.SyncthingIntentConfig
 import com.kkc.sheettracker.sync.SyncthingRuntimeConfig
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingSupervisor
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.kkc.sheettracker.ui.migration.MigrationRequiredScreen
 import com.kkc.sheettracker.ui.onboarding.OnboardingGate
 import com.kkc.sheettracker.ui.components.PersistentNavigationBarHider
@@ -85,6 +87,7 @@ import com.kkc.sheettracker.ui.theme.SharedPreferencesKKCThemePreferenceStore
 import com.kkc.sheettracker.update.UpdateManager
 import com.kkc.sheettracker.update.ExternalAppUpdate
 import java.io.File
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -116,6 +119,7 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val EXTRA_VIEW_ONLY_MODE = "extra_view_only_mode"
         const val SYNCTHING_PROMPT_INTERVAL_MS = 12 * 60 * 60 * 1000L
+        const val UPDATE_RESCAN_INTERVAL_MS = 20 * 60 * 1000L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -200,6 +204,14 @@ class MainActivity : ComponentActivity() {
             this.tabletId = tabletId
         }
         updateManager.checkForUpdates(checkSelf = true)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    delay(UPDATE_RESCAN_INTERVAL_MS)
+                    updateManager.checkForUpdates(checkSelf = true)
+                }
+            }
+        }
         val migrationMarkerPath = File(basePath, ".appupdates/migration_complete.json")
         val migrationReady = migrationMarkerPath.isFile
         val persistedViewOnlyOptIn = prefs.getBoolean("allow_view_only_without_migration", false)
