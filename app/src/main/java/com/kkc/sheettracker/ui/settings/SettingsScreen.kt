@@ -95,12 +95,15 @@ fun SettingsScreen(
     var employeeDropdownExpanded by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { EmployeeDirectory.refresh(File(basePath)) }
     val employeeRecords by EmployeeDirectory.recordsFlow.collectAsState()
-    val allEmployees = remember(employeeRecords) { employeeRecords.map { it.pin to it.name } }
+    val allEmployees = remember(employeeRecords) {
+        employeeRecords.map { Triple(it.pin, it.name, it.displayName) }
+    }
     val filteredEmployees = remember(editEmployeeName) {
         if (editEmployeeName.isBlank()) emptyList()
-        else allEmployees.filter { (id, name) ->
+        else allEmployees.filter { (id, name, displayName) ->
             name.contains(editEmployeeName, ignoreCase = true) ||
-            id.contains(editEmployeeName, ignoreCase = true)
+            id.contains(editEmployeeName, ignoreCase = true) ||
+            displayName.contains(editEmployeeName, ignoreCase = true)
         }
     }
     var tabletIdDirty by remember { mutableStateOf(false) }
@@ -668,9 +671,9 @@ fun SettingsScreen(
                             expanded = employeeDropdownExpanded,
                             onDismissRequest = { employeeDropdownExpanded = false }
                         ) {
-                            filteredEmployees.forEach { (_, name) ->
+                            filteredEmployees.forEach { (pin, name, displayName) ->
                                 DropdownMenuItem(
-                                    text = { Text(name) },
+                                    text = { Text(if (displayName.isNotBlank()) "$displayName ($pin)" else name) },
                                     onClick = {
                                         editEmployeeName = name
                                         employeeNameDirty = name.trim() != employeeName.trim()
