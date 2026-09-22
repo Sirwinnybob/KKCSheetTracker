@@ -42,7 +42,21 @@ class EmployeeDirectoryTest {
 
         val record = EmployeeDirectory.records.first { it.pin == "389" }
         assertEquals("", record.displayName)
-        assertEquals("rtc", record.addedBy)
+        assertEquals("hours_tracker", record.addedBy)
+    }
+
+    @Test
+    fun `suggestions match on displayName`() = runBlocking {
+        val baseDir = tmpFolder.newFolder("base")
+        writeEmployeesJson(baseDir, """
+            [{"id":"389","name":"Winston Ferguson","displayName":"Fergy","excluded":false}]
+        """.trimIndent())
+
+        EmployeeDirectory.refresh(baseDir)
+
+        val results = EmployeeDirectory.suggestions("ergy")
+        assertEquals(1, results.size)
+        assertEquals("389", results[0].pin)
     }
 
     @Test

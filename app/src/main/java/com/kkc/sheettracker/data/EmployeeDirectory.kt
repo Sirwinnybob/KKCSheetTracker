@@ -11,7 +11,7 @@ data class EmployeeRecord(
     val name: String,
     val displayName: String = "",
     val rtcId: Int? = null,
-    val addedBy: String = "rtc"
+    val addedBy: String = "hours_tracker"
 )
 
 object EmployeeDirectory {
@@ -61,7 +61,7 @@ object EmployeeDirectory {
                 if (rawName.isBlank()) continue
                 val displayName = obj.optString("displayName", "").trim()
                 val rtcId = if (obj.has("rtcId") && !obj.isNull("rtcId")) obj.optInt("rtcId") else null
-                val addedBy = obj.optString("addedBy", "rtc")
+                val addedBy = obj.optString("addedBy", "hours_tracker")
                 result.add(EmployeeRecord(pin, formatName(rawName), displayName, rtcId, addedBy))
             }
             result
