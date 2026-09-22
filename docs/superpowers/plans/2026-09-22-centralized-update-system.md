@@ -43,7 +43,7 @@ These are plain JVM unit tests (JUnit, no Robolectric/instrumentation) reading s
 - Delete: `app/src/main/java/com/kkc/sheettracker/update/DeviceOwnerUpdateFallback.kt`
 - Delete: `app/src/main/java/com/kkc/sheettracker/ui/timecard/ClockForUpdateOverlay.kt`
 
-- [ ] **Step 1: Write the test helper for locating main-source files from a unit test**
+- [x] **Step 1: Write the test helper for locating main-source files from a unit test**
 
 Create `app/src/test/java/com/kkc/sheettracker/testutil/SourceFiles.kt`:
 
@@ -68,7 +68,7 @@ object SourceFiles {
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWiringTest.kt`:
 
@@ -97,12 +97,12 @@ class MainActivityUpdateWiringTest {
 }
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.MainActivityUpdateWiringTest"`
 Expected: FAIL — `silentSelfUpdatePathIsRemoved` fails because `DeviceOwnerUpdateFallback`/`ClockForUpdateOverlay`/`isSilentUpdateSupported`/`installPendingUpdateSilently` are all still present.
 
-- [ ] **Step 4: Remove the silent-update state and method from UpdateManager.kt**
+- [x] **Step 4: Remove the silent-update state and method from UpdateManager.kt**
 
 In `app/src/main/java/com/kkc/sheettracker/update/UpdateManager.kt`, delete this property (currently lines 68):
 
@@ -142,7 +142,7 @@ Delete this whole method (currently lines 86–112):
     }
 ```
 
-- [ ] **Step 5: Remove the self-update dialog, its clock-out overlay, and the device-owner check from MainActivity.kt**
+- [x] **Step 5: Remove the self-update dialog, its clock-out overlay, and the device-owner check from MainActivity.kt**
 
 In `app/src/main/java/com/kkc/sheettracker/MainActivity.kt`, replace this block (currently lines 190–207):
 
@@ -258,24 +258,24 @@ import com.kkc.sheettracker.ui.timecard.ClockForUpdateOverlay
 import com.kkc.sheettracker.update.DeviceOwnerUpdateFallback
 ```
 
-- [ ] **Step 6: Delete the two now-unused files**
+- [x] **Step 6: Delete the two now-unused files**
 
 ```bash
 rm "app/src/main/java/com/kkc/sheettracker/update/DeviceOwnerUpdateFallback.kt"
 rm "app/src/main/java/com/kkc/sheettracker/ui/timecard/ClockForUpdateOverlay.kt"
 ```
 
-- [ ] **Step 7: Run test to verify it passes**
+- [x] **Step 7: Run test to verify it passes**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.MainActivityUpdateWiringTest"`
 Expected: PASS
 
-- [ ] **Step 8: Compile the app to catch anything the text-only test missed**
+- [x] **Step 8: Compile the app to catch anything the text-only test missed**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/update/UpdateManager.kt app/src/main/java/com/kkc/sheettracker/MainActivity.kt app/src/test/java/com/kkc/sheettracker/testutil/SourceFiles.kt app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWiringTest.kt
@@ -292,7 +292,7 @@ git commit -m "feat: remove silent self-update popup path from Sheet Tracker"
 - Modify: `app/src/main/java/com/kkc/sheettracker/MainActivity.kt`
 - Modify: `app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWiringTest.kt`
 
-- [ ] **Step 1: Add the failing test**
+- [x] **Step 1: Add the failing test**
 
 Add this method to `app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWiringTest.kt` (inside the existing class, alongside `silentSelfUpdatePathIsRemoved`):
 
@@ -309,12 +309,12 @@ Add this method to `app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWir
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.MainActivityUpdateWiringTest"`
 Expected: FAIL on `externalUpdateSkipLogicIsRemoved`.
 
-- [ ] **Step 3: Remove skip logic and the `canSkip` field from UpdateManager.kt**
+- [x] **Step 3: Remove skip logic and the `canSkip` field from UpdateManager.kt**
 
 Replace the `ExternalAppUpdate` data class (currently lines 27–34):
 
@@ -419,7 +419,7 @@ with:
         return externalList
 ```
 
-- [ ] **Step 4: Remove the external-update dialog from MainActivity.kt**
+- [x] **Step 4: Remove the external-update dialog from MainActivity.kt**
 
 Delete this block (currently lines 503–530):
 
@@ -455,17 +455,17 @@ Delete this block (currently lines 503–530):
 
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.MainActivityUpdateWiringTest"`
 Expected: PASS (both test methods)
 
-- [ ] **Step 6: Compile**
+- [x] **Step 6: Compile**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/update/UpdateManager.kt app/src/main/java/com/kkc/sheettracker/MainActivity.kt app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWiringTest.kt
@@ -480,7 +480,7 @@ git commit -m "feat: remove external-update popup and skip-version tracking from
 - Modify: `app/src/main/java/com/kkc/sheettracker/MainActivity.kt`
 - Modify: `app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWiringTest.kt`
 
-- [ ] **Step 1: Add the failing test**
+- [x] **Step 1: Add the failing test**
 
 Add this method to `MainActivityUpdateWiringTest`:
 
@@ -500,12 +500,12 @@ Add the matching import at the top of the test file:
 import org.junit.Assert.assertTrue
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.MainActivityUpdateWiringTest"`
 Expected: FAIL on `periodicRescanLoopIsWired`.
 
-- [ ] **Step 3: Add the interval constant**
+- [x] **Step 3: Add the interval constant**
 
 In `app/src/main/java/com/kkc/sheettracker/MainActivity.kt`, replace (currently lines 118–121):
 
@@ -526,7 +526,7 @@ with:
     }
 ```
 
-- [ ] **Step 4: Add the periodic re-scan loop right after the initial scan**
+- [x] **Step 4: Add the periodic re-scan loop right after the initial scan**
 
 Replace (the line, now relocated by Task 1's edit, immediately following the `UpdateManager(...).apply { ... }` block):
 
@@ -548,7 +548,7 @@ with:
         }
 ```
 
-- [ ] **Step 5: Add the two new imports**
+- [x] **Step 5: Add the two new imports**
 
 Add near the existing `androidx.lifecycle.lifecycleScope` import:
 
@@ -558,17 +558,17 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 ```
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.MainActivityUpdateWiringTest"`
 Expected: PASS (all three test methods)
 
-- [ ] **Step 7: Compile**
+- [x] **Step 7: Compile**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/MainActivity.kt app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWiringTest.kt
@@ -585,7 +585,7 @@ git commit -m "feat: periodically re-scan for updates while Sheet Tracker is for
 
 This task only touches `AppScaffold.kt`. Every new parameter gets a `= false` default so nothing else in the codebase needs to change yet — `NavGraph.kt` is wired to pass a real value in Task 6.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `app/src/test/java/com/kkc/sheettracker/ui/components/AppScaffoldUpdateBadgeWiringTest.kt`:
 
@@ -608,12 +608,12 @@ class AppScaffoldUpdateBadgeWiringTest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.ui.components.AppScaffoldUpdateBadgeWiringTest"`
 Expected: FAIL
 
-- [ ] **Step 3: Thread `hasPendingUpdates` through `AppBottomNavBar` → `MorphingNavBar` → `MorphingNavIconRow`**
+- [x] **Step 3: Thread `hasPendingUpdates` through `AppBottomNavBar` → `MorphingNavBar` → `MorphingNavIconRow`**
 
 In `app/src/main/java/com/kkc/sheettracker/ui/components/AppScaffold.kt`, in the `AppBottomNavBar` signature, replace:
 
@@ -700,7 +700,7 @@ with:
     onNavigate: (NavDestination) -> Unit,
 ```
 
-- [ ] **Step 4: Render the dot badge on the Settings icon**
+- [x] **Step 4: Render the dot badge on the Settings icon**
 
 Still in `AppScaffold.kt`, inside `MorphingNavIconRow`, replace:
 
@@ -741,17 +741,17 @@ with:
                         }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.ui.components.AppScaffoldUpdateBadgeWiringTest"`
 Expected: PASS
 
-- [ ] **Step 6: Compile**
+- [x] **Step 6: Compile**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL (all params defaulted, no other call site needs changes yet)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/components/AppScaffold.kt app/src/test/java/com/kkc/sheettracker/ui/components/AppScaffoldUpdateBadgeWiringTest.kt
@@ -768,7 +768,7 @@ git commit -m "feat: add pending-updates dot badge to the Settings nav icon"
 
 This task only touches `SettingsScreen.kt`. New params default to "nothing pending" so no caller needs to change yet — `NavGraph.kt` is wired in Task 7.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `app/src/test/java/com/kkc/sheettracker/ui/settings/SettingsScreenPendingUpdatesWiringTest.kt`:
 
@@ -796,12 +796,12 @@ class SettingsScreenPendingUpdatesWiringTest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.ui.settings.SettingsScreenPendingUpdatesWiringTest"`
 Expected: FAIL
 
-- [ ] **Step 3: Add the new parameters**
+- [x] **Step 3: Add the new parameters**
 
 In `app/src/main/java/com/kkc/sheettracker/ui/settings/SettingsScreen.kt`, replace:
 
@@ -830,7 +830,7 @@ Add the import (alongside the other `com.kkc.sheettracker.data.*` imports near t
 import com.kkc.sheettracker.update.ExternalAppUpdate
 ```
 
-- [ ] **Step 4: Render the Pending Updates section at the top of the list**
+- [x] **Step 4: Render the Pending Updates section at the top of the list**
 
 Replace:
 
@@ -893,17 +893,17 @@ with:
             // ── Work Mode ────────────────────────────────────────────────
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.ui.settings.SettingsScreenPendingUpdatesWiringTest"`
 Expected: PASS
 
-- [ ] **Step 6: Compile**
+- [x] **Step 6: Compile**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/ui/settings/SettingsScreen.kt app/src/test/java/com/kkc/sheettracker/ui/settings/SettingsScreenPendingUpdatesWiringTest.kt
@@ -920,7 +920,7 @@ git commit -m "feat: add Pending Updates section to Settings screen"
 
 Sheet Tracker has two parallel navigation implementations selected by a feature flag: `MultiBackStackNavigation` and `LegacySingleStackNavigation` (production default per `CLAUDE.md`). Both already forward an existing `onReinstallLatest: () -> Unit` callback the same way from `AppNavigation` down to their own `AppBottomNavBar` call — this task clones that exact pattern for `hasPendingUpdates`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `app/src/test/java/com/kkc/sheettracker/navigation/UpdateBadgeWiringTest.kt`:
 
@@ -949,12 +949,12 @@ class UpdateBadgeWiringTest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.navigation.UpdateBadgeWiringTest"`
 Expected: FAIL (0 declarations found, 0 forwards found)
 
-- [ ] **Step 3: Add the parameter to `AppNavigation` and forward it to both branches**
+- [x] **Step 3: Add the parameter to `AppNavigation` and forward it to both branches**
 
 In `app/src/main/java/com/kkc/sheettracker/navigation/NavGraph.kt`, in the `AppNavigation` signature, replace:
 
@@ -1049,7 +1049,7 @@ with:
 }
 ```
 
-- [ ] **Step 4: Add the parameter to `MultiBackStackNavigation` and forward it into its `AppBottomNavBar` call**
+- [x] **Step 4: Add the parameter to `MultiBackStackNavigation` and forward it into its `AppBottomNavBar` call**
 
 In the `MultiBackStackNavigation` signature, replace:
 
@@ -1105,7 +1105,7 @@ with:
                     } else {
 ```
 
-- [ ] **Step 5: Add the parameter to `LegacySingleStackNavigation` and forward it into its `AppBottomNavBar` call**
+- [x] **Step 5: Add the parameter to `LegacySingleStackNavigation` and forward it into its `AppBottomNavBar` call**
 
 In the `LegacySingleStackNavigation` signature, replace:
 
@@ -1163,17 +1163,17 @@ with:
                     }
 ```
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.navigation.UpdateBadgeWiringTest"`
 Expected: PASS
 
-- [ ] **Step 7: Compile**
+- [x] **Step 7: Compile**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/navigation/NavGraph.kt app/src/test/java/com/kkc/sheettracker/navigation/UpdateBadgeWiringTest.kt
@@ -1191,7 +1191,7 @@ git commit -m "feat: thread hasPendingUpdates through both navigation stacks"
 Chain A: `AppNavigation → MultiBackStackNavigation → SettingsTabHost → SettingsScreen`.
 Chain B: `AppNavigation → LegacySingleStackNavigation → SettingsScreen` (no intermediate host).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `app/src/test/java/com/kkc/sheettracker/navigation/PendingUpdatesSettingsWiringTest.kt`:
 
@@ -1224,12 +1224,12 @@ class PendingUpdatesSettingsWiringTest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.navigation.PendingUpdatesSettingsWiringTest"`
 Expected: FAIL
 
-- [ ] **Step 3: Add an import and the new parameters + forwarding to `AppNavigation`**
+- [x] **Step 3: Add an import and the new parameters + forwarding to `AppNavigation`**
 
 Add near the top of `NavGraph.kt`, alongside the other `com.kkc.sheettracker.*` imports:
 
@@ -1315,7 +1315,7 @@ with:
 }
 ```
 
-- [ ] **Step 4: Thread through `MultiBackStackNavigation` into its `SettingsTabHost` call**
+- [x] **Step 4: Thread through `MultiBackStackNavigation` into its `SettingsTabHost` call**
 
 In the `MultiBackStackNavigation` signature, replace:
 
@@ -1363,7 +1363,7 @@ with:
                 }
 ```
 
-- [ ] **Step 5: Thread through `SettingsTabHost` into its `SettingsScreen` call**
+- [x] **Step 5: Thread through `SettingsTabHost` into its `SettingsScreen` call**
 
 In the `SettingsTabHost` signature, replace:
 
@@ -1413,7 +1413,7 @@ with:
                 onOpenAssemblyViewerDefaults = {
 ```
 
-- [ ] **Step 6: Thread through `LegacySingleStackNavigation` directly into its `SettingsScreen` call**
+- [x] **Step 6: Thread through `LegacySingleStackNavigation` directly into its `SettingsScreen` call**
 
 In the `LegacySingleStackNavigation` signature, replace:
 
@@ -1459,17 +1459,17 @@ with:
                         onOpenAssemblyViewerDefaults = {
 ```
 
-- [ ] **Step 7: Run test to verify it passes**
+- [x] **Step 7: Run test to verify it passes**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.navigation.PendingUpdatesSettingsWiringTest"`
 Expected: PASS
 
-- [ ] **Step 8: Compile**
+- [x] **Step 8: Compile**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/navigation/NavGraph.kt app/src/test/java/com/kkc/sheettracker/navigation/PendingUpdatesSettingsWiringTest.kt
@@ -1486,7 +1486,7 @@ git commit -m "feat: thread pending-update state and install actions into both S
 
 This is the task that actually turns the badge and Settings section on — everything before this compiled but did nothing observable, because every new param defaulted to "nothing pending."
 
-- [ ] **Step 1: Add the failing test**
+- [x] **Step 1: Add the failing test**
 
 Add this method to `MainActivityUpdateWiringTest`:
 
@@ -1502,12 +1502,12 @@ Add this method to `MainActivityUpdateWiringTest`:
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.MainActivityUpdateWiringTest"`
 Expected: FAIL on `realUpdateStateIsWiredIntoAppNavigation`.
 
-- [ ] **Step 3: Pass the real update state and callbacks into the `AppNavigation` call**
+- [x] **Step 3: Pass the real update state and callbacks into the `AppNavigation` call**
 
 In `app/src/main/java/com/kkc/sheettracker/MainActivity.kt`, inside the `setContent { ... }` block, find the `AppNavigation(...)` call and, immediately after its `onReinstallLatest = { updateManager.reinstallLatest() },` line, insert:
 
@@ -1527,22 +1527,22 @@ In `app/src/main/java/com/kkc/sheettracker/MainActivity.kt`, inside the `setCont
                         },
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test --tests "com.kkc.sheettracker.MainActivityUpdateWiringTest"`
 Expected: PASS (all four test methods)
 
-- [ ] **Step 5: Compile**
+- [x] **Step 5: Compile**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 6: Run the full Sheet Tracker unit test suite**
+- [x] **Step 6: Run the full Sheet Tracker unit test suite**
 
 Run: `cd C:\Scripts\KKCSheetTracker && .\gradlew.bat test`
 Expected: BUILD SUCCESSFUL (all tests pass, including the pre-existing `UpdateScanPolicyTest` and `LegacyStandardsTransitionWiringTest`)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/src/main/java/com/kkc/sheettracker/MainActivity.kt app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWiringTest.kt
@@ -1569,7 +1569,7 @@ Deploy the release build (`.\adb-install-release.ps1`, per `CLAUDE.md`) or a deb
 
 This is in the **Hours Tracker** repository (`C:\Scripts\Hours Tracker\AndroidApp`), not KKCSheetTracker. `UpdateManager` and `reinstallLatest()` stay as a manual fallback — only the auto-scan-and-popup trigger is removed.
 
-- [ ] **Step 1: Add the test helper**
+- [x] **Step 1: Add the test helper**
 
 Create `C:\Scripts\Hours Tracker\AndroidApp\app\src\test\java\com\example\timecard\testutil\SourceFiles.kt`:
 
@@ -1594,7 +1594,7 @@ object SourceFiles {
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `C:\Scripts\Hours Tracker\AndroidApp\app\src\test\java\com\example\timecard\MainActivityUpdateCleanupTest.kt`:
 
@@ -1620,12 +1620,12 @@ class MainActivityUpdateCleanupTest {
 }
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `cd "C:\Scripts\Hours Tracker\AndroidApp" && .\gradlew.bat test --tests "com.example.timecard.MainActivityUpdateCleanupTest"`
 Expected: FAIL (the scan call and dialog params are still present)
 
-- [ ] **Step 4: Remove the scan call and dialog wiring**
+- [x] **Step 4: Remove the scan call and dialog wiring**
 
 In `C:\Scripts\Hours Tracker\AndroidApp\app\src\main\java\com\example\timecard\MainActivity.kt`, replace:
 
@@ -1661,17 +1661,17 @@ with:
             )
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd "C:\Scripts\Hours Tracker\AndroidApp" && .\gradlew.bat test --tests "com.example.timecard.MainActivityUpdateCleanupTest"`
 Expected: PASS
 
-- [ ] **Step 6: Compile**
+- [x] **Step 6: Compile**
 
 Run: `cd "C:\Scripts\Hours Tracker\AndroidApp" && .\gradlew.bat compileDebugKotlin`
 Expected: This will fail until Task 10 removes the now-mismatched `pendingUpdate`/`onInstallUpdate` parameters from `TimecardApp` — both params have defaults (`= null`, `= {}`), so a call site that simply omits them compiles fine. Confirm it succeeds; if it doesn't, double check Step 4's replacement matched exactly (no stray trailing comma).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd "C:\Scripts\Hours Tracker\AndroidApp"
@@ -1687,7 +1687,7 @@ git commit -m "feat: remove Hours Tracker's own update scan and dialog trigger"
 - Create: `C:\Scripts\Hours Tracker\AndroidApp\app\src\test\java\com\example\timecard\TimecardAppUpdateParamsRemovedTest.kt`
 - Modify: `C:\Scripts\Hours Tracker\AndroidApp\app\src\main\java\com\example\timecard\TimecardApp.kt`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `C:\Scripts\Hours Tracker\AndroidApp\app\src\test\java\com\example\timecard\TimecardAppUpdateParamsRemovedTest.kt`:
 
@@ -1711,12 +1711,12 @@ class TimecardAppUpdateParamsRemovedTest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd "C:\Scripts\Hours Tracker\AndroidApp" && .\gradlew.bat test --tests "com.example.timecard.TimecardAppUpdateParamsRemovedTest"`
 Expected: FAIL
 
-- [ ] **Step 3: Remove the dead parameters**
+- [x] **Step 3: Remove the dead parameters**
 
 In `C:\Scripts\Hours Tracker\AndroidApp\app\src\main\java\com\example\timecard\TimecardApp.kt`, replace:
 
@@ -1736,7 +1736,7 @@ with:
 ) {
 ```
 
-- [ ] **Step 4: Remove the dead dialog block**
+- [x] **Step 4: Remove the dead dialog block**
 
 Replace:
 
@@ -1771,12 +1771,12 @@ with:
     }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd "C:\Scripts\Hours Tracker\AndroidApp" && .\gradlew.bat test --tests "com.example.timecard.TimecardAppUpdateParamsRemovedTest"`
 Expected: PASS
 
-- [ ] **Step 6: Run the full Hours Tracker unit test suite and compile**
+- [x] **Step 6: Run the full Hours Tracker unit test suite and compile**
 
 Run: `cd "C:\Scripts\Hours Tracker\AndroidApp" && .\gradlew.bat test`
 Expected: BUILD SUCCESSFUL (all tests pass, including the pre-existing `GamificationEngineTest`, `ProfileViewModelTest`, etc.)
@@ -1784,7 +1784,7 @@ Expected: BUILD SUCCESSFUL (all tests pass, including the pre-existing `Gamifica
 Run: `cd "C:\Scripts\Hours Tracker\AndroidApp" && .\gradlew.bat compileDebugKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd "C:\Scripts\Hours Tracker\AndroidApp"
