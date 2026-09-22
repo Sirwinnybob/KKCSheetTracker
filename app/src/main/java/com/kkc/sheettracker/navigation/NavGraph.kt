@@ -126,6 +126,7 @@ import com.kkc.sheettracker.data.ArchiveAdminClient
 import com.kkc.sheettracker.data.TimeclockMessagesRepository
 import com.kkc.sheettracker.data.UiPreferencesStore
 import com.kkc.sheettracker.data.IdlePowerSaveStore
+import com.kkc.sheettracker.update.ExternalAppUpdate
 import com.kkc.sheettracker.ui.hours.HoursLoginDialog
 import com.kkc.sheettracker.ui.timecard.TimecardScreen
 import com.kkc.sheettracker.ui.timecard.TimecardStore
@@ -221,6 +222,11 @@ fun AppNavigation(
     onThemeOverrideChanged: (String?) -> Unit,
     onThemeCatalogReload: () -> Unit,
     hasPendingUpdates: Boolean = false,
+    pendingSelfUpdate: File? = null,
+    pendingExternalUpdates: List<ExternalAppUpdate> = emptyList(),
+    onInstallSelfUpdate: () -> Unit = {},
+    onInstallExternalUpdate: (ExternalAppUpdate) -> Unit = {},
+    onInstallAll: () -> Unit = {},
     hardwoodsProgressStore: HardwoodsProgressStore? = null,
     specialtyProgressStore: SpecialtyProgressStore? = null
 ) {
@@ -541,6 +547,11 @@ fun AppNavigation(
                 onThemeOverrideChanged = onThemeOverrideChanged,
                 onThemeCatalogReload = onThemeCatalogReload,
                 hasPendingUpdates = hasPendingUpdates,
+                pendingSelfUpdate = pendingSelfUpdate,
+                pendingExternalUpdates = pendingExternalUpdates,
+                onInstallSelfUpdate = onInstallSelfUpdate,
+                onInstallExternalUpdate = onInstallExternalUpdate,
+                onInstallAll = onInstallAll,
                 liveIndexEngine = liveIndexEngine
             )
         } else {
@@ -589,6 +600,11 @@ fun AppNavigation(
                 onThemeOverrideChanged = onThemeOverrideChanged,
                 onThemeCatalogReload = onThemeCatalogReload,
                 hasPendingUpdates = hasPendingUpdates,
+                pendingSelfUpdate = pendingSelfUpdate,
+                pendingExternalUpdates = pendingExternalUpdates,
+                onInstallSelfUpdate = onInstallSelfUpdate,
+                onInstallExternalUpdate = onInstallExternalUpdate,
+                onInstallAll = onInstallAll,
                 unifiedEngine = liveIndexEngine
             )
         }
@@ -642,6 +658,11 @@ private fun MultiBackStackNavigation(
     onThemeOverrideChanged: (String?) -> Unit,
     onThemeCatalogReload: () -> Unit,
     hasPendingUpdates: Boolean = false,
+    pendingSelfUpdate: File? = null,
+    pendingExternalUpdates: List<ExternalAppUpdate> = emptyList(),
+    onInstallSelfUpdate: () -> Unit = {},
+    onInstallExternalUpdate: (ExternalAppUpdate) -> Unit = {},
+    onInstallAll: () -> Unit = {},
     liveIndexEngine: UnifiedMetadataEngine
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
@@ -1104,7 +1125,12 @@ private fun MultiBackStackNavigation(
                         themeCatalog = themeCatalog,
                         onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
                         onThemeOverrideChanged = onThemeOverrideChanged,
-                        onThemeCatalogReload = onThemeCatalogReload
+                        onThemeCatalogReload = onThemeCatalogReload,
+                        pendingSelfUpdate = pendingSelfUpdate,
+                        pendingExternalUpdates = pendingExternalUpdates,
+                        onInstallSelfUpdate = onInstallSelfUpdate,
+                        onInstallExternalUpdate = onInstallExternalUpdate,
+                        onInstallAll = onInstallAll
                     )
                 }
 
@@ -2249,7 +2275,12 @@ private fun SettingsTabHost(
     themeCatalog: KKCThemeCatalog,
     onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
     onThemeOverrideChanged: (String?) -> Unit,
-    onThemeCatalogReload: () -> Unit
+    onThemeCatalogReload: () -> Unit,
+    pendingSelfUpdate: File? = null,
+    pendingExternalUpdates: List<ExternalAppUpdate> = emptyList(),
+    onInstallSelfUpdate: () -> Unit = {},
+    onInstallExternalUpdate: (ExternalAppUpdate) -> Unit = {},
+    onInstallAll: () -> Unit = {}
 ) {
     NavHost(
         navController = navController,
@@ -2291,6 +2322,11 @@ private fun SettingsTabHost(
                 onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
                 onThemeOverrideChanged = onThemeOverrideChanged,
                 onThemeCatalogReload = onThemeCatalogReload,
+                pendingSelfUpdate = pendingSelfUpdate,
+                pendingExternalUpdates = pendingExternalUpdates,
+                onInstallSelfUpdate = onInstallSelfUpdate,
+                onInstallExternalUpdate = onInstallExternalUpdate,
+                onInstallAll = onInstallAll,
                 onOpenAssemblyViewerDefaults = {
                     navController.navigate("settings/assemblyViewerDefaults") {
                         launchSingleTop = true
@@ -2521,6 +2557,11 @@ private fun LegacySingleStackNavigation(
     onThemeOverrideChanged: (String?) -> Unit,
     onThemeCatalogReload: () -> Unit,
     hasPendingUpdates: Boolean = false,
+    pendingSelfUpdate: File? = null,
+    pendingExternalUpdates: List<ExternalAppUpdate> = emptyList(),
+    onInstallSelfUpdate: () -> Unit = {},
+    onInstallExternalUpdate: (ExternalAppUpdate) -> Unit = {},
+    onInstallAll: () -> Unit = {},
     unifiedEngine: UnifiedMetadataEngine
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
@@ -3737,6 +3778,11 @@ private fun LegacySingleStackNavigation(
                         onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
                         onThemeOverrideChanged = onThemeOverrideChanged,
                         onThemeCatalogReload = onThemeCatalogReload,
+                        pendingSelfUpdate = pendingSelfUpdate,
+                        pendingExternalUpdates = pendingExternalUpdates,
+                        onInstallSelfUpdate = onInstallSelfUpdate,
+                        onInstallExternalUpdate = onInstallExternalUpdate,
+                        onInstallAll = onInstallAll,
                         onOpenAssemblyViewerDefaults = {
                             navController.navigate("settings/assemblyViewerDefaults") {
                                 launchSingleTop = true
