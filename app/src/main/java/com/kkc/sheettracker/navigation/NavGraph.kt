@@ -220,6 +220,7 @@ fun AppNavigation(
     onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
     onThemeOverrideChanged: (String?) -> Unit,
     onThemeCatalogReload: () -> Unit,
+    hasPendingUpdates: Boolean = false,
     hardwoodsProgressStore: HardwoodsProgressStore? = null,
     specialtyProgressStore: SpecialtyProgressStore? = null
 ) {
@@ -539,6 +540,7 @@ fun AppNavigation(
                 onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
                 onThemeOverrideChanged = onThemeOverrideChanged,
                 onThemeCatalogReload = onThemeCatalogReload,
+                hasPendingUpdates = hasPendingUpdates,
                 liveIndexEngine = liveIndexEngine
             )
         } else {
@@ -586,6 +588,7 @@ fun AppNavigation(
                 onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
                 onThemeOverrideChanged = onThemeOverrideChanged,
                 onThemeCatalogReload = onThemeCatalogReload,
+                hasPendingUpdates = hasPendingUpdates,
                 unifiedEngine = liveIndexEngine
             )
         }
@@ -638,6 +641,7 @@ private fun MultiBackStackNavigation(
     onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
     onThemeOverrideChanged: (String?) -> Unit,
     onThemeCatalogReload: () -> Unit,
+    hasPendingUpdates: Boolean = false,
     liveIndexEngine: UnifiedMetadataEngine
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
@@ -1192,6 +1196,7 @@ private fun MultiBackStackNavigation(
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 supplyNotificationCount = supplyNotificationCount,
                 safetyNotificationCount = safetyNotificationCount,
+                hasPendingUpdates = hasPendingUpdates,
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,
@@ -2515,6 +2520,7 @@ private fun LegacySingleStackNavigation(
     onThemeFollowSyncedDefaultChanged: (Boolean) -> Unit,
     onThemeOverrideChanged: (String?) -> Unit,
     onThemeCatalogReload: () -> Unit,
+    hasPendingUpdates: Boolean = false,
     unifiedEngine: UnifiedMetadataEngine
 ) {
     val preferDarkMode = isDarkTheme && !useStandardSheets
@@ -3878,6 +3884,7 @@ private fun LegacySingleStackNavigation(
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 supplyNotificationCount = supplyNotificationCount,
                 safetyNotificationCount = safetyNotificationCount,
+                hasPendingUpdates = hasPendingUpdates,
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,
