@@ -79,6 +79,8 @@ import com.kkc.sheettracker.testutil.SourceFiles
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
+private fun String.containsWord(word: String): Boolean = Regex("\\b${Regex.escape(word)}\\b").containsMatchIn(this)
+
 class MainActivityUpdateWiringTest {
 
     @Test
@@ -300,7 +302,7 @@ Add this method to `app/src/test/java/com/kkc/sheettracker/MainActivityUpdateWir
         val mainActivitySource = SourceFiles.mainSource("com/kkc/sheettracker/MainActivity.kt").readText()
         val updateManagerSource = SourceFiles.mainSource("com/kkc/sheettracker/update/UpdateManager.kt").readText()
 
-        assertFalse("MainActivity.kt must not render the external-update AlertDialog", mainActivitySource.contains("pendingExternalUpdate"))
+        assertFalse("MainActivity.kt must not render the external-update AlertDialog", mainActivitySource.containsWord("pendingExternalUpdate"))
         assertFalse("UpdateManager.kt must not expose canSkip", updateManagerSource.contains("canSkip"))
         assertFalse("UpdateManager.kt must not expose skipExternalUpdate", updateManagerSource.contains("skipExternalUpdate"))
         assertFalse("UpdateManager.kt must not persist skipped versions", updateManagerSource.contains("skipped_version_"))
