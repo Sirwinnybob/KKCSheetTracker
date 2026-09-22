@@ -37,6 +37,7 @@ import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
+import com.kkc.sheettracker.update.ExternalAppUpdate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -83,6 +84,11 @@ fun SettingsScreen(
     onOpenSpecialtyViewerDefaults: () -> Unit = {},
     uiPreferencesStore: UiPreferencesStore,
     idlePowerSaveStore: IdlePowerSaveStore,
+    pendingSelfUpdate: File? = null,
+    pendingExternalUpdates: List<ExternalAppUpdate> = emptyList(),
+    onInstallSelfUpdate: () -> Unit = {},
+    onInstallExternalUpdate: (ExternalAppUpdate) -> Unit = {},
+    onInstallAll: () -> Unit = {},
 ) {
     val adminMode by AdminModeController.enabled.collectAsState()
     var showAdminDialog by remember { mutableStateOf(false) }
@@ -209,6 +215,51 @@ fun SettingsScreen(
                 .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 160.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // ── Pending Updates ─────────────────────────────────────────
+            val hasSelfUpdate = pendingSelfUpdate != null
+            val hasExternalUpdates = pendingExternalUpdates.isNotEmpty()
+            if (hasSelfUpdate || hasExternalUpdates) {
+                SettingsCard(title = "Pending Updates") {
+                    if (hasSelfUpdate && hasExternalUpdates) {
+                        Button(
+                            onClick = onInstallAll,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Update All")
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    if (hasSelfUpdate) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("KKC Sheet Tracker update available")
+                            Button(onClick = onInstallSelfUpdate) {
+                                Text("Update")
+                            }
+                        }
+                    }
+                    pendingExternalUpdates.forEach { update ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("${update.appName} ${update.versionName} available")
+                            Button(onClick = { onInstallExternalUpdate(update) }) {
+                                Text("Update")
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── Work Mode ────────────────────────────────────────────────
             Text("Work Mode", style = MaterialTheme.typography.titleMedium)
             Row(
