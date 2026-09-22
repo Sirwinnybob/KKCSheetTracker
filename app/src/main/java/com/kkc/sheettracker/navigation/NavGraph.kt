@@ -4203,7 +4203,7 @@ private fun HoursTabHost(
 // Builds (displayLabel, committedValue) pairs for the Hours login dialog's suggestion
 // buttons: the label prefers displayName when set, but the committed value stays the
 // canonical "name (pin)" identity the login flow already resolves against, unchanged.
-private fun employeeLoginSuggestions(query: String): List<Pair<String, String>> {
+internal fun employeeLoginSuggestions(query: String): List<Pair<String, String>> {
     return EmployeeDirectory.suggestions(query).map { record ->
         val canonical = "${record.name} (${record.pin})"
         val label = if (record.displayName.isNotBlank()) "${record.displayName} (${record.pin})" else canonical
