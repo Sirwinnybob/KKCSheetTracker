@@ -82,8 +82,6 @@ import com.kkc.sheettracker.ui.components.PersistentNavigationBarHider
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
 import com.kkc.sheettracker.ui.theme.KKCTheme
 import com.kkc.sheettracker.ui.theme.SharedPreferencesKKCThemePreferenceStore
-import com.kkc.sheettracker.ui.timecard.ClockForUpdateOverlay
-import com.kkc.sheettracker.update.DeviceOwnerUpdateFallback
 import com.kkc.sheettracker.update.UpdateManager
 import com.kkc.sheettracker.update.ExternalAppUpdate
 import java.io.File
@@ -187,8 +185,6 @@ class MainActivity : ComponentActivity() {
         )
         CpuSpikeMonitor.flushPending(basePath)
 
-        val useLegacyUpdatePrompt = DeviceOwnerUpdateFallback(this)
-            .shouldUseLegacyPrompt(basePath = basePath, tabletId = tabletId)
         updateManager = UpdateManager(
             activity = this,
             onRequestInstallPermission = { onGranted ->
@@ -202,7 +198,6 @@ class MainActivity : ComponentActivity() {
         ).apply {
             this.basePath = basePath
             this.tabletId = tabletId
-            isSilentUpdateSupported = !useLegacyUpdatePrompt
         }
         updateManager.checkForUpdates(checkSelf = true)
         val migrationMarkerPath = File(basePath, ".appupdates/migration_complete.json")
@@ -447,87 +442,6 @@ class MainActivity : ComponentActivity() {
                         onThemeCatalogReload = { reloadThemeCatalog() }
                     )
                 }
-
-                    var showClockForUpdate by rememberSaveable { mutableStateOf(false) }
-
-                    if (showClockForUpdate) {
-                        ClockForUpdateOverlay(
-                            basePath = basePath,
-                            onFinished = { showClockForUpdate = false }
-                        )
-                    }
-
-                    if (updateManager.pendingUpdateApk != null && !showClockForUpdate) {
-                        val isSilent = updateManager.isSilentUpdateSupported
-                        AlertDialog(
-                            onDismissRequest = {},
-                            title = { Text(if (isSilent) "Update Ready" else "Update Available") },
-                            text = {
-                                Column {
-                                    Text(
-                                        if (isSilent) "A new version of KKC Sheet Tracker is ready to install. Update now? (The app will close and update silently)"
-                                        else "A new version of KKC Sheet Tracker is available. Install now?"
-                                    )
-                                    Spacer(Modifier.height(16.dp))
-                                    FilledTonalButton(
-                                        onClick = { showClockForUpdate = true },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text("Clock In / Out First")
-                                    }
-                                }
-                            },
-                            confirmButton = {
-                                Button(
-                                    onClick = {
-                                        if (isSilent) {
-                                            updateManager.installPendingUpdateSilently()
-                                        } else {
-                                            updateManager.installPendingUpdate()
-                                        }
-                                    }
-                                ) {
-                                    Text(if (isSilent) "Update" else "Install")
-                                }
-                            },
-                            dismissButton = if (isSilent) {
-                                {
-                                    TextButton(onClick = { updateManager.installPendingUpdate() }) {
-                                        Text("Manual Install")
-                                    }
-                                }
-                            } else null
-                        )
-                    }
-
-                    val pendingExternal = updateManager.pendingExternalUpdate
-                    if (pendingExternal != null) {
-                        AlertDialog(
-                            onDismissRequest = {},
-                            title = { Text("Update Available") },
-                            text = { Text("A new version of ${pendingExternal.appName} (${pendingExternal.versionName}) is available. Install now?") },
-                            confirmButton = {
-                                Button(
-                                    onClick = {
-                                        updateManager.installExternalUpdate(pendingExternal)
-                                    }
-                                ) {
-                                    Text("Install")
-                                }
-                            },
-                            dismissButton = if (pendingExternal.canSkip) {
-                                {
-                                    TextButton(
-                                        onClick = {
-                                            updateManager.skipExternalUpdate(pendingExternal)
-                                        }
-                                    ) {
-                                        Text("Skip")
-                                    }
-                                }
-                            } else null
-                        )
-                    }
 
                     if (showSyncthingSetupPrompt && syncthingApiKey.isBlank()) {
                         val dismissSyncthingPrompt = {

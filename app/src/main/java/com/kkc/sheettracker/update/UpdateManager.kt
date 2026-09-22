@@ -29,8 +29,7 @@ data class ExternalAppUpdate(
     val appName: String,
     val apkFile: File,
     val versionCode: Long,
-    val versionName: String,
-    val canSkip: Boolean
+    val versionName: String
 )
 
 data class ApkInfo(
@@ -57,15 +56,12 @@ class UpdateManager(
         ExternalApp("com.example.timecard", "Hours Tracker")
     )
 
-    private val skippedExternalPackagesInSession = mutableSetOf<String>()
     private val updateScanGate = UpdateScanGate()
     private val apkInfoCache = ConcurrentHashMap<ApkArchiveFingerprint, ApkInfo>()
 
     @Volatile
     var resolvedUpdatePath: String? = null
         private set
-
-    var isSilentUpdateSupported by mutableStateOf(false)
 
     var basePath: String? = null
     var tabletId: String? = null
@@ -83,43 +79,8 @@ class UpdateManager(
         pendingUpdateApk?.let { installApk(it) }
     }
 
-    fun installPendingUpdateSilently() {
-        try {
-            val intent = Intent("com.kkc.updateragent.TRIGGER_UPDATE").apply {
-                setPackage("com.kkc.updateragent")
-                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            }
-            activity.sendBroadcast(intent)
-            Toast.makeText(activity, "Silent update triggered. App will close shortly.", Toast.LENGTH_LONG).show()
-
-            val currentBasePath = basePath
-            val currentTabletId = tabletId
-            if (currentBasePath != null && currentTabletId != null) {
-                val handler = android.os.Handler(android.os.Looper.getMainLooper())
-                handler.postDelayed({
-                    val fallbackFile = File(currentBasePath, ".appupdates/$currentTabletId/updater-fallback-required.json")
-                    if (fallbackFile.isFile) {
-                        Log.w(TAG, "Silent update failed/fell back. Reverting to legacy prompt.")
-                        isSilentUpdateSupported = false
-                    }
-                }, 5000L)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send update broadcast", e)
-            Toast.makeText(activity, "Failed to trigger silent update: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
     fun installExternalUpdate(update: ExternalAppUpdate) {
         installApk(update.apkFile)
-        pendingExternalUpdates = pendingExternalUpdates.filter { it.packageName != update.packageName }
-    }
-
-    fun skipExternalUpdate(update: ExternalAppUpdate) {
-        val prefs = activity.getSharedPreferences(PREFS_NAME, Activity.MODE_PRIVATE)
-        prefs.edit().putLong("skipped_version_${update.packageName}", update.versionCode).apply()
-        skippedExternalPackagesInSession.add(update.packageName)
         pendingExternalUpdates = pendingExternalUpdates.filter { it.packageName != update.packageName }
     }
 
@@ -299,7 +260,6 @@ class UpdateManager(
             }
         }
 
-        val prefs = activity.getSharedPreferences(PREFS_NAME, Activity.MODE_PRIVATE)
         val externalList = mutableListOf<ExternalAppUpdate>()
         for (app in externalApps) {
             val installedVersion = getInstalledVersionCode(app.packageName)
@@ -307,23 +267,15 @@ class UpdateManager(
                 continue
             }
 
-            if (skippedExternalPackagesInSession.contains(app.packageName)) {
-                continue
-            }
-
             val appInfo = newestMap[app.packageName]
             if (appInfo != null && appInfo.versionCode > installedVersion) {
-                val persistedSkippedVersion = prefs.getLong("skipped_version_${app.packageName}", -1L)
-                val canSkip = appInfo.versionCode != persistedSkippedVersion
-                
                 externalList.add(
                     ExternalAppUpdate(
                         packageName = app.packageName,
                         appName = app.appName,
                         apkFile = appInfo.file,
                         versionCode = appInfo.versionCode,
-                        versionName = appInfo.versionName,
-                        canSkip = canSkip
+                        versionName = appInfo.versionName
                     )
                 )
             }
