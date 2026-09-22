@@ -392,7 +392,11 @@ class UpdateManager(
         try {
             AppLog.d(TAG, "Preparing update APK: ${apkFile.absolutePath}")
             val cacheDir = activity.cacheDir
-            val updateApk = File(cacheDir, "update.apk")
+            // Named per source file (not a fixed "update.apk") so that installing two APKs back
+            // to back — e.g. Update All installing Hours Tracker then Sheet Tracker — can't have
+            // the second copy clobber the first's cached file before its async install intent
+            // has read it.
+            val updateApk = File(cacheDir, "update_${apkFile.name}")
             if (updateApk.exists()) {
                 updateApk.delete()
             }
