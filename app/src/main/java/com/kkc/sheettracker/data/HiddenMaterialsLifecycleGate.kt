@@ -105,9 +105,11 @@ internal class HiddenMaterialsClientBinding(
 
     fun bind(sourceToken: Long) {
         require(sourceToken != 0L) { "source token must be non-zero" }
-        check(boundSourceToken.compareAndSet(0L, sourceToken)) {
-            "hidden materials client binding already claimed"
+        val current = boundSourceToken.get()
+        check(current == 0L || current == sourceToken) {
+            "hidden materials client binding already claimed by different source"
         }
+        boundSourceToken.set(sourceToken)
     }
 
     /**
