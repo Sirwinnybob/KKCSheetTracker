@@ -138,6 +138,7 @@ import com.kkc.sheettracker.ui.settings.SpecialtyViewerDefaultsScreen
 import com.kkc.sheettracker.ui.components.AppBottomNavBar
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.LocalOnOpenSettings
+import com.kkc.sheettracker.ui.components.LocalHasPendingUpdates
 import com.kkc.sheettracker.ui.components.NavBarDecorationState
 import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
 import com.kkc.sheettracker.ui.components.ClockInOverlay
@@ -919,7 +920,10 @@ private fun MultiBackStackNavigation(
     }
 
     val onIdleReset = LocalIdleReset.current
-    CompositionLocalProvider(LocalOnOpenSettings provides remember(coordinator) { { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) } }) {
+    CompositionLocalProvider(
+        LocalOnOpenSettings provides remember(coordinator) { { coordinator.navigateTopLevel(TopLevelTab.SETTINGS) } },
+        LocalHasPendingUpdates provides hasPendingUpdates
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1222,7 +1226,6 @@ private fun MultiBackStackNavigation(
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 supplyNotificationCount = supplyNotificationCount,
                 safetyNotificationCount = safetyNotificationCount,
-                hasPendingUpdates = hasPendingUpdates,
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,
@@ -2800,7 +2803,10 @@ private fun LegacySingleStackNavigation(
     }
 
     val onIdleReset = LocalIdleReset.current
-    CompositionLocalProvider(LocalOnOpenSettings provides remember(navController) { { navController.navigate("settings") { launchSingleTop = true } } }) {
+    CompositionLocalProvider(
+        LocalOnOpenSettings provides remember(navController) { { navController.navigate("settings") { launchSingleTop = true } } },
+        LocalHasPendingUpdates provides hasPendingUpdates
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -3930,7 +3936,6 @@ private fun LegacySingleStackNavigation(
                 onCalculatorClick = { calculatorState.toggleOpen() },
                 supplyNotificationCount = supplyNotificationCount,
                 safetyNotificationCount = safetyNotificationCount,
-                hasPendingUpdates = hasPendingUpdates,
                 searchDecoration = navBarDeco.searchDecoration,
                 cncDecoration = navBarDeco.cncDecoration,
                 specialtyDecoration = navBarDeco.specialtyDecoration,

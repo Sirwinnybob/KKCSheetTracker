@@ -141,7 +141,6 @@ fun AppBottomNavBar(
     destinations: List<NavDestination> = NavDestination.entries,
     supplyNotificationCount: Int = 0,
     safetyNotificationCount: Int = 0,
-    hasPendingUpdates: Boolean = false,
     hazeState: HazeState? = null,
     searchDecoration: NavBarSearchDecoration? = null,
     cncDecoration: NavBarCncDecoration? = null,
@@ -167,7 +166,6 @@ fun AppBottomNavBar(
             destinations = destinations,
             supplyNotificationCount = supplyNotificationCount,
             safetyNotificationCount = safetyNotificationCount,
-            hasPendingUpdates = hasPendingUpdates,
             hazeState = hazeState,
             searchDecoration = searchDecoration,
             cncDecoration = cncDecoration,
@@ -216,7 +214,6 @@ private fun MorphingNavIconRow(
     isCalculatorOpen: Boolean,
     supplyNotificationCount: Int,
     safetyNotificationCount: Int = 0,
-    hasPendingUpdates: Boolean = false,
     onNavigate: (NavDestination) -> Unit,
     onCalculatorClick: () -> Unit,
     onTimeclockBgEdit: () -> Unit = {},
@@ -337,12 +334,7 @@ private fun MorphingNavIconRow(
                             NavDestination.STANDARDS -> safetyNotificationCount
                             else -> 0
                         }
-                        val showUpdateDot = dest == NavDestination.SETTINGS && hasPendingUpdates
-                        if (showUpdateDot) {
-                            BadgedBox(badge = { Badge {} }) {
-                                iconContent()
-                            }
-                        } else if (badgeCount > 0) {
+                        if (badgeCount > 0) {
                             BadgedBox(badge = { Badge { Text(badgeCount.toString()) } }) {
                                 iconContent()
                             }
@@ -397,7 +389,6 @@ private fun MorphingNavBar(
     destinations: List<NavDestination>,
     supplyNotificationCount: Int,
     safetyNotificationCount: Int = 0,
-    hasPendingUpdates: Boolean = false,
     hazeState: HazeState? = null,
     searchDecoration: NavBarSearchDecoration? = null,
     cncDecoration: NavBarCncDecoration? = null,
@@ -827,7 +818,6 @@ private fun MorphingNavBar(
                         isCalculatorOpen        = isCalculatorOpen,
                         supplyNotificationCount = supplyNotificationCount,
                         safetyNotificationCount = safetyNotificationCount,
-                        hasPendingUpdates       = hasPendingUpdates,
                         onNavigate              = onNavigate,
                         onCalculatorClick       = onCalculatorClick,
                         onTimeclockBgEdit       = onTimeclockBgEdit,

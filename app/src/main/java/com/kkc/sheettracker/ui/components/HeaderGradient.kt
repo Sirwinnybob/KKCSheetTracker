@@ -3,6 +3,8 @@ package com.kkc.sheettracker.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +41,14 @@ import java.io.File
  * needing to pass a Settings callback individually. Defaults to a no-op outside that provider.
  */
 val LocalOnOpenSettings = staticCompositionLocalOf<() -> Unit> { {} }
+
+/**
+ * Whether a Sheet Tracker or Hours Tracker update is pending install. Read by [KKCTopAppBar] to
+ * show a small dot on the Settings gear icon. Provided alongside [LocalOnOpenSettings] near the
+ * root of the composition (see `NavGraph.kt`) for the same reason: so all ~20 `KKCTopAppBar` call
+ * sites get it without each one needing its own parameter. Defaults to false outside that provider.
+ */
+val LocalHasPendingUpdates = staticCompositionLocalOf { false }
 
 /**
  * Very slight blue wash used as the background of every screen's [androidx.compose.material3.TopAppBar]
@@ -117,6 +127,7 @@ fun KKCTopAppBar(
     )
 ) {
     val onOpenSettings = LocalOnOpenSettings.current
+    val hasPendingUpdates = LocalHasPendingUpdates.current
     TopAppBar(
         title = title,
         modifier = modifier
@@ -127,7 +138,13 @@ fun KKCTopAppBar(
             actions()
             BatteryIndicator()
             IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                if (hasPendingUpdates) {
+                    BadgedBox(badge = { Badge {} }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                    }
+                } else {
+                    Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                }
             }
         },
         windowInsets = windowInsets,
