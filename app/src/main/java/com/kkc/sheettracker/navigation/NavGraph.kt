@@ -229,7 +229,7 @@ fun AppNavigation(
     val sharedSpecialtyProgressStore = specialtyProgressStore ?: remember(basePath, tabletId, isViewOnlyMode) {
         SpecialtyProgressStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
     }
-    val watcherRefreshSignal = remember(basePath) { MutableStateFlow(0L) }
+    val watcherRefreshSignal = remember(basePath) { MutableStateFlow(0) }
     val watcherRefreshEpoch by watcherRefreshSignal.collectAsState()
     val activeJobFolderName = remember { MutableStateFlow<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -252,7 +252,7 @@ fun AppNavigation(
             activeJobFolderName = activeJobFolderName,
             intervalOverrideMs = idlePollIntervalOverrideMs,
             onWatcherRefreshRequested = {
-                watcherRefreshSignal.value = System.currentTimeMillis()
+                watcherRefreshSignal.value++
             },
             onCncJobsChanged = { jobFolderNames ->
                 jobFolderNames.forEach { scanCoordinator.unifiedEngine.invalidateJob(it) }
@@ -282,7 +282,7 @@ fun AppNavigation(
             baseDir = File(basePath),
             intervalOverrideMs = idlePollIntervalOverrideMs,
             onJobCacheUpdated = { _ ->
-                watcherRefreshSignal.value = System.currentTimeMillis()
+                watcherRefreshSignal.value++
             }
         )
     }
@@ -317,16 +317,16 @@ fun AppNavigation(
             tabletId = tabletId,
             onSnapshot = { jobs ->
                 liveIndexEngine.applySnapshot(jobs)
-                watcherRefreshSignal.value = System.currentTimeMillis()
+                watcherRefreshSignal.value++
             },
             onDelta = { folderName, index ->
                 liveIndexEngine.applyDelta(folderName, index)
-                watcherRefreshSignal.value = System.currentTimeMillis()
+                watcherRefreshSignal.value++
             },
             onConnectionState = { isConnected ->
                 liveIndexEngine.setConnected(isConnected)
                 if (isConnected) staticCachePoller.stop() else staticCachePoller.start()
-                watcherRefreshSignal.value = System.currentTimeMillis()
+                watcherRefreshSignal.value++
             }
         )
     }
@@ -462,7 +462,7 @@ fun AppNavigation(
         }
     }
     LaunchedEffect(watcherRefreshEpoch, deliveryScheduleStore) {
-        if (watcherRefreshEpoch <= 0L) return@LaunchedEffect
+        if (watcherRefreshEpoch <= 0) return@LaunchedEffect
         withContext(Dispatchers.IO) {
             deliveryScheduleStore.refreshFallback()
         }
@@ -629,7 +629,7 @@ private fun MultiBackStackNavigation(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    watcherRefreshEpoch: Long,
+    watcherRefreshEpoch: Int,
     deliverySchedule: DeliverySchedule,
     onDeliveryScheduleApplied: (DeliverySchedule) -> Unit,
     activeJobFolderName: MutableStateFlow<String?>,
@@ -868,7 +868,7 @@ private fun MultiBackStackNavigation(
     }
 
     androidx.compose.runtime.LaunchedEffect(watcherRefreshEpoch, basePath) {
-        if (watcherRefreshEpoch <= 0L) return@LaunchedEffect
+        if (watcherRefreshEpoch <= 0) return@LaunchedEffect
         supplySubscriptionManager.scanForUpdates()
         when (workMode) {
             WorkMode.CNC -> {
@@ -1138,7 +1138,7 @@ private fun MultiBackStackNavigation(
                 if (showHoursLoginDialog) {
                     HoursLoginDialog(
                         initialInput = employeeName,
-                        suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
+                        suggestions = employeeLoginSuggestions(employeeName),
                         onLogin = { name ->
                             showHoursLoginDialog = false
                             launchTimecardApp(context, EmployeeDirectory.resolveNameOrPin(name))
@@ -1150,7 +1150,7 @@ private fun MultiBackStackNavigation(
                     val selected = employeeName.takeIf { it.isNotBlank() }.orEmpty()
                     HoursLoginDialog(
                         initialInput = selected,
-                        suggestions = EmployeeDirectory.suggestions(selected).map { "${it.name} (${it.pin})" },
+                        suggestions = employeeLoginSuggestions(selected),
                         onLogin = { raw ->
                             val resolved = EmployeeDirectory.resolveNameOrPin(raw)
                             onEmployeeNameChanged(resolved)
@@ -2507,7 +2507,7 @@ private fun LegacySingleStackNavigation(
     onSyncthingApiKeySave: (String) -> Unit,
     onSyncthingCheckNow: () -> Unit,
     onSyncthingStartNow: () -> Unit,
-    watcherRefreshEpoch: Long,
+    watcherRefreshEpoch: Int,
     deliverySchedule: DeliverySchedule,
     onDeliveryScheduleApplied: (DeliverySchedule) -> Unit,
     supplySubscriptionManager: SupplySubscriptionManager,
@@ -2660,7 +2660,7 @@ private fun LegacySingleStackNavigation(
     }
 
     androidx.compose.runtime.LaunchedEffect(watcherRefreshEpoch, basePath) {
-        if (watcherRefreshEpoch <= 0L) return@LaunchedEffect
+        if (watcherRefreshEpoch <= 0) return@LaunchedEffect
         supplySubscriptionManager.scanForUpdates()
         when (workMode) {
             WorkMode.CNC -> {
@@ -3824,7 +3824,7 @@ private fun LegacySingleStackNavigation(
                 if (showHoursLoginDialog) {
                     HoursLoginDialog(
                         initialInput = employeeName,
-                        suggestions = EmployeeDirectory.suggestions(employeeName).map { "${it.name} (${it.pin})" },
+                        suggestions = employeeLoginSuggestions(employeeName),
                         onLogin = { name ->
                             showHoursLoginDialog = false
                             launchTimecardApp(legacyContext, EmployeeDirectory.resolveNameOrPin(name))
@@ -3836,7 +3836,7 @@ private fun LegacySingleStackNavigation(
                     val selected = employeeName.takeIf { it.isNotBlank() }.orEmpty()
                     HoursLoginDialog(
                         initialInput = selected,
-                        suggestions = EmployeeDirectory.suggestions(selected).map { "${it.name} (${it.pin})" },
+                        suggestions = employeeLoginSuggestions(selected),
                         onLogin = { raw ->
                             val resolved = EmployeeDirectory.resolveNameOrPin(raw)
                             onEmployeeNameChanged(resolved)
@@ -4197,6 +4197,17 @@ private fun HoursTabHost(
 
     NavHost(navController = navController, startDestination = "hours", modifier = Modifier.fillMaxSize()) {
         composable("hours") { Box(modifier = Modifier.fillMaxSize()) }
+    }
+}
+
+// Builds (displayLabel, committedValue) pairs for the Hours login dialog's suggestion
+// buttons: the label prefers displayName when set, but the committed value stays the
+// canonical "name (pin)" identity the login flow already resolves against, unchanged.
+private fun employeeLoginSuggestions(query: String): List<Pair<String, String>> {
+    return EmployeeDirectory.suggestions(query).map { record ->
+        val canonical = "${record.name} (${record.pin})"
+        val label = if (record.displayName.isNotBlank()) "${record.displayName} (${record.pin})" else canonical
+        label to canonical
     }
 }
 

@@ -16,7 +16,10 @@ import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 @Composable
 fun HoursLoginDialog(
     initialInput: String = "",
-    suggestions: List<String> = emptyList(),
+    // Each entry is (displayLabel, committedValue): the label shown on the suggestion
+    // button may prefer a friendlier display name, but the committed value must stay
+    // the canonical name/PIN identity that onLogin resolves against.
+    suggestions: List<Pair<String, String>> = emptyList(),
     onLogin: (name: String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -51,13 +54,13 @@ fun HoursLoginDialog(
                     ),
                     shape = RoundedCornerShape(11.dp)
                 )
-                suggestions.take(5).forEach { option ->
+                suggestions.take(5).forEach { (label, value) ->
                     OutlinedButton(
-                        onClick = { input = option },
+                        onClick = { input = value },
                         shape = MaterialTheme.shapes.extraLarge,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(option)
+                        Text(label)
                     }
                 }
             }
