@@ -1,0 +1,401 @@
+=== KKCSheetTracker CNC Dashboard idle blink - logcat evidence ===
+Captured 2026-09-21 on tablet SM-X800 (Android 16), app com.kkc.sheettracker 8.5.1 (versionCode 80501), RELEASE build (pkgFlags has no DEBUGGABLE), pid 31904 then 18085.
+
+--- WINDOW 1 (12:49:43-12:53:43): the complete output of the tag-filtered stream ---
+--------- beginning of main
+09-21 12:49:54.740 31904 17386 D LiveIndexClient: WebSocket closed: code=1000 reason=client stop
+09-21 12:49:56.309 18085 18140 D DeliveryScheduleLiveClient: WebSocket opened, sending hello
+09-21 12:49:56.310 18085 18139 D LiveIndexClient: WebSocket opened, sending hello
+09-21 12:49:56.320 18085 18140 D DeliveryScheduleLiveClient: Received snapshot frame: revision=0
+09-21 12:49:56.321 18085 18139 D LiveIndexClient: Received snapshot: revision=38, jobs=15
+
+--- WINDOW 1: process lifecycle + jank (from unfiltered full.log) ---
+09-21 12:49:55.064  2801  2843 I ActivityManager: Killing 31904:com.kkc.sheettracker/u0a409 (adj 905): remove task
+09-21 12:49:55.741  2801  2850 I ActivityManager: Start proc 18085:com.kkc.sheettracker/u0a409 for activelaunch {com.kkc.sheettracker/com.kkc.sheettracker.MainActivity}
+09-21 12:49:56.370 18085 18085 I Choreographer: Skipped 51 frames!  The application may be doing too much work on its main thread.
+09-21 12:49:56.380 18085 18085 I Choreographer: Skipped 52 frames!  The application may be doing too much work on its main thread.
+
+--- WINDOW 1: app-process activity grouped per second (idle redraws + bitmap decodes) ---
+09-21 12:49:47.41  VRI[MainActivity]@76341ad  x1
+09-21 12:49:47.42  VRI[MainActivity]@76341ad  x1
+09-21 12:49:47.45  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.45  VRI[MainActivity]@76341ad  x1
+09-21 12:49:47.46  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.46  WindowOnBackDispatcher  x1
+09-21 12:49:47.50  BitmapFactory  x1
+09-21 12:49:47.50  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.50  Kumiho-Kumiho  x1
+09-21 12:49:47.51  BitmapFactory  x4
+09-21 12:49:47.51  Compose draw (dispatchDraw)  x4
+09-21 12:49:47.51  Kumiho-Kumiho  x5
+09-21 12:49:47.52  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.52  Kumiho-Kumiho  x4
+09-21 12:49:47.58  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.59  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.60  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.61  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.63  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.64  Compose draw (dispatchDraw)  x4
+09-21 12:49:47.65  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.66  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.67  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.68  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.69  Compose draw (dispatchDraw)  x4
+09-21 12:49:47.70  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.71  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.72  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.73  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.74  Compose draw (dispatchDraw)  x4
+09-21 12:49:47.75  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.76  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.77  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.78  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.79  Compose draw (dispatchDraw)  x4
+09-21 12:49:47.80  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.81  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.82  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.83  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.84  Compose draw (dispatchDraw)  x3
+09-21 12:49:47.85  Compose draw (dispatchDraw)  x3
+09-21 12:49:47.86  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.87  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.88  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.89  Compose draw (dispatchDraw)  x3
+09-21 12:49:47.90  Compose draw (dispatchDraw)  x3
+09-21 12:49:47.91  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.92  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.93  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.94  Compose draw (dispatchDraw)  x4
+09-21 12:49:47.95  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.96  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.97  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.98  Compose draw (dispatchDraw)  x2
+09-21 12:49:47.99  Compose draw (dispatchDraw)  x2
+09-21 12:49:48.00  Compose draw (dispatchDraw)  x4
+09-21 12:49:50.46  VRI[MainActivity]@76341ad  x1
+09-21 12:49:53.25  VRI[MainActivity]@76341ad  x2
+09-21 12:49:53.30  Compose draw (dispatchDraw)  x2
+09-21 12:49:53.31  Compose draw (dispatchDraw)  x2
+09-21 12:49:53.32  Compose draw (dispatchDraw)  x2
+09-21 12:49:53.34  VRI[MainActivity]@76341ad  x1
+09-21 12:49:53.88  InsetsController  x1
+09-21 12:49:53.89  Compose draw (dispatchDraw)  x2
+09-21 12:49:53.89  ImeFocusController  x2
+09-21 12:49:53.90  Compose draw (dispatchDraw)  x2
+09-21 12:49:53.91  Compose draw (dispatchDraw)  x2
+09-21 12:49:54.70  VRI[MainActivity]@76341ad  x2
+09-21 12:49:54.71  HWUI  x1
+09-21 12:49:54.72  VRI[MainActivity]@76341ad  x2
+09-21 12:49:54.73  HWUI  x1
+09-21 12:49:54.73  VRI[MainActivity]@76341ad  x2
+09-21 12:49:54.74  LiveIndexClient  x1
+09-21 12:49:54.76  HWUI  x1
+09-21 12:49:54.78  InputTransport  x1
+09-21 12:49:54.79  BBA2  x1
+09-21 12:49:55.75  kc.sheettracker  x1
+09-21 12:49:55.76  ActivityThread  x2
+09-21 12:49:55.76  nativeloader  x1
+09-21 12:49:55.78  ApplicationLoaders  x2
+09-21 12:49:55.80  nativeloader  x1
+09-21 12:49:55.81  other  x7
+09-21 12:49:55.86  ActivityThread  x1
+09-21 12:49:55.86  HWUI  x1
+09-21 12:49:55.87  AdrenoGLES-0  x10
+09-21 12:49:55.87  DisplayManager  x1
+09-21 12:49:55.87  HWUI  x1
+09-21 12:49:55.88  Adreno-AppProfiles  x1
+09-21 12:49:55.88  AdrenoGLES-0  x1
+09-21 12:49:55.88  ashmem  x1
+09-21 12:49:55.89  CompatChangeReporter  x1
+09-21 12:49:55.89  DecorView  x1
+09-21 12:49:55.89  DesktopModeFlags  x1
+09-21 12:49:55.89  PhoneWindow  x1
+09-21 12:49:55.91  AconfigFlags  x1
+09-21 12:49:55.91  HardwareRenderer  x2
+09-21 12:49:55.91  HWUI  x1
+09-21 12:49:55.91  NativeCustomFrequencyManager  x1
+09-21 12:49:55.91  ViewRootImpl  x2
+09-21 12:49:55.92  HWUI  x1
+09-21 12:49:55.92  IDS_TAG  x6
+09-21 12:49:55.92  InputTransport  x1
+09-21 12:49:55.92  InsetsController  x1
+09-21 12:49:55.92  VRI[MainActivity]@76341ad  x2
+09-21 12:49:55.93  other  x1
+09-21 12:49:55.95  other  x1
+09-21 12:49:55.96  other  x1
+09-21 12:49:55.97  other  x1
+09-21 12:49:56.02  InsetsController  x2
+09-21 12:49:56.19  nativeloader  x1
+09-21 12:49:56.30  DeliveryScheduleLiveClient  x1
+09-21 12:49:56.31  LiveIndexClient  x1
+09-21 12:49:56.32  BLASTBufferQueue_Java  x2
+09-21 12:49:56.32  BufferQueueProducer  x2
+09-21 12:49:56.32  DeliveryScheduleLiveClient  x1
+09-21 12:49:56.32  kc.sheettracker  x1
+09-21 12:49:56.32  libc  x2
+09-21 12:49:56.32  LiveIndexClient  x1
+09-21 12:49:56.32  VRI[MainActivity]@76341ad  x3
+09-21 12:49:56.33  VRI[MainActivity]@76341ad  x4
+09-21 12:49:56.34  Compose draw (dispatchDraw)  x4
+09-21 12:49:56.34  Kumiho-Kumiho  x2
+09-21 12:49:56.34  VRI[MainActivity]@76341ad  x3
+09-21 12:49:56.36  BLASTBufferQueue  x1
+09-21 12:49:56.37  Choreographer  x1
+09-21 12:49:56.37  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.37  HWUI  x1
+09-21 12:49:56.37  SurfaceComposerClient  x1
+09-21 12:49:56.37  VRI[MainActivity]@76341ad  x2
+09-21 12:49:56.38  Choreographer  x1
+09-21 12:49:56.38  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.38  InsetsController  x3
+09-21 12:49:56.38  VRI[MainActivity]@76341ad  x5
+09-21 12:49:56.39  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.39  VRI[MainActivity]@76341ad  x4
+09-21 12:49:56.40  Compose draw (dispatchDraw)  x4
+09-21 12:49:56.40  InputMethodManager  x1
+09-21 12:49:56.40  InputMethodManagerUtils  x1
+09-21 12:49:56.40  VRI[MainActivity]@76341ad  x4
+09-21 12:49:56.41  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.41  ImeTracker  x1
+09-21 12:49:56.41  InputMethodManager  x1
+09-21 12:49:56.41  InputTransport  x1
+09-21 12:49:56.41  InsetsController  x1
+09-21 12:49:56.41  VRI[MainActivity]@76341ad  x2
+09-21 12:49:56.42  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.42  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.43  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.43  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.44  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.44  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.45  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.46  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.47  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.49  Compose draw (dispatchDraw)  x4
+09-21 12:49:56.49  VRI[MainActivity]@76341ad  x2
+09-21 12:49:56.50  Compose draw (dispatchDraw)  x4
+09-21 12:49:56.50  VRI[MainActivity]@76341ad  x3
+09-21 12:49:56.51  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.51  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.52  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.52  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.53  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.53  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.54  Compose draw (dispatchDraw)  x4
+09-21 12:49:56.54  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.55  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.55  VRI[MainActivity]@76341ad  x2
+09-21 12:49:56.56  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.56  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.57  InsetsController  x1
+09-21 12:49:56.57  InteractionJankMonitor  x1
+09-21 12:49:56.57  VRI[MainActivity]@76341ad  x1
+09-21 12:49:56.62  pdf_document_jni  x1
+09-21 12:49:56.63  pdf_document_jni  x2
+09-21 12:49:56.64  pdf_document_jni  x6
+09-21 12:49:56.65  pdf_document_jni  x6
+09-21 12:49:56.66  pdf_document_jni  x6
+09-21 12:49:56.81  BitmapFactory  x5
+09-21 12:49:56.81  Compose draw (dispatchDraw)  x4
+09-21 12:49:56.81  Kumiho-Kumiho  x4
+09-21 12:49:56.82  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.82  Kumiho-Kumiho  x1
+09-21 12:49:56.83  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.83  Kumiho-Kumiho  x5
+09-21 12:49:56.84  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.85  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.86  Compose draw (dispatchDraw)  x4
+09-21 12:49:56.87  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.88  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.89  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.90  Compose draw (dispatchDraw)  x4
+09-21 12:49:56.91  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.92  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.93  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.94  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.95  Compose draw (dispatchDraw)  x4
+09-21 12:49:56.96  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.97  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.98  Compose draw (dispatchDraw)  x2
+09-21 12:49:56.99  Compose draw (dispatchDraw)  x2
+09-21 12:49:57.00  Compose draw (dispatchDraw)  x4
+09-21 12:49:57.01  Compose draw (dispatchDraw)  x2
+09-21 12:49:57.02  Compose draw (dispatchDraw)  x2
+09-21 12:49:57.03  Compose draw (dispatchDraw)  x2
+09-21 12:49:57.04  Compose draw (dispatchDraw)  x2
+09-21 12:50:01.43  ProfileInstaller  x1
+09-21 12:50:05.11  VRI[MainActivity]@76341ad  x2
+09-21 12:50:05.15  Compose draw (dispatchDraw)  x4
+09-21 12:50:05.16  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.17  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.18  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.19  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.20  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.21  Compose draw (dispatchDraw)  x4
+09-21 12:50:05.22  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.23  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.24  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.25  Compose draw (dispatchDraw)  x4
+09-21 12:50:05.26  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.27  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.28  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.29  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.30  Compose draw (dispatchDraw)  x4
+09-21 12:50:05.31  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.32  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.32  VRI[MainActivity]@76341ad  x1
+09-21 12:50:05.33  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.34  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.35  Compose draw (dispatchDraw)  x4
+09-21 12:50:05.36  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.37  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.38  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.39  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.40  Compose draw (dispatchDraw)  x4
+09-21 12:50:05.41  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.42  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.43  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.44  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.45  Compose draw (dispatchDraw)  x4
+09-21 12:50:05.46  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.47  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.48  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.49  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.50  Compose draw (dispatchDraw)  x4
+09-21 12:50:05.51  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.52  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.53  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.54  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.55  Compose draw (dispatchDraw)  x4
+09-21 12:50:05.56  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.57  Compose draw (dispatchDraw)  x2
+09-21 12:50:05.58  Compose draw (dispatchDraw)  x2
+09-21 12:50:08.32  VRI[MainActivity]@76341ad  x1
+09-21 12:50:26.38  Compose draw (dispatchDraw)  x2
+09-21 12:50:39.28  Compose draw (dispatchDraw)  x4
+09-21 12:50:39.29  Compose draw (dispatchDraw)  x2
+09-21 12:50:39.30  Compose draw (dispatchDraw)  x2
+09-21 12:50:39.31  Compose draw (dispatchDraw)  x4
+09-21 12:50:39.32  Compose draw (dispatchDraw)  x2
+09-21 12:50:39.33  Compose draw (dispatchDraw)  x2
+09-21 12:50:39.34  Compose draw (dispatchDraw)  x2
+09-21 12:50:39.35  Compose draw (dispatchDraw)  x2
+09-21 12:50:39.36  Compose draw (dispatchDraw)  x2
+09-21 12:50:41.82  BitmapFactory  x2
+09-21 12:50:41.82  Compose draw (dispatchDraw)  x6
+09-21 12:50:41.82  Kumiho-Kumiho  x2
+09-21 12:50:41.83  Compose draw (dispatchDraw)  x2
+09-21 12:50:41.83  Kumiho-Kumiho  x2
+09-21 12:50:41.84  Compose draw (dispatchDraw)  x2
+09-21 12:50:41.85  Compose draw (dispatchDraw)  x3
+09-21 12:50:41.86  Compose draw (dispatchDraw)  x3
+09-21 12:50:41.87  Compose draw (dispatchDraw)  x2
+09-21 12:50:41.88  Compose draw (dispatchDraw)  x2
+09-21 12:50:41.89  Compose draw (dispatchDraw)  x2
+09-21 12:50:48.09  Compose draw (dispatchDraw)  x4
+09-21 12:50:48.10  Compose draw (dispatchDraw)  x2
+09-21 12:50:48.11  Compose draw (dispatchDraw)  x2
+09-21 12:50:48.12  Compose draw (dispatchDraw)  x4
+09-21 12:50:48.13  Compose draw (dispatchDraw)  x2
+09-21 12:50:48.14  Compose draw (dispatchDraw)  x2
+09-21 12:50:48.15  Compose draw (dispatchDraw)  x2
+09-21 12:50:48.16  Compose draw (dispatchDraw)  x2
+09-21 12:50:48.17  Compose draw (dispatchDraw)  x2
+09-21 12:50:50.65  BitmapFactory  x2
+09-21 12:50:50.65  Compose draw (dispatchDraw)  x4
+09-21 12:50:50.65  Kumiho-Kumiho  x2
+09-21 12:50:50.66  Compose draw (dispatchDraw)  x2
+09-21 12:50:50.66  Kumiho-Kumiho  x2
+09-21 12:50:50.67  Compose draw (dispatchDraw)  x2
+09-21 12:50:50.68  Compose draw (dispatchDraw)  x4
+09-21 12:50:50.69  Compose draw (dispatchDraw)  x2
+09-21 12:50:50.70  Compose draw (dispatchDraw)  x2
+09-21 12:50:50.71  Compose draw (dispatchDraw)  x4
+09-21 12:50:50.72  Compose draw (dispatchDraw)  x2
+09-21 12:51:06.00  Compose draw (dispatchDraw)  x2
+09-21 12:51:26.38  Compose draw (dispatchDraw)  x2
+09-21 12:52:26.39  Compose draw (dispatchDraw)  x2
+09-21 12:53:26.39  Compose draw (dispatchDraw)  x2
+
+--- WINDOW 2 (12:56:40-12:58:11) ---
+tagged2.log with the same filters is EMPTY for the whole window: no LiveIndexClient snapshot/delta frame arrived, so the flaps were not driven by the live-index websocket.
+
+--- WINDOW 2: app-process activity grouped per second ---
+09-21 12:56:44.13  Compose draw (dispatchDraw)  x6
+09-21 12:56:46.62  pdf_document_jni  x6
+09-21 12:56:46.63  pdf_document_jni  x15
+09-21 12:56:46.71  BitmapFactory  x1
+09-21 12:56:46.71  Compose draw (dispatchDraw)  x6
+09-21 12:56:46.71  Kumiho-Kumiho  x1
+09-21 12:56:46.72  Kumiho-Kumiho  x1
+09-21 12:56:46.73  Compose draw (dispatchDraw)  x2
+09-21 12:56:46.74  Compose draw (dispatchDraw)  x2
+09-21 12:56:53.99  Compose draw (dispatchDraw)  x6
+09-21 12:56:56.42  pdf_document_jni  x9
+09-21 12:56:56.43  pdf_document_jni  x12
+09-21 12:56:56.52  BitmapFactory  x1
+09-21 12:56:56.52  Compose draw (dispatchDraw)  x6
+09-21 12:56:56.52  Kumiho-Kumiho  x2
+09-21 12:56:56.54  Compose draw (dispatchDraw)  x4
+09-21 12:57:08.70  Compose draw (dispatchDraw)  x6
+09-21 12:57:08.71  Compose draw (dispatchDraw)  x4
+09-21 12:57:08.72  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.73  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.74  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.75  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.76  Compose draw (dispatchDraw)  x4
+09-21 12:57:08.77  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.78  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.79  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.80  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.81  Compose draw (dispatchDraw)  x4
+09-21 12:57:08.82  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.83  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.84  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.85  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.86  Compose draw (dispatchDraw)  x4
+09-21 12:57:08.87  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.88  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.89  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.90  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.91  Compose draw (dispatchDraw)  x4
+09-21 12:57:08.92  Compose draw (dispatchDraw)  x2
+09-21 12:57:08.93  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.46  pdf_document_jni  x6
+09-21 12:57:11.47  pdf_document_jni  x13
+09-21 12:57:11.48  pdf_document_jni  x2
+09-21 12:57:11.53  pdf_document_jni  x3
+09-21 12:57:11.54  pdf_document_jni  x6
+09-21 12:57:11.55  pdf_document_jni  x3
+09-21 12:57:11.56  pdf_document_jni  x6
+09-21 12:57:11.57  pdf_document_jni  x4
+09-21 12:57:11.58  pdf_document_jni  x2
+09-21 12:57:11.69  BitmapFactory  x2
+09-21 12:57:11.69  Compose draw (dispatchDraw)  x6
+09-21 12:57:11.69  Kumiho-Kumiho  x1
+09-21 12:57:11.70  BitmapFactory  x1
+09-21 12:57:11.70  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.70  Kumiho-Kumiho  x4
+09-21 12:57:11.71  Compose draw (dispatchDraw)  x4
+09-21 12:57:11.71  Kumiho-Kumiho  x1
+09-21 12:57:11.72  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.73  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.74  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.75  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.76  Compose draw (dispatchDraw)  x4
+09-21 12:57:11.77  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.78  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.79  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.80  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.81  Compose draw (dispatchDraw)  x4
+09-21 12:57:11.82  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.83  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.84  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.85  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.86  Compose draw (dispatchDraw)  x4
+09-21 12:57:11.87  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.88  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.89  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.90  Compose draw (dispatchDraw)  x4
+09-21 12:57:11.91  Compose draw (dispatchDraw)  x2
+09-21 12:57:11.92  Compose draw (dispatchDraw)  x2
+09-21 12:57:26.41  Compose draw (dispatchDraw)  x2

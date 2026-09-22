@@ -1,0 +1,30 @@
+=== Ready Jobs on-tablet metadata/tracker mtimes (read-only capture) ===
+This tablet is SM-X800. Tracker files named SM-X808U-*, SM-T738U-* and SM-X800-1184/3866/9231 belong to OTHER devices and land in the same job folders via Syncthing.
+
+--- 657 - TRUNORTH 3412 ONYX PL / CNC/.tracker/events   (12:56:46.121 brackets the 12:56:44 + 12:56:54 dashboard flaps) ---
+total 116
+-rw-rw---- 1 u0_a283 media_rw  2510 2026-09-11 09:41:31.265949700 -0700 SM-X800-1184.ndjson
+-rw-rw---- 1 u0_a283 media_rw  8280 2026-09-16 08:45:34.214938900 -0700 SM-X800-3866.ndjson
+-rw-rw---- 1 u0_a283 media_rw  1026 2026-09-21 11:25:02.381921318 -0700 SM-X800-9231.ndjson
+-rw-rw---- 1 u0_a283 media_rw 91594 2026-09-21 13:05:03.138677957 -0700 SM-X808U-5254.ndjson
+-rw-rw---- 1 u0_a283 media_rw   753 2026-09-16 14:18:54.710661100 -0700 SM-X808U-9579.ndjson
+
+--- 592 - GIELISH / CNC/.tracker/events   (12:56:01.641 and 12:58:24.961 bracket the 12:57:08 flap) ---
+total 192
+-rw-rw---- 1 u0_a283 media_rw   1355 2026-09-21 11:09:33.170687243 -0700 SM-T738U-1220.ndjson
+-rw-rw---- 1 u0_a283 media_rw   5993 2026-09-17 15:53:00.784594300 -0700 SM-X800-1184.ndjson
+-rw-rw---- 1 u0_a283 media_rw   2671 2026-09-21 12:58:24.961919180 -0700 SM-X800-9231.ndjson
+-rw-rw---- 1 u0_a283 media_rw 177640 2026-09-21 13:05:15.890677953 -0700 SM-X808U-5254.ndjson
+
+--- .metadata/cache_index.json last-modified for every job (592 at 12:54:10 = the earlier degraded cycle) ---
+2026-09-09 07:21:40.722919005 -0700|/storage/emulated/0/Ready Jobs/106 - WEAVER 81285 LOST CREEK/.metadata/cache_index.json
+2026-09-21 12:43:38.062667219 -0700|/storage/emulated/0/Ready Jobs/588r - KB GARDENIA REMAKE CAB/.metadata/cache_index.json
+2026-09-21 12:59:26.306867755 -0700|/storage/emulated/0/Ready Jobs/592 - GIELISH/.metadata/cache_index.json
+2026-09-21 12:43:37.902665836 -0700|/storage/emulated/0/Ready Jobs/641 - LOVEYS CONST - VANITIES/.metadata/cache_index.json
+2026-09-09 07:21:40.706918889 -0700|/storage/emulated/0/Ready Jobs/644d - SHOWROOM AND STORAGE CABS/.metadata/cache_index.json
+2026-09-21 12:43:38.050667116 -0700|/storage/emulated/0/Ready Jobs/657 - TRUNORTH 3412 ONYX PL/.metadata/cache_index.json
+2026-09-21 12:43:38.010666769 -0700|/storage/emulated/0/Ready Jobs/669 - WIECHERT 3146 NW CROSSINGS/.metadata/cache_index.json
+2026-09-21 12:43:37.886665698 -0700|/storage/emulated/0/Ready Jobs/670 - ESCHRICH 1364 VICTORIAN/.metadata/cache_index.json
+2026-09-21 12:43:38.102667565 -0700|/storage/emulated/0/Ready Jobs/675 - BLANKENSHIP 1575 SPRIG/.metadata/cache_index.json
+2026-09-21 12:43:38.162668084 -0700|/storage/emulated/0/Ready Jobs/681 - PASQUARELLI 500 E 40TH/.metadata/cache_index.json
+2026-09-21 12:43:38.126667772 -0700|/storage/emulated/0/Ready Jobs/687 - BOLTZ 539 64TH ST/.metadata/cache_index.json
