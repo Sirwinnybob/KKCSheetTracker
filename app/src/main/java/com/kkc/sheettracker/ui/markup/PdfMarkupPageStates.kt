@@ -138,24 +138,24 @@ class PdfMarkupPageStates(
     )
 
     /**
-     * Swaps in freshly loaded pages. With a [guard], pages that had an unsaved edit when the
-     * reload started, or were edited since, keep their in-memory state: the disk copy may predate
-     * them. The save that lands for such a page triggers another reload that picks up remote
-     * strokes for it.
+     * Swaps in freshly loaded pages. Pages that had an unsaved edit when [guard]'s reload started,
+     * or were edited since, keep their in-memory state: the disk copy may predate them. The save
+     * that lands for such a page triggers another reload that picks up remote strokes for it.
      */
     fun replaceAll(
         snapshots: Map<PdfMarkupPageKey, PdfMarkupPageSnapshot>,
-        guard: PdfMarkupReloadGuard? = null
+        guard: PdfMarkupReloadGuard
     ) {
-        val keep = if (guard == null) {
-            emptyMap()
-        } else {
-            pages.filterKeys { key ->
-                key in guard.unsavedAtStart || (lastMutation[key] ?: 0L) > guard.seqAtStart
-            }
+        val keep = pages.filterKeys { key ->
+            key in guard.unsavedAtStart || (lastMutation[key] ?: 0L) > guard.seqAtStart
         }
         pages.clear()
         pages.putAll(snapshots)
         pages.putAll(keep)
+    }
+
+    /** Used when there is no store/job open (nothing to load). */
+    fun clear() {
+        pages.clear()
     }
 }

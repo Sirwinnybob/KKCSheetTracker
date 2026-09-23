@@ -115,13 +115,15 @@ class PdfMarkupPageStatesTest {
 
     @Test
     fun `undo falls back to own strokes on the centered page only`() {
+        val guard = states.beginReload()
         states.replaceAll(
             mapOf(
                 pageA to PdfMarkupPageSnapshot(
                     strokes = listOf(stroke("other"), stroke("mine")),
                     ownStrokeIds = setOf("mine")
                 )
-            )
+            ),
+            guard
         )
 
         assertTrue(states.hasUndo(pageA))
@@ -137,11 +139,24 @@ class PdfMarkupPageStatesTest {
     @Test
     fun `replaceAll swaps the whole map`() {
         states.add(pageA, stroke("a1"))
+        landAllSaves()
 
-        states.replaceAll(mapOf(pageB to PdfMarkupPageSnapshot(strokes = listOf(stroke("b1")))))
+        val guard = states.beginReload()
+        states.replaceAll(mapOf(pageB to PdfMarkupPageSnapshot(strokes = listOf(stroke("b1")))), guard)
 
         assertEquals(emptyList<String>(), ids(pageA))
         assertEquals(listOf("b1"), ids(pageB))
+    }
+
+    @Test
+    fun `clear empties every page`() {
+        states.add(pageA, stroke("a1"))
+        states.add(pageB, stroke("b1"))
+
+        states.clear()
+
+        assertEquals(emptyList<String>(), ids(pageA))
+        assertEquals(emptyList<String>(), ids(pageB))
     }
 
     @Test
