@@ -45,7 +45,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,7 +57,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.PdfMarkupStore
-import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.ui.components.ContinuousReferencePdfPane
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
@@ -69,9 +67,13 @@ import com.kkc.sheettracker.ui.components.ReferencePdfPane
 import com.kkc.sheettracker.ui.components.referencePdfThumbnailMatteColorArgb
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolbar
+import com.kkc.sheettracker.ui.markup.PdfMarkupPageStates
+import com.kkc.sheettracker.ui.markup.buildPdfMarkupSnapshots
+import com.kkc.sheettracker.ui.markup.pdfMarkupPageKey
 import dev.chrisbanes.haze.hazeSource
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -491,6 +493,10 @@ internal fun filterNavigatorRowsForSearch(
     }
 }
 
+// A single writer for markup saves, so saves run in the order the strokes were made. Separate
+// Dispatchers.IO launches could land out of order and let an older page snapshot overwrite a newer one.
+private val markupSaveDispatcher = Dispatchers.IO.limitedParallelism(1)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UnifiedReferenceViewer(
@@ -601,35 +607,56 @@ fun UnifiedReferenceViewer(
         }
     }
 
-    val localMarkupStrokes = remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateListOf<PdfInkStroke>() }
-    val localDeletedIds = remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateListOf<String>() }
+    // Markup for every page of the job, so the continuous viewer can draw on and show strokes for
+    // any visible page. Each add/erase persists only the page it touched.
+    val markupPageStates = remember(pdfMarkupStore, pdfMarkupJobFolderName) {
+        PdfMarkupPageStates { key, snapshot, onSaved ->
+            if (pdfMarkupStore != null && pdfMarkupJobFolderName.isNotBlank()) {
+                // UNDISPATCHED enqueues onto the single writer right now, in call order.
+                // NonCancellable: a stroke made just before leaving the viewer still saves.
+                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    withContext(markupSaveDispatcher + NonCancellable) {
+                        // A failed write must neither crash the viewer nor leave the page
+                        // flagged "unsaved" forever (every later reload would skip it).
+                        runCatching {
+                            pdfMarkupStore.savePageMarkup(
+                                jobFolderName = pdfMarkupJobFolderName,
+                                pdfFilename = key.pdfFilename,
+                                page = key.page,
+                                strokes = snapshot.visibleStrokes,
+                                deletedStrokeIds = snapshot.deletedIds
+                            )
+                        }.onFailure { error ->
+                            AppLog.e("PdfMarkupDebug", "savePageMarkup failed pdf=${key.pdfFilename} page=${key.page}", error)
+                        }
+                    }
+                    onSaved() // back on the main thread
+                }
+            }
+        }
+    }
     var markupStrokesVisible by remember(pdfMarkupStore, pdfMarkupJobFolderName) { mutableStateOf(true) }
     val markupChangeGeneration = rememberPdfMarkupChangeGeneration(pdfMarkupStore, pdfMarkupJobFolderName)
+    val currentMarkupKey = pdfMarkupPageKey(resolvedPdfFilename, sourcePage)
 
-    LaunchedEffect(pdfMarkupStore, pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage, markupChangeGeneration) {
-        if (pdfMarkupStore == null || pdfMarkupJobFolderName.isBlank() || resolvedPdfFilename.isBlank() || sourcePage <= 0) {
-            localMarkupStrokes.clear()
-            localDeletedIds.clear()
+    LaunchedEffect(pdfMarkupStore, pdfMarkupJobFolderName, markupChangeGeneration) {
+        if (pdfMarkupStore == null || pdfMarkupJobFolderName.isBlank()) {
+            markupPageStates.clear()
             return@LaunchedEffect
         }
-        val (mergedStrokes, deletedIds) = withContext(Dispatchers.IO) {
-            val strokes = pdfMarkupStore.getMergedActiveStrokes(
-                jobFolderName = pdfMarkupJobFolderName,
-                pdfFilename = resolvedPdfFilename,
-                page = sourcePage
+        // Guard first: our own save fires this reload (the observer sees the MOVED_TO), and a
+        // stroke drawn while we read must not be replaced by the older disk copy.
+        val guard = markupPageStates.beginReload()
+        val snapshots = withContext(Dispatchers.IO) {
+            buildPdfMarkupSnapshots(
+                merged = pdfMarkupStore.getMergedActiveStrokesByPage(pdfMarkupJobFolderName),
+                ownPages = pdfMarkupStore.loadTabletMarkup(pdfMarkupJobFolderName).pages
             )
-            val deleted = pdfMarkupStore.loadTabletPageMarkup(pdfMarkupJobFolderName, resolvedPdfFilename, sourcePage)
-                ?.deletedStrokeIds
-                .orEmpty()
-            strokes to deleted
         }
-        localMarkupStrokes.clear()
-        localMarkupStrokes.addAll(mergedStrokes)
-        localDeletedIds.clear()
-        localDeletedIds.addAll(deletedIds)
+        markupPageStates.replaceAll(snapshots, guard)
         AppLog.d(
             "PdfMarkupDebug",
-            "UnifiedReferenceViewer reload job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage strokes=${localMarkupStrokes.size} deleted=${localDeletedIds.size}"
+            "UnifiedReferenceViewer reload job=$pdfMarkupJobFolderName pages=${snapshots.size}"
         )
     }
 
@@ -644,26 +671,9 @@ fun UnifiedReferenceViewer(
             Log.w("UnifiedReferenceViewer", navigatorWarningMessage)
         }
     }
-    val visibleMarkupStrokes = remember(localMarkupStrokes.size, localDeletedIds.size) {
-        localMarkupStrokes.filter { it.id !in localDeletedIds }
-    }
-    val hasMarkupHistory = remember(localMarkupStrokes.size, localDeletedIds.size) {
-        visibleMarkupStrokes.isNotEmpty()
-    }
-    fun persistMarkupState() {
-        val store = pdfMarkupStore ?: return
-        if (pdfMarkupJobFolderName.isBlank() || resolvedPdfFilename.isBlank() || sourcePage <= 0) return
-        val strokesToSave = localMarkupStrokes.filter { it.id !in localDeletedIds }
-        val deletedToSave = localDeletedIds.toList()
-        scope.launch(Dispatchers.IO) {
-            store.savePageMarkup(
-                jobFolderName = pdfMarkupJobFolderName,
-                pdfFilename = resolvedPdfFilename,
-                page = sourcePage,
-                strokes = strokesToSave,
-                deletedStrokeIds = deletedToSave
-            )
-        }
+    // derivedStateOf: recompose only when the answer flips, not on every stroke on any page.
+    val hasMarkupHistory by remember(markupPageStates, currentMarkupKey) {
+        derivedStateOf { markupPageStates.hasUndo(currentMarkupKey) }
     }
     val navBarDeco = LocalNavBarDecoration.current
     // The toolbar content lambda (and the NavBarPenDecoration that can wrap it) must NOT be
@@ -681,10 +691,8 @@ fun UnifiedReferenceViewer(
         markupToolState,
         hasMarkupHistory,
         markupStrokesVisible,
-        pdfMarkupStore,
-        pdfMarkupJobFolderName,
-        resolvedPdfFilename,
-        sourcePage,
+        markupPageStates,
+        currentMarkupKey,
         onToggleMarkupEnabled
     ) {
         if (markupEnabled && markupToolState != null) {
@@ -692,25 +700,7 @@ fun UnifiedReferenceViewer(
                 PdfMarkupToolbar(
                     state = markupToolState,
                     hasUndo = hasMarkupHistory,
-                    onUndo = {
-                        val store = pdfMarkupStore
-                        val jobFolder = pdfMarkupJobFolderName
-                        val pdfName = resolvedPdfFilename
-                        val page = sourcePage
-                        val deletedSnapshot = localDeletedIds.toSet()
-                        scope.launch {
-                            val latestVisible = withContext(Dispatchers.IO) {
-                                store
-                                    ?.loadTabletPageMarkup(jobFolder, pdfName, page)
-                                    ?.strokes
-                                    ?.lastOrNull { it.id !in deletedSnapshot }
-                            }
-                            if (latestVisible != null) {
-                                localDeletedIds.add(latestVisible.id)
-                                persistMarkupState()
-                            }
-                        }
-                    },
+                    onUndo = { markupPageStates.undoLast(currentMarkupKey) },
                     strokesVisible = markupStrokesVisible,
                     onToggleVisibility = { markupStrokesVisible = !markupStrokesVisible },
                     onHide = onToggleMarkupEnabled
@@ -813,21 +803,9 @@ fun UnifiedReferenceViewer(
                 markupEnabled = markupEnabled,
                 onToggleMarkupEnabled = onToggleMarkupEnabled,
                 markupToolState = markupToolState,
-                markupStrokes = if (markupStrokesVisible) visibleMarkupStrokes else emptyList(),
-                onMarkupStrokeAdded = { stroke ->
-                    localMarkupStrokes.add(stroke)
-                    AppLog.d(
-                        "PdfMarkupDebug",
-                        "UnifiedReferenceViewer addStroke job=$pdfMarkupJobFolderName pdf=$resolvedPdfFilename page=$sourcePage local=${localMarkupStrokes.size}"
-                    )
-                    persistMarkupState()
-                },
-                onMarkupStrokeErased = { strokeId ->
-                    if (strokeId !in localDeletedIds) {
-                        localDeletedIds.add(strokeId)
-                    }
-                    persistMarkupState()
-                }
+                markupStrokes = if (markupStrokesVisible) markupPageStates.strokesFor(currentMarkupKey) else emptyList(),
+                onMarkupStrokeAdded = { stroke -> markupPageStates.add(currentMarkupKey, stroke) },
+                onMarkupStrokeErased = { strokeId -> markupPageStates.erase(currentMarkupKey, strokeId) }
             )
         } else if (pdfFile == null) {
             // ReferencePdfPane shows missingText/unreadableText for these two states; continuous
@@ -866,21 +844,17 @@ fun UnifiedReferenceViewer(
                     markupEnabled = markupEnabled,
                     markupToolState = markupToolState,
                     markupStrokesForPage = { filename, page ->
-                        if (markupStrokesVisible && filename == resolvedPdfFilename && page == sourcePage) {
-                            visibleMarkupStrokes
+                        if (markupStrokesVisible) {
+                            markupPageStates.strokesFor(pdfMarkupPageKey(filename, page))
                         } else {
                             emptyList()
                         }
                     },
-                    onMarkupStrokeAdded = { _, _, stroke ->
-                        localMarkupStrokes.add(stroke)
-                        persistMarkupState()
+                    onMarkupStrokeAdded = { filename, page, stroke ->
+                        markupPageStates.add(pdfMarkupPageKey(filename, page), stroke)
                     },
-                    onMarkupStrokeErased = { _, _, strokeId ->
-                        if (strokeId !in localDeletedIds) {
-                            localDeletedIds.add(strokeId)
-                        }
-                        persistMarkupState()
+                    onMarkupStrokeErased = { filename, page, strokeId ->
+                        markupPageStates.erase(pdfMarkupPageKey(filename, page), strokeId)
                     },
                     contentPadding = contentPadding,
                     onSingleTap = onSingleTap,
