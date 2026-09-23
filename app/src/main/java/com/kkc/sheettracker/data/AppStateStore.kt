@@ -9,6 +9,8 @@ import com.kkc.sheettracker.data.models.JobMaterialKey
 import com.kkc.sheettracker.data.models.JobUiModel
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.MaterialUiModel
+import com.kkc.sheettracker.data.models.ScanSnapshotState
+import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SheetStatusKey
 import com.kkc.sheettracker.data.models.SheetStatusSnapshot
@@ -24,12 +26,43 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** What a single app-state derive runs against. */
+internal data class DeriveInput(val scanState: ScanSnapshotState, val progressVersion: Long)
+
+/**
+ * Emits when the app state needs re-deriving. Keyed on scan generation + progress version ONLY:
+ * scan status (LOADING/READY) and error text carry no new data, and including them made every
+ * rescan derive twice — once on LOADING with the old data, once on READY — and again on rescans
+ * that changed nothing. See [withScanStatus] for how those flags are kept current instead.
+ */
+@OptIn(FlowPreview::class)
+internal fun deriveTriggers(
+    scanState: Flow<ScanSnapshotState>,
+    progressVersion: Flow<Long>,
+    recomputeIntents: Flow<Long>,
+    progressDebounceMs: () -> Long
+): Flow<DeriveInput> =
+    combine(
+        scanState,
+        progressVersion.debounce { progressDebounceMs() },
+        recomputeIntents
+    ) { scan, progress, _ -> DeriveInput(scan, progress) }
+        .distinctUntilChangedBy { "${it.scanState.snapshot.generation}|${it.progressVersion}" }
+
+/** The UI flags a scan status change drives, without re-deriving anything. */
+internal fun AppUiState.withScanStatus(status: ScanStatus, errorMessage: String?): AppUiState =
+    copy(isRefreshing = status == ScanStatus.LOADING, errorMessage = errorMessage)
 
 private const val APP_STATE_TAG = "KKC_APP_STATE"
 private const val DASHBOARD_RECENT_LIMIT = 4
@@ -73,21 +106,24 @@ class AppStateStore(
 
     @OptIn(FlowPreview::class)
     private fun startDerivation() {
+        // A rescan flips LOADING -> READY, which carries no new data unless the generation moved.
+        // Keep the "refreshing" flag and error text current without paying for a full derive.
         scope.launch {
-            combine(
-                scanCoordinator.state,
-                progressStore.progressVersion
-                    .onStart { emit(progressStore.progressVersion.value) }
-                    .debounce { if (_activeJobFolderName.value != null) 3_000L else 120L },
-                recomputeIntents.onStart { emit(System.currentTimeMillis()) }
-            ) { scanState, progressVersion, _ ->
-                Triple(scanState, progressVersion, System.currentTimeMillis())
-            }
-                .distinctUntilChangedBy { (scanState, progressVersion, _) ->
-                    // Suppress redundant derive runs when invalidations resolve to the same state.
-                    "${scanState.snapshot.generation}|$progressVersion|${scanState.status}"
+            scanCoordinator.state
+                .map { it.status to it.errorMessage }
+                .distinctUntilChanged()
+                .collect { (status, errorMessage) ->
+                    _uiState.update { it.withScanStatus(status, errorMessage) }
                 }
-                .collectLatest { (scanState, progressVersion, _) ->
+        }
+        scope.launch {
+            deriveTriggers(
+                scanState = scanCoordinator.state,
+                progressVersion = progressStore.progressVersion.onStart { emit(progressStore.progressVersion.value) },
+                recomputeIntents = recomputeIntents.onStart { emit(System.currentTimeMillis()) },
+                progressDebounceMs = { if (_activeJobFolderName.value != null) 3_000L else 120L }
+            )
+                .collectLatest { (scanState, progressVersion) ->
                 _lastProgressVersion.value = progressVersion
                 val derivingStartedAt = System.currentTimeMillis()
                 _uiState.value = _uiState.value.copy(
