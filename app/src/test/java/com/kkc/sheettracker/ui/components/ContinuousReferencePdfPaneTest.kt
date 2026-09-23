@@ -2,7 +2,9 @@ package com.kkc.sheettracker.ui.components
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.unit.IntSize
+import com.kkc.sheettracker.ui.markup.DrawingTool
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
 import java.io.File
 import java.nio.file.Files
@@ -38,6 +40,65 @@ class ContinuousReferencePdfPaneTest {
             4,
             continuousCurrentPage(firstVisibleIndex = 3, lastVisibleIndex = 5, canScrollForward = true)
         )
+    }
+
+    @Test
+    fun fingerGestures_areOwnedByThePaneWheneverInkIsOff() {
+        for (allowFinger in listOf(false, true)) {
+            for (tool in DrawingTool.values()) {
+                assertTrue(
+                    shouldContinuousPaneOwnFingerGestures(
+                        markupEnabled = false,
+                        allowFingerDrawing = allowFinger,
+                        selectedTool = tool
+                    )
+                )
+            }
+        }
+    }
+
+    @Test
+    fun fingerGestures_stayWithThePaneWhileInkIsOnAndOnlyTheStylusDraws() {
+        assertTrue(
+            shouldContinuousPaneOwnFingerGestures(
+                markupEnabled = true,
+                allowFingerDrawing = false,
+                selectedTool = DrawingTool.PEN
+            )
+        )
+        assertTrue(
+            shouldContinuousPaneOwnFingerGestures(
+                markupEnabled = true,
+                allowFingerDrawing = false,
+                selectedTool = DrawingTool.HIGHLIGHTER
+            )
+        )
+    }
+
+    @Test
+    fun fingerGestures_lockWhenAFingerCanDrawOrErase() {
+        assertFalse(
+            shouldContinuousPaneOwnFingerGestures(
+                markupEnabled = true,
+                allowFingerDrawing = true,
+                selectedTool = DrawingTool.PEN
+            )
+        )
+        assertFalse(
+            shouldContinuousPaneOwnFingerGestures(
+                markupEnabled = true,
+                allowFingerDrawing = false,
+                selectedTool = DrawingTool.ERASER
+            )
+        )
+    }
+
+    @Test
+    fun stylusAndEraserPointersAreStylusTypes() {
+        assertTrue(isStylusPointerType(PointerType.Stylus))
+        assertTrue(isStylusPointerType(PointerType.Eraser))
+        assertFalse(isStylusPointerType(PointerType.Touch))
+        assertFalse(isStylusPointerType(PointerType.Mouse))
     }
 
     private fun continuousPaneSource(): String {

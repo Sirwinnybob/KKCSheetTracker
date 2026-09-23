@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -60,6 +61,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import com.kkc.sheettracker.data.models.PdfInkStroke
 import kotlinx.coroutines.Job
+import com.kkc.sheettracker.ui.markup.DrawingTool
 import com.kkc.sheettracker.ui.markup.PdfMarkupOverlay
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
@@ -194,6 +196,25 @@ internal fun continuousMainAxisScrollDelta(
 } else {
     -panDelta / zoom
 }
+
+/**
+ * Whether the pane's scroll/pinch/tap handler should run for finger input. With ink on it stays
+ * on so fingers keep scrolling while the stylus draws — except when a finger itself draws or
+ * erases (finger drawing enabled, or the eraser tool selected, which erases with any pointer),
+ * where the list must lock so the finger doesn't scroll and mark at once.
+ *
+ * Uses the manually [selectedTool], not the effective tool: the stylus side-button flips the
+ * effective tool to ERASER mid-stroke, and that must not tear down the gesture modifier.
+ */
+internal fun shouldContinuousPaneOwnFingerGestures(
+    markupEnabled: Boolean,
+    allowFingerDrawing: Boolean,
+    selectedTool: DrawingTool
+): Boolean = !markupEnabled || !(allowFingerDrawing || selectedTool == DrawingTool.ERASER)
+
+/** Pen and pen-eraser pointers belong to the markup overlay, never to scroll/zoom. */
+internal fun isStylusPointerType(type: PointerType): Boolean =
+    type == PointerType.Stylus || type == PointerType.Eraser
 
 internal fun hasContinuousPdfPageRenderDwelled(
     visibleSinceMillis: Long?,
