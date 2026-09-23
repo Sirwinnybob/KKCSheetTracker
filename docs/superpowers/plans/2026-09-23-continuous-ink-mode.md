@@ -12,7 +12,12 @@
 
 **Deviation from spec:** the finger-lock predicate keys off `markupToolState.selectedTool`, not `activeTool`. `activeTool` flips to `ERASER` whenever the stylus side-button is held (`isStylusButtonEraserActive`); using it would toggle the whole gesture modifier mid-stroke. The overlay only lets a *finger* erase when the tool is manually `ERASER`, so `selectedTool` is the correct, stable signal. Task 2 updates the spec.
 
-**Working-tree warning:** `UnifiedReferenceViewer.kt` already has uncommitted edits from other work (zebra tints, `navigatorInHeader`, `pageStepper`, `showMarkupToggleButton`). Never revert them. Do **not** `git add` that file in Task 4; Task 6 handles committing it.
+**Working-tree warning (re-checked at review, 2026-09-23):** the earlier `UnifiedReferenceViewer.kt` WIP (zebra tints, `navigatorInHeader`, `pageStepper`, `showMarkupToggleButton`) was committed in `40d4f3f5`; that file is now clean, so Task 4 commits it directly. The tree now has *unrelated* uncommitted work in `app/src/main/java/com/kkc/sheettracker/perf/*` and `app/src/test/java/com/kkc/sheettracker/perf/*`. Never revert, stage or commit those; always `git add` explicit paths, never `git add -A` / `.`. Run `git status --short` before each commit.
+
+**Review amendments (2026-09-23):** verified against the code before execution.
+1. **Persist race moved in scope (Task 1 + Task 4).** Own saves always trigger a reload: `atomicWriteFile` renames `*.tmp-N` onto `<tablet>.markup.json`, and the observer fires on `MOVED_TO` for `.json`. A reload that read the disk before an in-flight save landed would `replaceAll` the page with stale data, and the next stroke on that page would persist on top of the stale copy, **permanently** losing a stroke. Separate `scope.launch(Dispatchers.IO)` saves could also land out of order. `PdfMarkupPageStates` now tracks unsaved edits and a reload guard, and the viewer serializes saves on one writer. Waiting for check 8 to catch this on-device would pause the plan at Task 5 for something cheap to fix in new code.
+2. **Stylus with ink off (Task 3).** As written, the handler skipped stylus pointers unconditionally, so with ink **off** the pen could no longer scroll, fling or tap the continuous viewer (the overlay returns `false` when `!inputEnabled`). The stylus skip is now gated on `markupEnabled`.
+3. **Palm rest (Task 3 comment, Task 5 check 4).** `PdfMarkupOverlay` uses `pointerInteropFilter`. In Compose UI 1.11.4, when `ACTION_DOWN` returns `false` (a finger/palm with finger drawing off), the filter goes `NotDispatching` until **every** pointer lifts. So a pen that lands while the palm is already down never reaches the overlay. This already happens in paged mode and is not caused by this plan. The handler's `stylusTookOver` abort still helps (the list stops scrolling, and lifting the palm doesn't toggle the chrome), but check 4 no longer expects ink while the palm is down, and a failure there is not a blocker.
 
 ## Observation Protocol (applies to every task, every agent)
 
@@ -107,8 +112,8 @@ plan file where reality changed, commit that plan edit, then continue from the p
 
 ````
 Repo: C:\Scripts\KKCSheetTracker (Android, Kotlin, Jetpack Compose). Branch: <current branch>.
-Read CLAUDE.md first. The working tree has unrelated uncommitted edits (UnifiedReferenceViewer.kt,
-ReferencePdfPane.kt, and others) — do not revert or commit them; stage only the files you change.
+Read CLAUDE.md first. The working tree has unrelated uncommitted edits (<list from `git status --short`,
+e.g. app/src/main/java/com/kkc/sheettracker/perf/*>) — do not revert or commit them; stage only the files you change.
 
 Problem: <one paragraph: what is wrong, how it shows up, who is affected>.
 
@@ -145,7 +150,7 @@ Commit with a conventional message, and report the commit hash and what changed 
 | `app/src/test/java/com/kkc/sheettracker/ui/markup/PdfMarkupPageStatesTest.kt` | Create | Unit tests for the above |
 | `app/src/main/java/com/kkc/sheettracker/ui/components/ContinuousReferencePdfPane.kt` | Modify | Two pure predicates; stylus-aware gesture handler; new `gesturesEnabled` |
 | `app/src/test/java/com/kkc/sheettracker/ui/components/ContinuousReferencePdfPaneTest.kt` | Modify | Predicate tests + source-wiring guards |
-| `app/src/main/java/com/kkc/sheettracker/ui/viewer/UnifiedReferenceViewer.kt` | Modify | Use `PdfMarkupPageStates` for load, persist, paged + continuous wiring, undo |
+| `app/src/main/java/com/kkc/sheettracker/ui/viewer/UnifiedReferenceViewer.kt` | Modify | Use `PdfMarkupPageStates` for load (guarded), serialized persist, paged + continuous wiring, undo |
 | `docs/superpowers/specs/2026-09-23-continuous-ink-mode-design.md` | Modify | `activeTool` → `selectedTool` |
 
 ---
@@ -176,7 +181,16 @@ class PdfMarkupPageStatesTest {
     private val pageB = pdfMarkupPageKey("Plans.pdf", 2)
 
     private val persisted = mutableListOf<Pair<PdfMarkupPageKey, PdfMarkupPageSnapshot>>()
-    private val states = PdfMarkupPageStates { key, snapshot -> persisted += key to snapshot }
+    private val pendingSaves = mutableListOf<() -> Unit>()
+    private val states = PdfMarkupPageStates { key, snapshot, onSaved ->
+        persisted += key to snapshot
+        pendingSaves += onSaved
+    }
+
+    private fun landAllSaves() {
+        pendingSaves.forEach { it() }
+        pendingSaves.clear()
+    }
 
     private fun stroke(id: String) =
         PdfInkStroke(id = id, points = listOf(0.1f, 0.1f, 0.2f, 0.2f))
@@ -299,6 +313,49 @@ class PdfMarkupPageStatesTest {
     }
 
     @Test
+    fun `guarded reload keeps a page whose save has not landed`() {
+        states.add(pageA, stroke("a1"))
+
+        val guard = states.beginReload()
+        states.replaceAll(
+            mapOf(
+                pageA to PdfMarkupPageSnapshot(),
+                pageB to PdfMarkupPageSnapshot(strokes = listOf(stroke("b-remote")))
+            ),
+            guard
+        )
+
+        assertEquals(listOf("a1"), ids(pageA))
+        assertEquals(listOf("b-remote"), ids(pageB))
+    }
+
+    @Test
+    fun `guarded reload keeps a page edited while the reload was reading`() {
+        states.add(pageA, stroke("a1"))
+        landAllSaves()
+
+        val guard = states.beginReload()
+        states.add(pageA, stroke("a2"))
+        states.replaceAll(mapOf(pageA to PdfMarkupPageSnapshot(strokes = listOf(stroke("a1")))), guard)
+
+        assertEquals(listOf("a1", "a2"), ids(pageA))
+    }
+
+    @Test
+    fun `guarded reload replaces a page whose saves landed before it started`() {
+        states.add(pageA, stroke("a1"))
+        landAllSaves()
+
+        val guard = states.beginReload()
+        states.replaceAll(
+            mapOf(pageA to PdfMarkupPageSnapshot(strokes = listOf(stroke("a1"), stroke("remote")))),
+            guard
+        )
+
+        assertEquals(listOf("a1", "remote"), ids(pageA))
+    }
+
+    @Test
     fun `buildPdfMarkupSnapshots merges other tablets strokes with own ids and deletions`() {
         val merged = mapOf(
             pageA to listOf(stroke("other"), stroke("mine")),
@@ -398,21 +455,45 @@ fun buildPdfMarkupSnapshots(
     }
 }
 
+/** Captured by [PdfMarkupPageStates.beginReload] before a reload starts reading the disk. */
+class PdfMarkupReloadGuard internal constructor(
+    internal val seqAtStart: Long,
+    internal val unsavedAtStart: Set<PdfMarkupPageKey>
+)
+
 /**
  * Snapshot-backed markup state for every page of one job, so the continuous viewer can draw and
- * show strokes on any page. Each mutation calls [persist] with just the page it changed.
+ * show strokes on any page. Each mutation calls [persist] with just the page it changed; the
+ * caller must invoke `onSaved` on the main thread once that write has landed on disk.
+ *
+ * Not thread-safe: call everything on the main thread.
  */
 @Stable
 class PdfMarkupPageStates(
-    private val persist: (PdfMarkupPageKey, PdfMarkupPageSnapshot) -> Unit
+    private val persist: (PdfMarkupPageKey, PdfMarkupPageSnapshot, onSaved: () -> Unit) -> Unit
 ) {
     private data class UndoEntry(val key: PdfMarkupPageKey, val strokeId: String)
 
     private val pages = mutableStateMapOf<PdfMarkupPageKey, PdfMarkupPageSnapshot>()
     private val undoStack = mutableStateListOf<UndoEntry>()
 
+    // Plain (non-snapshot) bookkeeping of which local edits have reached disk, so a reload that
+    // read the file before a save landed can't replace newer in-memory strokes with stale ones.
+    private var mutationSeq = 0L
+    private val lastMutation = HashMap<PdfMarkupPageKey, Long>()
+    private val lastSaved = HashMap<PdfMarkupPageKey, Long>()
+
     fun strokesFor(key: PdfMarkupPageKey): List<PdfInkStroke> =
         pages[key]?.visibleStrokes.orEmpty()
+
+    private fun commit(key: PdfMarkupPageKey, next: PdfMarkupPageSnapshot) {
+        pages[key] = next
+        val seq = ++mutationSeq
+        lastMutation[key] = seq
+        persist(key, next) {
+            if (seq > (lastSaved[key] ?: 0L)) lastSaved[key] = seq
+        }
+    }
 
     fun add(key: PdfMarkupPageKey, stroke: PdfInkStroke) {
         if (!key.isValid()) return
@@ -421,9 +502,8 @@ class PdfMarkupPageStates(
             strokes = current.strokes + stroke,
             ownStrokeIds = current.ownStrokeIds + stroke.id
         )
-        pages[key] = next
         undoStack.add(UndoEntry(key, stroke.id))
-        persist(key, next)
+        commit(key, next)
     }
 
     /** Returns true if a visible stroke was removed. */
@@ -431,9 +511,7 @@ class PdfMarkupPageStates(
         if (!key.isValid()) return false
         val current = pages[key] ?: return false
         if (strokeId in current.deletedIds || current.strokes.none { it.id == strokeId }) return false
-        val next = current.copy(deletedIds = current.deletedIds + strokeId)
-        pages[key] = next
-        persist(key, next)
+        commit(key, current.copy(deletedIds = current.deletedIds + strokeId))
         return true
     }
 
@@ -459,9 +537,32 @@ class PdfMarkupPageStates(
         return erase(target.key, target.strokeId)
     }
 
-    fun replaceAll(snapshots: Map<PdfMarkupPageKey, PdfMarkupPageSnapshot>) {
+    /** Call on the main thread immediately before a reload starts reading the store. */
+    fun beginReload(): PdfMarkupReloadGuard = PdfMarkupReloadGuard(
+        seqAtStart = mutationSeq,
+        unsavedAtStart = lastMutation.filter { (key, seq) -> seq > (lastSaved[key] ?: 0L) }.keys.toSet()
+    )
+
+    /**
+     * Swaps in freshly loaded pages. With a [guard], pages that had an unsaved edit when the
+     * reload started, or were edited since, keep their in-memory state: the disk copy may predate
+     * them. The save that lands for such a page triggers another reload that picks up remote
+     * strokes for it.
+     */
+    fun replaceAll(
+        snapshots: Map<PdfMarkupPageKey, PdfMarkupPageSnapshot>,
+        guard: PdfMarkupReloadGuard? = null
+    ) {
+        val keep = if (guard == null) {
+            emptyMap()
+        } else {
+            pages.filterKeys { key ->
+                key in guard.unsavedAtStart || (lastMutation[key] ?: 0L) > guard.seqAtStart
+            }
+        }
         pages.clear()
         pages.putAll(snapshots)
+        pages.putAll(keep)
     }
 }
 ```
@@ -469,7 +570,7 @@ class PdfMarkupPageStates(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.ui.markup.PdfMarkupPageStatesTest"`
-Expected: PASS, 11 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -665,8 +766,12 @@ Add inside `ContinuousReferencePdfPaneTest`, above `private fun continuousPaneSo
         val source = continuousPaneSource()
 
         assertTrue(
-            "A pen-down must not start a scroll/zoom/tap gesture.",
-            source.contains("isStylusPointerType(firstDown.type)")
+            "A pen-down must not start a scroll/zoom/tap gesture while ink is on.",
+            source.contains("currentMarkupEnabled && isStylusPointerType(firstDown.type)")
+        )
+        assertFalse(
+            "With ink off the pen must still scroll, fling and tap; the stylus skip must be gated on markupEnabled.",
+            source.contains("if (isStylusPointerType(firstDown.type))")
         )
         assertTrue(
             "A pen landing mid-gesture (resting palm) must hand the gesture to the overlay.",
@@ -678,7 +783,7 @@ Add inside `ContinuousReferencePdfPaneTest`, above `private fun continuousPaneSo
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.ui.components.ContinuousReferencePdfPaneTest"`
-Expected: FAIL — the three new assertions (`gesturesEnabled = !markupEnabled` still present; no `isStylusPointerType(firstDown.type)` / `stylusTookOver`).
+Expected: FAIL — `gesturesEnabled = !markupEnabled` still present; no `shouldContinuousPaneOwnFingerGestures(` call, no `currentMarkupEnabled && isStylusPointerType(firstDown.type)`, no `stylusTookOver`.
 
 - [ ] **Step 3: Replace `gesturesEnabled`**
 
@@ -714,6 +819,13 @@ with:
 
 - [ ] **Step 4: Make the handler stylus-aware**
 
+`pointerInput(orientation, documentIdentity)` does not restart when `markupEnabled` changes, so read it
+through updated state. Next to the existing `val currentOnSingleTap by rememberUpdatedState(onSingleTap)`
+(~line 622) add:
+```kotlin
+    val currentMarkupEnabled by rememberUpdatedState(markupEnabled)
+```
+
 In the `awaitEachGesture { ... }` block (starts ~line 1121):
 
 (a) Immediately after the line
@@ -722,10 +834,11 @@ In the `awaitEachGesture { ... }` block (starts ~line 1121):
 ```
 insert:
 ```kotlin
-                            // Pen strokes belong to PdfMarkupOverlay. Never scroll, zoom, fling or
-                            // tap-toggle chrome for a stylus; awaitEachGesture waits for every
-                            // pointer to lift before it starts the next gesture.
-                            if (isStylusPointerType(firstDown.type)) return@awaitEachGesture
+                            // With ink on, pen strokes belong to PdfMarkupOverlay: never scroll,
+                            // zoom, fling or tap-toggle chrome for a stylus. With ink off the
+                            // overlay ignores input, so the pen scrolls like a finger. awaitEachGesture
+                            // waits for every pointer to lift before it starts the next gesture.
+                            if (currentMarkupEnabled && isStylusPointerType(firstDown.type)) return@awaitEachGesture
 ```
 This must sit **before** `flingJob?.cancel()` and `isInteracting = true`.
 
@@ -742,9 +855,10 @@ to
 (c) As the first statements inside the `do {` loop, directly after `val event = awaitPointerEvent()`, insert:
 ```kotlin
                                 // A pen landing mid-gesture (palm resting while writing): stop
-                                // scrolling and hand everything to the overlay. The drag session
-                                // times out on its own after 32 ms of no deltas.
-                                if (event.changes.any { it.pressed && isStylusPointerType(it.type) }) {
+                                // scrolling, and fire no tap or fling when the palm lifts. The
+                                // overlay's pointerInteropFilter already refused the palm's
+                                // ACTION_DOWN, so it won't see this pen until every pointer lifts.
+                                if (currentMarkupEnabled && event.changes.any { it.pressed && isStylusPointerType(it.type) }) {
                                     stylusTookOver = true
                                     break
                                 }
@@ -760,6 +874,8 @@ so no tap or fling fires for an aborted gesture.
 
 Run: `.\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.ui.components.ContinuousReferencePdfPaneTest"`
 Expected: PASS. (This also compiles the main source set; if it reports `break` or `return@awaitEachGesture` errors, re-check that the edits sit inside `awaitEachGesture`'s lambda and the `do { } while` loop respectively.)
+
+Also update the stale comment above `val strokes = markupStrokesForPage(...)` (~line 1008): it says visibility is scoped by "markupStrokesVisible + centered page match". After Task 4 there is no centered-page match, so change that to "markupStrokesVisible".
 
 - [ ] **Step 6: Commit**
 
@@ -779,9 +895,9 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `app/src/main/java/com/kkc/sheettracker/ui/viewer/UnifiedReferenceViewer.kt`
 
-This file has uncommitted edits from other work. Edit only the regions below; do not `git add` it (Task 6).
+Before editing, confirm `git status --short -- app/src/main/java/com/kkc/sheettracker/ui/viewer/UnifiedReferenceViewer.kt` prints nothing. If it shows changes, someone else has edited the file since this review: do not commit it in Step 9, and ask the user instead.
 
-- [ ] **Step 1: Add imports**
+- [ ] **Step 1: Add imports and the save dispatcher**
 
 Next to the existing `com.kkc.sheettracker.ui.markup.PdfMarkupToolState` / `PdfMarkupToolbar` imports (~lines 70-71) add:
 
@@ -790,6 +906,19 @@ import com.kkc.sheettracker.ui.markup.PdfMarkupPageStates
 import com.kkc.sheettracker.ui.markup.buildPdfMarkupSnapshots
 import com.kkc.sheettracker.ui.markup.pdfMarkupPageKey
 ```
+and with the `kotlinx.coroutines` imports (~lines 75-81) add:
+```kotlin
+import kotlinx.coroutines.CoroutineStart
+```
+(`Dispatchers`, `NonCancellable`, `launch`, `withContext` are already imported.)
+
+Add this file-level declaration immediately above the first `@Composable` (~line 495):
+```kotlin
+// A single writer for markup saves, so saves run in the order the strokes were made. Separate
+// Dispatchers.IO launches could land out of order and let an older page snapshot overwrite a newer one.
+private val markupSaveDispatcher = Dispatchers.IO.limitedParallelism(1)
+```
+(If the compiler flags `limitedParallelism` as experimental, add `@OptIn(ExperimentalCoroutinesApi::class)` to that declaration.)
 
 - [ ] **Step 2: Replace the single-page state, load effect, and persist helper**
 
@@ -811,16 +940,21 @@ with:
     // Markup for every page of the job, so the continuous viewer can draw on and show strokes for
     // any visible page. Each add/erase persists only the page it touched.
     val markupPageStates = remember(pdfMarkupStore, pdfMarkupJobFolderName) {
-        PdfMarkupPageStates { key, snapshot ->
+        PdfMarkupPageStates { key, snapshot, onSaved ->
             if (pdfMarkupStore != null && pdfMarkupJobFolderName.isNotBlank()) {
-                scope.launch(Dispatchers.IO) {
-                    pdfMarkupStore.savePageMarkup(
-                        jobFolderName = pdfMarkupJobFolderName,
-                        pdfFilename = key.pdfFilename,
-                        page = key.page,
-                        strokes = snapshot.visibleStrokes,
-                        deletedStrokeIds = snapshot.deletedIds
-                    )
+                // UNDISPATCHED enqueues onto the single writer right now, in call order.
+                // NonCancellable: a stroke made just before leaving the viewer still saves.
+                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    withContext(markupSaveDispatcher + NonCancellable) {
+                        pdfMarkupStore.savePageMarkup(
+                            jobFolderName = pdfMarkupJobFolderName,
+                            pdfFilename = key.pdfFilename,
+                            page = key.page,
+                            strokes = snapshot.visibleStrokes,
+                            deletedStrokeIds = snapshot.deletedIds
+                        )
+                    }
+                    onSaved() // back on the main thread
                 }
             }
         }
@@ -834,13 +968,16 @@ with:
             markupPageStates.replaceAll(emptyMap())
             return@LaunchedEffect
         }
+        // Guard first: our own save fires this reload (the observer sees the MOVED_TO), and a
+        // stroke drawn while we read must not be replaced by the older disk copy.
+        val guard = markupPageStates.beginReload()
         val snapshots = withContext(Dispatchers.IO) {
             buildPdfMarkupSnapshots(
                 merged = pdfMarkupStore.getMergedActiveStrokesByPage(pdfMarkupJobFolderName),
                 ownPages = pdfMarkupStore.loadTabletMarkup(pdfMarkupJobFolderName).pages
             )
         }
-        markupPageStates.replaceAll(snapshots)
+        markupPageStates.replaceAll(snapshots, guard)
         AppLog.d(
             "PdfMarkupDebug",
             "UnifiedReferenceViewer reload job=$pdfMarkupJobFolderName pages=${snapshots.size}"
@@ -934,9 +1071,23 @@ Run:
 ```
 .\gradlew.bat :app:testDebugUnitTest --tests "com.kkc.sheettracker.ui.markup.*" --tests "com.kkc.sheettracker.data.PdfMarkupStoreTest" --tests "com.kkc.sheettracker.ui.components.ContinuousReferencePdfPaneTest"
 ```
-Expected: PASS. (Do not commit yet — see Task 6.)
+Expected: PASS.
 
-- [ ] **Step 9: Observations checkpoint** — append findings (or "none") under `## Task 4` in the observations file, per the Observation Protocol. Pay particular attention to recomposition cost (`markupPageStates.hasUndo(...)` and `strokesFor(...)` are read during composition), and to anything in this ~1,200-line composable that recomposes or allocates per frame. Do not commit that file yet.
+- [ ] **Step 9: Commit**
+
+Run `git status --short` first. Stage **only** this file (the `perf/*` changes belong to other work):
+
+```bash
+git add app/src/main/java/com/kkc/sheettracker/ui/viewer/UnifiedReferenceViewer.kt
+git commit -m "feat(viewer): per-page ink state so continuous mode draws on any visible page
+
+Saves are serialized on one writer and reloads keep pages with unsaved edits,
+so quick strokes can no longer be dropped by an out-of-order save or a stale reload.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+```
+
+- [ ] **Step 10: Observations checkpoint** — append findings (or "none") under `## Task 4` in the observations file, per the Observation Protocol. Pay particular attention to recomposition cost (`markupPageStates.hasUndo(...)` and `strokesFor(...)` are read during composition), and to anything in this ~1,200-line composable that recomposes or allocates per frame. Do not commit that file yet.
 
 ---
 
@@ -1002,11 +1153,12 @@ Log lines available (all tag `PdfMarkupDebug`): `savePageMarkup ... pdf=<f> page
 | 1 | Continuous mode, ink on. Draw one stroke on the centered page, scroll to the next page, draw one stroke there. Leave the viewer, re-enter. | Two `savePageMarkup` lines with **different** `page=`; after re-entering, a `reload ... pages=` count including both. User confirms both strokes show. |
 | 2 | Scroll through several pages with ink on, then ink off. | No `savePageMarkup`. User confirms strokes on every page stay visible. |
 | 3 | Ink on: finger-scroll, fling, pinch-zoom; then draw with the pen. | No `savePageMarkup` from finger gestures; exactly one per pen stroke. User confirms pen never scrolls the list and finger never draws. |
-| 4 | Rest the palm on the screen while writing with the pen. | One `savePageMarkup` per stroke. User confirms the list doesn't scroll. |
+| 4 | Rest the palm on the screen, then write with the pen; lift both. Repeat with the pen down first, then the palm. | Palm first: the list stops scrolling and lifting the palm doesn't toggle the chrome. Whether the pen inks depends on the OS palm rejection (known overlay limit, same as paged mode, see amendment 3); log it, don't block. Pen first: one `savePageMarkup` per stroke, and the list doesn't move. |
+| 4b | Ink **off**: scroll, fling and tap with the pen. | No `savePageMarkup`. User confirms the pen scrolls and the tap toggles the chrome, same as before this change. |
 | 5 | Turn on "allow finger drawing", finger-draw one stroke; then select the eraser and erase it with a finger. | One save per finger stroke, one per erase (`deleted` grows). User confirms the list locked during both, as before. |
 | 6 | Draw on page N, scroll to N+1, tap undo. | One `savePageMarkup` for page N with `strokes` reduced and `deleted` +1. User confirms the stroke on N vanished. |
 | 7 | Pinch-zoom in, draw a stroke, zoom out. | One save. User confirms the stroke sits exactly where the pen touched. |
-| 8 | Two strokes on the same page **within about a second**, quickly. | Two saves; the last `savePageMarkup` for that page shows `strokes=` 2 more than before, and any `reload` afterwards still shows both. **User confirms both strokes stay visible.** A stroke that disappears or a final save with too few strokes is a **BLOCKER** (see the RACE entries in the observations log and the Ink Blocker Protocol). |
+| 8 | Two strokes on the same page **within about a second**, quickly. | Two saves; the last `savePageMarkup` for that page shows `strokes=` 2 more than before, and any `reload` afterwards still shows both. **User confirms both strokes stay visible, with no flicker.** Now guarded by Task 1/4, so a stroke that disappears or a final save with too few strokes is a **BUG in this plan's code**: fix it before Task 6. |
 | 9 | Draw 20+ strokes on one page, then scroll and erase. | Count `reload` lines vs strokes (a reload after every stroke confirms the seeded PERF entry). User reports any lag or jank while drawing or erasing. |
 | 10 | Switch to paged (non-continuous) mode: draw, erase, undo, toggle visibility. | Saves for the current page only; nothing for other pages. User confirms paged behavior is unchanged. |
 
@@ -1020,28 +1172,15 @@ Ink Blocker Protocol pauses the plan instead.
 
 ---
 
-### Task 6: Commit `UnifiedReferenceViewer.kt`
+### Task 6: Wrap-up
 
-`UnifiedReferenceViewer.kt` also carries uncommitted, unrelated edits (zebra tint, `navigatorInHeader`, `pageStepper`, `showMarkupToggleButton`, removal of the "Loading thumbnails" label) that belong to other in-progress work, and those hunks cannot be separated without interactive `git add -p`.
+`UnifiedReferenceViewer.kt` was committed in Task 4 Step 9, because the review found it clean. If Task 4 left it uncommitted (someone else edited it in the meantime), ask the user now whether to commit it whole or leave it for them. Do not choose for them.
 
-- [ ] **Step 1: Ask the user which to do**
-
-Ask: commit `UnifiedReferenceViewer.kt` whole (ink change plus their other WIP hunks), or leave it uncommitted for them to commit with that other work? Do not choose for them.
-
-- [ ] **Step 2 (if they say commit whole):**
-
-```bash
-git add app/src/main/java/com/kkc/sheettracker/ui/viewer/UnifiedReferenceViewer.kt
-git commit -m "feat(viewer): per-page ink state so continuous mode draws on any visible page
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
-```
-
-- [ ] **Step 3: Bump nothing**
+- [ ] **Step 1: Bump nothing**
 
 Do not bump the app version here; the user does that as a separate `chore: bump version` commit when releasing.
 
-- [ ] **Step 4: Triage the observations**
+- [ ] **Step 2: Triage the observations**
 
 Read the whole observations file. Dedupe, drop anything you disproved, and fill the `## Triage` table
 (entry, proposed action: `fix now` / `follow-up` / `ignore`, owner). Then:
@@ -1068,8 +1207,9 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Overlay presence unchanged, no overlay edits → no task needed (confirmed no file listed).
 - Errors: null store / blank job / invalid key → Task 1 tests (`invalid page keys are ignored`), Task 4 load guard and persist guard.
 - Tests and manual checklist → Tasks 1-3, 5.
-- Working-tree note → header warning and Task 6.
+- Working-tree note → header warning (re-checked at review), Task 4 Step 9 commit, Task 6 fallback.
+- Review amendments → persist ordering + reload guard (Task 1 tests 12-14, Task 4 Steps 1-2); stylus gated on ink (Task 3 Step 4, check 4b); palm-rest limit documented (check 4).
 
 **Placeholder scan:** none. Task 4 step 2/3 quote the old code by region and end marker because the exact old block is 30+ lines already in the file; the replacement text is complete.
 
-**Type consistency:** `pdfMarkupPageKey(filename, page)`, `PdfMarkupPageSnapshot(strokes, deletedIds, ownStrokeIds).visibleStrokes`, `PdfMarkupPageStates.{strokesFor, add, erase, hasUndo, undoLast, replaceAll}`, `buildPdfMarkupSnapshots(merged, ownPages)`, `shouldContinuousPaneOwnFingerGestures(markupEnabled, allowFingerDrawing, selectedTool)`, `isStylusPointerType(type)` are used with identical names and signatures in every task.
+**Type consistency:** `pdfMarkupPageKey(filename, page)`, `PdfMarkupPageSnapshot(strokes, deletedIds, ownStrokeIds).visibleStrokes`, `PdfMarkupPageStates(persist: (key, snapshot, onSaved) -> Unit).{strokesFor, add, erase, hasUndo, undoLast, beginReload, replaceAll(snapshots, guard?)}`, `buildPdfMarkupSnapshots(merged, ownPages)`, `shouldContinuousPaneOwnFingerGestures(markupEnabled, allowFingerDrawing, selectedTool)`, `isStylusPointerType(type)` are used with identical names and signatures in every task.
