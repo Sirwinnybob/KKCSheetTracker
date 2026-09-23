@@ -61,7 +61,6 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import com.kkc.sheettracker.data.models.PdfInkStroke
 import kotlinx.coroutines.Job
-import com.kkc.sheettracker.ui.markup.DrawingTool
 import com.kkc.sheettracker.ui.markup.PdfMarkupOverlay
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
@@ -199,18 +198,14 @@ internal fun continuousMainAxisScrollDelta(
 
 /**
  * Whether the pane's scroll/pinch/tap handler should run for finger input. With ink on it stays
- * on so fingers keep scrolling while the stylus draws — except when a finger itself draws or
- * erases (finger drawing enabled, or the eraser tool selected, which erases with any pointer),
- * where the list must lock so the finger doesn't scroll and mark at once.
- *
- * Uses the manually [selectedTool], not the effective tool: the stylus side-button flips the
- * effective tool to ERASER mid-stroke, and that must not tear down the gesture modifier.
+ * on so fingers keep scrolling and zooming while the stylus draws or erases — except when finger
+ * drawing is enabled, where a finger marks the page and the list must lock so it doesn't scroll
+ * and mark at once. The eraser tool erases with the pen only, so it doesn't lock the list.
  */
 internal fun shouldContinuousPaneOwnFingerGestures(
     markupEnabled: Boolean,
-    allowFingerDrawing: Boolean,
-    selectedTool: DrawingTool
-): Boolean = !markupEnabled || !(allowFingerDrawing || selectedTool == DrawingTool.ERASER)
+    allowFingerDrawing: Boolean
+): Boolean = !markupEnabled || !allowFingerDrawing
 
 /** Pen and pen-eraser pointers belong to the markup overlay, never to scroll/zoom. */
 internal fun isStylusPointerType(type: PointerType): Boolean =
@@ -1103,17 +1098,16 @@ internal fun ContinuousReferencePdfPane(
 
     // With ink on, the stylus draws through each page's PdfMarkupOverlay while fingers keep
     // scrolling and pinching through our handler below — the handler skips stylus pointers, and
-    // the overlay ignores finger input unless finger drawing is on or the eraser tool is
-    // selected. Only in those two finger-owns-ink cases is our handler removed, so touches pass
-    // straight through to the overlay and the list can't scroll under a drawing finger. The
+    // the overlay ignores finger input unless finger drawing is on. Only then is our handler
+    // removed, so touches pass straight through to the overlay and the list can't scroll under
+    // a drawing finger. The
     // list's own userScrollEnabled stays false at all times regardless, because scrolling is
     // otherwise always driven programmatically by our handler rather than the list's built-in
     // touch handling — that built-in handling is what used to race against each page's own
     // independent pinch detector.
     val gesturesEnabled = shouldContinuousPaneOwnFingerGestures(
         markupEnabled = markupEnabled,
-        allowFingerDrawing = markupToolState?.allowFingerDrawing == true,
-        selectedTool = markupToolState?.selectedTool ?: DrawingTool.PEN
+        allowFingerDrawing = markupToolState?.allowFingerDrawing == true
     )
 
     Box(
@@ -1248,7 +1242,9 @@ internal fun ContinuousReferencePdfPane(
                             // tap from a drag. Toggles the floating pill/nav-bar chrome, matching
                             // paged mode's ReferencePdfPane (which wires this via its own
                             // detectTapGestures) — continuous mode never had a tap path at all.
-                            if (!wasMultiTouch && totalMovement <= touchSlop) {
+                            // Not while inking: the chrome holds the ink toolbar, and a stray
+                            // finger tap must not hide it mid-markup.
+                            if (!currentMarkupEnabled && !wasMultiTouch && totalMovement <= touchSlop) {
                                 currentOnSingleTap?.invoke()
                             }
 

@@ -4,7 +4,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.unit.IntSize
-import com.kkc.sheettracker.ui.markup.DrawingTool
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
 import java.io.File
 import java.nio.file.Files
@@ -45,52 +44,19 @@ class ContinuousReferencePdfPaneTest {
     @Test
     fun fingerGestures_areOwnedByThePaneWheneverInkIsOff() {
         for (allowFinger in listOf(false, true)) {
-            for (tool in DrawingTool.values()) {
-                assertTrue(
-                    shouldContinuousPaneOwnFingerGestures(
-                        markupEnabled = false,
-                        allowFingerDrawing = allowFinger,
-                        selectedTool = tool
-                    )
-                )
-            }
+            assertTrue(shouldContinuousPaneOwnFingerGestures(markupEnabled = false, allowFingerDrawing = allowFinger))
         }
     }
 
     @Test
-    fun fingerGestures_stayWithThePaneWhileInkIsOnAndOnlyTheStylusDraws() {
-        assertTrue(
-            shouldContinuousPaneOwnFingerGestures(
-                markupEnabled = true,
-                allowFingerDrawing = false,
-                selectedTool = DrawingTool.PEN
-            )
-        )
-        assertTrue(
-            shouldContinuousPaneOwnFingerGestures(
-                markupEnabled = true,
-                allowFingerDrawing = false,
-                selectedTool = DrawingTool.HIGHLIGHTER
-            )
-        )
+    fun fingerGestures_stayWithThePaneWhileInkIsOnAndOnlyThePenMarks() {
+        // Covers every tool, eraser included: the eraser erases with the pen only.
+        assertTrue(shouldContinuousPaneOwnFingerGestures(markupEnabled = true, allowFingerDrawing = false))
     }
 
     @Test
-    fun fingerGestures_lockWhenAFingerCanDrawOrErase() {
-        assertFalse(
-            shouldContinuousPaneOwnFingerGestures(
-                markupEnabled = true,
-                allowFingerDrawing = true,
-                selectedTool = DrawingTool.PEN
-            )
-        )
-        assertFalse(
-            shouldContinuousPaneOwnFingerGestures(
-                markupEnabled = true,
-                allowFingerDrawing = false,
-                selectedTool = DrawingTool.ERASER
-            )
-        )
+    fun fingerGestures_lockWhenFingerDrawingIsOn() {
+        assertFalse(shouldContinuousPaneOwnFingerGestures(markupEnabled = true, allowFingerDrawing = true))
     }
 
     @Test
@@ -110,6 +76,14 @@ class ContinuousReferencePdfPaneTest {
             source.contains("val gesturesEnabled = !markupEnabled")
         )
         assertTrue(source.contains("shouldContinuousPaneOwnFingerGestures("))
+    }
+
+    @Test
+    fun inkMode_fingerTapDoesNotToggleChrome() {
+        assertTrue(
+            "A finger tap while inking must not hide the chrome that holds the ink toolbar.",
+            continuousPaneSource().contains("if (!currentMarkupEnabled && !wasMultiTouch && totalMovement <= touchSlop)")
+        )
     }
 
     @Test

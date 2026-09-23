@@ -779,7 +779,8 @@ fun ReferencePdfPane(
                             pageAspectRatio = pageAspectRatio,
                             emptyCanvasColor = emptyCanvasColor,
                             onGutterTapStep = null, // replaced by overlay arrow buttons
-                            onSingleTap = onSingleTap,
+                            // No tap-to-hide-chrome while inking; it holds the ink toolbar.
+                            onSingleTap = if (markupEnabled) null else onSingleTap,
                             allowStylusGestures = !markupEnabled,
                             allowFingerGestures = !markupEnabled || !(markupToolState?.allowFingerDrawing ?: false),
                             modifier = Modifier

@@ -220,7 +220,9 @@ fun PdfMarkupOverlay(
                 } else {
                     activeTool
                 }
-                val canHandleInput = isStylusTool || allowFingerDrawing || effectiveTool == DrawingTool.ERASER
+                // A finger marks the page (draw or erase) only with finger drawing on; otherwise
+                // it's refused here so the parent viewer can scroll and zoom with it.
+                val canHandleInput = isStylusTool || allowFingerDrawing
 
                 fun eraseAt(viewX: Float, viewY: Float) {
                     val toDelete = activeStrokes

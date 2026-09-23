@@ -63,12 +63,12 @@ non-deleted stroke on the centered page (today's behaviour). Undo marks the stro
 
 ### 2. Gestures — `ContinuousReferencePdfPane`
 
-- `gesturesEnabled = !(markupEnabled && fingerOwnsInk)` where
-  `fingerOwnsInk = allowFingerDrawing || selectedTool == ERASER`.
-  Uses the manually selected tool, not the effective tool: the stylus side-button flips the effective
-  tool to ERASER mid-stroke and must not tear down the gesture modifier. Extracted as a pure, tested function
-  `shouldContinuousPaneOwnFingerGestures(markupEnabled, allowFingerDrawing, selectedTool)`.
-  The pane needs `markupToolState` (already passed) to compute it.
+- `gesturesEnabled = !(markupEnabled && allowFingerDrawing)`, extracted as the pure, tested function
+  `shouldContinuousPaneOwnFingerGestures(markupEnabled, allowFingerDrawing)`.
+  Revised after on-device testing (2026-09-23): the eraser tool erases with the pen only, so fingers keep
+  scrolling and zooming in eraser mode. `PdfMarkupOverlay` accepts finger input only when finger drawing
+  is on (for drawing or erasing), in every viewer that uses it. The earlier `selectedTool == ERASER` lock
+  is gone.
 - The scroll/zoom handler **ignores stylus pointers**: after `awaitFirstDown`, if `pointerType` is `Stylus` or
   `Eraser`, skip the gesture entirely (no pan, zoom, fling or tap-to-toggle-chrome) and wait for that pointer to lift.
   Extracted as a small predicate for testing.
