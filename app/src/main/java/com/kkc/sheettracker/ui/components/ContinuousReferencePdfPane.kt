@@ -28,7 +28,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -51,8 +53,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.node.LayoutModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.invalidatePlacement
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.IntOffset
@@ -634,6 +644,12 @@ internal fun ContinuousReferencePdfPane(
     val pageCoordinatesByDisplayPage = remember(documentIdentity, docKey) {
         mutableStateMapOf<Int, LayoutCoordinates>()
     }
+    // Pages whose ink overlay should exist, registered by pageContent. The overlays themselves
+    // are composed in the outer (unscaled) layer, above the sharp crop canvas — see
+    // ContinuousInkOverlayLayer.
+    val inkPagesByDisplayPage = remember(documentIdentity, docKey) {
+        mutableStateMapOf<Int, ContinuousInkPage>()
+    }
     val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
     val currentOnSingleTap by rememberUpdatedState(onSingleTap)
     val currentOnEdgeOverscrollChange by rememberUpdatedState(onEdgeOverscrollChange)
@@ -682,6 +698,20 @@ internal fun ContinuousReferencePdfPane(
     var contentSize by remember { mutableStateOf(IntSize.Zero) }
     var contentCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val zoomedIn = sharedZoom > 1.02f
+    // Positions each page's ink overlay over that page's live on-screen bounds. Keys cover every
+    // state object the lambdas capture (sharedZoom & co. are keyed by documentIdentity +
+    // orientation, the coordinates map by documentIdentity + docKey), so they never read a stale
+    // state instance.
+    val inkOverlayPlacer = remember(documentIdentity, docKey, orientation, listState) {
+        ContinuousInkOverlayPlacer(
+            pageCoordinatesByDisplayPage = pageCoordinatesByDisplayPage,
+            hostCoordinates = { contentCoordinates },
+            motionFrame = {
+                sharedZoom + sharedCrossPan + sharedMainAxisOverscroll +
+                    listState.firstVisibleItemIndex + listState.firstVisibleItemScrollOffset
+            }
+        )
+    }
 
     val viewportExtent = if (orientation == Orientation.Vertical) paneSize.height.toFloat() else paneSize.width.toFloat()
     val maxEdgeOverscroll = mainAxisEdgePadding(viewportExtent, sharedZoom)
@@ -858,16 +888,17 @@ internal fun ContinuousReferencePdfPane(
             mutableStateOf(preferDarkMode)
         }
         val sourceVariantChanged = lastRenderedCropVariant != preferDarkMode
-        // Real box size, needed so PdfMarkupOverlay's page transform is valid — with
-        // viewSize left at IntSize.Zero, currentTransform() returns null and the overlay's
-        // pointerInteropFilter bails out before ever registering a stroke. Also drives crop
-        // tile placement (below) and the fallback render size before first layout.
+        // Real (unscaled) box size. The outer ink layer scales it by sharedZoom to size this
+        // page's PdfMarkupOverlay — with it left at IntSize.Zero the overlay's page transform
+        // is null and its pointerInteropFilter bails out before ever registering a stroke. Also
+        // drives the fallback render size before first layout.
         val geometryIdentity = continuousPageGeometryIdentity(renderIdentity, documentIdentity, docKey)
         var boxSize by remember(geometryIdentity) { mutableStateOf(IntSize.Zero) }
         var pageCoordinates by remember(geometryIdentity) { mutableStateOf<LayoutCoordinates?>(null) }
         DisposableEffect(displayPage, documentIdentity) {
             onDispose {
                 pageCoordinatesByDisplayPage.remove(displayPage)
+                inkPagesByDisplayPage.remove(displayPage)
                 cropOverlays.remove(displayPage)
             }
         }
@@ -1026,6 +1057,32 @@ internal fun ContinuousReferencePdfPane(
         // of markupEnabled — gating on markupEnabled here as well would make drawn strokes
         // vanish the instant the pen is toggled off.
         val strokes = markupStrokesForPage(resolved.pdfFilename, resolved.sourcePage)
+        // This page's ink overlay is NOT composed here: when zoomed, the sharp crops are drawn
+        // outside (above) the zoom layer, so an overlay inside the page would be covered by
+        // them. Register what the outer layer needs instead; ContinuousInkOverlayLayer draws
+        // it above the crop canvas at every zoom.
+        val inkPage = if (markupToolState != null && onMarkupStrokeAdded != null && onMarkupStrokeErased != null &&
+            (markupEnabled || strokes.isNotEmpty())
+        ) {
+            ContinuousInkPage(
+                pdfFilename = resolved.pdfFilename,
+                sourcePage = resolved.sourcePage,
+                aspectRatio = aspectRatio,
+                pageSize = boxSize,
+                strokes = strokes
+            )
+        } else {
+            null
+        }
+        SideEffect {
+            // Only write on a real change: this item recomposes on every pan/zoom frame, and an
+            // unconditional put would recompose the whole ink layer with it.
+            if (inkPage == null) {
+                if (displayPage in inkPagesByDisplayPage) inkPagesByDisplayPage.remove(displayPage)
+            } else if (inkPagesByDisplayPage[displayPage] != inkPage) {
+                inkPagesByDisplayPage[displayPage] = inkPage
+            }
+        }
 
         // Fit the page within BOTH the pane's width AND height (like ContentScale.Fit), not
         // just width — a plain fillMaxWidth+aspectRatio box lets a portrait page in a short
@@ -1056,7 +1113,12 @@ internal fun ContinuousReferencePdfPane(
         val targetHeightDp = with(density) { targetHPx.toDp() }
 
         Box(
-            modifier = Modifier.fillMaxWidth(),
+            // First in the chain so it runs on every re-placement of this node, which in
+            // LazyColumn is the item root the list moves on scroll (LazyRow's wrapper below
+            // carries the same hook). See ContinuousInkOverlayPlacer.requestPlacement.
+            modifier = Modifier
+                .onPlaced { inkOverlayPlacer.requestPlacement() }
+                .fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -1074,29 +1136,12 @@ internal fun ContinuousReferencePdfPane(
                     emptyCanvasColor = emptyCanvasColor,
                     contentDescription = "Page $displayPage"
                 )
-                if (markupToolState != null && onMarkupStrokeAdded != null && onMarkupStrokeErased != null &&
-                    (markupEnabled || strokes.isNotEmpty())
-                ) {
-                    PdfMarkupOverlay(
-                        modifier = Modifier.fillMaxSize(),
-                        viewportState = PdfViewportState(zoom = 1f, panX = 0f, panY = 0f, viewSize = boxSize),
-                        pageAspectRatio = aspectRatio,
-                        activeStrokes = strokes,
-                        inputEnabled = markupEnabled,
-                        activeTool = markupToolState.activeTool,
-                        activeColor = markupToolState.activeColor,
-                        activeThickness = markupToolState.activeThickness,
-                        allowFingerDrawing = markupToolState.allowFingerDrawing,
-                        onStylusButtonEraserChanged = { markupToolState.isStylusButtonEraserActive = it },
-                        onStrokeAdded = { stroke -> onMarkupStrokeAdded(resolved.pdfFilename, resolved.sourcePage, stroke) },
-                        onStrokeErased = { strokeId -> onMarkupStrokeErased(resolved.pdfFilename, resolved.sourcePage, strokeId) }
-                    )
-                }
             }
         }
     }
 
-    // With ink on, the stylus draws through each page's PdfMarkupOverlay while fingers keep
+    // With ink on, the stylus draws through each visible page's PdfMarkupOverlay (composed in
+    // the outer layer above the crop canvas, but still a descendant of this handler) while fingers keep
     // scrolling and pinching through our handler below — the handler skips stylus pointers, and
     // the overlay ignores finger input unless finger drawing is on. Only then is our handler
     // removed, so touches pass straight through to the overlay and the list can't scroll under
@@ -1366,12 +1411,17 @@ internal fun ContinuousReferencePdfPane(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         items(count = totalPages, key = { it + 1 }) { index ->
-                            Box(Modifier.fillParentMaxWidth()) { pageContent(index + 1) }
+                            // The wrapper, not pageContent's root, is the node LazyRow moves.
+                            Box(
+                                Modifier
+                                    .onPlaced { inkOverlayPlacer.requestPlacement() }
+                                    .fillParentMaxWidth()
+                            ) { pageContent(index + 1) }
                         }
                     }
                 }
             }
-            // The overlay is outside the graphicsLayer, so it must observe every state input to
+            // The crop overlay is outside the graphicsLayer, so it must observe every state input to
             // that layer (and LazyList's live position) to map its retained PDF fraction again
             // on every pan/zoom frame.
             val overlayMotionFrame = sharedZoom + sharedCrossPan + sharedMainAxisOverscroll +
@@ -1406,7 +1456,225 @@ internal fun ContinuousReferencePdfPane(
                     }
                 }
             }
+            // Ink goes last so it always draws above the sharp crops (committed strokes AND the
+            // live stroke), at every zoom including 1x — one code path. Each overlay is sized
+            // and placed over its page's live on-screen bounds by the placer's layout node; it
+            // stays a descendant of the gesture Box above, so finger scroll/zoom routing is
+            // unchanged.
+            if (markupToolState != null && onMarkupStrokeAdded != null && onMarkupStrokeErased != null) {
+                ContinuousInkOverlayLayer(
+                    inkPages = inkPagesByDisplayPage,
+                    isPageVisible = { it in visiblePages },
+                    placer = inkOverlayPlacer,
+                    zoom = sharedZoom,
+                    markupEnabled = markupEnabled,
+                    markupToolState = markupToolState,
+                    onMarkupStrokeAdded = onMarkupStrokeAdded,
+                    onMarkupStrokeErased = onMarkupStrokeErased
+                )
+            }
         }
+        }
+    }
+}
+
+/**
+ * What the outer ink layer needs to compose one page's [PdfMarkupOverlay], registered by that
+ * page's list item. [pageSize] is the page box's unscaled layout size (before the whole-stack
+ * zoom layer).
+ */
+@Immutable
+internal data class ContinuousInkPage(
+    val pdfFilename: String,
+    val sourcePage: Int,
+    val aspectRatio: Float?,
+    val pageSize: IntSize,
+    val strokes: List<PdfInkStroke>
+)
+
+/**
+ * On-screen size of a page box under the whole-stack zoom layer (which scales the box by exactly
+ * [zoom]). Used as the ink overlay's own size and view box, so normalized stroke points map onto
+ * the page's scaled rect.
+ */
+internal fun continuousInkOverlayViewSize(pageSize: IntSize, zoom: Float): IntSize {
+    if (pageSize.width <= 0 || pageSize.height <= 0 || !zoom.isFinite() || zoom <= 0f) return IntSize.Zero
+    return IntSize(
+        (pageSize.width * zoom).roundToInt().coerceAtLeast(1),
+        (pageSize.height * zoom).roundToInt().coerceAtLeast(1)
+    )
+}
+
+/** Pixel offset for an ink overlay whose page's on-screen bounds start at ([leftPx], [topPx]). */
+internal fun continuousInkOverlayOffset(leftPx: Float, topPx: Float): IntOffset =
+    IntOffset(leftPx.roundToInt(), topPx.roundToInt())
+
+// Where an overlay goes while its page has no usable coordinates for a moment: fully outside the
+// clipped content box (so nothing draws and nothing can be hit), with slack for stroke width.
+private const val CONTINUOUS_INK_PARKED_MARGIN_PX = 4096
+
+internal fun continuousInkParkedOffset(width: Int, height: Int): IntOffset =
+    IntOffset(-(width + CONTINUOUS_INK_PARKED_MARGIN_PX), -(height + CONTINUOUS_INK_PARKED_MARGIN_PX))
+
+/**
+ * Places each page's ink overlay (a sibling of the zoom layer, above the crop canvas) over that
+ * page's live bounds inside the clipped content box ([hostCoordinates]).
+ *
+ * Position is resolved in the PLACEMENT phase, so pan/zoom/scroll frames only re-place the
+ * overlays (each on its own layer, so no redraw) and never recompose them. Two triggers:
+ *  - The placement block reads [motionFrame] (zoom, cross pan, edge overscroll, list scroll).
+ *    graphicsLayer parameter changes are applied before layout, so zoom/pan frames place
+ *    correctly from this alone.
+ *  - LazyList scroll moves items in its OWN placement pass, which runs after ours (the list's
+ *    nodes are deeper, and relayout is processed shallow-first). Reading the page coordinates in
+ *    our pass alone would lag one frame, and stay wrong once scrolling stops. So each list item
+ *    calls [requestPlacement] from `onPlaced`, which re-queues our nodes directly (no snapshot
+ *    round-trip) and the same layout pass re-places them with the fresh item positions.
+ */
+internal class ContinuousInkOverlayPlacer(
+    private val pageCoordinatesByDisplayPage: Map<Int, LayoutCoordinates>,
+    private val hostCoordinates: () -> LayoutCoordinates?,
+    private val motionFrame: () -> Float
+) {
+    private val nodes = ArrayList<ContinuousInkPlacementNode>()
+
+    internal fun register(node: ContinuousInkPlacementNode) {
+        if (!nodes.contains(node)) nodes.add(node)
+    }
+
+    internal fun unregister(node: ContinuousInkPlacementNode) {
+        nodes.remove(node)
+    }
+
+    fun requestPlacement() {
+        for (i in nodes.indices) nodes[i].requestPlacement()
+    }
+
+    internal fun pageOffset(displayPage: Int): IntOffset? {
+        // Read for its snapshot subscription: any pan/zoom/scroll state change re-places.
+        if (!motionFrame().isFinite()) return null
+        val page = pageCoordinatesByDisplayPage[displayPage] ?: return null
+        val host = hostCoordinates() ?: return null
+        if (!page.isAttached || !host.isAttached) return null
+        val bounds = host.localBoundingBoxOf(page, clipBounds = false)
+        return continuousInkOverlayOffset(bounds.left, bounds.top)
+    }
+}
+
+private fun Modifier.continuousInkPagePlacement(
+    placer: ContinuousInkOverlayPlacer,
+    displayPage: Int,
+    viewSize: IntSize
+): Modifier = this then ContinuousInkPlacementElement(placer, displayPage, viewSize)
+
+private class ContinuousInkPlacementElement(
+    val placer: ContinuousInkOverlayPlacer,
+    val displayPage: Int,
+    val viewSize: IntSize
+) : ModifierNodeElement<ContinuousInkPlacementNode>() {
+    override fun create() = ContinuousInkPlacementNode(placer, displayPage, viewSize)
+
+    override fun update(node: ContinuousInkPlacementNode) {
+        if (node.placer !== placer) {
+            if (node.isAttached) {
+                node.placer.unregister(node)
+                placer.register(node)
+            }
+            node.placer = placer
+        }
+        node.displayPage = displayPage
+        node.viewSize = viewSize
+    }
+
+    override fun equals(other: Any?): Boolean =
+        other is ContinuousInkPlacementElement &&
+            other.placer === placer &&
+            other.displayPage == displayPage &&
+            other.viewSize == viewSize
+
+    override fun hashCode(): Int {
+        var result = System.identityHashCode(placer)
+        result = 31 * result + displayPage
+        result = 31 * result + viewSize.hashCode()
+        return result
+    }
+}
+
+internal class ContinuousInkPlacementNode(
+    var placer: ContinuousInkOverlayPlacer,
+    var displayPage: Int,
+    var viewSize: IntSize
+) : Modifier.Node(), LayoutModifierNode {
+    override fun onAttach() {
+        placer.register(this)
+    }
+
+    override fun onDetach() {
+        placer.unregister(this)
+    }
+
+    fun requestPlacement() {
+        if (isAttached) invalidatePlacement()
+    }
+
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
+        // The content (the overlay's pointer filter + canvas) is exactly the page's on-screen
+        // size; this node itself spans the content box so the Box parent never re-centers an
+        // oversized (zoomed) child. Hit testing uses the content's bounds, not this node's.
+        val placeable = measurable.measure(Constraints.fixed(viewSize.width, viewSize.height))
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else placeable.width
+        val height = if (constraints.hasBoundedHeight) constraints.maxHeight else placeable.height
+        return layout(width, height) {
+            val offset = placer.pageOffset(displayPage)
+                ?: continuousInkParkedOffset(placeable.width, placeable.height)
+            // Own layer: moving it each frame only updates the layer offset; the stroke paths
+            // are not re-recorded.
+            placeable.placeWithLayer(offset)
+        }
+    }
+}
+
+/**
+ * Every visible page's [PdfMarkupOverlay], composed as siblings drawn after the sharp crop
+ * canvas. A restartable, skippable composable of its own: pan and scroll frames change none of
+ * its arguments, so they only re-place the overlays (see [ContinuousInkOverlayPlacer]). [zoom]
+ * does change during a pinch; the overlays' view size and stroke width depend on it, and the
+ * pane already recomposes on those frames.
+ */
+@Composable
+private fun ContinuousInkOverlayLayer(
+    inkPages: Map<Int, ContinuousInkPage>,
+    isPageVisible: (Int) -> Boolean,
+    placer: ContinuousInkOverlayPlacer,
+    zoom: Float,
+    markupEnabled: Boolean,
+    markupToolState: PdfMarkupToolState,
+    onMarkupStrokeAdded: (sourceFilename: String, sourcePage: Int, PdfInkStroke) -> Unit,
+    onMarkupStrokeErased: (sourceFilename: String, sourcePage: Int, strokeId: String) -> Unit
+) {
+    val strokeWidthScale = zoom.coerceAtLeast(1f)
+    inkPages.forEach { (displayPage, page) ->
+        val viewSize = continuousInkOverlayViewSize(page.pageSize, zoom)
+        if (isPageVisible(displayPage) && viewSize != IntSize.Zero) {
+            key(displayPage, page.pdfFilename, page.sourcePage) {
+                PdfMarkupOverlay(
+                    modifier = Modifier.continuousInkPagePlacement(placer, displayPage, viewSize),
+                    // The overlay's box IS the page's scaled on-screen rect, so no further zoom or
+                    // pan: normalized points map straight onto it (same aspect ratio as the page).
+                    viewportState = PdfViewportState(zoom = 1f, panX = 0f, panY = 0f, viewSize = viewSize),
+                    pageAspectRatio = page.aspectRatio,
+                    activeStrokes = page.strokes,
+                    inputEnabled = markupEnabled,
+                    activeTool = markupToolState.activeTool,
+                    activeColor = markupToolState.activeColor,
+                    activeThickness = markupToolState.activeThickness,
+                    allowFingerDrawing = markupToolState.allowFingerDrawing,
+                    onStylusButtonEraserChanged = { markupToolState.isStylusButtonEraserActive = it },
+                    onStrokeAdded = { stroke -> onMarkupStrokeAdded(page.pdfFilename, page.sourcePage, stroke) },
+                    onStrokeErased = { strokeId -> onMarkupStrokeErased(page.pdfFilename, page.sourcePage, strokeId) },
+                    strokeWidthScale = strokeWidthScale
+                )
+            }
         }
     }
 }

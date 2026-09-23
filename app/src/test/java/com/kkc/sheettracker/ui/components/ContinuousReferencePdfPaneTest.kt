@@ -3,6 +3,7 @@ package com.kkc.sheettracker.ui.components
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.kkc.sheettracker.ui.viewer.ResolvedPageSource
 import java.io.File
@@ -734,5 +735,108 @@ class ContinuousReferencePdfPaneTest {
 
         assertEquals(0f, result.nextVelocity, 0.001f)
         assertEquals(0f, result.delta, 0.001f)
+    }
+
+    @Test
+    fun inkOverlays_areComposedAboveTheSharpCropCanvas_notInsidePageContent() {
+        val source = continuousPaneSource().replace("\r\n", "\n")
+        val cropCanvas = source.indexOf("Canvas(Modifier.fillMaxSize())")
+        val inkLayerCall = source.indexOf("ContinuousInkOverlayLayer(\n                    inkPages =")
+        val firstOverlayCall = source.indexOf("PdfMarkupOverlay(\n")
+        val pageContentStart = source.indexOf("val pageContent: @Composable (Int) -> Unit")
+        val pageContentEnd = source.indexOf("val gesturesEnabled = shouldContinuousPaneOwnFingerGestures(")
+
+        assertTrue("crop canvas not found", cropCanvas >= 0)
+        assertTrue("ink layer call not found", inkLayerCall >= 0)
+        assertTrue("PdfMarkupOverlay call not found", firstOverlayCall >= 0)
+        assertTrue("pageContent bounds not found", pageContentStart in 0 until pageContentEnd)
+        assertTrue(
+            "Zoomed sharp crops are drawn outside the zoom layer; ink must be composed after them " +
+                "or the crops cover every stroke.",
+            inkLayerCall > cropCanvas && firstOverlayCall > cropCanvas
+        )
+        assertFalse(
+            "pageContent must not compose PdfMarkupOverlay (it sits under the crop canvas).",
+            source.substring(pageContentStart, pageContentEnd).contains("PdfMarkupOverlay(")
+        )
+        assertTrue(source.contains("strokeWidthScale = strokeWidthScale"))
+        assertTrue(source.contains("val strokeWidthScale = zoom.coerceAtLeast(1f)"))
+        assertTrue(source.contains("zoom = sharedZoom,"))
+    }
+
+    @Test
+    fun inkPages_areRemovedWhereverPageCoordinatesAreRemoved() {
+        val source = continuousPaneSource().replace("\r\n", "\n")
+
+        assertTrue(
+            source.contains(
+                "pageCoordinatesByDisplayPage.remove(displayPage)\n" +
+                    "                inkPagesByDisplayPage.remove(displayPage)"
+            )
+        )
+    }
+
+    @Test
+    fun inkOverlayPlacement_isRequeuedWhenListItemsAreRePlaced() {
+        val source = continuousPaneSource()
+
+        // Both the LazyColumn item root (pageContent's outer Box) and LazyRow's wrapper.
+        assertEquals(
+            2,
+            Regex("""\.onPlaced \{ inkOverlayPlacer\.requestPlacement\(\) \}""").findAll(source).count()
+        )
+        assertTrue(source.contains("placeable.placeWithLayer(offset)"))
+    }
+
+    @Test
+    fun continuousInkOverlayViewSize_scalesTheUnscaledPageBoxByZoom() {
+        assertEquals(IntSize(800, 1000), continuousInkOverlayViewSize(IntSize(800, 1000), 1f))
+        assertEquals(IntSize(2000, 2500), continuousInkOverlayViewSize(IntSize(800, 1000), 2.5f))
+        // Rounds to nearest pixel.
+        assertEquals(IntSize(1234, 1543), continuousInkOverlayViewSize(IntSize(987, 1234), 1.25f))
+    }
+
+    @Test
+    fun continuousInkOverlayViewSize_isZeroForUnmeasuredPagesOrInvalidZoom() {
+        assertEquals(IntSize.Zero, continuousInkOverlayViewSize(IntSize.Zero, 2f))
+        assertEquals(IntSize.Zero, continuousInkOverlayViewSize(IntSize(800, 0), 2f))
+        assertEquals(IntSize.Zero, continuousInkOverlayViewSize(IntSize(800, 1000), Float.NaN))
+        assertEquals(IntSize.Zero, continuousInkOverlayViewSize(IntSize(800, 1000), 0f))
+    }
+
+    @Test
+    fun continuousInkOverlayOffset_roundsToNearestPixelIncludingNegativeBounds() {
+        assertEquals(IntOffset(12, 35), continuousInkOverlayOffset(11.6f, 34.5f))
+        assertEquals(IntOffset(-420, -1), continuousInkOverlayOffset(-420.4f, -0.6f))
+    }
+
+    @Test
+    fun continuousInkParkedOffset_keepsTheWholeOverlayOutsideTheContentBox() {
+        val parked = continuousInkParkedOffset(width = 3000, height = 4000)
+
+        assertTrue(parked.x + 3000 < 0)
+        assertTrue(parked.y + 4000 < 0)
+    }
+
+    @Test
+    fun pdfMarkupOverlay_strokeWidthScaleDefaultsToViewportZoom_andDrivesWidthsAndEraser() {
+        val source = markupUiSource()
+
+        assertTrue(source.contains("strokeWidthScale: Float = viewportState.zoom.coerceAtLeast(1f)"))
+        assertTrue(source.contains("width = stroke.lineWidth * strokeWidthScale"))
+        assertTrue(source.contains("width = activeThickness * strokeWidthScale"))
+        assertTrue(source.contains("d < ERASER_HIT_RADIUS_PX * strokeWidthScale"))
+    }
+
+    private fun markupUiSource(): String {
+        var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
+        repeat(6) {
+            val candidate = File(dir, "app/src/main/java/com/kkc/sheettracker/ui/markup/PdfMarkupUi.kt")
+            if (candidate.exists()) return candidate.readText()
+            val direct = File(dir, "src/main/java/com/kkc/sheettracker/ui/markup/PdfMarkupUi.kt")
+            if (direct.exists()) return direct.readText()
+            dir = dir.parentFile ?: return@repeat
+        }
+        error("Unable to locate PdfMarkupUi.kt from ${System.getProperty("user.dir")}")
     }
 }

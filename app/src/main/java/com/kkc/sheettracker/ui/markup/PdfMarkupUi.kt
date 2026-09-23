@@ -51,6 +51,9 @@ import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.ui.components.PdfViewportState
 import java.util.UUID
 
+/** Eraser reach, in overlay view px at a stroke-width scale of 1. */
+private const val ERASER_HIT_RADIUS_PX = 30f
+
 @Stable
 class PdfMarkupToolState {
     var selectedTool by mutableStateOf(DrawingTool.PEN)
@@ -173,7 +176,12 @@ fun PdfMarkupOverlay(
     onStylusButtonEraserChanged: (Boolean) -> Unit,
     onStrokeAdded: (PdfInkStroke) -> Unit,
     onStrokeErased: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Multiplier for drawn stroke widths and the eraser hit radius. Defaults to the viewport zoom
+    // (paged viewers draw through viewportState.zoom). The continuous pane draws this overlay
+    // OUTSIDE its whole-stack zoom layer with zoom = 1, so it passes its shared zoom here to keep
+    // ink the same visual weight it had when it was scaled along with the page.
+    strokeWidthScale: Float = viewportState.zoom.coerceAtLeast(1f)
 ) {
     val currentPoints = remember { mutableStateListOf<Float>() }
     var isDrawing by remember { mutableStateOf(false) }
@@ -233,7 +241,7 @@ fun PdfMarkupOverlay(
                                 points = stroke.points,
                                 transform = transform
                             )
-                            if (d < 30f) stroke to d else null
+                            if (d < ERASER_HIT_RADIUS_PX * strokeWidthScale) stroke to d else null
                         }
                         .minByOrNull { it.second }
                         ?.first
@@ -353,7 +361,7 @@ fun PdfMarkupOverlay(
                     path = path,
                     color = Color(stroke.color),
                     style = Stroke(
-                        width = stroke.lineWidth * viewportState.zoom.coerceAtLeast(1f),
+                        width = stroke.lineWidth * strokeWidthScale,
                         cap = StrokeCap.Round,
                         join = StrokeJoin.Round
                     ),
@@ -374,7 +382,7 @@ fun PdfMarkupOverlay(
                 path = path,
                 color = activeColor,
                 style = Stroke(
-                    width = activeThickness * viewportState.zoom.coerceAtLeast(1f),
+                    width = activeThickness * strokeWidthScale,
                     cap = StrokeCap.Round,
                     join = StrokeJoin.Round
                 ),
