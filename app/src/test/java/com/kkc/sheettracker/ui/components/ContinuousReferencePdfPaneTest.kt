@@ -141,6 +141,27 @@ class ContinuousReferencePdfPaneTest {
             "The stylus skip must return before isInteracting is set for a finger/scroll gesture.",
             stylusCheckIndex < interactingIndex
         )
+
+        val loopTopStylusCheckIndex = source.indexOf(
+            "event.changes.any { it.pressed && isStylusPointerType(it.type) }"
+        )
+        val consumeIndex = source.indexOf("event.changes.forEach { it.consume() }")
+        assertTrue("Loop-top stylus check must be present.", loopTopStylusCheckIndex >= 0)
+        assertTrue("consume() call must be present.", consumeIndex >= 0)
+        assertTrue(
+            "The mid-gesture stylus check must break before this event's changes are consumed, so a pen on a different page's overlay still gets its own down.",
+            loopTopStylusCheckIndex < consumeIndex
+        )
+
+        val finallyIndex = source.indexOf("} finally {", loopTopStylusCheckIndex)
+        val isInteractingFalseIndex = source.indexOf("isInteracting = false", loopTopStylusCheckIndex)
+        val stylusTookOverReturnIndex = source.indexOf("if (stylusTookOver) return@awaitEachGesture")
+        val singleTapIndex = source.indexOf("currentOnSingleTap?.invoke()")
+        assertTrue("isInteracting = false must be reset inside a finally block.", finallyIndex in 0 until isInteractingFalseIndex)
+        assertTrue(
+            "The stylusTookOver return must come after the finally reset and before the single-tap dispatch.",
+            isInteractingFalseIndex < stylusTookOverReturnIndex && stylusTookOverReturnIndex < singleTapIndex
+        )
     }
 
     private fun continuousPaneSource(): String {

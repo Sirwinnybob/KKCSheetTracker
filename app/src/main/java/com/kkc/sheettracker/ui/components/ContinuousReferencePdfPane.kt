@@ -1170,12 +1170,16 @@ internal fun ContinuousReferencePdfPane(
                             var wasMultiTouch = false
                             var stylusTookOver = false
                             var totalMovement = 0f
-                            do {
+                            try {
+                                do {
                                 val event = awaitPointerEvent()
-                                // A pen landing mid-gesture (palm resting while writing): stop
-                                // scrolling, and fire no tap or fling when the palm lifts. The
-                                // overlay's pointerInteropFilter already refused the palm's
-                                // ACTION_DOWN, so it won't see this pen until every pointer lifts.
+                                // A pen landing mid-gesture: if a palm is already down on this
+                                // page, its overlay refused the palm's ACTION_DOWN and won't see
+                                // a pen on the same page until every pointer lifts — but a pen
+                                // landing on a DIFFERENT page's overlay gets its own ACTION_DOWN
+                                // and draws immediately. Breaking here, before this event's
+                                // changes are consumed, is what lets that stroke through instead
+                                // of being cancelled by our own pan/zoom consume() below.
                                 if (currentMarkupEnabled && event.changes.any { it.pressed && isStylusPointerType(it.type) }) {
                                     stylusTookOver = true
                                     break
@@ -1233,8 +1237,10 @@ internal fun ContinuousReferencePdfPane(
                                     }
                                 }
                                 event.changes.forEach { it.consume() }
-                            } while (event.changes.any { it.pressed })
-                            isInteracting = false
+                                } while (event.changes.any { it.pressed })
+                            } finally {
+                                isInteracting = false
+                            }
                             if (stylusTookOver) return@awaitEachGesture
 
                             // Plain tap: single pointer, negligible movement — same threshold
