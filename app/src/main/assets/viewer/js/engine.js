@@ -5,6 +5,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RenderLoop } from './renderLoop.js';
 
 export class CoreEngine {
     constructor(config = {}) {
@@ -54,24 +55,29 @@ export class CoreEngine {
         this.controls.listenToKeyEvents(window);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.25;
+        this._interacting = false;
         this.controls.addEventListener('start', () => {
+            this._interacting = true;
+            this.requestRender();
             if (typeof this.config.onInteractionStateChanged === 'function') {
                 this.config.onInteractionStateChanged(true);
             }
         });
         this.controls.addEventListener('end', () => {
+            this._interacting = false;
+            this.requestRender();
             if (typeof this.config.onInteractionStateChanged === 'function') {
                 this.config.onInteractionStateChanged(false);
             }
         });
+        // Wheel/key/touch handlers call controls.update() directly and fire 'change' when the
+        // camera moved; wake the on-demand loop so that frame (and any damping tail) is drawn.
+        this.controls.addEventListener('change', () => this.requestRender());
 
         this._setupLighting();
         this._setupPostProcessing(dpr);
 
-        this.isRunning = false;
-        this.isSuspended = false;
-        this.rafId = null;
-        this._animate = this._animate.bind(this);
+        this._loop = new RenderLoop({ step: (time) => this._renderFrame(time) });
 
         window.addEventListener('resize', this._onWindowResize.bind(this));
     }
@@ -181,6 +187,7 @@ export class CoreEngine {
             this.fxaaPass.material.uniforms.resolution.value.x = 1 / (width * dpr);
             this.fxaaPass.material.uniforms.resolution.value.y = 1 / (height * dpr);
         }
+        this.requestRender();
     }
 
     setResolution(width, height, dpr) {
@@ -195,59 +202,52 @@ export class CoreEngine {
             this.fxaaPass.material.uniforms.resolution.value.x = 1 / (width * actualDpr);
             this.fxaaPass.material.uniforms.resolution.value.y = 1 / (height * actualDpr);
         }
+        this.requestRender();
     }
 
     requestRender() {
-        if (!this.isRunning || this.isSuspended || this.rafId !== null) return;
-        this.rafId = requestAnimationFrame(this._animate);
+        this._loop.request();
     }
 
-    _animate(time) {
-        this.rafId = null;
-        if (!this.isRunning || this.isSuspended) return;
-
-        if (this.config.onBeforeRender) {
-            this.config.onBeforeRender(time);
+    // Returns true when another frame is needed (camera moving/damping, drag in progress, or
+    // zoom joystick held); otherwise the loop goes idle until requestRender() is called.
+    _renderFrame(time) {
+        let needsAnotherFrame = this._interacting;
+        if (this.config.onBeforeRender && this.config.onBeforeRender(time) === true) {
+            needsAnotherFrame = true;
         }
-        if (this.controls) this.controls.update();
+        if (this.controls && this.controls.update()) needsAnotherFrame = true;
         if (this.composer) this.composer.render();
-
-        this.rafId = requestAnimationFrame(this._animate);
+        return needsAnotherFrame;
     }
 
     suspendRendering() {
-        if (this.isSuspended) return;
-        this.isSuspended = true;
+        if (this._loop.suspended) return;
+        this._loop.suspend();
+        this._interacting = false;
         if (typeof this.config.onInteractionStateChanged === 'function') {
             this.config.onInteractionStateChanged(false);
         }
         if (typeof this.config.onViewerActiveChanged === 'function') {
             this.config.onViewerActiveChanged(false);
         }
-        if (this.rafId !== null) {
-            cancelAnimationFrame(this.rafId);
-            this.rafId = null;
-        }
     }
 
     resumeRendering() {
-        if (!this.isSuspended) return;
-        this.isSuspended = false;
+        if (!this._loop.suspended) return;
         if (typeof this.config.onViewerActiveChanged === 'function') {
             this.config.onViewerActiveChanged(true);
         }
-        this.requestRender();
+        this._loop.resume();
     }
 
     start() {
-        if (this.isRunning) return;
-        this.isRunning = true;
+        if (this._started) return;
+        this._started = true;
         if (typeof this.config.onViewerActiveChanged === 'function') {
-            this.config.onViewerActiveChanged(!this.isSuspended);
+            this.config.onViewerActiveChanged(!this._loop.suspended);
         }
-        if (!this.isSuspended) {
-            this.requestRender();
-        }
+        this._loop.start();
     }
 }
 
