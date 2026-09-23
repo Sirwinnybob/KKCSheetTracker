@@ -14,6 +14,46 @@
 
 **Working-tree warning:** `UnifiedReferenceViewer.kt` already has uncommitted edits from other work (zebra tints, `navigatorInHeader`, `pageStepper`, `showMarkupToggleButton`). Never revert them. Do **not** `git add` that file in Task 4; Task 6 handles committing it.
 
+## Observation Protocol (applies to every task, every agent)
+
+Everyone who touches this plan — the controller, each implementer subagent, each spec reviewer and each
+code-quality reviewer — must **actively look for and flag** potential issues while working, **including
+things unrelated to the task or this plan**. Look for: bugs, races and ordering problems, compute-heavy or
+allocation-heavy code (especially on the UI thread or per-frame/per-pointer-event), unnecessary IO,
+recomposition storms, memory leaks, fragile tests, duplication, dead code and anything else a careful
+maintainer would want to know about.
+
+**Where:** append entries to `docs/superpowers/plans/2026-09-23-continuous-ink-mode-observations.md`
+under the current task's heading, using the entry format at the top of that file. It is seeded with
+issues already spotted while planning; do not re-log those, but do add to them (e.g. confirm, correct or
+measure one).
+
+**Rules:**
+1. **Flag, don't fix.** Fix only what the current task requires. Anything else — even a one-line obvious
+   improvement — goes in the log, not the diff. Unrelated fixes hide in review and risk the user's
+   uncommitted work in this tree.
+2. **A bug that blocks the current task** is in scope: fix it, and log it as `in-scope: yes`.
+3. **Bound the effort.** Note what you noticed while reading code you were already reading; don't go
+   audit unrelated modules. A one-line observation is fine. Say `(unverified)` if you did not confirm it.
+4. **Be specific:** file, line, what is wrong, why it matters, and a suggested fix. No vague "could be better".
+5. **Reviewers too:** spec and quality reviewers must scan the code they read for these issues *in addition*
+   to their normal checks, and report them as a separate "Observations" section of their review.
+6. **Do not commit the observations file per task.** The controller commits it once in Task 6.
+
+**Subagent prompt addendum — paste verbatim at the end of every implementer, spec-reviewer and
+code-quality-reviewer prompt:**
+
+> Observation duty: while doing this task, also flag potential bugs, race conditions, compute-heavy or
+> allocation-heavy code, needless IO, fragile tests, duplication or anything else worth improving —
+> **including things unrelated to this task or plan**. Do NOT fix unrelated things; append each one to
+> `docs/superpowers/plans/2026-09-23-continuous-ink-mode-observations.md` under this task's heading in the
+> format at the top of that file (`[Task N | role] KIND — file:line — problem — suggested fix — in-scope: yes/no`),
+> and end your report with an "Observations" section listing what you added (or "none"). Mark anything you
+> did not verify as `(unverified)`. Fixes required by this task are still made normally.
+
+**Controller duty:** after each task, read the new observations, dedupe them, and mention any `BUG`/`RACE`
+in your status update to the user right away rather than waiting for the end.
+
 **Test command (from `C:\Scripts\KKCSheetTracker`):**
 ```
 .\gradlew.bat :app:testDebugUnitTest --tests "<fully.qualified.TestClass>"
@@ -364,6 +404,8 @@ git commit -m "feat(markup): add per-page markup state holder with cross-page un
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
+- [ ] **Step 6: Observations checkpoint** — append findings (or "none") under `## Task 1` in the observations file, per the Observation Protocol. Do not commit that file yet.
+
 ---
 
 ### Task 2: Gesture predicates (+ spec tweak)
@@ -516,6 +558,8 @@ git commit -m "feat(viewer): add stylus/finger gesture ownership predicates for 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
+- [ ] **Step 7: Observations checkpoint** — append findings (or "none") under `## Task 2` in the observations file, per the Observation Protocol. Do not commit that file yet.
+
 ---
 
 ### Task 3: Wire gestures into `ContinuousReferencePdfPane`
@@ -649,6 +693,8 @@ git commit -m "feat(viewer): let fingers scroll and pinch while stylus inks in c
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
+
+- [ ] **Step 7: Observations checkpoint** — append findings (or "none") under `## Task 3` in the observations file, per the Observation Protocol. Pay particular attention to the pointer-event loop and per-frame work in this file (~1,400 lines, hot path: runs on every pointer event and every frame during scroll/zoom). Do not commit that file yet.
 
 ---
 
@@ -814,6 +860,8 @@ Run:
 ```
 Expected: PASS. (Do not commit yet — see Task 6.)
 
+- [ ] **Step 9: Observations checkpoint** — append findings (or "none") under `## Task 4` in the observations file, per the Observation Protocol. Pay particular attention to recomposition cost (`markupPageStates.hasUndo(...)` and `strokesFor(...)` are read during composition), and to anything in this ~1,200-line composable that recomposes or allocates per frame. Do not commit that file yet.
+
 ---
 
 ### Task 5: Full verification and on-device check
@@ -849,6 +897,8 @@ Open a job PDF in continuous mode and verify, per the spec:
 
 Note any failed item with page/steps. Fix in a follow-up commit before Task 6.
 
+- [ ] **Step 5: Observations checkpoint** — append findings (or "none") under `## Task 5`. Include anything seen on-device (dropped frames or jank while scrolling with many strokes, log spam, slow page loads, unexpected reloads after each stroke) and any failing or flaky tests beyond the one known `MotionEvent` failure, with the measurement or log line that shows it. Do not commit that file yet.
+
 ---
 
 ### Task 6: Commit `UnifiedReferenceViewer.kt`
@@ -871,6 +921,21 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - [ ] **Step 3: Bump nothing**
 
 Do not bump the app version here; the user does that as a separate `chore: bump version` commit when releasing.
+
+- [ ] **Step 4: Triage the observations**
+
+Read the whole observations file. Dedupe, drop anything you disproved, and fill the `## Triage` table
+(entry, proposed action: `fix now` / `follow-up` / `ignore`, owner). Then:
+1. Present the user a short list: every `BUG`/`RACE`, every `PERF` you consider real, and a count of the rest, each with file:line.
+2. For items the user wants tracked, offer to spin each out as a separate background task (`spawn_task`) with a self-contained prompt. Do not start on any of them without the user's go-ahead.
+3. Commit the log with the plan artifacts:
+
+```bash
+git add docs/superpowers/plans/2026-09-23-continuous-ink-mode-observations.md
+git commit -m "docs: record observations from continuous ink mode work
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+```
 
 ---
 
