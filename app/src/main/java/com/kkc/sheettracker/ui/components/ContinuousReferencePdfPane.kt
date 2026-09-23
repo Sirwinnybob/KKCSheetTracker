@@ -1172,71 +1172,71 @@ internal fun ContinuousReferencePdfPane(
                             var totalMovement = 0f
                             try {
                                 do {
-                                val event = awaitPointerEvent()
-                                // A pen landing mid-gesture: if a palm is already down on this
-                                // page, its overlay refused the palm's ACTION_DOWN and won't see
-                                // a pen on the same page until every pointer lifts — but a pen
-                                // landing on a DIFFERENT page's overlay gets its own ACTION_DOWN
-                                // and draws immediately. Breaking here, before this event's
-                                // changes are consumed, is what lets that stroke through instead
-                                // of being cancelled by our own pan/zoom consume() below.
-                                if (currentMarkupEnabled && event.changes.any { it.pressed && isStylusPointerType(it.type) }) {
-                                    stylusTookOver = true
-                                    break
-                                }
-                                val zoomChange = event.calculateZoom()
-                                val panChange = event.calculatePan()
-                                totalMovement += abs(panChange.x) + abs(panChange.y)
-                                if (event.changes.size > 1) wasMultiTouch = true
-                                // Only feed the original pointer into the velocity tracker.
-                                // Adding multiple pointer positions produces garbage velocity on pinch release.
-                                event.changes.firstOrNull { it.id == trackPointerId && it.pressed }
-                                    ?.let { velocityTracker.addPosition(it.uptimeMillis, it.position) }
-                                val centroid = event.calculateCentroid(useCurrent = true)
-                                val viewW = paneSize.width
-                                val viewH = paneSize.height
-                                val next = computeZoomPan(
-                                    zoom = sharedZoom,
-                                    panX = if (orientation == Orientation.Vertical) sharedCrossPan else 0f,
-                                    panY = if (orientation == Orientation.Vertical) 0f else sharedCrossPan,
-                                    zoomChange = zoomChange,
-                                    panChange = panChange,
-                                    centroid = centroid,
-                                    viewWidth = viewW,
-                                    viewHeight = viewH,
-                                    minZoom = CONTINUOUS_MIN_ZOOM,
-                                    maxZoom = CONTINUOUS_MAX_ZOOM
-                                )
-                                sharedZoom = next.zoom
-                                when (orientation) {
-                                    Orientation.Vertical -> {
-                                        val maxCross = maxCrossAxisPan(viewW.toFloat(), next.zoom)
-                                        sharedCrossPan = next.panX.coerceIn(-maxCross, maxCross)
-                                        // Zoom just changed this frame (possibly with no pan at
-                                        // all) — reclamp any existing boundary overscroll to the
-                                        // new zoom's bound so pinching back out shrinks it, same
-                                        // as sharedCrossPan's reclamp above.
-                                        val maxMainOverscroll = mainAxisEdgePadding(viewH.toFloat(), next.zoom)
-                                        sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
-                                        continuousMainAxisScrollDelta(
-                                            panDelta = next.panY,
-                                            zoom = next.zoom,
-                                            viewportExtent = viewH
-                                        )?.let { scrollDeltaChannel.trySend(it) }
+                                    val event = awaitPointerEvent()
+                                    // A pen landing mid-gesture: if a palm is already down on this
+                                    // page, its overlay refused the palm's ACTION_DOWN and won't see
+                                    // a pen on the same page until every pointer lifts — but a pen
+                                    // landing on a DIFFERENT page's overlay gets its own ACTION_DOWN
+                                    // and draws immediately. Breaking here, before this event's
+                                    // changes are consumed, is what lets that stroke through instead
+                                    // of being cancelled by our own pan/zoom consume() below.
+                                    if (currentMarkupEnabled && event.changes.any { it.pressed && isStylusPointerType(it.type) }) {
+                                        stylusTookOver = true
+                                        break
                                     }
-                                    Orientation.Horizontal -> {
-                                        val maxCross = maxCrossAxisPan(viewH.toFloat(), next.zoom)
-                                        sharedCrossPan = next.panY.coerceIn(-maxCross, maxCross)
-                                        val maxMainOverscroll = mainAxisEdgePadding(viewW.toFloat(), next.zoom)
-                                        sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
-                                        continuousMainAxisScrollDelta(
-                                            panDelta = next.panX,
-                                            zoom = next.zoom,
-                                            viewportExtent = viewW
-                                        )?.let { scrollDeltaChannel.trySend(it) }
+                                    val zoomChange = event.calculateZoom()
+                                    val panChange = event.calculatePan()
+                                    totalMovement += abs(panChange.x) + abs(panChange.y)
+                                    if (event.changes.size > 1) wasMultiTouch = true
+                                    // Only feed the original pointer into the velocity tracker.
+                                    // Adding multiple pointer positions produces garbage velocity on pinch release.
+                                    event.changes.firstOrNull { it.id == trackPointerId && it.pressed }
+                                        ?.let { velocityTracker.addPosition(it.uptimeMillis, it.position) }
+                                    val centroid = event.calculateCentroid(useCurrent = true)
+                                    val viewW = paneSize.width
+                                    val viewH = paneSize.height
+                                    val next = computeZoomPan(
+                                        zoom = sharedZoom,
+                                        panX = if (orientation == Orientation.Vertical) sharedCrossPan else 0f,
+                                        panY = if (orientation == Orientation.Vertical) 0f else sharedCrossPan,
+                                        zoomChange = zoomChange,
+                                        panChange = panChange,
+                                        centroid = centroid,
+                                        viewWidth = viewW,
+                                        viewHeight = viewH,
+                                        minZoom = CONTINUOUS_MIN_ZOOM,
+                                        maxZoom = CONTINUOUS_MAX_ZOOM
+                                    )
+                                    sharedZoom = next.zoom
+                                    when (orientation) {
+                                        Orientation.Vertical -> {
+                                            val maxCross = maxCrossAxisPan(viewW.toFloat(), next.zoom)
+                                            sharedCrossPan = next.panX.coerceIn(-maxCross, maxCross)
+                                            // Zoom just changed this frame (possibly with no pan at
+                                            // all) — reclamp any existing boundary overscroll to the
+                                            // new zoom's bound so pinching back out shrinks it, same
+                                            // as sharedCrossPan's reclamp above.
+                                            val maxMainOverscroll = mainAxisEdgePadding(viewH.toFloat(), next.zoom)
+                                            sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
+                                            continuousMainAxisScrollDelta(
+                                                panDelta = next.panY,
+                                                zoom = next.zoom,
+                                                viewportExtent = viewH
+                                            )?.let { scrollDeltaChannel.trySend(it) }
+                                        }
+                                        Orientation.Horizontal -> {
+                                            val maxCross = maxCrossAxisPan(viewH.toFloat(), next.zoom)
+                                            sharedCrossPan = next.panY.coerceIn(-maxCross, maxCross)
+                                            val maxMainOverscroll = mainAxisEdgePadding(viewW.toFloat(), next.zoom)
+                                            sharedMainAxisOverscroll = sharedMainAxisOverscroll.coerceIn(-maxMainOverscroll, maxMainOverscroll)
+                                            continuousMainAxisScrollDelta(
+                                                panDelta = next.panX,
+                                                zoom = next.zoom,
+                                                viewportExtent = viewW
+                                            )?.let { scrollDeltaChannel.trySend(it) }
+                                        }
                                     }
-                                }
-                                event.changes.forEach { it.consume() }
+                                    event.changes.forEach { it.consume() }
                                 } while (event.changes.any { it.pressed })
                             } finally {
                                 isInteracting = false
