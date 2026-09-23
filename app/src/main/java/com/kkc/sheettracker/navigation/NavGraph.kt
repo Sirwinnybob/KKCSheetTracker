@@ -1341,6 +1341,7 @@ private fun DashboardTabHost(
                     com.kkc.sheettracker.ui.components.ModeSwitcherRow(
                         modes = listOf(WorkMode.CNC, WorkMode.HARDWOODS),
                         selected = dashMode,
+                        persistKey = "dashboard_mode_switcher",
                         onSelect = { mode ->
                             dashMode = mode
                             dashPrefs.edit().putString("flexible_dashboard_last_mode", mode.name).apply()
@@ -2878,6 +2879,7 @@ private fun LegacySingleStackNavigation(
                                 com.kkc.sheettracker.ui.components.ModeSwitcherRow(
                                     modes = listOf(WorkMode.CNC, WorkMode.HARDWOODS),
                                     selected = dashMode,
+                        persistKey = "dashboard_mode_switcher",
                                     onSelect = { mode ->
                                         dashMode = mode
                                         dashPrefs.edit().putString("flexible_dashboard_last_mode", mode.name).apply()

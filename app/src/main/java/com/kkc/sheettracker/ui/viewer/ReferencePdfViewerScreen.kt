@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,11 +37,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.PdfMarkupStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.IdlePhase
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
+import com.kkc.sheettracker.ui.components.ReferencePageStepper
+import com.kkc.sheettracker.ui.components.SheetNavigatorPill
 import com.kkc.sheettracker.ui.components.LocalIdlePhase
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
@@ -107,6 +111,8 @@ fun ReferencePdfViewerScreen(
     var markupEnabled by rememberSaveable { mutableStateOf(false) }
     var continuousScrollEnabled by rememberSaveable(jobFolderName, docType) { mutableStateOf(continuousScrollDefault) }
     var tocRequestToken by remember(jobFolderName, docType) { mutableIntStateOf(0) }
+    var totalPages by remember(jobFolderName, docType) { mutableIntStateOf(0) }
+    val pageStepper = remember(jobFolderName, docType) { ReferencePageStepper() }
     val markupToolState = rememberPdfMarkupToolState()
     // Lets the continuous-scroll scrollbar's expanded panel blur the PDF content behind it —
     // same frosted pattern used elsewhere in the app, not a plain opaque panel.
@@ -153,8 +159,38 @@ fun ReferencePdfViewerScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { tocRequestToken += 1 }) {
-                        Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list")
+                    // Single-page mode: pencil and the prev / sheet-list / next pill live here
+                    // instead of floating over the PDF. Continuous mode keeps its own overlay row.
+                    if (!continuousScrollEnabled) {
+                        IconButton(onClick = { markupEnabled = !markupEnabled }) {
+                            Icon(
+                                Icons.Default.Create,
+                                contentDescription = if (markupEnabled) "Disable drawing" else "Enable drawing",
+                                tint = if (markupEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        SheetNavigatorPill(
+                            displayPage = currentPage,
+                            displayTotalPages = totalPages,
+                            onPrevious = { pageStepper.step?.invoke(-1) },
+                            onOpenList = { tocRequestToken += 1 },
+                            onNext = { pageStepper.step?.invoke(1) },
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    } else {
+                        // Continuous mode: the sheet list + page count moved up here from the
+                        // overlay row that used to float over the PDF.
+                        IconButton(
+                            onClick = { tocRequestToken += 1 },
+                            enabled = totalPages > 0
+                        ) {
+                            Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list")
+                        }
+                        Text(
+                            "$currentPage/${totalPages.coerceAtLeast(0)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
                     }
                     IconButton(onClick = { continuousScrollEnabled = !continuousScrollEnabled }) {
                         Icon(
@@ -169,6 +205,13 @@ fun ReferencePdfViewerScreen(
         }
     ) { padding ->
         UnifiedReferenceViewer(
+            pageStepper = pageStepper,
+            showMarkupToggleButton = false,
+            onTotalPagesChanged = { totalPages = it },
+            // The app bar carries the page controls in both modes, so the pane's own header row and
+            // floating navigator are off.
+            showHeaderRow = false,
+            showNavigationButtons = false,
             // NOT .hazeSource(hazeState) here — this screen's only hazeEffect consumer is the
             // continuous-scroll scrollbar's own panel, which is a DESCENDANT of this modifier's
             // node. A hazeSource wrapping its own hazeEffect consumer is self-referential and

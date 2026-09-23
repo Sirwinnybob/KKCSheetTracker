@@ -249,68 +249,173 @@ async function init() {
             });
         }
 
-        // --- FETCH ROOM LIST (populate switcher if job has multiple rooms) ---
+        // --- ROOM MODEL LOADING (initial room and in-page room switches) ---
+        // Switching rooms swaps the model in this same page/engine -- no reload -- so the room
+        // selector, camera controls and WebGL context all stay alive. `roomLoadSeq` makes the
+        // latest request win if the user taps through several rooms quickly.
+        let currentRoom = initialRoom;
+        let roomLoadSeq = 0;
+        const loadRoomModel = async (room) => {
+            const seq = ++roomLoadSeq;
+            updateStatus("Loading Model...");
+            const urlRes  = await fetch(`/api/job/${encodeURIComponent(jobCode)}/${encodeURIComponent(room)}`);
+            const urlData = await urlRes.json();
+            if (seq !== roomLoadSeq) return;
+            if (!urlData.success || !urlData.url) throw new Error("Model URL not found for this room");
+
+            const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
+            const { model } = await loadModel(
+                urlData.url,
+                maxAnisotropy,
+                (xhr) => {
+                    if (seq === roomLoadSeq && xhr.lengthComputable) {
+                        updateStatus(`Downloading: ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
+                    }
+                }
+            );
+            if (seq !== roomLoadSeq) { disposeModel(model); return; }
+
+            if (loadedModel) { scene.remove(loadedModel); disposeModel(loadedModel); }
+            loadedModel = model;
+            scene.add(loadedModel);
+            frameLoadedModel(loadedModel);
+            if (engine) engine.requestRender();
+
+            updateStatus("");
+
+            setTimeout(() => {
+                if (renderer && scene && camera) {
+                    scene.traverse((obj) => { if (obj.isMesh && obj.material) obj.material.needsUpdate = true; });
+                    if (engine) engine.requestRender();
+                }
+            }, 100);
+        };
+
+        // --- ROOM LIST: vertical sliding-pill selector (only when the job has multiple rooms) ---
         try {
             const response = await fetch(`/api/job/${encodeURIComponent(jobCode)}`);
             const data = await response.json();
-            if (data.success && data.rooms && data.rooms.length > 1) {
+            const nativeBridge = window.KKCViewerBridge;
+            if (data.success && data.rooms && data.rooms.length > 1 && nativeBridge && nativeBridge.setRooms) {
+                // The app draws the room selector natively over this page (animating a pill inside
+                // the WebView made the whole overlay flicker). Hand it the rooms and expose the
+                // in-page switch for it to call.
+                let startRoom = data.rooms.indexOf(initialRoom) >= 0
+                    ? initialRoom
+                    : (data.rooms.find((r) => String(r).trim().toLowerCase() === String(initialRoom).trim().toLowerCase()) || data.rooms[0]);
+                window.kkcSelectRoom = (r) => {
+                    currentRoom = r;
+                    try {
+                        const next = new URLSearchParams(window.location.search);
+                        next.set('room', r);
+                        history.replaceState(null, '', `viewer.html?${next.toString()}`);
+                    } catch (e) { /* non-fatal */ }
+                    loadRoomModel(r).catch((err) => {
+                        console.error(err);
+                        updateStatus("Load Error: " + err.message, true);
+                    });
+                };
+                nativeBridge.setRooms(JSON.stringify(data.rooms), startRoom);
+            } else if (data.success && data.rooms && data.rooms.length > 1) {
                 const switcher = document.getElementById('room-switcher-mini');
                 const listUi   = document.getElementById('room-list-ui');
                 if (switcher && listUi) {
                     switcher.style.display = 'block';
-                    data.rooms.forEach(r => {
+
+                    // Theme from the app (AARRGGBB hex URL params); falls back to the CSS defaults.
+                    const themeParams = new URLSearchParams(window.location.search);
+                    const cssColor = (key) => {
+                        const raw = themeParams.get(key);
+                        if (!raw || !/^[0-9a-fA-F]{8}$/.test(raw)) return null;
+                        const v = parseInt(raw, 16);
+                        const a = ((v >>> 24) & 255) / 255;
+                        return `rgba(${(v >>> 16) & 255}, ${(v >>> 8) & 255}, ${v & 255}, ${a.toFixed(3)})`;
+                    };
+                    [['t', '--room-track'], ['tb', '--room-track-border'], ['tt', '--room-track-text'],
+                     ['p', '--room-pill'], ['pb', '--room-pill-border'], ['pt', '--room-pill-text']]
+                        .forEach(([key, cssVar]) => {
+                            const c = cssColor(key);
+                            if (c) listUi.style.setProperty(cssVar, c);
+                        });
+
+                    const pill = document.createElement('div');
+                    pill.id = 'room-pill';
+                    listUi.appendChild(pill);
+
+                    const buttons = [];
+                    let activeBtn = null;
+                    const placePill = (btn) => {
+                        pill.style.height = btn.offsetHeight + 'px';
+                        pill.style.top = btn.offsetTop + 'px';
+                    };
+                    const setActive = (btn) => {
+                        buttons.forEach((b) => b.classList.toggle('active', b === btn));
+                        activeBtn = btn;
+                    };
+                    const norm = (name) => String(name).trim().toLowerCase();
+
+                    let switchTimer = null;
+                    data.rooms.forEach((r) => {
                         const btn = document.createElement('button');
                         btn.innerText = r;
                         btn.className = 'room-switcher-btn';
-                        const isActive = r === initialRoom;
-                        btn.style.cssText = `background:${isActive ? '#1976d2' : 'rgba(40,40,40,0.85)'}; color:${isActive ? '#fff' : '#ddd'};`;
-                        if (lightMode) {
-                            btn.style.cssText = `background:${isActive ? '#1976d2' : 'rgba(240,240,240,0.9)'}; color:${isActive ? '#fff' : '#222'};`;
-                        }
                         btn.onclick = () => {
-                            window.location.href = `viewer.html?job=${encodeURIComponent(jobCode)}&room=${encodeURIComponent(r)}&dark=${lightMode ? '0' : '1'}`;
+                            if (btn === activeBtn) return;
+                            currentRoom = r;
+                            setActive(btn);
+                            pill.classList.add('animate');
+                            placePill(btn);
+                            // Keep the URL in step so a pane rebuild reopens the same room.
+                            try {
+                                const next = new URLSearchParams(window.location.search);
+                                next.set('room', r);
+                                history.replaceState(null, '', `viewer.html?${next.toString()}`);
+                            } catch (e) { /* non-fatal */ }
+                            // Everything that costs frames -- telling the app (it recomposes), the
+                            // "Loading" overlay with its blur, and the model parse/upload -- waits
+                            // until the slide has actually finished (transitionend, with a timer as
+                            // a fallback), so the pill animates on an otherwise idle page.
+                            clearTimeout(switchTimer);
+                            let started = false;
+                            const afterSlide = () => {
+                                if (started) return;
+                                started = true;
+                                pill.removeEventListener('transitionend', afterSlide);
+                                clearTimeout(switchTimer);
+                                if (currentRoom !== r) return; // superseded by a later tap
+                                withViewerBridge((bridge) => { if (bridge.onRoomSelected) bridge.onRoomSelected(r); });
+                                setTimeout(() => {
+                                    loadRoomModel(r).catch((err) => {
+                                        console.error(err);
+                                        updateStatus("Load Error: " + err.message, true);
+                                    });
+                                }, 80);
+                            };
+                            pill.addEventListener('transitionend', afterSlide);
+                            switchTimer = setTimeout(afterSlide, 700);
                         };
+                        buttons.push(btn);
                         listUi.appendChild(btn);
                     });
+
+                    // Initial selection: exact match first, then a trimmed/case-insensitive one, so
+                    // a room name that differs only in spacing/case still gets its highlight.
+                    let startIdx = data.rooms.indexOf(initialRoom);
+                    if (startIdx < 0) startIdx = data.rooms.findIndex((r) => norm(r) === norm(initialRoom));
+                    if (startIdx < 0) startIdx = 0;
+                    setActive(buttons[startIdx]);
+                    placePill(buttons[startIdx]);
+                    // Web fonts / late layout can change button heights after first paint.
+                    const relayout = () => { if (activeBtn) placePill(activeBtn); };
+                    window.addEventListener('resize', relayout);
+                    if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
                 }
             }
         } catch (e) {
             console.warn('Room list fetch failed:', e);
         }
 
-        // --- FETCH MODEL URL ---
-        const urlRes  = await fetch(`/api/job/${encodeURIComponent(jobCode)}/${encodeURIComponent(initialRoom)}`);
-        const urlData = await urlRes.json();
-        if (!urlData.success || !urlData.url) throw new Error("Model URL not found for this room");
-
-        const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
-
-        updateStatus("Loading Model...");
-
-        const { model } = await loadModel(
-            urlData.url,
-            maxAnisotropy,
-            (xhr) => {
-                if (xhr.lengthComputable) {
-                    updateStatus(`Downloading: ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
-                }
-            }
-        );
-
-        if (loadedModel) { scene.remove(loadedModel); disposeModel(loadedModel); }
-        loadedModel = model;
-        scene.add(loadedModel);
-        frameLoadedModel(loadedModel);
-        if (engine) engine.requestRender();
-
-        updateStatus("");
-
-        setTimeout(() => {
-            if (renderer && scene && camera) {
-                scene.traverse((obj) => { if (obj.isMesh && obj.material) obj.material.needsUpdate = true; });
-                if (engine) engine.requestRender();
-            }
-        }, 100);
+        await loadRoomModel(initialRoom);
 
     } catch (e) {
         console.error(e);

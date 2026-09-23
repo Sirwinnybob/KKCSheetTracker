@@ -60,6 +60,7 @@ import com.kkc.sheettracker.ui.markup.shouldAppendStrokePoint
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.math.abs
@@ -618,12 +619,12 @@ fun ClassicCutListTable(
                                     done > 0 -> statusColors.inProgress.copy(alpha = 0.08f) to statusColors.inProgress
                                     else -> {
                                         val isEven = globalRowIndex % 2 == 0
+                                        val zebraTint = kkcZebraTint(globalRowIndex)
                                         val alpha = if (isEven) 0.04f else 0.12f
                                         if (widthColor != Color.Transparent) {
                                             widthColor.copy(alpha = alpha) to Color.Transparent
                                         } else {
-                                            if (isEven) Color.Transparent to Color.Transparent
-                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f) to Color.Transparent
+                                            zebraTint to Color.Transparent
                                         }
                                     }
                                 }

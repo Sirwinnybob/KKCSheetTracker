@@ -1,12 +1,8 @@
 package com.kkc.sheettracker.ui.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.navigation.WorkMode
@@ -19,8 +15,9 @@ private fun WorkMode.shortLabel(): String = when (this) {
 }
 
 /**
- * Compact toggle-chip row for a TopAppBar `actions` slot, letting the operator switch which
- * WorkMode a Dashboard/Jobs screen is currently showing. Distinct from the larger
+ * Compact sliding-pill switcher for a TopAppBar `actions` slot, letting the operator switch which
+ * WorkMode a Dashboard/Jobs screen is currently showing. Shares [KKCSlidingPillRow] with the
+ * hardwoods doc controls, so it follows the active theme. Distinct from the larger
  * WorkModeIconTile grid used in Settings.
  */
 @Composable
@@ -28,22 +25,17 @@ fun ModeSwitcherRow(
     modes: List<WorkMode>,
     selected: WorkMode,
     onSelect: (WorkMode) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    persistKey: String? = null
 ) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        modes.forEach { mode ->
-            FilterChip(
-                selected = mode == selected,
-                onClick = { onSelect(mode) },
-                label = { Text(mode.shortLabel()) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+    val options = remember(modes, selected, onSelect) {
+        modes.map { mode ->
+            KKCPillOption(
+                label = mode.shortLabel(),
+                isSelected = mode == selected,
+                onClick = { onSelect(mode) }
             )
         }
     }
+    KKCSlidingPillRow(options = options, modifier = modifier.padding(end = 4.dp), persistKey = persistKey)
 }

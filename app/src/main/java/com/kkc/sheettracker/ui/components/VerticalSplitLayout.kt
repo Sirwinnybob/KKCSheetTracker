@@ -122,11 +122,8 @@ fun VerticalSplitLayout(
                 topContent(Modifier.fillMaxWidth().height(topHeightDp).clipToBoundsIf(clipTop))
 
                 if (topDividerControls != null && dividerControlsVisible) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                        shape = MaterialTheme.shapes.small,
-                        shadowElevation = 2.dp,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    KKCPillBarSurface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
@@ -189,11 +186,8 @@ fun VerticalSplitLayout(
                 }
 
                 if (bottomDividerControls != null && dividerControlsVisible) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                        shape = MaterialTheme.shapes.small,
-                        shadowElevation = 2.dp,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    KKCPillBarSurface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),

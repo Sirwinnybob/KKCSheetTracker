@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.assembly
 
+import com.kkc.sheettracker.ui.components.KKCPillAction
+import com.kkc.sheettracker.ui.components.KKCPillActionRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.WindowInsets
@@ -151,24 +153,12 @@ fun AssemblyJobDetailScreen(
             }
 
             item(key = "actions") {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(onClick = onOpenSplitView) {
-                        Text("Split View")
-                    }
-                    Button(onClick = { showPrintDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Print,
-                            contentDescription = null,
-                            modifier = Modifier.size(ButtonDefaults.IconSize)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Print")
-                    }
-                }
+                KKCPillActionRow(
+                    actions = listOf(
+                        KKCPillAction("Split View", onOpenSplitView),
+                        KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print)
+                    )
+                )
             }
 
             if (resolvedItems.isEmpty()) {

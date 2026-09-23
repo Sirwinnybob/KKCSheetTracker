@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.specialty
 
+import com.kkc.sheettracker.ui.components.KKCPillAction
+import com.kkc.sheettracker.ui.components.KKCPillActionRow
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -296,48 +298,28 @@ internal fun SpecialtyJobDetailScreen(
             }
 
             item(key = "actions-reference") {
-                Row(
-                    modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                val referenceActions = buildList {
                     if (availability.hasAssemblySheet) {
-                        Button(onClick = { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }) {
-                            Text("Assembly")
-                        }
+                        add(KKCPillAction("Assembly", { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }))
                     }
                     if (availability.hasPlansElevations) {
-                        Button(onClick = { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }) {
-                            Text("Plans & Elevations")
-                        }
+                        add(KKCPillAction("Plans & Elevations", { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }))
                     }
                     if (availability.hasDeliverySheet) {
-                        Button(onClick = { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }) {
-                            Text("Delivery")
-                        }
+                        add(KKCPillAction("Delivery", { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }))
                     }
                     if (availability.hasPullsSheet) {
-                        Button(onClick = { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }) {
-                            Text("Pulls")
-                        }
+                        add(KKCPillAction("Pulls", { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }))
                     }
                     if (availability.hasThreeDAssets) {
-                        Button(onClick = onOpenThreeD) {
-                            Text("3D")
-                        }
+                        add(KKCPillAction("3D", onOpenThreeD))
                     }
-                    Button(onClick = { showPrintDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Print,
-                            contentDescription = null,
-                            modifier = Modifier.size(ButtonDefaults.IconSize)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Print")
-                    }
+                    add(KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print))
                 }
+                KKCPillActionRow(
+                    actions = referenceActions,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
             }
 
             item(key = "actions-specialty") {

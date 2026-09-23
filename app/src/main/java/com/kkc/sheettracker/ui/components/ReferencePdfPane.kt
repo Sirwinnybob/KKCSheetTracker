@@ -101,6 +101,14 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
+/**
+ * Lets a host that draws its own page controls (e.g. a top app bar) step the pane's pages with the
+ * pane's slide animation. The pane publishes its step function here while composed.
+ */
+class ReferencePageStepper {
+    var step: ((Int) -> Unit)? = null
+}
+
 data class PdfViewportState(
     val zoom: Float = 1f,
     val panX: Float = 0f,
@@ -417,6 +425,12 @@ fun ReferencePdfPane(
     onViewportStateChange: (PdfViewportState) -> Unit = {},
     showHeaderRow: Boolean = true,
     showNavigationButtons: Boolean = true,
+    /** Single-page mode: put the prev / sheet-list / next pill in the header row (replacing "Page N/N") instead of floating over the PDF. */
+    navigatorInHeader: Boolean = false,
+    /** Host (e.g. app bar) drives page stepping through this instead of the floating pill. */
+    pageStepper: ReferencePageStepper? = null,
+    /** False when the host shows its own pencil toggle. */
+    showMarkupToggleButton: Boolean = true,
     innerPadding: Dp = 8.dp,
     tocRequestToken: Int = 0,
     displayPageOverride: Int? = null,
@@ -677,12 +691,36 @@ fun ReferencePdfPane(
         }
     }
 
+    if (pageStepper != null) {
+        SideEffect { pageStepper.step = stepPage }
+        DisposableEffect(pageStepper) { onDispose { pageStepper.step = null } }
+    }
+
     Column(modifier = modifier.padding(innerPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showHeaderRow) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 showDocControls?.invoke(this)
                 Spacer(Modifier.weight(1f))
-                Text("Page $displayPage/$displayTotalPages", style = MaterialTheme.typography.bodySmall)
+                if (navigatorInHeader) {
+                    if (showNavigationButtons) {
+                        SheetNavigatorPill(
+                            displayPage = displayPage,
+                            displayTotalPages = displayTotalPages,
+                            onPrevious = { stepPage(-1) },
+                            onOpenList = {
+                                if (onOpenSheetNavigator != null) {
+                                    onOpenSheetNavigator()
+                                } else {
+                                    showToc = true
+                                }
+                            },
+                            onNext = { stepPage(1) },
+                            modifier = Modifier.padding(end = 6.dp)
+                        )
+                    }
+                } else {
+                    Text("Page $displayPage/$displayTotalPages", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
 
@@ -775,7 +813,7 @@ fun ReferencePdfPane(
                             )
                         }
 
-                        if (onToggleMarkupEnabled != null) {
+                        if (onToggleMarkupEnabled != null && showMarkupToggleButton) {
                             IconButton(
                                 onClick = onToggleMarkupEnabled,
                                 modifier = Modifier
@@ -861,68 +899,88 @@ fun ReferencePdfPane(
                             is PdfRenderUiState.Ready, is PdfRenderUiState.Loading -> Unit
                         }
 
-                        if (showNavigationButtons) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-                                tonalElevation = 3.dp,
-                                shape = MaterialTheme.shapes.medium,
+                        if (showNavigationButtons && !navigatorInHeader) {
+                            SheetNavigatorPill(
+                                displayPage = displayPage,
+                                displayTotalPages = displayTotalPages,
+                                onPrevious = { stepPage(-1) },
+                                onOpenList = {
+                                    if (onOpenSheetNavigator != null) {
+                                        onOpenSheetNavigator()
+                                    } else {
+                                        showToc = true
+                                    }
+                                },
+                                onNext = { stepPage(1) },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(top = if (onToggleMarkupEnabled != null) 52.dp else 8.dp, end = 6.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    androidx.compose.material3.IconButton(
-                                        onClick = { stepPage(-1) },
-                                        enabled = displayTotalPages > 0 && displayPage > 1,
-                                        modifier = Modifier.size(38.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = "Previous",
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    androidx.compose.material3.IconButton(
-                                        onClick = {
-                                            if (onOpenSheetNavigator != null) {
-                                                onOpenSheetNavigator()
-                                            } else {
-                                                showToc = true
-                                            }
-                                        },
-                                        enabled = displayTotalPages > 0,
-                                        modifier = Modifier.size(38.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.UnfoldMore,
-                                            contentDescription = "Sheet list",
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    Text(
-                                        "$displayPage/$displayTotalPages",
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                    androidx.compose.material3.IconButton(
-                                        onClick = { stepPage(1) },
-                                        enabled = displayTotalPages > 0 && displayPage < displayTotalPages,
-                                        modifier = Modifier.size(38.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.ArrowForward,
-                                            contentDescription = "Next",
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                            }
+                            )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Prev / sheet-list / "n/N" / next pill. Floats over the PDF, or sits in the header row (see `navigatorInHeader`). */
+@Composable
+internal fun SheetNavigatorPill(
+    displayPage: Int,
+    displayTotalPages: Int,
+    onPrevious: () -> Unit,
+    onOpenList: () -> Unit,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+        tonalElevation = 3.dp,
+        shape = MaterialTheme.shapes.medium,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            androidx.compose.material3.IconButton(
+                onClick = onPrevious,
+                enabled = displayTotalPages > 0 && displayPage > 1,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Previous",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            androidx.compose.material3.IconButton(
+                onClick = onOpenList,
+                enabled = displayTotalPages > 0,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(
+                    Icons.Default.UnfoldMore,
+                    contentDescription = "Sheet list",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Text(
+                "$displayPage/$displayTotalPages",
+                style = MaterialTheme.typography.labelSmall
+            )
+            androidx.compose.material3.IconButton(
+                onClick = onNext,
+                enabled = displayTotalPages > 0 && displayPage < displayTotalPages,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = "Next",
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
@@ -1204,11 +1262,6 @@ private fun ReferenceTocSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Sheet Navigator", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "Loading thumbnails $loadedCount/$pageCount",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),

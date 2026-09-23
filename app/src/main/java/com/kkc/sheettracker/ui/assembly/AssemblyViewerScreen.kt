@@ -1,5 +1,9 @@
 package com.kkc.sheettracker.ui.assembly
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kkc.sheettracker.ui.components.kkcPillIndicator
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import android.content.res.Configuration
 import com.kkc.sheettracker.logging.AppLog
 import androidx.compose.foundation.background
@@ -42,8 +46,15 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
+import com.kkc.sheettracker.ui.components.KKCTabItem
+import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +66,7 @@ import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.ArchiveLifecycleClient
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.ui.components.ClockInButton
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.detail.ArchiveLifecycleActionSheet
 import com.kkc.sheettracker.ui.detail.archiveActionVisible
 import androidx.compose.material3.Surface
@@ -445,6 +457,9 @@ fun AssemblyViewerScreen(
     var serverPort by remember { mutableIntStateOf(0) }
     var viewerServerError by remember { mutableStateOf<String?>(null) }
     var detectedRoom by rememberSaveable(initialRoom) { mutableStateOf(initialRoom) }
+    // Room picked inside the 3D viewer itself (it switches rooms without reloading). Resets when
+    // the app-side detected room changes so "Open in 3D APP" follows whichever is most recent.
+    var selected3DRoom by remember(detectedRoom) { mutableStateOf<String?>(null) }
     val modelAvailable = remember(basePath, jobFolderName, detectedRoom) {
         basePath.isNotBlank() && findMediumGlbForRoom(File(basePath), jobFolderName, detectedRoom) != null
     }
@@ -879,7 +894,11 @@ fun AssemblyViewerScreen(
                                     selectedSource = firstPaneSource,
                                     selectedOtherFilename = firstPaneOtherFilename,
                                     hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                    hasPulls = pullsFilename.isNotBlank(),
                                     onSelectSource = { firstPaneSource = it },
+                                    onOpenIn3DApp = if (modelAvailable && detectedRoom != null) {
+                                        { openIn3DApp(selected3DRoom ?: detectedRoom) }
+                                    } else null,
                                     onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
                                 )
                             }
@@ -910,12 +929,12 @@ fun AssemblyViewerScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     folderName = jobFolderName,
                                     roomName = detectedRoom,
+                                    onRoomSelected = { selected3DRoom = it },
                                     modelAvailable = modelAvailable,
                                     serverPort = serverPort,
                                     serverError = viewerServerError,
                                     isDarkTheme = isDarkTheme,
                                     onFullScreen = if (fullscreenPane == FullscreenPane.NONE) { { fullscreenPane = FullscreenPane.FIRST } } else null,
-                                    onOpenIn3DApp = { openIn3DApp(detectedRoom) },
                                     headerSlot = {}
                                 )
                             }
@@ -981,7 +1000,11 @@ fun AssemblyViewerScreen(
                                     selectedSource = secondPaneSource,
                                     selectedOtherFilename = secondPaneOtherFilename,
                                     hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                    hasPulls = pullsFilename.isNotBlank(),
                                     onSelectSource = { secondPaneSource = it },
+                                    onOpenIn3DApp = if (modelAvailable && detectedRoom != null) {
+                                        { openIn3DApp(selected3DRoom ?: detectedRoom) }
+                                    } else null,
                                     onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
                                 )
                             }
@@ -1011,12 +1034,12 @@ fun AssemblyViewerScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     folderName = jobFolderName,
                                     roomName = detectedRoom,
+                                    onRoomSelected = { selected3DRoom = it },
                                     modelAvailable = modelAvailable,
                                     serverPort = serverPort,
                                     serverError = viewerServerError,
                                     isDarkTheme = isDarkTheme,
                                     onFullScreen = if (fullscreenPane == FullscreenPane.NONE) { { fullscreenPane = FullscreenPane.SECOND } } else null,
-                                    onOpenIn3DApp = { openIn3DApp(detectedRoom) },
                                     headerSlot = {}
                                 )
                             }
@@ -1030,7 +1053,11 @@ fun AssemblyViewerScreen(
                             selectedSource = firstPaneSource,
                             selectedOtherFilename = firstPaneOtherFilename,
                             hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                    hasPulls = pullsFilename.isNotBlank(),
                             onSelectSource = { firstPaneSource = it },
+                            onOpenIn3DApp = if (modelAvailable && detectedRoom != null) {
+                                { openIn3DApp(selected3DRoom ?: detectedRoom) }
+                            } else null,
                             onOpenOtherPicker = { otherPickerTarget = PaneSlot.FIRST }
                         )
                         if (firstPaneSource != PaneSource.CHECKLIST && firstPaneSource != PaneSource.THREE_D) {
@@ -1066,7 +1093,11 @@ fun AssemblyViewerScreen(
                             selectedSource = secondPaneSource,
                             selectedOtherFilename = secondPaneOtherFilename,
                             hasOtherOptions = unmanagedOtherPdfNames.isNotEmpty(),
+                                    hasPulls = pullsFilename.isNotBlank(),
                             onSelectSource = { secondPaneSource = it },
+                            onOpenIn3DApp = if (modelAvailable && detectedRoom != null) {
+                                { openIn3DApp(selected3DRoom ?: detectedRoom) }
+                            } else null,
                             onOpenOtherPicker = { otherPickerTarget = PaneSlot.SECOND }
                         )
                         if (secondPaneSource != PaneSource.CHECKLIST && secondPaneSource != PaneSource.THREE_D) {
@@ -1285,9 +1316,22 @@ private fun PdfPaneWithFloatingControls(
 
     // Root Box: blue-grey background fills the full pane edge-to-edge.
     // The canvasPad inset reveals that blue-grey as a consistent 8dp border on all sides.
+    // Full footprint (incl. its outer padding) of the floating control bar. Custom panes (3D,
+    // checklist) have their own header, so they are pushed below the bar instead of sitting under
+    // it -- PDF panes still scroll underneath it as before.
+    var floatingBarHeightPx by remember { mutableIntStateOf(0) }
+    val barClearance by animateDpAsState(
+        targetValue = if (showControls && !hideFloatingBar) {
+            with(LocalDensity.current) { floatingBarHeightPx.toDp() }
+        } else {
+            0.dp
+        },
+        animationSpec = tween(220),
+        label = "floatingBarClearance"
+    )
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (customContent != null) {
-            Box(Modifier.fillMaxSize().padding(canvasPad)) {
+            Box(Modifier.fillMaxSize().padding(top = barClearance).padding(canvasPad)) {
                 customContent()
             }
         } else {
@@ -1364,17 +1408,32 @@ private fun PdfPaneWithFloatingControls(
                 tonalElevation = 0.dp,
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier
+                    .onSizeChanged { floatingBarHeightPx = it.height }
                     .fillMaxWidth()
                     .padding(start = 24.dp, top = 16.dp, end = pillEndPad, bottom = 4.dp)
             ) {
+                val barStyle = rememberKKCPillStyle()
+                val blurOff = LocalLowEndMode.current.blurDisabled
                 Box(
-                    modifier = Modifier.hazeEffect(
-                        hazeState,
-                        style = HazeDefaults.style(
-                            backgroundColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.88f),
-                            blurRadius = 25.dp
+                    modifier = if (barStyle.filledContainer) {
+                        // Solid themed track: a frosted tint over a light page washed the primary
+                        // color out to pale blue and made the white labels unreadable.
+                        Modifier.background(barStyle.container)
+                    } else if (blurOff) {
+                        // Same tint without the blur (low-end mode, or a 3D pane is on screen).
+                        Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.88f))
+                    } else {
+                        Modifier.hazeEffect(
+                            hazeState,
+                            style = HazeDefaults.style(
+                                backgroundColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.88f),
+                                blurRadius = 25.dp
+                            )
                         )
-                    )
+                    }
+                ) {
+                CompositionLocalProvider(
+                    LocalContentColor provides if (barStyle.filledContainer) barStyle.unselectedText else LocalContentColor.current
                 ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 0.dp),
@@ -1416,6 +1475,7 @@ private fun PdfPaneWithFloatingControls(
                     }
                 }
                 }
+                }
             }
         } // end AnimatedVisibility
         } // end if (!hideFloatingBar)
@@ -1427,62 +1487,69 @@ private fun RowScope.PaneSourceControlsInline(
     selectedSource: PaneSource,
     selectedOtherFilename: String?,
     hasOtherOptions: Boolean,
+    hasPulls: Boolean,
     onSelectSource: (PaneSource) -> Unit,
-    onOpenOtherPicker: () -> Unit
+    onOpenOtherPicker: () -> Unit,
+    /** Shown as a pill after the tabs, only while the 3D source is selected. */
+    onOpenIn3DApp: (() -> Unit)? = null
 ) {
-    FilterChip(
-        selected = selectedSource == PaneSource.PLANS,
-        onClick = { onSelectSource(PaneSource.PLANS) },
-        label = { Text("Plans") },
-        shape = MaterialTheme.shapes.small
-    )
-    FilterChip(
-        selected = selectedSource == PaneSource.ASSEMBLY,
-        onClick = { onSelectSource(PaneSource.ASSEMBLY) },
-        label = { Text("Assembly") },
-        shape = MaterialTheme.shapes.small
-    )
-    FilterChip(
-        selected = selectedSource == PaneSource.DELIVERY,
-        onClick = { onSelectSource(PaneSource.DELIVERY) },
-        label = { Text("Delivery") },
-        shape = MaterialTheme.shapes.small
-    )
-    FilterChip(
-        selected = selectedSource == PaneSource.PULLS,
-        onClick = { onSelectSource(PaneSource.PULLS) },
-        label = { Text("Pulls") },
-        shape = MaterialTheme.shapes.small
-    )
-    FilterChip(
-        selected = selectedSource == PaneSource.THREE_D,
-        onClick = { onSelectSource(PaneSource.THREE_D) },
-        label = { Text("3D") },
-        shape = MaterialTheme.shapes.small
-    )
-    FilterChip(
-        selected = selectedSource == PaneSource.CHECKLIST,
-        onClick = { onSelectSource(PaneSource.CHECKLIST) },
-        label = { Text("Checklist") },
-        shape = MaterialTheme.shapes.small
-    )
-    if (!selectedOtherFilename.isNullOrBlank()) {
-        FilterChip(
-            selected = selectedSource == PaneSource.OTHER,
-            onClick = { onSelectSource(PaneSource.OTHER) },
-            label = {
-                Text(
-                    "Other: $selectedOtherFilename",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            shape = MaterialTheme.shapes.small
+    val pillStyle = rememberKKCPillStyle()
+    val items = buildList {
+        fun source(label: String, target: PaneSource) = add(
+            KKCTabItem(
+                label = label,
+                isSelected = selectedSource == target,
+                onClick = { onSelectSource(target) }
+            )
         )
+        source("Plans", PaneSource.PLANS)
+        source("Assembly", PaneSource.ASSEMBLY)
+        source("Delivery", PaneSource.DELIVERY)
+        if (hasPulls) source("Pulls", PaneSource.PULLS)
+        source("3D", PaneSource.THREE_D)
+        source("Checklist", PaneSource.CHECKLIST)
+        if (!selectedOtherFilename.isNullOrBlank()) {
+            source("Other: $selectedOtherFilename", PaneSource.OTHER)
+        }
+    }
+    // Both hosts (the floating bar's scrolling Row and the split-divider Row) own their layout, so
+    // the strip must not scroll itself. The bar around it (KKCPillBarSurface / the floating bar) is
+    // the themed track, so the tabs themselves stay bare.
+    KKCSlidingTabRow(items = items, scrollable = false)
+    if (selectedSource == PaneSource.THREE_D && onOpenIn3DApp != null) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .height(32.dp)
+                .kkcPillIndicator(pillStyle)
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onOpenIn3DApp)
+                .padding(horizontal = 12.dp)
+        ) {
+            Text(
+                "Open in 3D APP",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = pillStyle.selectedText,
+                maxLines = 1
+            )
+        }
     }
     if (hasOtherOptions) {
-        Button(onClick = onOpenOtherPicker, shape = MaterialTheme.shapes.small) {
-            Text("Other Files")
+        if (pillStyle.filledContainer) {
+            // A primary-colored Button would vanish on the primary-colored bar.
+            OutlinedButton(
+                onClick = onOpenOtherPicker,
+                shape = MaterialTheme.shapes.small,
+                border = BorderStroke(1.dp, pillStyle.unselectedText.copy(alpha = 0.5f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = pillStyle.unselectedText)
+            ) {
+                Text("Other Files")
+            }
+        } else {
+            Button(onClick = onOpenOtherPicker, shape = MaterialTheme.shapes.small) {
+                Text("Other Files")
+            }
         }
     }
 }

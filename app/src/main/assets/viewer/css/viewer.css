@@ -21,11 +21,8 @@ body.light-mode .ui-panel {
     border-color: rgba(0, 0, 0, 0.15);
 }
 
-body.light-mode .room-switcher-btn {
-    background: rgba(240, 240, 240, 0.95);
-    color: #222;
-    border-color: rgba(0, 0, 0, 0.2);
-}
+/* .room-switcher-btn colors live in viewer.html (sliding-pill selector, app-themed); a light-mode
+   override here painted opaque grey boxes over the pill. */
 
 #canvas-container { width: 100vw; height: 100vh; }
 

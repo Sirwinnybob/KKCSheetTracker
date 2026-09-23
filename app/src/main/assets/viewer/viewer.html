@@ -25,21 +25,59 @@
             display: block;
             margin-bottom: 3px;
         }
+        /* Vertical sliding-pill selector: a track holding stacked buttons, with one pill that
+           slides between them (positioned/animated from viewer.js). Colors come from CSS vars
+           that viewer.js sets from the app theme (t/tb/tt/p/pb/pt URL params). */
         #room-list-ui {
+            position: relative;
             display: flex;
             flex-direction: column;
-            gap: 3px;
+            gap: 4px;
+            padding: 4px;
+            border-radius: 9px;
+            background: var(--room-track, rgba(40,40,40,0.85));
+            border: 1px solid var(--room-track-border, rgba(128,128,128,0.4));
+            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+        }
+        /* Slides with `top`/`height` on the main thread, NOT a transform: on Android WebView a
+           transform transition promotes the pill to its own layer, and that layer was not painted
+           for the first ~120ms of the slide (pill vanished, then popped in mid-way). This is safe
+           because viewer.js starts the heavy model load only after the slide has finished, so the
+           main thread is idle while it animates. */
+        #room-pill {
+            position: absolute;
+            top: 0;
+            left: 4px;
+            width: calc(100% - 8px);
+            border-radius: 6px;
+            background: var(--room-pill, #1976d2);
+            border: 1px solid var(--room-pill-border, transparent);
+            box-sizing: border-box;
+            pointer-events: none;
+            z-index: 0;
+        }
+        #room-pill.animate {
+            transition: top 380ms cubic-bezier(0.4, 0, 0.2, 1), height 380ms cubic-bezier(0.4, 0, 0.2, 1);
         }
         .room-switcher-btn {
-            padding: 6px 10px;
+            position: relative;
+            z-index: 1;
+            padding: 6px 12px;
             border-radius: 6px;
-            border: 1px solid rgba(128,128,128,0.4);
+            border: none;
+            background: transparent;
+            color: var(--room-track-text, #ddd);
             cursor: pointer;
-            font-weight: bold;
+            font-weight: 700;
             font-size: 12px;
             text-align: left;
             white-space: nowrap;
             min-width: 80px;
+        }
+        /* Color only -- a heavier weight on the active label widened the widest row and made the
+           whole list (and the pill's width) jump on every switch. */
+        .room-switcher-btn.active {
+            color: var(--room-pill-text, #fff);
         }
     </style>
 </head>

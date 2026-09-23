@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.ArchiveAdminClient
@@ -348,12 +349,7 @@ private fun ArchiveJobRow(
     index: Int,
     onOpen: () -> Unit,
 ) {
-    val zebra = if (index % 2 == 0) {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-    } else {
-        MaterialTheme.colorScheme.surface
-    }
-    val background = zebra.compositeOver(MaterialTheme.colorScheme.surface)
+    val background = kkcZebraTint(index).compositeOver(MaterialTheme.colorScheme.surface)
 
     Surface(
         shape = MaterialTheme.shapes.small,

@@ -58,6 +58,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
+import com.kkc.sheettracker.ui.theme.kkcFrostedBaseColor
 import com.kkc.sheettracker.ui.viewer.NavigatorRowModel
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
@@ -248,10 +250,30 @@ internal fun PdfLabelScrollbar(
     val thumbCache = remember(preferDarkMode) { mutableStateMapOf<Int, Bitmap?>() }
     // Shared fill for the pill and the rail's progress-fill overlay — kept as one definition so
     // the two can never visually drift apart if the gradient stops are retuned later.
+    // Themed with the two theme colors split across the parts: with a two-color theme the rail/ticks
+    // are a faint primary (track), the progress-fill line is the secondary color and the sliding
+    // pill is the primary color; single-color themes keep the neutral rail with a primary
+    // fill and pill.
+    val scrollbarPalette = LocalKKCThemeTokens.current.palette(LocalKKCIsDarkTheme.current)
+    val secondaryAccent = scrollbarPalette.secondary
+    val progressBase = secondaryAccent ?: MaterialTheme.colorScheme.primary
+    val pillBase = MaterialTheme.colorScheme.primary
+    val railColor = if (secondaryAccent != null) {
+        scrollbarPalette.primary.copy(alpha = 0.28f)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+    val tickBaseColor = if (secondaryAccent != null) scrollbarPalette.primary else MaterialTheme.colorScheme.outlineVariant
     val progressGradient = Brush.verticalGradient(
         listOf(
-            lerp(MaterialTheme.colorScheme.primary, Color.White, 0.35f),
-            MaterialTheme.colorScheme.primary
+            lerp(progressBase, Color.White, 0.35f),
+            progressBase
+        )
+    )
+    val pillGradient = Brush.verticalGradient(
+        listOf(
+            lerp(pillBase, Color.White, 0.35f),
+            pillBase
         )
     )
 
@@ -483,7 +505,7 @@ internal fun PdfLabelScrollbar(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.outlineVariant, shape = RoundedCornerShape(2.dp))
+                        .background(railColor, shape = RoundedCornerShape(2.dp))
                 )
                 Box(
                     modifier = Modifier
@@ -510,7 +532,7 @@ internal fun PdfLabelScrollbar(
                         .width(tickWidth)
                         .height(idleTickHeight)
                         .background(
-                            MaterialTheme.colorScheme.outlineVariant.copy(
+                            tickBaseColor.copy(
                                 alpha = if (index <= focusIndex) 0.65f else 0.5f
                             ),
                             shape = RoundedCornerShape(4.dp)
@@ -529,7 +551,7 @@ internal fun PdfLabelScrollbar(
                     .width(tickWidth)
                     .height(idlePillHeight)
                     .shadow(pillElevation, pillShape, clip = false)
-                    .background(progressGradient, shape = pillShape)
+                    .background(pillGradient, shape = pillShape)
                     .border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
             )
         }
@@ -607,7 +629,7 @@ internal fun PdfLabelScrollbar(
 
             val frostedTokens = LocalKKCThemeTokens.current.frosted
             val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
-            val carouselSurfaceColor = MaterialTheme.colorScheme.surface
+            val carouselSurfaceColor = kkcFrostedBaseColor()
             val safeHazeState = hazeState
             val hazeAvailable = safeHazeState != null && !lowEnd.blurDisabled
             val chipColor = if (hazeAvailable) {
@@ -761,7 +783,7 @@ private fun ScrollLabelBubble(
     val lowEnd = LocalLowEndMode.current
     val frostedTokens = LocalKKCThemeTokens.current.frosted
     val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
-    val surfaceColor = MaterialTheme.colorScheme.surface
+    val surfaceColor = kkcFrostedBaseColor()
     val hazeAvailable = hazeState != null && !lowEnd.blurDisabled
     val pillShape = RoundedCornerShape(10.dp)
     val pillElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp

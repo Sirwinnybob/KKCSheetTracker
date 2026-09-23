@@ -140,6 +140,14 @@ import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.components.KKCPillContainer
+import com.kkc.sheettracker.ui.components.KKCPillOption
+import com.kkc.sheettracker.ui.components.KKCPillToggleButton
+import com.kkc.sheettracker.ui.components.KKCSlidingPillRow
+import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
+import com.kkc.sheettracker.ui.components.KKCTabItem
+import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
+import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1463,119 +1471,40 @@ fun SheetViewerScreen(
                         } else {
                             Spacer(Modifier.weight(1f))
                         }
-                        val segmentCount = if (resolvedShowPopupSegment) 4 else 3
-                        val rightRowShape = RoundedCornerShape(9.dp)
-                        Surface(
-                            shape = rightRowShape,
-                            color = MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                            shadowElevation = 2.dp,
-                            modifier = Modifier
-                                .width(if (resolvedShowPopupSegment) 440.dp else 330.dp)
-                                .height(40.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxHeight(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Button 0: Sheet
-                                val isSheetSelected = mainViewRef.snapshot.mode == null
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .background(if (isSheetSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                                        .clickable { mainViewRef.setMode(null) }
-                                        .padding(horizontal = 12.dp)
-                                ) {
-                                    Text(
-                                        text = "Sheet",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = if (isSheetSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1
+                        val viewModeOptions = listOf(
+                            KKCPillOption(
+                                label = "Sheet",
+                                isSelected = mainViewRef.snapshot.mode == null,
+                                onClick = { mainViewRef.setMode(null) }
+                            ),
+                            KKCPillOption(
+                                label = "Plans & Elev.",
+                                isSelected = mainViewRef.snapshot.mode == ReferenceDocType.PLANS_ELEVATIONS,
+                                enabled = hasPlansReference,
+                                onClick = { mainViewRef.setMode(ReferenceDocType.PLANS_ELEVATIONS) }
+                            ),
+                            KKCPillOption(
+                                label = "Assembly",
+                                isSelected = mainViewRef.snapshot.mode == ReferenceDocType.ASSEMBLY,
+                                enabled = hasAssemblyReference,
+                                onClick = { mainViewRef.setMode(ReferenceDocType.ASSEMBLY) }
+                            )
+                        )
+                        KKCSlidingPillRow(options = viewModeOptions)
+                        if (resolvedShowPopupSegment) {
+                            KKCPillToggleButton(
+                                label = "Popup",
+                                selected = referenceModal.snapshot.isOpen,
+                                onClick = { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) },
+                                trailingIcon = { tint ->
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = tint
                                     )
                                 }
-
-                                // Divider 1
-                                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
-
-                                // Button 1: Plans & Elev.
-                                val isPlansSelected = mainViewRef.snapshot.mode == ReferenceDocType.PLANS_ELEVATIONS
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .background(if (isPlansSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                                        .clickable(enabled = hasPlansReference) { mainViewRef.setMode(ReferenceDocType.PLANS_ELEVATIONS) }
-                                        .padding(horizontal = 12.dp)
-                                ) {
-                                    Text(
-                                        text = "Plans & Elev.",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = if (isPlansSelected) MaterialTheme.colorScheme.onSecondaryContainer else if (hasPlansReference) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                                        maxLines = 1
-                                    )
-                                }
-
-                                // Divider 2
-                                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
-
-                                // Button 2: Assembly
-                                val isAssemblySelected = mainViewRef.snapshot.mode == ReferenceDocType.ASSEMBLY
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .background(if (isAssemblySelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                                        .clickable(enabled = hasAssemblyReference) { mainViewRef.setMode(ReferenceDocType.ASSEMBLY) }
-                                        .padding(horizontal = 12.dp)
-                                ) {
-                                    Text(
-                                        text = "Assembly",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = if (isAssemblySelected) MaterialTheme.colorScheme.onSecondaryContainer else if (hasAssemblyReference) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                                        maxLines = 1
-                                    )
-                                }
-
-                                if (resolvedShowPopupSegment) {
-                                    // Divider 3
-                                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
-
-                                    // Button 3: Popup
-                                    val isPopupSelected = referenceModal.snapshot.isOpen
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxHeight()
-                                            .background(if (isPopupSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                                            .clickable { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) }
-                                            .padding(horizontal = 12.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(
-                                                text = "Popup",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = if (isPopupSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 1
-                                            )
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp),
-                                                tint = if (isPopupSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            )
                         }
                     }
                     val remadePartNames = currentPageRemake?.remadeParts
@@ -2178,7 +2107,11 @@ private fun SheetNavigatorSheet(
                     Surface(
                         tonalElevation = if (selected) 3.dp else 1.dp,
                         shape = MaterialTheme.shapes.medium,
-                        color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surface,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                        } else {
+                            kkcZebraTint(idx).compositeOver(MaterialTheme.colorScheme.surface)
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onSelectPage(page) }
@@ -3078,51 +3011,25 @@ private fun PartsTable(
     }
     Column(modifier = modifier) {
         Row(
+            // No horizontalScroll here: KKCSlidingTabRow scrolls itself, and nesting two
+            // horizontal scrollers gives the inner one infinite max width (crash).
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (summary.isNotEmpty()) {
-                Surface(
-                    shape = RoundedCornerShape(9.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                    shadowElevation = 2.dp,
-                    modifier = Modifier.height(40.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxHeight(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        summary.forEachIndexed { i, (name, count) ->
-                            if (i > 0) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(1.dp)
-                                        .fillMaxHeight()
-                                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-                                )
-                            }
-                            val isSelected = selectedPartType == name
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                                    .clickable { onSelectPartType(name) }
-                                    .padding(horizontal = 16.dp)
-                            ) {
-                                Text(
-                                    text = "$name ($count)",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
-                                )
-                            }
+                val summaryPill = rememberKKCPillStyle()
+                KKCPillContainer(style = summaryPill) {
+                    KKCSlidingTabRow(
+                        items = summary.map { (name, count) ->
+                            KKCTabItem(
+                                label = "$name ($count)",
+                                isSelected = selectedPartType == name,
+                                onClick = { onSelectPartType(name) }
+                            )
                         }
-                    }
+                    )
                 }
             }
         }
@@ -3174,11 +3081,7 @@ private fun PartsTable(
                 val isBad = part.number in badParts
                 val isDraft = part.number in draftBadParts
                 val isSelected = part.number == selectedPartNumber
-                val zebra = if (rowIndex % 2 == 0) {
-                    if (isDarkTheme) Color(0xFF2E4057) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                } else {
-                    MaterialTheme.colorScheme.surface
-                }
+                val zebra = kkcZebraTint(rowIndex)
 
                 val baseColor = when {
                     isBad -> KKCThemeColors.statusColors.bad.copy(alpha = 0.12f)

@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.hardwoods
 
+import com.kkc.sheettracker.ui.components.KKCPillAction
+import com.kkc.sheettracker.ui.components.KKCPillActionRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -305,61 +307,40 @@ fun HardwoodsJobDetailScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            val referenceActions = buildList {
                 if (hasAssemblySheet) {
-                    Button(onClick = {
+                    add(KKCPillAction("Assembly", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1)
-                    }) {
-                        Text("Assembly")
-                    }
+                    }))
                 }
                 if (hasPlansElevations) {
-                    Button(onClick = {
+                    add(KKCPillAction("Plans & Elevations", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1)
-                    }) {
-                        Text("Plans & Elevations")
-                    }
+                    }))
                 }
                 if (hasDeliverySheet) {
-                    Button(onClick = {
+                    add(KKCPillAction("Delivery", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
-                    }) {
-                        Text("Delivery")
-                    }
+                    }))
                 }
                 if (hasPullsSheet) {
-                    Button(onClick = {
+                    add(KKCPillAction("Pulls", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.PULLS, 1)
-                    }) {
-                        Text("Pulls")
-                    }
+                    }))
                 }
                 if (hasThreeDAssets) {
-                    Button(onClick = {
+                    add(KKCPillAction("3D", {
                         suppressLeavePrompt = true
                         onOpenThreeD()
-                    }) {
-                        Text("3D")
-                    }
+                    }))
                 }
-                Button(onClick = { showPrintDialog = true }) {
-                    Icon(
-                        imageVector = Icons.Default.Print,
-                        contentDescription = null,
-                        modifier = Modifier.size(ButtonDefaults.IconSize)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Print")
-                }
+                add(KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print))
             }
+            KKCPillActionRow(actions = referenceActions)
 
             val jobStatusCounts = summary.counts.toStatusCounts()
             ProgressCard(

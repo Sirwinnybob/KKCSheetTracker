@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.wrapContentSize
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -97,6 +99,15 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.ui.graphics.Color
+import com.kkc.sheettracker.ui.components.KKCPillAccent
+import com.kkc.sheettracker.ui.components.KKCPillContainer
+import com.kkc.sheettracker.ui.components.KKCPillTrack
+import com.kkc.sheettracker.ui.components.KKCPillOption
+import com.kkc.sheettracker.ui.components.KKCSlidingPillRow
+import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
+import com.kkc.sheettracker.ui.components.KKCTabItem
+import com.kkc.sheettracker.ui.components.kkcPillIndicator
+import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.runtime.Composable
@@ -181,6 +192,7 @@ import com.kkc.sheettracker.ui.components.RevisionBadge
 import com.kkc.sheettracker.ui.components.SectionProgressHeader
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import com.kkc.sheettracker.ui.theme.KKCStatusColors
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.rememberPdfMarkupToolState
@@ -772,6 +784,8 @@ fun HardwoodsWorkspaceScreen(
     var serverPort by remember { mutableIntStateOf(0) }
     var viewerServerError by remember { mutableStateOf<String?>(null) }
     var detectedRoom by rememberSaveable(jobFolderName) { mutableStateOf<String?>(null) }
+    // Room picked inside the 3D viewer itself; resets when the detected room changes.
+    var selected3DRoom by remember(detectedRoom) { mutableStateOf<String?>(null) }
 
     val viewerBasePath = scanState.snapshot.basePath
     DisposableEffect(viewerBasePath, jobFolderName) {
@@ -1248,14 +1262,8 @@ fun HardwoodsWorkspaceScreen(
                     .fillMaxSize()
                     .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 0.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(9.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)),
-                    shadowElevation = 3.5.dp,
-                    tonalElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                val primaryPill = rememberKKCPillStyle(KKCPillAccent.PRIMARY)
+                KKCPillContainer(style = primaryPill, modifier = Modifier.fillMaxWidth()) {
                     val availableTypes = remember(HardwoodDocType.entries, availableDocTypes) {
                         HardwoodDocType.entries.filter { it in availableDocTypes }
                     }
@@ -1268,135 +1276,67 @@ fun HardwoodsWorkspaceScreen(
                         }
                     }
 
+                    val changedPill = rememberKKCPillStyle(KKCPillAccent.ATTENTION)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
-                        SecondaryScrollableTabRow(
-                            selectedTabIndex = selectedIndex,
-                            edgePadding = 4.dp,
-                            containerColor = Color.Transparent,
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                            divider = {},
-                            indicator = {
-                                val isChangedSelected = !showRipCutList && showChangedOnly
-                                val pillColor = if (isChangedSelected) {
-                                    MaterialTheme.colorScheme.tertiaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.secondaryContainer
-                                }
-                                val pillBorderColor = if (isChangedSelected) {
-                                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                }
-                                Box(
-                                    Modifier
-                                        .tabIndicatorOffset(selectedIndex, matchContentSize = false)
-                                        .height(32.dp)
-                                        .background(
-                                            color = pillColor,
-                                            shape = RoundedCornerShape(6.dp)
+                        KKCSlidingTabRow(
+                            items = buildList {
+                                availableTypes.forEachIndexed { idx, docType ->
+                                    add(
+                                        KKCTabItem(
+                                            label = docType.uiLabel(),
+                                            isSelected = selectedIndex == idx,
+                                            onClick = {
+                                                selectedDocType = docType
+                                                showRipCutList = false
+                                                showChangedOnly = false
+                                                selectedRipSource = null
+                                            }
                                         )
-                                        .border(
-                                            1.dp,
-                                            pillBorderColor,
-                                            RoundedCornerShape(6.dp)
-                                        )
-                                )
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(40.dp)
-                        ) {
-                            availableTypes.forEachIndexed { idx, docType ->
-                                val isSelected = selectedIndex == idx
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .height(36.dp)
-                                        .zIndex(1f)
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) {
-                                            selectedDocType = docType
-                                            showRipCutList = false
+                                    )
+                                }
+                                add(
+                                    KKCTabItem(
+                                        label = "Rip Cut List",
+                                        isSelected = showRipCutList,
+                                        onClick = {
+                                            showRipCutList = true
                                             showChangedOnly = false
                                             selectedRipSource = null
                                         }
-                                        .padding(horizontal = 8.dp)
-                                ) {
-                                    Text(
-                                        text = docType.uiLabel(),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
                                     )
-                                }
-                            }
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .height(36.dp)
-                                    .zIndex(1f)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        showRipCutList = true
-                                        showChangedOnly = false
-                                        selectedRipSource = null
-                                    }
-                                    .padding(horizontal = 8.dp)
-                            ) {
-                                Text(
-                                    text = "Rip Cut List",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (showRipCutList) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (showRipCutList) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
                                 )
-                            }
-                            if (hasAnyPendingChanged) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .height(36.dp)
-                                        .zIndex(1f)
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) {
-                                            showRipCutList = false
-                                            showChangedOnly = true
-                                            selectedRipSource = null
-                                            if (selectedDocPendingChanged.isEmpty()) {
-                                                val firstDocWithPending = pendingChangedByDoc
-                                                    .entries
-                                                    .firstOrNull { it.value.isNotEmpty() }
-                                                    ?.key
-                                                if (firstDocWithPending != null) {
-                                                    selectedDocType = firstDocWithPending
+                                if (hasAnyPendingChanged) {
+                                    add(
+                                        KKCTabItem(
+                                            label = "CHANGED",
+                                            isSelected = !showRipCutList && showChangedOnly,
+                                            accent = KKCPillAccent.ATTENTION,
+                                            alwaysBold = true,
+                                            onClick = {
+                                                showRipCutList = false
+                                                showChangedOnly = true
+                                                selectedRipSource = null
+                                                if (selectedDocPendingChanged.isEmpty()) {
+                                                    val firstDocWithPending = pendingChangedByDoc
+                                                        .entries
+                                                        .firstOrNull { it.value.isNotEmpty() }
+                                                        ?.key
+                                                    if (firstDocWithPending != null) {
+                                                        selectedDocType = firstDocWithPending
+                                                    }
                                                 }
                                             }
-                                        }
-                                        .padding(horizontal = 8.dp)
-                                ) {
-                                    Text(
-                                        text = "CHANGED",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (showChangedOnly) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.tertiary,
-                                        maxLines = 1
+                                        )
                                     )
                                 }
-                            }
-                        }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
 
                         // Divider line before Mode dropdown button
                         Box(
@@ -1404,7 +1344,7 @@ fun HardwoodsWorkspaceScreen(
                                 .padding(horizontal = 4.dp)
                                 .width(1.dp)
                                 .height(22.dp)
-                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                                .background(primaryPill.containerBorder)
                         )
 
                         // Mode Dropdown button on the right end
@@ -1412,27 +1352,33 @@ fun HardwoodsWorkspaceScreen(
                         Box(modifier = Modifier.padding(end = 2.dp)) {
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = if (isClassicView) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                                color = primaryPill.container,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isClassicView) primaryPill.border else primaryPill.containerBorder
+                                ),
                                 modifier = Modifier
                                     .height(32.dp)
                                     .clickable { showModeMenu = true }
                             ) {
+                                val modeContentColor = if (isClassicView) primaryPill.selectedText else primaryPill.unselectedText
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                    modifier = Modifier
+                                        .then(if (isClassicView) Modifier.background(primaryPill.fill) else Modifier)
+                                        .padding(horizontal = 8.dp)
                                 ) {
                                     Text(
                                         text = if (isClassicView) "Mode: Classic" else "Mode: List",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Medium,
-                                        color = if (isClassicView) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+                                        color = modeContentColor
                                     )
                                     Icon(
                                         imageVector = Icons.Default.ArrowDropDown,
                                         contentDescription = "Select Mode",
-                                        tint = if (isClassicView) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                        tint = modeContentColor,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -1487,22 +1433,19 @@ fun HardwoodsWorkspaceScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(end = 2.dp)
                         )
-                        DoorPanelGroupMode.entries.forEach { mode ->
-                            FilterChip(
-                                selected = doorPanelGroupMode == mode,
-                                onClick = { doorPanelGroupMode = mode },
-                                label = {
-                                    Text(
-                                        when (mode) {
-                                            DoorPanelGroupMode.ByMaterial -> "Material"
-                                            DoorPanelGroupMode.ByCabinet -> "Cabinet #"
-                                            DoorPanelGroupMode.ByRoom -> "Room"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                }
-                            )
-                        }
+                        KKCSlidingPillRow(
+                            options = DoorPanelGroupMode.entries.map { mode ->
+                                KKCPillOption(
+                                    label = when (mode) {
+                                        DoorPanelGroupMode.ByMaterial -> "Material"
+                                        DoorPanelGroupMode.ByCabinet -> "Cabinet #"
+                                        DoorPanelGroupMode.ByRoom -> "Room"
+                                    },
+                                    isSelected = doorPanelGroupMode == mode,
+                                    onClick = { doorPanelGroupMode = mode }
+                                )
+                            }
+                        )
                     }
                 }
                 AnimatedVisibility(
@@ -1512,75 +1455,22 @@ fun HardwoodsWorkspaceScreen(
                 ) {
                     val categoryList = remember { listOf<BoardStockSource?>(null) + BoardStockSource.entries }
                     val selectedSourceIndex = categoryList.indexOf(selectedRipSource).coerceAtLeast(0)
-                    SecondaryScrollableTabRow(
-                            selectedTabIndex = selectedSourceIndex,
-                            edgePadding = 4.dp,
-                            containerColor = Color.Transparent,
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                            divider = {},
-                            indicator = {
-                                Box(
-                                    Modifier
-                                        .tabIndicatorOffset(selectedSourceIndex, matchContentSize = false)
-                                        .height(32.dp)
-                                        .background(
-                                            color = MaterialTheme.colorScheme.secondaryContainer,
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                        .border(
-                                            1.dp,
-                                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                            RoundedCornerShape(6.dp)
-                                        )
+                    val ripPill = rememberKKCPillStyle(KKCPillAccent.PRIMARY)
+                    KKCPillTrack(
+                        style = ripPill,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    ) {
+                        KKCSlidingTabRow(
+                            items = categoryList.map { source ->
+                                KKCTabItem(
+                                    label = source?.toRipListTitle() ?: "All",
+                                    isSelected = selectedRipSource == source,
+                                    onClick = { selectedRipSource = source }
                                 )
                             },
-                            modifier = Modifier.fillMaxWidth().height(40.dp)
-                        ) {
-                            // "All" tab (null source)
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .height(36.dp)
-                                    .zIndex(1f)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) { selectedRipSource = null }
-                                    .padding(horizontal = 8.dp)
-                            ) {
-                                Text(
-                                    text = "All",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (selectedRipSource == null) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (selectedRipSource == null) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            BoardStockSource.entries.forEach { source ->
-                                val isSelected = selectedRipSource == source
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .height(36.dp)
-                                        .zIndex(1f)
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) { selectedRipSource = source }
-                                        .padding(horizontal = 8.dp)
-                                ) {
-                                    Text(
-                                        text = source.toRipListTitle(),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
                 if (showRipCutList) {
                     val allSections = buildBoardStockSourceSections(boardStockRows)
@@ -1806,7 +1696,7 @@ fun HardwoodsWorkspaceScreen(
                                 sectionKey = sectionKey,
                                 rows = sectionRows
                             )
-                            items(items = sectionEntries, key = { it.key }) { entry ->
+                            itemsIndexed(items = sectionEntries, key = { _, entry -> entry.key }) { entryIndex, entry ->
                                 AnimatedVisibility(
                                     visible = !isCollapsed,
                                     enter = expandVertically() + fadeIn(),
@@ -1877,6 +1767,7 @@ fun HardwoodsWorkspaceScreen(
                                     }
                                     HardwoodsPartRow(
                                         modifier = Modifier.padding(horizontal = 6.dp),
+                                        zebraIndex = entryIndex,
                                         rowUi = rowUi,
                                         qty = qty,
                                         progress = progress,
@@ -2000,7 +1891,8 @@ fun HardwoodsWorkspaceScreen(
                         }
                     }
                 },
-                onOpenIn3DApp = { openIn3DApp(detectedRoom ?: resolveThreeDTarget().room) },
+                onOpenIn3DApp = { openIn3DApp(selected3DRoom ?: detectedRoom ?: resolveThreeDTarget().room) },
+                onThreeDRoomSelected = { selected3DRoom = it },
                 markupEnabled = isClassicView || referenceMarkupEnabled,
                 onToggleMarkupEnabled = { referenceMarkupEnabled = !referenceMarkupEnabled },
                 markupToolState = sharedMarkupToolState,
@@ -2117,6 +2009,7 @@ private fun RemovedHardwoodsPartRow(
 @Composable
 private fun HardwoodsPartRow(
     modifier: Modifier = Modifier,
+    zebraIndex: Int,
     rowUi: HardwoodsRowUiModel,
     qty: Int,
     progress: HardwoodRowProgress,
@@ -2164,7 +2057,8 @@ private fun HardwoodsPartRow(
     } else {
         Color.Transparent
     }
-    val baseRowColor = if (isHighlighted) highlightColor else visuals.backgroundTint
+    val baseRowColor = (if (isHighlighted) highlightColor else visuals.backgroundTint)
+        .compositeOver(kkcZebraTint(zebraIndex))
     val completionTint = statusColors.completeBorder.copy(alpha = 0.22f * completionFlash.value)
     val isChangedPendingRecut = revisionState?.changedPendingRecut == true && done < qty.coerceAtLeast(0)
     val changedTint = if (isChangedPendingRecut) {
@@ -2448,6 +2342,7 @@ private fun ReferencePane(
     serverError: String?,
     onThreeDFullScreen: () -> Unit,
     onOpenIn3DApp: () -> Unit,
+    onThreeDRoomSelected: (String) -> Unit = {},
     markupEnabled: Boolean,
     onToggleMarkupEnabled: () -> Unit,
     markupToolState: PdfMarkupToolState,
@@ -2600,96 +2495,9 @@ private fun ReferencePane(
                 }
             }
         }
-        val selectedIndex = remember(options) {
-            options.indexOfFirst { it.isSelected }.coerceAtLeast(0)
-        }
-
-        val density = LocalDensity.current
-        var itemBounds by remember { mutableStateOf(mapOf<Int, Pair<Dp, Dp>>()) }
-
-        Surface(
-            shape = RoundedCornerShape(9.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)),
-            shadowElevation = 3.5.dp,
-            tonalElevation = 2.dp,
-            modifier = Modifier.height(36.dp).wrapContentWidth()
-        ) {
-            if (options.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .height(36.dp)
-                        .wrapContentWidth()
-                        .padding(horizontal = 2.dp, vertical = 2.dp)
-                ) {
-                    val currentBounds = itemBounds[selectedIndex]
-                    if (currentBounds != null) {
-                        val slideSpec = tween<Dp>(durationMillis = 420, easing = FastOutSlowInEasing)
-                        val animatedLeft by animateDpAsState(
-                            targetValue = currentBounds.first,
-                            animationSpec = slideSpec,
-                            label = "docIndicatorLeft"
-                        )
-                        val animatedWidth by animateDpAsState(
-                            targetValue = currentBounds.second,
-                            animationSpec = slideSpec,
-                            label = "docIndicatorWidth"
-                        )
-
-                        Box(
-                            Modifier
-                                .offset(x = animatedLeft)
-                                .width(animatedWidth)
-                                .height(32.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                    shape = RoundedCornerShape(6.dp)
-                                )
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    RoundedCornerShape(6.dp)
-                                )
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .height(32.dp)
-                            .wrapContentWidth()
-                    ) {
-                        options.forEachIndexed { idx, opt ->
-                            val isSelected = selectedIndex == idx
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .height(32.dp)
-                                    .zIndex(1f)
-                                    .onGloballyPositioned { coordinates ->
-                                        val leftDp = with(density) { coordinates.positionInParent().x.toDp() }
-                                        val widthDp = with(density) { coordinates.size.width.toDp() }
-                                        itemBounds = itemBounds + (idx to (leftDp to widthDp))
-                                    }
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) { opt.onClick() }
-                                    .padding(horizontal = 12.dp)
-                            ) {
-                                Text(
-                                    text = opt.label,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        KKCSlidingPillRow(
+            options = options.map { KKCPillOption(it.label, it.isSelected, it.onClick) }
+        )
     }
 
     if (jumpTarget == HardwoodsJumpTarget.THREE_D && hasThreeDAssets) {
@@ -2703,10 +2511,12 @@ private fun ReferencePane(
             isDarkTheme = isDarkTheme,
             onFullScreen = onThreeDFullScreen,
             onOpenIn3DApp = onOpenIn3DApp,
+            onRoomSelected = onThreeDRoomSelected,
             headerSlot = docControls
         )
     } else {
         UnifiedReferenceViewer(
+            navigatorInHeader = true,
             modifier = modifier,
             displayPage = currentPage,
             onDisplayPageChange = onCurrentPageChange,

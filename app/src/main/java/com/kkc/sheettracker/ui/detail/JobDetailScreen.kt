@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.detail
 
+import com.kkc.sheettracker.ui.components.KKCPillAction
+import com.kkc.sheettracker.ui.components.KKCPillActionRow
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -566,74 +568,40 @@ fun JobDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item(key = "reference-doc-buttons") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    val referenceActions = buildList {
                         if (hasAssemblySheet) {
-                            Button(
-                                onClick = {
-                                    suppressLeavePrompt = true
-                                    onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1)
-                                }
-                            ) {
-                                Text("Assembly")
-                            }
+                            add(KKCPillAction("Assembly", {
+                                suppressLeavePrompt = true
+                                onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1)
+                            }))
                         }
                         if (hasPlansElevations) {
-                            Button(
-                                onClick = {
-                                    suppressLeavePrompt = true
-                                    onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1)
-                                }
-                            ) {
-                                Text("Plans & Elevations")
-                            }
+                            add(KKCPillAction("Plans & Elevations", {
+                                suppressLeavePrompt = true
+                                onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1)
+                            }))
                         }
                         if (hasDeliverySheet) {
-                            Button(
-                                onClick = {
-                                    suppressLeavePrompt = true
-                                    onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
-                                }
-                            ) {
-                                Text("Delivery")
-                            }
+                            add(KKCPillAction("Delivery", {
+                                suppressLeavePrompt = true
+                                onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
+                            }))
                         }
                         if (hasPullsSheet) {
-                            Button(
-                                onClick = {
-                                    suppressLeavePrompt = true
-                                    onOpenReferenceDocument(ReferenceDocType.PULLS, 1)
-                                }
-                            ) {
-                                Text("Pulls")
-                            }
+                            add(KKCPillAction("Pulls", {
+                                suppressLeavePrompt = true
+                                onOpenReferenceDocument(ReferenceDocType.PULLS, 1)
+                            }))
                         }
                         if (hasThreeDAssets) {
-                            Button(
-                                onClick = {
-                                    suppressLeavePrompt = true
-                                    onOpenThreeD()
-                                }
-                            ) {
-                                Text("3D")
-                            }
+                            add(KKCPillAction("3D", {
+                                suppressLeavePrompt = true
+                                onOpenThreeD()
+                            }))
                         }
-                        Button(
-                            onClick = { showPrintDialog = true }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Print,
-                                contentDescription = null,
-                                modifier = Modifier.size(ButtonDefaults.IconSize)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Print")
-                        }
+                        add(KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print))
                     }
+                    KKCPillActionRow(actions = referenceActions)
                 }
 
                 item(key = "specialty-compact-section") {

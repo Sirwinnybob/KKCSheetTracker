@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.graphics.compositeOver
+import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.CircularProgressIndicator
@@ -518,6 +521,9 @@ fun UnifiedReferenceViewer(
     onViewportStateChange: (PdfViewportState) -> Unit = {},
     showHeaderRow: Boolean = true,
     showNavigationButtons: Boolean = true,
+    navigatorInHeader: Boolean = false,
+    pageStepper: com.kkc.sheettracker.ui.components.ReferencePageStepper? = null,
+    showMarkupToggleButton: Boolean = true,
     innerPadding: androidx.compose.ui.unit.Dp = 8.dp,
     tocRequestToken: Int = 0,
     onSingleTap: (() -> Unit)? = null,
@@ -787,6 +793,9 @@ fun UnifiedReferenceViewer(
                 onViewportStateChange = onViewportStateChange,
                 showHeaderRow = showHeaderRow,
                 showNavigationButtons = showNavigationButtons,
+                navigatorInHeader = navigatorInHeader,
+                pageStepper = pageStepper,
+                showMarkupToggleButton = showMarkupToggleButton,
                 innerPadding = innerPadding,
                 tocRequestToken = tocRequestToken,
                 displayPageOverride = clampedDisplayPage,
@@ -1001,11 +1010,6 @@ fun UnifiedReferenceViewer(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(navigatorTitle, style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "Loading thumbnails $tocLoadedCount/$effectiveTotalPages",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 if (!navigatorWarningMessage.isNullOrBlank()) {
                     Text(
                         navigatorWarningMessage,
@@ -1037,13 +1041,14 @@ fun UnifiedReferenceViewer(
                     contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(searchFilteredRows, key = { it.page }) { row ->
+                    itemsIndexed(searchFilteredRows, key = { _, row -> row.page }) { rowIndex, row ->
                         val selected = row.page == clampedDisplayPage
                         val thumb = tocThumbCache[row.page]
+                        val zebra = kkcZebraTint(rowIndex)
                         val backgroundColor = when {
                             selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                             row.isPlanView -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.30f)
-                            else -> MaterialTheme.colorScheme.surface
+                            else -> zebra.compositeOver(MaterialTheme.colorScheme.surface)
                         }
                         Surface(
                             tonalElevation = if (selected) 3.dp else 1.dp,
