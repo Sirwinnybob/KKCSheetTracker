@@ -1156,14 +1156,16 @@ internal fun ContinuousReferencePdfPane(
                             // point.
                             val velocityTracker = VelocityTracker()
                             val firstDown = awaitFirstDown(requireUnconsumed = false)
+                            val trackPointerId = firstDown.id  // only track this pointer — ignore second finger during pinch
+                            velocityTracker.addPosition(firstDown.uptimeMillis, firstDown.position)
+                            flingJob?.cancel()  // NOW cancel: we have a new real touch, pre-empt cleanly
                             // With ink on, pen strokes belong to PdfMarkupOverlay: never scroll,
                             // zoom, fling or tap-toggle chrome for a stylus. With ink off the
                             // overlay ignores input, so the pen scrolls like a finger. awaitEachGesture
                             // waits for every pointer to lift before it starts the next gesture.
+                            // A pen touch still stops a running fling, like a finger touch does,
+                            // so the page doesn't scroll under the stroke.
                             if (currentMarkupEnabled && isStylusPointerType(firstDown.type)) return@awaitEachGesture
-                            val trackPointerId = firstDown.id  // only track this pointer — ignore second finger during pinch
-                            velocityTracker.addPosition(firstDown.uptimeMillis, firstDown.position)
-                            flingJob?.cancel()  // NOW cancel: we have a new real touch, pre-empt cleanly
                             isInteracting = true
                             var wasMultiTouch = false
                             var stylusTookOver = false

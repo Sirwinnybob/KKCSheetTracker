@@ -128,6 +128,19 @@ class ContinuousReferencePdfPaneTest {
             "A pen landing mid-gesture (resting palm) must hand the gesture to the overlay.",
             source.contains("stylusTookOver")
         )
+
+        val cancelIndex = source.indexOf("flingJob?.cancel()  // NOW cancel")
+        val stylusCheckIndex = source.indexOf("currentMarkupEnabled && isStylusPointerType(firstDown.type)")
+        val interactingIndex = source.indexOf("isInteracting = true", stylusCheckIndex)
+        assertTrue("flingJob?.cancel() must be present.", cancelIndex >= 0)
+        assertTrue(
+            "A pen touch must still cancel a running fling before the stylus skip returns, so the page doesn't scroll under the stroke.",
+            cancelIndex < stylusCheckIndex
+        )
+        assertTrue(
+            "The stylus skip must return before isInteracting is set for a finger/scroll gesture.",
+            stylusCheckIndex < interactingIndex
+        )
     }
 
     private fun continuousPaneSource(): String {
