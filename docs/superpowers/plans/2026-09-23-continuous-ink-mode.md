@@ -56,6 +56,10 @@ code-quality-reviewer prompt:**
 > not start further steps. Log it with `KIND` = `BLOCKER` plus exact evidence (file:line, quoted log or test
 > output), and make the first line of your report `STATUS: BLOCKED (ink)`. Ink improvements that do not meet
 > that bar are ordinary observations: log them and continue.
+>
+> Device rule: never touch the Android tablet. No `adb shell input`, no android-tablet MCP tap/swipe/type
+> tools, no computer-use, no installs. The user does all on-device UI (navigating, tapping, stroking); the
+> controller alone handles install and logcat, per Task 5.
 
 **Controller duty:** after each task, read the new observations, dedupe them, and mention any `BUG`/`RACE`
 in your status update to the user right away rather than waiting for the end.
@@ -943,33 +947,76 @@ Expected: PASS. (Do not commit yet — see Task 6.)
 Run: `.\gradlew.bat :app:testDebugUnitTest`
 Expected: PASS except the one known off-device `PdfMarkup` `MotionEvent` stub failure (environment-only, not a regression; see project memory). Report any other failure; do not paper over it.
 
-- [ ] **Step 2: Build the release APK**
+- [ ] **Step 2: Build and install a debug APK (controller only, after the user says go)**
 
-Per project notes `adb-install-release.ps1` breaks under `powershell -File` (unicode); build and install directly:
+Logging matters here: `AppLog.d` emits only in **debug** builds (`logging/AppLog.kt`), so a release APK shows
+none of the `PdfMarkupDebug` lines this task relies on. Use the debug build path from CLAUDE.md.
 
-```
-.\gradlew.bat assembleRelease
-adb install -r app\build\outputs\apk\release\app-release.apk
-```
-Ask the user before installing to any device. Use `.\gradlew.bat assembleDebug` + the debug APK if only a local check is wanted.
+1. Confirm the target is safe to overwrite. The tablet currently attached (`adb devices`) must be running a
+   **debuggable** build of `com.kkc.sheettracker`:
+   ```
+   adb -s <serial> shell dumpsys package com.kkc.sheettracker | findstr /i "DEBUGGABLE versionName"
+   ```
+   If it is **not** `DEBUGGABLE` (a production release tablet), STOP and ask the user: a debug APK is signed
+   differently, so `adb install -r` fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE` and the only workaround
+   (uninstall) wipes the tablet's data. Never uninstall to make it fit.
+2. Ask the user to confirm the serial and that it is OK to install. Then:
+   ```
+   .\gradlew.bat assembleDebug
+   adb -s <serial> install -r app\build\outputs\apk\debug\app-debug.apk
+   ```
+3. Production tablets run **release** builds. Building or deploying a release APK
+   (`.\gradlew.bat assembleRelease` + `adb install -r ...`, per project notes `adb-install-release.ps1` breaks
+   under `powershell -File`) happens only when the user asks, after Step 5.
 
-- [ ] **Step 3: Manual checklist on a tablet with a stylus**
+- [ ] **Step 3: Testing division of labor — the user drives the tablet, agents watch the log**
 
-Open a job PDF in continuous mode and verify, per the spec:
-1. Ink on, draw on the centered page, scroll, draw on the next page. Leave the viewer and re-enter: both strokes persist.
-2. Strokes on every page are visible while scrolling, with ink on and off.
-3. With ink on, finger scroll, fling and pinch-zoom work; pen strokes never scroll the list.
-4. Resting a palm while writing does not scroll.
-5. "Allow finger drawing" on, or eraser tool selected: fingers lock the list and draw or erase, as before.
-6. Undo after drawing on page N then scrolling to N+1 undoes the most recent stroke.
-7. While pinch-zoomed, the pen draws exactly where it touches.
-8. Paged (non-continuous) mode: draw, erase, undo, and visibility toggle still work.
+**The user does all UI: navigating, tapping, stroking, pinching, toggling.** Agents and the controller never
+touch the tablet UI. That means no `adb shell input ...` (tap/swipe/text/keyevent), no android-tablet MCP
+`Click`/`Swipe`/`Drag`/`Type`/`Press`, and no computer-use. Subagents don't touch the device at all and never
+install; only the controller may, per Step 2.
+
+What the controller **does**:
+- Starts logcat capture before each check, and stops and reads it after:
+  ```
+  adb -s <serial> logcat -c
+  adb -s <serial> logcat -v time PdfMarkupDebug:D AndroidRuntime:E *:S > <scratchpad>\ink-check-<n>.log
+  ```
+  (run in the background; use the scratchpad directory, not `/tmp`). Add `UnifiedReferenceViewer:W` if you need
+  the navigator warnings. Watch for `AndroidRuntime` crashes throughout.
+- Gives the user **one check at a time**: exact instructions (which job/PDF, which mode, what to draw or
+  gesture), then says "tell me when done".
+- Reads the log for that check and reports what it shows against the expectations below, then asks the user
+  what they saw on screen. A passing log does not replace what the user sees, and vice versa.
+- May take a passive screenshot (`adb exec-out screencap -p`) once the user says they're on the screen; never
+  navigates to get there.
+
+Log lines available (all tag `PdfMarkupDebug`): `savePageMarkup ... pdf=<f> page=<n> strokes=<k> deleted=<d>`
+(once per stroke or erase), `saveTabletMarkup ...`, `loadTabletMarkup ...`,
+`UnifiedReferenceViewer reload job=<j> pages=<n>` (once per reload).
+
+**Checks (the user performs each; the controller confirms via the log):**
+
+| # | User does | Log should show |
+|---|---|---|
+| 1 | Continuous mode, ink on. Draw one stroke on the centered page, scroll to the next page, draw one stroke there. Leave the viewer, re-enter. | Two `savePageMarkup` lines with **different** `page=`; after re-entering, a `reload ... pages=` count including both. User confirms both strokes show. |
+| 2 | Scroll through several pages with ink on, then ink off. | No `savePageMarkup`. User confirms strokes on every page stay visible. |
+| 3 | Ink on: finger-scroll, fling, pinch-zoom; then draw with the pen. | No `savePageMarkup` from finger gestures; exactly one per pen stroke. User confirms pen never scrolls the list and finger never draws. |
+| 4 | Rest the palm on the screen while writing with the pen. | One `savePageMarkup` per stroke. User confirms the list doesn't scroll. |
+| 5 | Turn on "allow finger drawing", finger-draw one stroke; then select the eraser and erase it with a finger. | One save per finger stroke, one per erase (`deleted` grows). User confirms the list locked during both, as before. |
+| 6 | Draw on page N, scroll to N+1, tap undo. | One `savePageMarkup` for page N with `strokes` reduced and `deleted` +1. User confirms the stroke on N vanished. |
+| 7 | Pinch-zoom in, draw a stroke, zoom out. | One save. User confirms the stroke sits exactly where the pen touched. |
+| 8 | Two strokes on the same page **within about a second**, quickly. | Two saves; the last `savePageMarkup` for that page shows `strokes=` 2 more than before, and any `reload` afterwards still shows both. **User confirms both strokes stay visible.** A stroke that disappears or a final save with too few strokes is a **BLOCKER** (see the RACE entries in the observations log and the Ink Blocker Protocol). |
+| 9 | Draw 20+ strokes on one page, then scroll and erase. | Count `reload` lines vs strokes (a reload after every stroke confirms the seeded PERF entry). User reports any lag or jank while drawing or erasing. |
+| 10 | Switch to paged (non-continuous) mode: draw, erase, undo, toggle visibility. | Saves for the current page only; nothing for other pages. User confirms paged behavior is unchanged. |
 
 - [ ] **Step 4: Record results**
 
-Note any failed item with page/steps. Fix in a follow-up commit before Task 6.
+For each check, note pass/fail, the user's on-screen report, and the log excerpt that backs it (quote the
+shortest decisive lines). Fix failures in a follow-up commit before Task 6; a failure that meets the
+Ink Blocker Protocol pauses the plan instead.
 
-- [ ] **Step 5: Observations checkpoint** — append findings (or "none") under `## Task 5`. Include anything seen on-device (dropped frames or jank while scrolling with many strokes, log spam, slow page loads, unexpected reloads after each stroke) and any failing or flaky tests beyond the one known `MotionEvent` failure, with the measurement or log line that shows it. Do not commit that file yet.
+- [ ] **Step 5: Observations checkpoint** — append findings (or "none") under `## Task 5`. Then tell the user the debug build is what they tested; the release build for production tablets is a separate step they trigger. Include anything seen on-device (dropped frames or jank while scrolling with many strokes, log spam, slow page loads, unexpected reloads after each stroke) and any failing or flaky tests beyond the one known `MotionEvent` failure, with the measurement or log line that shows it. Do not commit that file yet.
 
 ---
 
