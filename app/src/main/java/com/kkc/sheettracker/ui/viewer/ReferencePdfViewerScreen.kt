@@ -159,16 +159,17 @@ fun ReferencePdfViewerScreen(
                     }
                 },
                 actions = {
-                    // Single-page mode: pencil and the prev / sheet-list / next pill live here
-                    // instead of floating over the PDF. Continuous mode keeps its own overlay row.
+                    // The pencil lives here in both modes: continuous mode can ink any visible page.
+                    IconButton(onClick = { markupEnabled = !markupEnabled }) {
+                        Icon(
+                            Icons.Default.Create,
+                            contentDescription = if (markupEnabled) "Disable drawing" else "Enable drawing",
+                            tint = if (markupEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    // Single-page mode: the prev / sheet-list / next pill lives here instead of
+                    // floating over the PDF.
                     if (!continuousScrollEnabled) {
-                        IconButton(onClick = { markupEnabled = !markupEnabled }) {
-                            Icon(
-                                Icons.Default.Create,
-                                contentDescription = if (markupEnabled) "Disable drawing" else "Enable drawing",
-                                tint = if (markupEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
                         SheetNavigatorPill(
                             displayPage = currentPage,
                             displayTotalPages = totalPages,
