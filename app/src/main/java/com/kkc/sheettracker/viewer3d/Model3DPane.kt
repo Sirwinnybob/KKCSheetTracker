@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.kkc.sheettracker.data.ViewerInteractionSignal
 import com.kkc.sheettracker.logging.AppLog
+import com.kkc.sheettracker.ui.components.WebViewBlurGate
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -62,6 +63,14 @@ fun Model3DPane(
         onDispose {
             ViewerInteractionSignal.setPaneInteracting(paneId, false)
             ViewerInteractionSignal.setPaneActive(paneId, false)
+        }
+    }
+    // Frosted chrome blurring a live WebView keeps Chromium's compositor redrawing every vsync
+    // (~120% CPU while idle), so the navbar goes solid for as long as the WebView is on screen.
+    if (encodedUrl.isNotEmpty()) {
+        DisposableEffect(Unit) {
+            val release = WebViewBlurGate.shared.acquire()
+            onDispose { release() }
         }
     }
     Column(modifier = modifier) {
