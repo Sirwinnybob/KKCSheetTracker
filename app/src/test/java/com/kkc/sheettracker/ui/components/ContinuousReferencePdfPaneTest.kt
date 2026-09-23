@@ -1,7 +1,10 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import com.kkc.sheettracker.ui.markup.pdfPageTransformForRect
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -18,6 +21,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -759,8 +763,8 @@ class ContinuousReferencePdfPaneTest {
             "pageContent must not compose PdfMarkupOverlay (it sits under the crop canvas).",
             source.substring(pageContentStart, pageContentEnd).contains("PdfMarkupOverlay(")
         )
-        assertTrue(source.contains("strokeWidthScale = strokeWidthScale"))
-        assertTrue(source.contains("val strokeWidthScale = zoom.coerceAtLeast(1f)"))
+        assertTrue(source.contains("strokeWidthScale = zoomScale"))
+        assertTrue(source.contains("val zoomScale = zoom.coerceAtLeast(1f)"))
         assertTrue(source.contains("zoom = sharedZoom,"))
     }
 
@@ -785,29 +789,113 @@ class ContinuousReferencePdfPaneTest {
             2,
             Regex("""\.onPlaced \{ inkOverlayPlacer\.requestPlacement\(\) \}""").findAll(source).count()
         )
-        assertTrue(source.contains("placeable.placeWithLayer(offset)"))
+        // The list (inside the zoom layer) supplies the pre-transform coordinate space.
+        assertTrue(source.contains("inkOverlayPlacer.zoomLayerContentCoordinates = it"))
+        assertTrue(source.contains("placeable.placeWithLayer(frame?.offset ?: continuousInkParkedOffset("))
     }
 
     @Test
-    fun continuousInkOverlayViewSize_scalesTheUnscaledPageBoxByZoom() {
-        assertEquals(IntSize(800, 1000), continuousInkOverlayViewSize(IntSize(800, 1000), 1f))
-        assertEquals(IntSize(2000, 2500), continuousInkOverlayViewSize(IntSize(800, 1000), 2.5f))
-        // Rounds to nearest pixel.
-        assertEquals(IntSize(1234, 1543), continuousInkOverlayViewSize(IntSize(987, 1234), 1.25f))
+    fun inkPlacer_mapsPagesThroughTheZoomLayerStatesNotTheLayerMatrix() {
+        val source = continuousPaneSource()
+        val placer = source.substring(source.indexOf("internal class ContinuousInkOverlayPlacer("))
+            .substringBefore("internal class ContinuousInkOverlayFrameHolder")
+
+        assertTrue(placer.contains("layerContent.localBoundingBoxOf(page, clipBounds = false)"))
+        assertTrue(placer.contains("continuousZoomLayerRectToScreen("))
+        assertFalse("host coordinates include the layer matrix, which can be a frame stale", placer.contains("host.localBoundingBoxOf"))
+        // The mirrored transform must stay in sync with the graphicsLayer block it copies.
+        assertTrue(source.contains("val overscrollScreenPx = -sharedMainAxisOverscroll * sharedZoom"))
+        assertTrue(source.contains("translationX = sharedCrossPan\n                            translationY = overscrollScreenPx".replace("\n", lineSeparatorOf(source))))
     }
 
     @Test
-    fun continuousInkOverlayViewSize_isZeroForUnmeasuredPagesOrInvalidZoom() {
-        assertEquals(IntSize.Zero, continuousInkOverlayViewSize(IntSize.Zero, 2f))
-        assertEquals(IntSize.Zero, continuousInkOverlayViewSize(IntSize(800, 0), 2f))
-        assertEquals(IntSize.Zero, continuousInkOverlayViewSize(IntSize(800, 1000), Float.NaN))
-        assertEquals(IntSize.Zero, continuousInkOverlayViewSize(IntSize(800, 1000), 0f))
+    fun continuousZoomLayerRectToScreen_vertical_matchesHandComputedLayerTransform() {
+        // Layer 1000x2000 -> pivot (500, 1000). zoom 2, crossPan 50, overscroll 10 -> ty = -20.
+        val rect = continuousZoomLayerRectToScreen(
+            left = 100f, top = 300f, right = 900f, bottom = 1300f,
+            zoom = 2f, crossPan = 50f, mainAxisOverscroll = 10f,
+            layerWidth = 1000f, layerHeight = 2000f,
+            orientation = Orientation.Vertical
+        )
+
+        assertEquals(-250f, rect.left, 0.001f)   // (100-500)*2 + 500 + 50
+        assertEquals(1350f, rect.right, 0.001f)  // (900-500)*2 + 500 + 50
+        assertEquals(-420f, rect.top, 0.001f)    // (300-1000)*2 + 1000 - 20
+        assertEquals(1580f, rect.bottom, 0.001f) // (1300-1000)*2 + 1000 - 20
     }
 
     @Test
-    fun continuousInkOverlayOffset_roundsToNearestPixelIncludingNegativeBounds() {
-        assertEquals(IntOffset(12, 35), continuousInkOverlayOffset(11.6f, 34.5f))
-        assertEquals(IntOffset(-420, -1), continuousInkOverlayOffset(-420.4f, -0.6f))
+    fun continuousZoomLayerRectToScreen_horizontal_swapsCrossPanAndOverscrollAxes() {
+        val rect = continuousZoomLayerRectToScreen(
+            left = 100f, top = 300f, right = 900f, bottom = 1300f,
+            zoom = 2f, crossPan = 50f, mainAxisOverscroll = 10f,
+            layerWidth = 1000f, layerHeight = 2000f,
+            orientation = Orientation.Horizontal
+        )
+
+        assertEquals(-320f, rect.left, 0.001f)  // (100-500)*2 + 500 - 20
+        assertEquals(1280f, rect.right, 0.001f)
+        assertEquals(-350f, rect.top, 0.001f)   // (300-1000)*2 + 1000 + 50
+        assertEquals(1650f, rect.bottom, 0.001f)
+    }
+
+    @Test
+    fun continuousZoomLayerRectToScreen_isIdentityAtRest() {
+        val rect = continuousZoomLayerRectToScreen(
+            left = 12.5f, top = 40f, right = 812.5f, bottom = 1075f,
+            zoom = 1f, crossPan = 0f, mainAxisOverscroll = 0f,
+            layerWidth = 825f, layerHeight = 1200f,
+            orientation = Orientation.Vertical
+        )
+
+        assertEquals(Rect(12.5f, 40f, 812.5f, 1075f), rect)
+    }
+
+    @Test
+    fun continuousInkOverlayFrame_clipsToHost_andKeepsTheFractionInThePageRect() {
+        val frame = continuousInkOverlayFrame(
+            pageOnScreen = Rect(-250.4f, 100.6f, 1350f, 1580.25f),
+            hostWidth = 1000,
+            hostHeight = 2000
+        )!!
+
+        // Integer box: floor of the clipped left/top, ceil of the clipped right/bottom.
+        assertEquals(IntOffset(0, 100), frame.offset)
+        assertEquals(IntSize(1000, 1481), frame.size)
+        // Sub-pixel page position lives in the rect, relative to the box.
+        assertEquals(-250.4f, frame.pageRectInBox.left, 0.001f)
+        assertEquals(0.6f, frame.pageRectInBox.top, 0.001f)
+        assertEquals(1350f, frame.pageRectInBox.right, 0.001f)
+        assertEquals(1480.25f, frame.pageRectInBox.bottom, 0.001f)
+    }
+
+    @Test
+    fun continuousInkOverlayFrame_staysWithinHostAtMaxZoom_onA1752pxTablet() {
+        // A 1752x2267 page at the pane's max zoom (20x) is ~35040x45340 px on screen, beyond
+        // Compose's 32767 px constraint limit. The overlay must never be sized to that.
+        val hostWidth = 1752
+        val hostHeight = 2267
+        val onScreen = continuousZoomLayerRectToScreen(
+            left = 0f, top = 0f, right = 1752f, bottom = 2267f,
+            zoom = 20f, crossPan = 0f, mainAxisOverscroll = 0f,
+            layerWidth = hostWidth.toFloat(), layerHeight = hostHeight.toFloat(),
+            orientation = Orientation.Vertical
+        )
+        assertTrue(onScreen.width > 32767f && onScreen.height > 32767f)
+
+        val frame = continuousInkOverlayFrame(onScreen, hostWidth, hostHeight)!!
+
+        assertTrue(frame.size.width <= hostWidth && frame.size.height <= hostHeight)
+        assertEquals(IntOffset.Zero, frame.offset)
+        assertEquals(onScreen.width, frame.pageRectInBox.width, 1f)
+    }
+
+    @Test
+    fun continuousInkOverlayFrame_isNullWhenThePageIsOffScreenOrInvalid() {
+        assertNull(continuousInkOverlayFrame(Rect(-900f, 0f, -10f, 500f), 1000, 2000))
+        assertNull(continuousInkOverlayFrame(Rect(0f, 2000f, 1000f, 3000f), 1000, 2000))
+        assertNull(continuousInkOverlayFrame(Rect(0f, 0f, 100f, 100f), 0, 2000))
+        assertNull(continuousInkOverlayFrame(Rect(Float.NaN, 0f, 100f, 100f), 1000, 2000))
     }
 
     @Test
@@ -819,14 +907,39 @@ class ContinuousReferencePdfPaneTest {
     }
 
     @Test
-    fun pdfMarkupOverlay_strokeWidthScaleDefaultsToViewportZoom_andDrivesWidthsAndEraser() {
-        val source = markupUiSource()
+    fun pdfPageTransformForRect_mapsNormalizedPointsOntoTheGivenRect() {
+        val transform = pdfPageTransformForRect(IntSize(1000, 1481), Rect(-250.4f, 0.6f, 1349.6f, 2000.6f))!!
 
-        assertTrue(source.contains("strokeWidthScale: Float = viewportState.zoom.coerceAtLeast(1f)"))
-        assertTrue(source.contains("width = stroke.lineWidth * strokeWidthScale"))
-        assertTrue(source.contains("width = activeThickness * strokeWidthScale"))
-        assertTrue(source.contains("d < ERASER_HIT_RADIUS_PX * strokeWidthScale"))
+        val (x, y) = transform.normalizedPageToView(0.5f, 0.25f)
+        assertEquals(549.6f, x, 0.01f)  // -250.4 + 0.5 * 1600
+        assertEquals(500.6f, y, 0.01f)  // 0.6 + 0.25 * 2000
+        val (nx, ny) = transform.viewToNormalizedPage(549.6f, 500.6f)
+        assertEquals(0.5f, nx, 0.0001f)
+        assertEquals(0.25f, ny, 0.0001f)
+        assertNull(pdfPageTransformForRect(IntSize(10, 10), Rect(0f, 0f, 0f, 10f)))
     }
+
+    @Test
+    fun pdfMarkupOverlay_defaultsKeepPagedBehavior_andContinuousPassesZoomScales() {
+        val markup = markupUiSource()
+        val pane = continuousPaneSource()
+
+        // Widths keep scaling with the paged viewport zoom; the eraser reach stays a fixed 30 px
+        // for paged callers (ReferencePdfPane, SheetViewerScreen).
+        assertTrue(markup.contains("strokeWidthScale: Float = viewportState.zoom.coerceAtLeast(1f)"))
+        assertTrue(markup.contains("eraserRadiusScale: Float = 1f"))
+        assertTrue(markup.contains("pageRectInView: (() -> Rect?)? = null"))
+        assertTrue(markup.contains("width = stroke.lineWidth * strokeWidthScale"))
+        assertTrue(markup.contains("width = activeThickness * strokeWidthScale"))
+        assertTrue(markup.contains("d < ERASER_HIT_RADIUS_PX * eraserRadiusScale"))
+        assertFalse(markup.contains("ERASER_HIT_RADIUS_PX * strokeWidthScale"))
+
+        assertTrue(pane.contains("strokeWidthScale = zoomScale"))
+        assertTrue(pane.contains("eraserRadiusScale = zoomScale"))
+        assertTrue(pane.contains("pageRectInView = { frameHolder.pageRectInBox }"))
+    }
+
+    private fun lineSeparatorOf(source: String): String = if (source.contains("\r\n")) "\r\n" else "\n"
 
     private fun markupUiSource(): String {
         var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
