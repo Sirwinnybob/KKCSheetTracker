@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.ui.components.PdfViewportState
 import java.util.UUID
+import kotlin.math.abs
 
 /** Eraser reach, in overlay view px at an eraserRadiusScale of 1. */
 private const val ERASER_HIT_RADIUS_PX = 30f
@@ -199,6 +200,8 @@ fun PdfMarkupOverlay(
     var isHandlingGesture by remember { mutableStateOf(false) }
     var gestureTool by remember { mutableStateOf(DrawingTool.PEN) }
     val committedPathCache = remember { NormalizedStrokePathCache() }
+    // Last valid transform of the gesture in progress; plain holder, only read by the handler.
+    val gestureTransformMemory = remember { MarkupGestureTransformMemory() }
 
     fun currentTransform(): PdfPageTransform? {
         val aspect = pageAspectRatio ?: return null
@@ -238,7 +241,30 @@ fun PdfMarkupOverlay(
                 onStylusButtonEraserChanged(shouldUseTemporaryEraser)
                 val isStylusTool =
                     toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
-                val transform = currentTransform() ?: return@pointerInteropFilter false
+                val isGestureEnd = motionEvent.actionMasked == MotionEvent.ACTION_UP ||
+                    motionEvent.actionMasked == MotionEvent.ACTION_CANCEL
+                // A continuous-mode page can leave view mid-stroke (e.g. a programmatic scroll),
+                // making its rect null: finish the gesture on the transform it last had.
+                val transform = resolveMarkupGestureTransform(
+                    current = currentTransform(),
+                    gestureTransform = gestureTransformMemory.transform,
+                    gestureInProgress = isHandlingGesture
+                )
+                if (transform == null) {
+                    if (!isGestureEnd) return@pointerInteropFilter false
+                    // No transform at all: still close out any gesture so state never goes stale.
+                    val handled = isHandlingGesture
+                    isHandlingGesture = false
+                    isDrawing = false
+                    currentPoints.clear()
+                    gestureTransformMemory.transform = null
+                    return@pointerInteropFilter handled
+                }
+                if (isGestureEnd) {
+                    gestureTransformMemory.transform = null
+                } else if (isHandlingGesture || motionEvent.actionMasked == MotionEvent.ACTION_DOWN) {
+                    gestureTransformMemory.transform = transform
+                }
                 val effectiveTool = if (activeTool == DrawingTool.ERASER || shouldUseTemporaryEraser) {
                     DrawingTool.ERASER
                 } else {
@@ -451,7 +477,7 @@ internal class NormalizedStrokePathCache {
     private var paths: List<Path?> = emptyList()
 
     fun pathsFor(activeStrokes: List<PdfInkStroke>, width: Float, height: Float): List<Path?> {
-        if (activeStrokes === strokes && width == pageWidth && height == pageHeight) return paths
+        if (isStrokePathCacheHit(strokes, pageWidth, pageHeight, activeStrokes, width, height)) return paths
         paths = activeStrokes.map { stroke ->
             val points = stroke.points
             if (points.size < 4) {
@@ -470,4 +496,35 @@ internal class NormalizedStrokePathCache {
         pageHeight = height
         return paths
     }
+}
+
+/**
+ * Page sizes that differ by less than this are the same page size. The continuous pane derives
+ * the size from edge subtraction of a moving rect, which wobbles in float32 on every pan frame.
+ */
+internal const val STROKE_PATH_CACHE_SIZE_TOLERANCE_PX = 0.01f
+
+/** Whether cached page-local paths built for ([cachedStrokes], [cachedWidth] x [cachedHeight]) can be reused. */
+internal fun isStrokePathCacheHit(
+    cachedStrokes: List<PdfInkStroke>?,
+    cachedWidth: Float,
+    cachedHeight: Float,
+    strokes: List<PdfInkStroke>,
+    width: Float,
+    height: Float
+): Boolean =
+    cachedStrokes === strokes &&
+        abs(width - cachedWidth) < STROKE_PATH_CACHE_SIZE_TOLERANCE_PX &&
+        abs(height - cachedHeight) < STROKE_PATH_CACHE_SIZE_TOLERANCE_PX
+
+/**
+ * The transform a markup event maps through: the live one when available, otherwise — only while
+ * a gesture is in progress — the last one that gesture had, so a stroke whose page leaves view
+ * mid-stroke still commits on ACTION_UP.
+ */
+internal fun <T : Any> resolveMarkupGestureTransform(current: T?, gestureTransform: T?, gestureInProgress: Boolean): T? =
+    current ?: if (gestureInProgress) gestureTransform else null
+
+internal class MarkupGestureTransformMemory {
+    var transform: PdfPageTransform? = null
 }
