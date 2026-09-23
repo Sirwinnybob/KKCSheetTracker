@@ -50,9 +50,81 @@ code-quality-reviewer prompt:**
 > format at the top of that file (`[Task N | role] KIND — file:line — problem — suggested fix — in-scope: yes/no`),
 > and end your report with an "Observations" section listing what you added (or "none"). Mark anything you
 > did not verify as `(unverified)`. Fixes required by this task are still made normally.
+>
+> Ink blocker duty: if you find an ink/markup-related issue that would make this plan's code wrong, unsafe,
+> lossy for strokes, or unusable (see "Ink Blocker Protocol" in the plan), STOP. Do not work around it and do
+> not start further steps. Log it with `KIND` = `BLOCKER` plus exact evidence (file:line, quoted log or test
+> output), and make the first line of your report `STATUS: BLOCKED (ink)`. Ink improvements that do not meet
+> that bar are ordinary observations: log them and continue.
 
 **Controller duty:** after each task, read the new observations, dedupe them, and mention any `BUG`/`RACE`
 in your status update to the user right away rather than waiting for the end.
+
+## Ink Blocker Protocol (pause the plan)
+
+Some ink problems are not just "log it": they change what this plan can safely build. When any agent
+finds an **ink-related issue that would affect the implementation of this plan**, the plan **pauses** and
+the user gets a ready-to-send prompt for a separate session to fix it first.
+
+**A finding is a blocker (not just an observation) if it is ink/markup related AND any of these is true:**
+- It makes a plan step's code wrong, impossible or unsafe as written (a signature, file, line or assumption
+  in the plan doesn't match reality — e.g. `PdfMarkupOverlay` consumes finger events, `savePageMarkup`
+  semantics differ, snapshot state doesn't behave as the tests assume).
+- It would make the new behavior lose or corrupt strokes (persist race that drops a stroke, reload that wipes
+  in-flight strokes, wrong page attribution, coordinate error under zoom).
+- It would make the new behavior unusable in practice (erase or draw lag on the UI thread with realistic
+  stroke counts, a reload after every stroke that flickers or discards the stroke being drawn).
+- Fixing it inside this plan's task would sprawl into files or behavior the plan doesn't own.
+
+Ink issues that only *could* be improved and don't meet any bullet above stay ordinary observations
+(log and continue). If unsure, treat it as a blocker and ask the user rather than guessing.
+
+**What an agent does on finding a blocker:**
+1. **Stop.** Do not work around it, do not start the next step, and do not dispatch further tasks. Leave any
+   half-finished edit in a compiling state or revert only your own edits for this task; never touch the
+   user's other uncommitted changes.
+2. Log it in the observations file with `KIND` = `BLOCKER` and the evidence (file:line, log line, failing
+   test output).
+3. Report `STATUS: BLOCKED (ink)` as the first line of the report, followed by the evidence.
+
+**What the controller does on a blocker (do not proceed until the user replies):**
+1. Verify the evidence yourself in the code (read the lines, re-run the failing test). If it doesn't hold up,
+   say so, downgrade to a normal observation, and continue.
+2. Tell the user: which task/step paused, the blocker in two or three sentences, and why it affects this plan.
+3. Give the user **one self-contained prompt** for a fresh Claude Code session (template below), in its own
+   fenced block, so it can be copied whole. Do not assume that session has this conversation's context.
+4. **Wait.** Resume only when the user says the fix landed or tells you to proceed anyway.
+
+**On resume:** run `git log --oneline -10` and `git status --short`, re-read every file the remaining tasks
+edit, and re-check each plan assumption (signatures, line numbers, `PdfMarkupOverlay` behavior). Update the
+plan file where reality changed, commit that plan edit, then continue from the paused step.
+
+**Prompt template for the fix session** (fill every `<...>`; keep it self-contained):
+
+````
+Repo: C:\Scripts\KKCSheetTracker (Android, Kotlin, Jetpack Compose). Branch: <current branch>.
+Read CLAUDE.md first. The working tree has unrelated uncommitted edits (UnifiedReferenceViewer.kt,
+ReferencePdfPane.kt, and others) — do not revert or commit them; stage only the files you change.
+
+Problem: <one paragraph: what is wrong, how it shows up, who is affected>.
+
+Evidence:
+- <file:line — what the code does>
+- <log output / failing test / repro steps, quoted exactly>
+
+Why it matters: <what breaks or gets lost, e.g. "a stroke drawn right after another can be overwritten on disk">.
+
+Scope: fix only this. Files likely involved: <paths>. Out of scope: <what not to touch, e.g. the continuous
+viewer wiring in docs/superpowers/plans/2026-09-23-continuous-ink-mode.md — that work is paused waiting on this fix>.
+
+Constraints: <e.g. keep PdfMarkupStore file format unchanged; keep the public PdfMarkupOverlay signature; tablets run release builds>.
+
+Acceptance: <observable outcome, e.g. "two strokes drawn within 50 ms on the same page both persist, in order">.
+Add or update unit tests where behavior is testable off-device (JVM); note the one known environment-only
+PdfMarkup MotionEvent test failure is not a regression. Run:
+.\gradlew.bat :app:testDebugUnitTest --tests "<test class>"
+Commit with a conventional message, and report the commit hash and what changed so the paused plan can resume.
+````
 
 **Test command (from `C:\Scripts\KKCSheetTracker`):**
 ```
