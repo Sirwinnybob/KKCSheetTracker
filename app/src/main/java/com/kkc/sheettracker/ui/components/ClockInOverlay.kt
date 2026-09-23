@@ -281,7 +281,7 @@ fun ClockInOverlay(
         if (animProgress < 0.99f) {
             val modalShape = RoundedCornerShape(12.dp)
             val frostedTokens = LocalKKCThemeTokens.current.frosted
-            val modalSurfaceModifier = if (hazeState != null) {
+            val modalSurfaceModifier = if (hazeState != null && !LocalLowEndMode.current.blurDisabled) {
                 Modifier.hazeEffect(
                     state = hazeState,
                     style = HazeDefaults.style(

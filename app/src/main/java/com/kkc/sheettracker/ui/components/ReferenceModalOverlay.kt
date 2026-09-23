@@ -419,7 +419,7 @@ fun ReferenceModalHost(
 
             val shape = RoundedCornerShape(15.dp)
             val frosted = LocalKKCThemeTokens.current.frosted
-            val panelModifier = if (hazeState != null) {
+            val panelModifier = if (hazeState != null && !LocalLowEndMode.current.blurDisabled) {
                 Modifier.hazeEffect(
                     state = hazeState,
                     style = HazeDefaults.style(

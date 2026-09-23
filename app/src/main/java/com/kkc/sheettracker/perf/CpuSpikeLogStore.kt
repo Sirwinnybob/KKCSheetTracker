@@ -30,7 +30,12 @@ data class CpuSpikeEntry(
     val cpuPercent: Double,
     val peakCpuPercent: Double? = null,
     val avgCpuPercent: Double? = null,
-    val durationMs: Long? = null
+    val durationMs: Long? = null,
+    /** Main (UI) thread only; [cpuPercent] and friends are the whole process across all threads. */
+    val mainThreadCpuPercent: Double? = null,
+    val avgMainThreadCpuPercent: Double? = null,
+    /** True while a live WebView (3D pane) was on screen. */
+    val webViewShowing: Boolean? = null
 )
 
 class CpuSpikeLogStore(
@@ -127,6 +132,9 @@ class CpuSpikeLogStore(
             "peakCpuPercent" to entry.peakCpuPercent,
             "avgCpuPercent" to entry.avgCpuPercent,
             "durationMs" to entry.durationMs,
+            "mainThreadCpuPercent" to entry.mainThreadCpuPercent,
+            "avgMainThreadCpuPercent" to entry.avgMainThreadCpuPercent,
+            "webViewShowing" to entry.webViewShowing,
             "tabletId" to context.tabletId,
             "workMode" to context.workMode,
             "currentTab" to context.currentTab,

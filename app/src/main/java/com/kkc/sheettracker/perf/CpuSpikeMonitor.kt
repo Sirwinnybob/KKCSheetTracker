@@ -7,6 +7,7 @@ import android.system.OsConstants
 import android.util.Log
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.ViewerInteractionSignal
+import com.kkc.sheettracker.ui.components.WebViewBlurGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,13 +17,21 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Temporary field diagnostic: logs only genuinely abnormal, long-sustained main-thread CPU load
- * (the "stuck forever at 70-100%" pattern a recomposition/composition bug produces), not normal
- * brief bursts from PDF loading, navigation, or scrolling — those settle back down within a few
- * seconds and never accumulate enough consecutive high samples to cross SUSTAINED_MIN_SAMPLES.
- * 3D viewer mode is a legitimate, deliberately sustained heavy load and is suppressed outright via
- * [ViewerInteractionSignal]. Self-disables after [EXPIRY_DAYS] from first install — intended to run
- * for a few days on production tablets, not indefinitely.
+ * Temporary field diagnostic: logs only genuinely abnormal, long-sustained CPU load (the "stuck
+ * forever at 70-100%" pattern a runaway loop produces), not normal brief bursts from PDF loading,
+ * navigation, or scrolling — those settle back down within a few seconds and never accumulate
+ * enough consecutive high samples to cross SUSTAINED_MIN_SAMPLES.
+ *
+ * The trigger and `cpuPercent`/`peakCpuPercent`/`avgCpuPercent` are WHOLE-PROCESS CPU (every
+ * thread, so it can exceed 100% on a multi-core tablet). That is what saturates the device, and
+ * it catches work off the main thread such as WebView GPU/compositor threads. The main (UI)
+ * thread alone is logged separately as `mainThreadCpuPercent`/`avgMainThreadCpuPercent`, so a
+ * high process figure with a low main-thread figure means the load is not composition. Each entry
+ * also records whether a WebView (3D pane) was on screen.
+ *
+ * 3D viewer mode is a legitimate, deliberately sustained heavy load while the user is touching it
+ * and is suppressed outright via [ViewerInteractionSignal]. Self-disables after [EXPIRY_DAYS]
+ * from first install — intended to run for a few days on production tablets, not indefinitely.
  */
 object CpuSpikeMonitor {
     private const val TAG = "KKC_CPU_SPIKE_MONITOR"
@@ -119,12 +128,14 @@ object CpuSpikeMonitor {
         val clkTck = runCatching { Os.sysconf(OsConstants._SC_CLK_TCK) }.getOrDefault(100L)
         scope.launch {
             var prevTicks = -1L
+            var prevMainTicks = -1L
             var prevWallMs = 0L
             var wasInteracting = false
             var interactionEndedAt = 0L
             var streakCount = 0
             var streakPeak = 0.0
             var streakSum = 0.0
+            var streakMainSum = 0.0
             var episodeStartAt = 0L
             var episodeLogged = false
 
@@ -133,18 +144,23 @@ object CpuSpikeMonitor {
                 if (System.currentTimeMillis() >= expiresAt) return@launch
 
                 val now = System.currentTimeMillis()
-                val ticks = readMainThreadTicks()
+                val ticks = readProcessTicks()
+                val mainTicks = readMainThreadTicks()
                 if (ticks == null || prevTicks < 0) {
                     prevTicks = ticks ?: prevTicks
+                    prevMainTicks = mainTicks ?: prevMainTicks
                     prevWallMs = now
                     continue
                 }
                 val deltaTicks = ticks - prevTicks
                 val deltaWallMs = now - prevWallMs
+                val deltaMainTicks = if (mainTicks != null && prevMainTicks >= 0) mainTicks - prevMainTicks else 0L
                 prevTicks = ticks
+                prevMainTicks = mainTicks ?: prevMainTicks
                 prevWallMs = now
                 if (deltaWallMs <= 0) continue
                 val cpuPercent = (deltaTicks * 1000.0 / clkTck) / deltaWallMs * 100.0
+                val mainThreadPercent = (deltaMainTicks * 1000.0 / clkTck) / deltaWallMs * 100.0
 
                 val interacting = ViewerInteractionSignal.isViewerInteracting.value
                 if (interacting) {
@@ -154,6 +170,7 @@ object CpuSpikeMonitor {
                     streakCount = 0
                     streakPeak = 0.0
                     streakSum = 0.0
+                    streakMainSum = 0.0
                     episodeLogged = false
                     continue
                 }
@@ -170,6 +187,7 @@ object CpuSpikeMonitor {
                     streakCount++
                     streakPeak = maxOf(streakPeak, cpuPercent)
                     streakSum += cpuPercent
+                    streakMainSum += mainThreadPercent
 
                     if (streakCount == SUSTAINED_MIN_SAMPLES && !episodeLogged) {
                         episodeLogged = true
@@ -177,7 +195,9 @@ object CpuSpikeMonitor {
                             CpuSpikeEntry(
                                 entryType = "sustained_start",
                                 triggerReason = "sustained",
-                                cpuPercent = cpuPercent
+                                cpuPercent = cpuPercent,
+                                mainThreadCpuPercent = mainThreadPercent,
+                                webViewShowing = WebViewBlurGate.shared.isActive.value
                             )
                         )
                     }
@@ -190,13 +210,17 @@ object CpuSpikeMonitor {
                                 cpuPercent = cpuPercent,
                                 peakCpuPercent = streakPeak,
                                 avgCpuPercent = if (streakCount > 0) streakSum / streakCount else 0.0,
-                                durationMs = now - episodeStartAt
+                                durationMs = now - episodeStartAt,
+                                mainThreadCpuPercent = mainThreadPercent,
+                                avgMainThreadCpuPercent = if (streakCount > 0) streakMainSum / streakCount else 0.0,
+                                webViewShowing = WebViewBlurGate.shared.isActive.value
                             )
                         )
                     }
                     streakCount = 0
                     streakPeak = 0.0
                     streakSum = 0.0
+                    streakMainSum = 0.0
                     episodeLogged = false
                 }
             }
@@ -225,16 +249,12 @@ object CpuSpikeMonitor {
         }
     }
 
-    /** Main-thread utime+stime in clock ticks. /proc/self/stat is the thread-group leader's own
-     * stat entry — i.e. the main thread specifically, the same row `top -H` shows for this PID. */
-    private fun readMainThreadTicks(): Long? {
-        return runCatching {
-            val stat = File("/proc/self/stat").readText()
-            val afterComm = stat.substringAfterLast(')').trim()
-            val fields = afterComm.split(' ')
-            val utime = fields[11].toLong()
-            val stime = fields[12].toLong()
-            utime + stime
-        }.getOrNull()
-    }
+    /** Whole-process utime+stime in clock ticks, summed over every thread. */
+    private fun readProcessTicks(): Long? =
+        runCatching { ProcStat.parseCpuTicks(File("/proc/self/stat").readText()) }.getOrNull()
+
+    /** Main (UI) thread only: on Linux the thread group leader's tid equals the pid, and its own
+     * stat lives under /proc/self/task/<pid>/stat (the row `top -H` shows for the main thread). */
+    private fun readMainThreadTicks(): Long? =
+        runCatching { ProcStat.parseCpuTicks(File("/proc/self/task/${Os.getpid()}/stat").readText()) }.getOrNull()
 }

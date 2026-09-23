@@ -59,6 +59,7 @@ import com.kkc.sheettracker.data.IdlePhase
 import com.kkc.sheettracker.data.IdlePowerSaveConfig
 import com.kkc.sheettracker.data.IdlePowerSaveStore
 import com.kkc.sheettracker.ui.components.LowEndModeFlags
+import com.kkc.sheettracker.ui.components.WebViewBlurGate
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.LocalScrollPreviewLabelOnly
 import com.kkc.sheettracker.ui.components.LocalIdlePhase
@@ -346,13 +347,17 @@ class MainActivity : ComponentActivity() {
 
             val featureFlags = remember { AppStateFeatureFlags(prefs, BuildConfig.DEBUG) }
             val flagsSnapshot by featureFlags.snapshotFlow.collectAsState(initial = featureFlags.snapshot())
-            val lowEndFlags = remember(flagsSnapshot) {
+            // A visible WebView (3D pane) turns all blur off for as long as it is on screen; this is
+            // a transient override, so the user's saved low-end settings are never touched.
+            val webViewShowing by WebViewBlurGate.shared.isActive.collectAsState()
+            val lowEndFlags = remember(flagsSnapshot, webViewShowing) {
                 LowEndModeFlags(
                     masterEnabled = flagsSnapshot.lowEndMode,
                     animationsEnabled = !flagsSnapshot.lowEndMode || flagsSnapshot.animationsEnabled,
                     shadowsEnabled = !flagsSnapshot.lowEndMode || flagsSnapshot.shadowsEnabled,
                     blurEnabled = !flagsSnapshot.lowEndMode || flagsSnapshot.blurEnabled,
                     lazyLoadingEnabled = !flagsSnapshot.lowEndMode || flagsSnapshot.lazyLoadingEnabled,
+                    webViewBlurSuppressed = webViewShowing,
                 )
             }
             val scrollPreviewLabelOnly = remember(flagsSnapshot) { flagsSnapshot.scrollPreviewLabelOnly }

@@ -398,10 +398,6 @@ private fun MorphingNavBar(
     onTimeclockBgEdit: () -> Unit = {}
 ) {
     val lowEnd = LocalLowEndMode.current
-    // Haze blur over a live WebView (3D pane) keeps its compositor redrawing every vsync; use the
-    // solid surface instead while one is on screen.
-    val webViewShowing by WebViewBlurGate.shared.isActive.collectAsState()
-    val blurDisabled = lowEnd.blurDisabled || webViewShowing
     // Cache last non-null values so exit animations can still render content
     // when the parent clears decorations before the slide completes.
     var lastSearch    by remember { mutableStateOf(searchDecoration) }
@@ -461,14 +457,14 @@ private fun MorphingNavBar(
         Surface(
             modifier       = Modifier.fillMaxWidth(),
             shape          = minNavShape,
-            color          = if (hazeState != null && !blurDisabled) Color.Transparent else minHazeSurface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
+            color          = if (hazeState != null && !lowEnd.blurDisabled) Color.Transparent else minHazeSurface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
             // The solid fallback used while a WebView is showing is semi-transparent, and a
             // Surface shadow bleeds through a semi-transparent fill (see CLAUDE.md), so no shadow.
-            shadowElevation = if (lowEnd.shadowsDisabled || webViewShowing) 0.dp else 3.dp,
+            shadowElevation = if (lowEnd.shadowsDisabled || lowEnd.webViewBlurSuppressed) 0.dp else 3.dp,
             tonalElevation = 0.dp
         ) {
-            val minHazeModifier = remember(hazeState, minHazeSurface, frostedTokens, blurDisabled) {
-                if (hazeState != null && !blurDisabled)
+            val minHazeModifier = remember(hazeState, minHazeSurface, frostedTokens, lowEnd.blurDisabled) {
+                if (hazeState != null && !lowEnd.blurDisabled)
                     Modifier.hazeEffect(
                         hazeState,
                         style = HazeDefaults.style(
