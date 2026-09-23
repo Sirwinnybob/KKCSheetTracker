@@ -605,8 +605,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // onUserInteraction only fires on touch-down; the perf monitor needs every touch/key event so a
+    // long scroll or 3D orbit is not mistaken for "the user is idle and the screen keeps redrawing".
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        CpuSpikeMonitor.noteUserInput()
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        CpuSpikeMonitor.noteUserInput()
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onStart() {
         super.onStart()
+        CpuSpikeMonitor.setForeground(true)
+        CpuSpikeMonitor.attachWindow(window)
         refreshOnboardingStep()
         if (::syncthingSupervisor.isInitialized) {
             syncthingSupervisor.setAppForeground(true)
@@ -621,6 +635,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        CpuSpikeMonitor.setForeground(false)
+        CpuSpikeMonitor.detachWindow()
         if (::syncthingSupervisor.isInitialized) {
             syncthingSupervisor.setAppForeground(false)
         }

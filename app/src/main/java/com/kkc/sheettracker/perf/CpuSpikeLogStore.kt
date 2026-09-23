@@ -33,9 +33,26 @@ data class CpuSpikeEntry(
     val durationMs: Long? = null,
     /** Main (UI) thread only; [cpuPercent] and friends are the whole process across all threads. */
     val mainThreadCpuPercent: Double? = null,
-    val avgMainThreadCpuPercent: Double? = null,
     /** True while a live WebView (3D pane) was on screen. */
-    val webViewShowing: Boolean? = null
+    val webViewShowing: Boolean? = null,
+    /** Why an episode closed: calm, viewer_interaction, backgrounded. */
+    val endReason: String? = null,
+    val foreground: Boolean? = null,
+    val viewerInteracting: Boolean? = null,
+    /** Hottest threads by name (aggregated pools), e.g. Chrome_InProcGp / RenderThread / main. */
+    val topThreads: List<ThreadLoad>? = null,
+    /** Frames drawn in the sampling window; GPU time where the platform reports it (API 31+). */
+    val frames: FrameSummary? = null,
+    /** For idle_redraw episodes the peak/avg are frames per second. */
+    val peakFps: Double? = null,
+    val avgFps: Double? = null,
+    val rssMb: Long? = null,
+    val memoryGrowthMb: Long? = null,
+    val thermalStatus: Int? = null,
+    /** Main-thread stall length in ms. */
+    val blockedMs: Long? = null,
+    /** Main thread stack captured while it was busy or blocked. */
+    val mainThreadStack: List<String>? = null
 )
 
 class CpuSpikeLogStore(
@@ -123,7 +140,7 @@ class CpuSpikeLogStore(
         entry: CpuSpikeEntry
     ): Map<String, Any?> {
         return linkedMapOf(
-            "schemaVersion" to 1,
+            "schemaVersion" to 2,
             "timestampMs" to timestampMs,
             "timestampLocal" to timestampFormat.get()!!.format(Date(timestampMs)),
             "entryType" to entry.entryType,
@@ -133,8 +150,19 @@ class CpuSpikeLogStore(
             "avgCpuPercent" to entry.avgCpuPercent,
             "durationMs" to entry.durationMs,
             "mainThreadCpuPercent" to entry.mainThreadCpuPercent,
-            "avgMainThreadCpuPercent" to entry.avgMainThreadCpuPercent,
             "webViewShowing" to entry.webViewShowing,
+            "endReason" to entry.endReason,
+            "foreground" to entry.foreground,
+            "viewerInteracting" to entry.viewerInteracting,
+            "topThreads" to entry.topThreads,
+            "frames" to entry.frames,
+            "peakFps" to entry.peakFps,
+            "avgFps" to entry.avgFps,
+            "rssMb" to entry.rssMb,
+            "memoryGrowthMb" to entry.memoryGrowthMb,
+            "thermalStatus" to entry.thermalStatus,
+            "blockedMs" to entry.blockedMs,
+            "mainThreadStack" to entry.mainThreadStack,
             "tabletId" to context.tabletId,
             "workMode" to context.workMode,
             "currentTab" to context.currentTab,

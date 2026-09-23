@@ -45,16 +45,31 @@ class CpuSpikeMonitoringTest {
                     triggerReason = "sustained",
                     cpuPercent = 130.0,
                     mainThreadCpuPercent = 38.5,
-                    avgMainThreadCpuPercent = 40.0,
-                    webViewShowing = true
+                    webViewShowing = true,
+                    endReason = "calm",
+                    topThreads = listOf(ThreadLoad("Chrome_InProcGp", 90.0, 1)),
+                    frames = FrameSummary(600, 120.0, 8.0, 12.0, 0, 0, 2.5, 4.0),
+                    rssMb = 1400,
+                    blockedMs = 2500,
+                    mainThreadStack = listOf("a.B.c(B.kt:1)")
                 )
             )
             val file = File(dir, ".metadata/cpu_spikes").listFiles()!!.single()
             val json = JsonParser.parseString(file.readText()).asJsonObject
             assertEquals(130.0, json["cpuPercent"].asDouble, 0.001)
             assertEquals(38.5, json["mainThreadCpuPercent"].asDouble, 0.001)
-            assertEquals(40.0, json["avgMainThreadCpuPercent"].asDouble, 0.001)
+            assertEquals(2, json["schemaVersion"].asInt)
             assertTrue(json["webViewShowing"].asBoolean)
+            assertEquals("calm", json["endReason"].asString)
+            val gpu = json["topThreads"].asJsonArray[0].asJsonObject
+            assertEquals("Chrome_InProcGp", gpu["name"].asString)
+            assertEquals(90.0, gpu["cpuPercent"].asDouble, 0.001)
+            val frames = json["frames"].asJsonObject
+            assertEquals(120.0, frames["fps"].asDouble, 0.001)
+            assertEquals(2.5, frames["avgGpuMs"].asDouble, 0.001)
+            assertEquals(1400, json["rssMb"].asInt)
+            assertEquals(2500, json["blockedMs"].asInt)
+            assertEquals("a.B.c(B.kt:1)", json["mainThreadStack"].asJsonArray[0].asString)
         } finally {
             dir.deleteRecursively()
         }
