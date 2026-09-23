@@ -286,8 +286,13 @@ body.light-mode .room-switcher-btn {
     border-top-color: #60a5fa;
     border-radius: 50%;
     animation: statusSpin 0.7s linear infinite;
+    /* Paused unless the pill is showing: an infinite animation under opacity:0 still keeps the
+       WebView compositor ticking every vsync, pegging the app even when nothing is on screen. */
+    animation-play-state: paused;
     flex-shrink: 0;
 }
+
+#status.visible .status-spin { animation-play-state: running; }
 
 #status.error .status-spin,
 #status.success .status-spin { display: none; }
