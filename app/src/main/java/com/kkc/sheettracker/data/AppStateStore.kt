@@ -60,6 +60,10 @@ internal fun deriveTriggers(
     ) { scan, progress, _ -> DeriveInput(scan, progress) }
         .distinctUntilChangedBy { "${it.scanState.snapshot.generation}|${it.progressVersion}" }
 
+/** True when the derived index lost jobs since the previous derive (ignores the first derive). */
+internal fun isIndexShrink(previousCount: Int, currentCount: Int): Boolean =
+    previousCount >= 0 && currentCount < previousCount
+
 /** The UI flags a scan status change drives, without re-deriving anything. */
 internal fun AppUiState.withScanStatus(status: ScanStatus, errorMessage: String?): AppUiState =
     copy(isRefreshing = status == ScanStatus.LOADING, errorMessage = errorMessage)
@@ -78,6 +82,8 @@ class AppStateStore(
     private val _jobUiModels = MutableStateFlow<List<JobUiModel>>(emptyList())
     private val _materialUiModels = MutableStateFlow<Map<JobMaterialKey, MaterialUiModel>>(emptyMap())
     private val _sheetStatusSnapshots = MutableStateFlow<Map<SheetStatusKey, SheetStatusSnapshot>>(emptyMap())
+
+    private var lastDerivedIndexJobCount = -1
 
     private val _lastProgressVersion = MutableStateFlow(0L)
     val lastProgressVersion: StateFlow<Long> = _lastProgressVersion.asStateFlow()
@@ -185,6 +191,17 @@ class AppStateStore(
                         scanIssues = scanState.snapshot.issues,
                         errorMessage = scanState.errorMessage
                     )
+
+                    if (isIndexShrink(lastDerivedIndexJobCount, jobInfos.size)) {
+                        // A job vanishing from the index between derives shows on the Dashboard as
+                        // fewer jobs/sheets until the next rescan; make it provable on release builds.
+                        AppLog.w(
+                            APP_STATE_TAG,
+                            "index_jobs decreased ${lastDerivedIndexJobCount} -> ${jobInfos.size} " +
+                                "generation=${scanState.snapshot.generation} progress_version=$progressVersion"
+                        )
+                    }
+                    lastDerivedIndexJobCount = jobInfos.size
 
                     AppLog.i(
                         APP_STATE_TAG,

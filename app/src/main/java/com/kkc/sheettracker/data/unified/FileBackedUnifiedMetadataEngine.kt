@@ -131,7 +131,12 @@ class FileBackedUnifiedMetadataEngine(
         trackerByJob.remove(jobFolderName)
         cncSearchByJob.remove(jobFolderName)
         cacheIndexByJob.remove(jobFolderName)
-        cachedJobInfoList = cachedJobInfoList.filterNot { it.folderName == jobFolderName }
+        // Deliberately NOT removed from cachedJobInfoList. The tracker monitor invalidates on a
+        // synced write and the app derives the Dashboard immediately, ~2 s before the coalesced
+        // rescan re-lists. Dropping the job here made that derive see N-1 jobs (totals, cards and
+        // alert rows vanished, then returned) — the dashboard idle-data blink. Clearing the caches
+        // above already forces a re-read; the next listJobsFromCacheIndex() replaces this entry
+        // with fresh index data, or drops it if the job is really gone from disk.
     }
 
     override fun basePath(): String = baseDir.absolutePath
