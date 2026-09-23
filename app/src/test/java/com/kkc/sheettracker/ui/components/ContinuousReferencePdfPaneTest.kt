@@ -101,6 +101,35 @@ class ContinuousReferencePdfPaneTest {
         assertFalse(isStylusPointerType(PointerType.Mouse))
     }
 
+    @Test
+    fun inkMode_keepsFingerScrollAndZoomHandlerAvailable() {
+        val source = continuousPaneSource()
+
+        assertFalse(
+            "Ink on must not blanket-disable the scroll/zoom handler; fingers scroll while the pen draws.",
+            source.contains("val gesturesEnabled = !markupEnabled")
+        )
+        assertTrue(source.contains("shouldContinuousPaneOwnFingerGestures("))
+    }
+
+    @Test
+    fun scrollZoomHandler_ignoresStylusPointers() {
+        val source = continuousPaneSource()
+
+        assertTrue(
+            "A pen-down must not start a scroll/zoom/tap gesture while ink is on.",
+            source.contains("currentMarkupEnabled && isStylusPointerType(firstDown.type)")
+        )
+        assertFalse(
+            "With ink off the pen must still scroll, fling and tap; the stylus skip must be gated on markupEnabled.",
+            source.contains("if (isStylusPointerType(firstDown.type))")
+        )
+        assertTrue(
+            "A pen landing mid-gesture (resting palm) must hand the gesture to the overlay.",
+            source.contains("stylusTookOver")
+        )
+    }
+
     private fun continuousPaneSource(): String {
         var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
         repeat(6) {

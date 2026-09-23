@@ -642,6 +642,7 @@ internal fun ContinuousReferencePdfPane(
     val currentOnCenteredPageChange by rememberUpdatedState(onCenteredPageChange)
     val currentOnSingleTap by rememberUpdatedState(onSingleTap)
     val currentOnEdgeOverscrollChange by rememberUpdatedState(onEdgeOverscrollChange)
+    val currentMarkupEnabled by rememberUpdatedState(markupEnabled)
     val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
     // True only while THIS composable is driving an animateScrollToItem below (external nav
     // request — scrollbar drag, resume-to-page). Distinguishes "the list moved because we
@@ -1026,9 +1027,9 @@ internal fun ContinuousReferencePdfPane(
             }
         }
 
-        // markupStrokesForPage already scopes visibility (markupStrokesVisible + centered
-        // page match) independent of markupEnabled — gating on markupEnabled here as well
-        // would make drawn strokes vanish the instant the pen is toggled off.
+        // markupStrokesForPage already scopes visibility (markupStrokesVisible) independent
+        // of markupEnabled — gating on markupEnabled here as well would make drawn strokes
+        // vanish the instant the pen is toggled off.
         val strokes = markupStrokesForPage(resolved.pdfFilename, resolved.sourcePage)
 
         // Fit the page within BOTH the pane's width AND height (like ContentScale.Fit), not
@@ -1100,14 +1101,20 @@ internal fun ContinuousReferencePdfPane(
         }
     }
 
-    // Markup drawing pins the list to the current page — the pen and the scroll/zoom gesture
-    // must not fight each other, same rule ReferencePdfPane applies today. When markup is
-    // enabled our own gesture handler below is simply absent, so touches pass straight through
-    // to PdfMarkupOverlay. The list's own userScrollEnabled stays false at all times regardless,
-    // because scrolling is otherwise always driven programmatically by our handler rather than
-    // the list's built-in touch handling — that built-in handling is what used to race against
-    // each page's own independent pinch detector.
-    val gesturesEnabled = !markupEnabled
+    // With ink on, the stylus draws through each page's PdfMarkupOverlay while fingers keep
+    // scrolling and pinching through our handler below — the handler skips stylus pointers, and
+    // the overlay ignores finger input unless finger drawing is on or the eraser tool is
+    // selected. Only in those two finger-owns-ink cases is our handler removed, so touches pass
+    // straight through to the overlay and the list can't scroll under a drawing finger. The
+    // list's own userScrollEnabled stays false at all times regardless, because scrolling is
+    // otherwise always driven programmatically by our handler rather than the list's built-in
+    // touch handling — that built-in handling is what used to race against each page's own
+    // independent pinch detector.
+    val gesturesEnabled = shouldContinuousPaneOwnFingerGestures(
+        markupEnabled = markupEnabled,
+        allowFingerDrawing = markupToolState?.allowFingerDrawing == true,
+        selectedTool = markupToolState?.selectedTool ?: DrawingTool.PEN
+    )
 
     Box(
         modifier = modifier
@@ -1149,14 +1156,28 @@ internal fun ContinuousReferencePdfPane(
                             // point.
                             val velocityTracker = VelocityTracker()
                             val firstDown = awaitFirstDown(requireUnconsumed = false)
+                            // With ink on, pen strokes belong to PdfMarkupOverlay: never scroll,
+                            // zoom, fling or tap-toggle chrome for a stylus. With ink off the
+                            // overlay ignores input, so the pen scrolls like a finger. awaitEachGesture
+                            // waits for every pointer to lift before it starts the next gesture.
+                            if (currentMarkupEnabled && isStylusPointerType(firstDown.type)) return@awaitEachGesture
                             val trackPointerId = firstDown.id  // only track this pointer — ignore second finger during pinch
                             velocityTracker.addPosition(firstDown.uptimeMillis, firstDown.position)
                             flingJob?.cancel()  // NOW cancel: we have a new real touch, pre-empt cleanly
                             isInteracting = true
                             var wasMultiTouch = false
+                            var stylusTookOver = false
                             var totalMovement = 0f
                             do {
                                 val event = awaitPointerEvent()
+                                // A pen landing mid-gesture (palm resting while writing): stop
+                                // scrolling, and fire no tap or fling when the palm lifts. The
+                                // overlay's pointerInteropFilter already refused the palm's
+                                // ACTION_DOWN, so it won't see this pen until every pointer lifts.
+                                if (currentMarkupEnabled && event.changes.any { it.pressed && isStylusPointerType(it.type) }) {
+                                    stylusTookOver = true
+                                    break
+                                }
                                 val zoomChange = event.calculateZoom()
                                 val panChange = event.calculatePan()
                                 totalMovement += abs(panChange.x) + abs(panChange.y)
@@ -1212,6 +1233,7 @@ internal fun ContinuousReferencePdfPane(
                                 event.changes.forEach { it.consume() }
                             } while (event.changes.any { it.pressed })
                             isInteracting = false
+                            if (stylusTookOver) return@awaitEachGesture
 
                             // Plain tap: single pointer, negligible movement — same threshold
                             // (touchSlop) Compose's own tap/click detectors use to distinguish a
