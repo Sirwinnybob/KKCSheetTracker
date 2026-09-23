@@ -1067,8 +1067,17 @@ private fun ZoomablePdfImage(
                             var pointerCountMax = 1
                             var maxMoveDistance = 0f
                             var hadTransformInput = false
+                            var stylusTookOver = false
                             do {
                                 val event = awaitPointerEvent()
+                                // Pen landing on a resting palm while inking: the stroke belongs to
+                                // the markup overlay above us. Stop here so the palm + pen centroid
+                                // doesn't pan the page under the stroke; awaitEachGesture then
+                                // waits for every pointer to lift.
+                                if (!allowStylusGestures && event.changes.any { it.pressed && isStylusPointerType(it.type) }) {
+                                    stylusTookOver = true
+                                    break
+                                }
                                 pointerCountMax = max(pointerCountMax, event.changes.count { it.pressed })
                                 val tracked = event.changes.firstOrNull { it.id == firstDown.id }
                                     ?: event.changes.firstOrNull { it.pressed }
@@ -1104,6 +1113,7 @@ private fun ZoomablePdfImage(
                             } while (event.changes.any { it.pressed })
                             onInteractionChanged(false)
                             emitViewport()
+                            if (stylusTookOver) return@awaitEachGesture
 
                             val isSingleTap = pointerCountMax == 1 &&
                                 !hadTransformInput &&

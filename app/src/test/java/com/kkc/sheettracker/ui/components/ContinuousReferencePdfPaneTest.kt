@@ -143,6 +143,42 @@ class ContinuousReferencePdfPaneTest {
         )
     }
 
+    @Test
+    fun pagedAndSheetViewerPanHandlers_yieldToAPenLandingOnARestingPalm() {
+        val paged = appSource("ui/components/ReferencePdfPane.kt")
+        val pagedStylusBreak = paged.indexOf(
+            "if (!allowStylusGestures && event.changes.any { it.pressed && isStylusPointerType(it.type) }) {"
+        )
+        val pagedPanIndex = paged.indexOf("val panChange = event.calculatePan()", pagedStylusBreak)
+        val pagedReturn = paged.indexOf("if (stylusTookOver) return@awaitEachGesture", pagedStylusBreak)
+        val pagedTap = paged.indexOf("onSingleTap?.invoke()", pagedStylusBreak)
+        assertTrue("Paged pan loop must stop when a pen lands while inking.", pagedStylusBreak >= 0)
+        assertTrue("The pen check must come before this event pans the page.", pagedStylusBreak < pagedPanIndex)
+        assertTrue(
+            "A pen takeover must end the gesture after onInteractionChanged(false) and before tap handling.",
+            paged.indexOf("onInteractionChanged(false)", pagedStylusBreak) < pagedReturn && pagedReturn < pagedTap
+        )
+
+        val sheet = appSource("ui/viewer/SheetViewerScreen.kt")
+        val sheetStylusBreak = sheet.indexOf(
+            "if (inputEnabled && event.changes.any { it.pressed && isStylusPointerType(it.type) }) break"
+        )
+        assertTrue("Sheet viewer pan loop must stop when a pen lands while inking.", sheetStylusBreak >= 0)
+        assertTrue(sheetStylusBreak < sheet.indexOf("val panChange = event.calculatePan()", sheetStylusBreak))
+    }
+
+    private fun appSource(relativePath: String): String {
+        var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
+        repeat(6) {
+            val candidate = File(dir, "app/src/main/java/com/kkc/sheettracker/$relativePath")
+            if (candidate.exists()) return candidate.readText()
+            val direct = File(dir, "src/main/java/com/kkc/sheettracker/$relativePath")
+            if (direct.exists()) return direct.readText()
+            dir = dir.parentFile ?: return@repeat
+        }
+        error("Unable to locate $relativePath from ${System.getProperty("user.dir")}")
+    }
+
     private fun continuousPaneSource(): String {
         var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
         repeat(6) {
