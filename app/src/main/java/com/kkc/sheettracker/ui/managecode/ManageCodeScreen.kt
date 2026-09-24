@@ -570,6 +570,30 @@ internal fun manageCodeOperationLabel(
     }
 }
 
+internal fun manageCodeStepLines(session: ManageCodeSession?): List<String> {
+    if (session == null || session.actions.size < 2) return emptyList()
+    val failed = session.current.state in setOf("failed", "interrupted")
+    return session.actions.mapIndexed { index, action ->
+        val label = when (action.kind) {
+            ManageCodeOperationAction.CATALOG_CREATE -> "Create mix ${action.name}"
+            ManageCodeOperationAction.CATALOG_REPLACE -> "Replace mix ${action.name}"
+            ManageCodeOperationAction.PGM_EDITS -> {
+                val n = action.editRows.size
+                "2nd pass / PUNLOAD ($n PGM${if (n == 1) "" else "s"})"
+            }
+            ManageCodeOperationAction.EXTERNAL_DELETE -> "Delete ${action.externalMixFilename}"
+            else -> "Mix ${action.name}"
+        }
+        val mark = when {
+            index < session.currentActionIndex -> "✓"
+            index == session.currentActionIndex && failed -> "✗"
+            index == session.currentActionIndex -> "…"
+            else -> "○"
+        }
+        "$mark $label — ${action.material}"
+    }
+}
+
 internal fun mixCatalogUnavailableMessage(result: MixCatalogFetchResult): String? = when (result) {
     is MixCatalogFetchResult.Success -> null
     MixCatalogFetchResult.NetworkError -> "Mix catalog unavailable — showing last known state"
@@ -1098,6 +1122,9 @@ fun ManageCodeScreen(
                     }
                     screenPresentation.restoreError?.let { message ->
                         Text("Session restore failed: $message", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    manageCodeStepLines(operationSession?.takeIf { it.job == jobFolderName }).forEach { line ->
+                        Text(line, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 2.dp))
                     }
                 }
             }

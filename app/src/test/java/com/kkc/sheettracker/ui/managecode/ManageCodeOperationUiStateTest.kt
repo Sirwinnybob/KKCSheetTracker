@@ -440,6 +440,41 @@ class ManageCodeOperationUiStateTest {
         )
     }
 
+    @Test
+    fun `step lines mark done, running, and queued actions`() {
+        val session = ManageCodeSession(
+            job = "648",
+            actions = listOf(
+                ManageCodeOperationAction.catalogCreate("19mm", "19mmMix", listOf("R1.pgm"), 7L),
+                ManageCodeOperationAction.pgmEdits("19mm", "req", listOf(PgmEditRow("R1.pgm", "standard", false))),
+            ),
+            currentActionIndex = 1,
+            current = MixServiceOperation(job = "648", kind = "pgm_edit", state = "running", stage = "compiling"),
+        )
+        assertEquals(
+            listOf("✓ Create mix 19mmMix — 19mm", "… 2nd pass / PUNLOAD (1 PGM) — 19mm"),
+            manageCodeStepLines(session),
+        )
+    }
+
+    @Test
+    fun `step lines mark the failed step and hide single-action sessions`() {
+        val failed = ManageCodeSession(
+            job = "648",
+            actions = listOf(
+                ManageCodeOperationAction.catalogReplace("19mm", "19mmMix", listOf("R1.pgm"), 7L),
+                ManageCodeOperationAction.pgmEdits("19mm", "req", listOf(PgmEditRow("R1.pgm", "standard", false), PgmEditRow("R2.pgm", "super", true))),
+            ),
+            currentActionIndex = 0,
+            current = MixServiceOperation(job = "648", state = "failed", stage = "failed"),
+        )
+        assertEquals(
+            listOf("✗ Replace mix 19mmMix — 19mm", "○ 2nd pass / PUNLOAD (2 PGMs) — 19mm"),
+            manageCodeStepLines(failed),
+        )
+        assertEquals(emptyList<String>(), manageCodeStepLines(failed.copy(actions = failed.actions.take(1))))
+    }
+
     private fun catalogSnapshot() = MixCatalogSnapshot(
         job = "648",
         material = "Walnut",
