@@ -165,6 +165,14 @@ class MainActivity : ComponentActivity() {
         }
 
         val prefs = getSharedPreferences("kkc_tracker", MODE_PRIVATE)
+        // One-time rollout (8.5.9): turn Flexible Mode on for every tablet once. The marker keeps
+        // a later manual opt-out from being overridden by future updates.
+        if (!prefs.getBoolean("flexible_mode_default_applied_v1", false)) {
+            prefs.edit()
+                .putBoolean("flexible_mode_enabled", true)
+                .putBoolean("flexible_mode_default_applied_v1", true)
+                .apply()
+        }
         com.kkc.sheettracker.data.AdminModeController.init(this)
         var tabletId = prefs.getString("tablet_id", null)
         if (tabletId == null) {
