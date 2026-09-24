@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.kkc.sheettracker.data.models.SupplyCategory
 
 /**
  * Persists lightweight UI preferences (e.g. board vs list view per screen)
@@ -37,6 +38,38 @@ class UiPreferencesStore(context: Context) {
 
     fun setSupplyTabOrder(order: List<String>) {
         prefs.edit().putString("supply_tab_order", order.joinToString(",")).apply()
+    }
+
+    /**
+     * Last-known supply categories. They rarely change, so the Supply screen paints its full tab
+     * bar from this on open and refreshes it after the real load; items then stream in.
+     */
+    fun getSupplyCategoriesCache(): List<SupplyCategory> {
+        val raw = prefs.getString("supply_categories_cache", null) ?: return emptyList()
+        return runCatching {
+            val array = org.json.JSONArray(raw)
+            List(array.length()) { index ->
+                val obj = array.getJSONObject(index)
+                SupplyCategory(
+                    id = obj.getString("id"),
+                    name = obj.getString("name"),
+                    position = obj.optInt("position", index)
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun setSupplyCategoriesCache(categories: List<SupplyCategory>) {
+        val array = org.json.JSONArray()
+        categories.forEach { category ->
+            array.put(
+                org.json.JSONObject()
+                    .put("id", category.id)
+                    .put("name", category.name)
+                    .put("position", category.position)
+            )
+        }
+        prefs.edit().putString("supply_categories_cache", array.toString()).apply()
     }
 
     fun isSafetySubscriber(): Boolean =

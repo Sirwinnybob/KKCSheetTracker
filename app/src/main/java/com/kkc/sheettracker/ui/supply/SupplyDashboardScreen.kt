@@ -2,6 +2,19 @@ package com.kkc.sheettracker.ui.supply
 
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
+import kotlinx.coroutines.flow.collectLatest
+import kotlin.math.abs
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.key
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -10,10 +23,8 @@ import androidx.compose.foundation.layout.FlowColumn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.ui.layout.Layout
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -23,6 +34,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.derivedStateOf
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
+import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.theme.kkcZebraTint
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontFamily
+import com.kkc.sheettracker.ui.components.KKCPillContainer
+import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
+import com.kkc.sheettracker.ui.components.KKCTabItem
+import com.kkc.sheettracker.ui.components.contrastOn
+import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,6 +92,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
@@ -104,6 +127,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import com.kkc.sheettracker.ui.dashboard.DashboardShell
 import com.kkc.sheettracker.ui.dashboard.DashboardAccent
 import com.kkc.sheettracker.ui.dashboard.DashboardSectionHeader
+import com.kkc.sheettracker.ui.dashboard.DashboardAccentPill
 import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceCard
 import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceDefaults
 import com.kkc.sheettracker.ui.dashboard.DashboardWidgetRenderer
@@ -146,7 +170,10 @@ fun SupplyDashboardScreen(
     val repository = remember(basePath) { SupplyRepository(basePath) }
     val scope = rememberCoroutineScope()
 
-    var categories by remember { mutableStateOf<List<SupplyCategory>>(emptyList()) }
+    val preferencesStore = remember(context) { UiPreferencesStore(context) }
+    // Categories are cached on the tablet (they rarely change): the full tab bar and column
+    // headers show instantly from the cache, then items load in behind them.
+    var categories by remember { mutableStateOf(preferencesStore.getSupplyCategoriesCache()) }
     var items by remember { mutableStateOf<List<SupplyItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -229,8 +256,8 @@ fun SupplyDashboardScreen(
     // Hours Tracker web "To Order" tab. Placed next to the Needs Attention tab. Visible to every
     // user; only admin mode can check items off or edit them (see ToOrderPage `editable`).
     val isAdminMode by AdminModeController.enabled.collectAsState()
-    val preferencesStore = remember(context) { UiPreferencesStore(context) }
-    var savedTabOrder by remember { mutableStateOf<List<String>>(emptyList()) }
+    // Read synchronously (a small prefs value) so the custom order is right on the first frame.
+    var savedTabOrder by remember { mutableStateOf(preferencesStore.getSupplyTabOrder()) }
     LaunchedEffect(context) {
         savedTabOrder = preferencesStore.getSupplyTabOrder()
     }
@@ -242,7 +269,21 @@ fun SupplyDashboardScreen(
     }
     val boardPageIndex = 3
     val pagerState = rememberPagerState(pageCount = { boardPageIndex + 1 })
-    val boardScrollState = rememberLazyListState()
+    val board = rememberSupplyBoardState()
+    // Safety net: if a gesture ever leaves the pager at rest between two pages (nested board
+    // scrolling can end without the pager getting a fling), glide it to the nearest page.
+    LaunchedEffect(pagerState) {
+        // A drag that starts on the board moves the pager without marking the pager as
+        // scrolling -- only the board is -- so both must be idle, or this fights the finger.
+        fun stranded() = !pagerState.isScrollInProgress && !board.isScrollInProgress &&
+            abs(pagerState.currentPageOffsetFraction) > 0.001f
+        snapshotFlow { stranded() }.collectLatest { isStranded ->
+            if (!isStranded) return@collectLatest
+            // Give the release fling a moment to start before stepping in.
+            delay(150)
+            if (stranded()) pagerState.animateScrollToPage(pagerState.currentPage)
+        }
+    }
 
     val sortedCategories = remember(categories, savedTabOrder) {
         val catMap = categories.associateBy { it.id }
@@ -256,18 +297,16 @@ fun SupplyDashboardScreen(
         sorted
     }
 
-    val selectedTabIndex by remember(supplyTabs, pagerState.currentPage, boardScrollState, sortedCategories) {
+    val selectedTabIndex by remember(supplyTabs, pagerState.currentPage, board) {
         derivedStateOf {
             val idx = if (pagerState.currentPage < boardPageIndex) {
                 pagerState.currentPage
             } else {
-                val visibleIndex = boardScrollState.firstVisibleItemIndex
-                val activeCat = sortedCategories.getOrNull(visibleIndex)
-                if (activeCat != null) {
-                    supplyTabs.indexOfFirst { it.id == activeCat.id }.coerceAtLeast(boardPageIndex)
-                } else {
-                    boardPageIndex
-                }
+                // The column that is mostly at the left edge: once it is scrolled more than
+                // halfway out, the next one counts as selected.
+                val activeKey = board.activeKey()
+                val activeTab = activeKey?.let { key -> supplyTabs.indexOfFirst { it.id == key } } ?: -1
+                if (activeTab >= 0) activeTab.coerceAtLeast(boardPageIndex) else boardPageIndex
             }
             idx.coerceIn(0, supplyTabs.lastIndex.coerceAtLeast(0))
         }
@@ -283,11 +322,19 @@ fun SupplyDashboardScreen(
         )
     }
     var toOrderGroups by remember { mutableStateOf<List<ToOrderGroup>>(emptyList()) }
-    var toOrderLoading by remember { mutableStateOf(false) }
+    // Starts true: the scan is deferred (below), and the page should show a spinner, not
+    // "Nothing to order", until it has run.
+    var toOrderLoading by remember { mutableStateOf(true) }
     var editingToOrderItem by remember { mutableStateOf<Pair<String, SpecialtyResolvedItem>?>(null) }
-    LaunchedEffect(Unit) {
+    // Cross-job scan (~2s on a tablet). Deferred until the first item load finishes so it doesn't
+    // compete with the board/items I/O that the user is actually waiting on.
+    var initialItemsLoaded by remember { mutableStateOf(false) }
+    LaunchedEffect(initialItemsLoaded) {
+        if (!initialItemsLoaded) return@LaunchedEffect
         toOrderLoading = true
+        val t0 = android.os.SystemClock.elapsedRealtime()
         toOrderGroups = withContext(Dispatchers.IO) { toOrderRepo.loadGroups() }
+        android.util.Log.d("SupplyPerf", "toOrder.loadGroups ${android.os.SystemClock.elapsedRealtime() - t0}ms groups=${toOrderGroups.size}")
         toOrderLoading = false
     }
 
@@ -305,9 +352,14 @@ fun SupplyDashboardScreen(
         }
         errorMessage = null
         try {
+            // Categories first (and cached) so the tab bar is settled before the slower item load.
+            val t0 = android.os.SystemClock.elapsedRealtime()
             val cats = withContext(Dispatchers.IO) { repository.getCategories() }.sortedBy { it.position }
+            if (cats != categories) categories = cats
+            withContext(Dispatchers.IO) { preferencesStore.setSupplyCategoriesCache(cats) }
+            val t1 = android.os.SystemClock.elapsedRealtime()
             val its = withContext(Dispatchers.IO) { repository.getItems() }
-            categories = cats
+            android.util.Log.d("SupplyPerf", "categories ${t1 - t0}ms, getItems ${android.os.SystemClock.elapsedRealtime() - t1}ms items=${its.size}")
             items = its
         } catch (e: Exception) {
             errorMessage = e.message ?: "Failed to load supply data"
@@ -315,11 +367,14 @@ fun SupplyDashboardScreen(
             if (showLoading) {
                 isLoading = false
             }
+            initialItemsLoaded = true
         }
     }
 
     suspend fun reloadUpdates() {
+        val t0 = android.os.SystemClock.elapsedRealtime()
         notifications = withContext(Dispatchers.IO) { subscriptionManager.scanForUpdates() }
+        android.util.Log.d("SupplyPerf", "scanForUpdates ${android.os.SystemClock.elapsedRealtime() - t0}ms")
     }
 
     fun openDetailModal(itemId: String) {
@@ -362,15 +417,24 @@ fun SupplyDashboardScreen(
         loadData()
     }
     DisposableEffect(lifecycleOwner, active) {
+        // addObserver() on an already-resumed lifecycle replays ON_RESUME synchronously, which
+        // re-ran loadData() every time Supply became active — on top of the activation load
+        // above (two full item loads in parallel). Only reload on a real resume after a pause.
+        var pausedSinceRegister = false
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && active) {
+            if (event == Lifecycle.Event.ON_PAUSE) pausedSinceRegister = true
+            if (event == Lifecycle.Event.ON_RESUME && active && pausedSinceRegister) {
                 scope.launch { loadData(showLoading = false) }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(items, subscriptionData) { reloadUpdates() }
+    LaunchedEffect(items, subscriptionData) {
+        // Skip the run keyed on the initial empty list; the loaded items trigger it again anyway.
+        if (isLoading && items.isEmpty()) return@LaunchedEffect
+        reloadUpdates()
+    }
 
     val boardSearchMatches = remember(items, searchQuery) {
         if (searchQuery.text.isBlank()) items else items.filter {
@@ -395,6 +459,7 @@ fun SupplyDashboardScreen(
         title = "Supply Inventory",
         subtitle = "Supply",
         loading = isLoading,
+        showLoadingBar = false,
         errorMessage = errorMessage,
         emptyMessage = "No supply data is available yet.",
         hasContent = !isLoading && errorMessage == null && (items.isNotEmpty() || categories.isNotEmpty() || notifications.isNotEmpty()),
@@ -461,95 +526,92 @@ fun SupplyDashboardScreen(
         }
 
         run {
-            DashboardSurfaceCard(contentPadding = PaddingValues(vertical = 6.dp)) {
-
-                    SecondaryScrollableTabRow(
-                        selectedTabIndex = selectedTabIndex,
-                        containerColor = TabRowDefaults.primaryContainerColor,
-                        contentColor = TabRowDefaults.primaryContentColor,
-                        edgePadding = 12.dp,
-                        indicator = {
-                            TabRowDefaults.SecondaryIndicator(
-                                Modifier.tabIndicatorOffset(selectedTabIndex, matchContentSize = false)
-                            )
-                        }
-                    ) {
-                        supplyTabs.forEachIndexed { index, tabItem ->
-                            Tab(
-                                selected = selectedTabIndex == index,
-                                onClick = {
-                                                    scope.launch {
-                                                        if (tabItem.type is SupplyTabType.CategoryTab) {
-                                                            if (lowEndMode.animationsDisabled) {
-                                                                pagerState.scrollToPage(boardPageIndex)
-                                                            } else {
-                                                                pagerState.animateScrollToPage(boardPageIndex)
-                                                            }
-                                                            val catIndex = sortedCategories.indexOf(tabItem.type.category)
-                                                            if (catIndex >= 0) {
-                                                                if (lowEndMode.animationsDisabled) {
-                                                                    boardScrollState.scrollToItem(catIndex)
-                                                                } else {
-                                                                    boardScrollState.animateScrollToItem(catIndex)
-                                                                }
-                                                            }
-                                                        } else {
-                                                            if (lowEndMode.animationsDisabled) {
-                                                                pagerState.scrollToPage(index)
-                                                            } else {
-                                                                pagerState.animateScrollToPage(index)
-                                                            }
-                                                        }
-                                                    }
+            // Same sliding selector as the rest of the app; badges and the subscribed bell ride
+            // inside the tab labels.
+            val supplyPillStyle = rememberKKCPillStyle()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                KKCPillContainer(style = supplyPillStyle, modifier = Modifier.fillMaxWidth()) {
+                    KKCSlidingTabRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        // While the pager or board is being swiped, the pill follows the exact
+                        // scroll position; it settles onto the selected tab once scrolling stops.
+                        trackingPosition = {
+                            if (!pagerState.isScrollInProgress && !board.isScrollInProgress) {
+                                null
+                            } else {
+                                // Fractional tab index of the board's leftmost column.
+                                val boardPos = run {
+                                    val p = board.position() ?: return@run boardPageIndex.toFloat()
+                                    val lower = p.toInt()
+                                    fun tabOf(i: Int) = board.keys.getOrNull(i)
+                                        ?.let { key -> supplyTabs.indexOfFirst { it.id == key } }
+                                        ?.takeIf { it >= 0 }
+                                    val firstTab = tabOf(lower) ?: return@run boardPageIndex.toFloat()
+                                    val nextTab = tabOf(lower + 1) ?: firstTab
+                                    firstTab + (nextTab - firstTab) * (p - lower)
+                                }
+                                val pagerPos = pagerState.currentPage + pagerState.currentPageOffsetFraction
+                                val lastUtility = (boardPageIndex - 1).toFloat()
+                                when {
+                                    pagerPos <= lastUtility -> pagerPos
+                                    pagerPos >= boardPageIndex -> boardPos
+                                    else -> lastUtility + (boardPos - lastUtility) * (pagerPos - lastUtility)
+                                }
+                            }
+                        },
+                        items = supplyTabs.mapIndexed { index, tabItem ->
+                            KKCTabItem(
+                                label = tabItem.name.uppercase(LocalLocale.current.platformLocale),
+                                isSelected = selectedTabIndex == index,
+                                alwaysBold = true,
+                                reserveBadge = tabItem.type == SupplyTabType.NeedsAttention ||
+                                    tabItem.type == SupplyTabType.ToOrder,
+                                badgeCount = when (tabItem.type) {
+                                    SupplyTabType.Updates -> notificationCount
+                                    SupplyTabType.NeedsAttention ->
+                                        items.count { (SUPPLY_STATUS_PRIORITY[it.status] ?: 99) < 5 }
+                                    SupplyTabType.ToOrder -> toOrderGroups.sumOf { it.items.size }
+                                    is SupplyTabType.CategoryTab -> 0
                                 },
-                                text = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(
-                                            tabItem.name.uppercase(LocalLocale.current.platformLocale),
-                                            maxLines = 1,
-                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                                        )
-                                        when (val type = tabItem.type) {
-                                            SupplyTabType.Updates -> {
-                                                if (notificationCount > 0) {
-                                                    Badge { Text(notificationCount.toString()) }
-                                                }
+                                showBell = (tabItem.type as? SupplyTabType.CategoryTab)?.let { type ->
+                                    subscriptionData.subscribedCategoryIds.contains(type.category.id)
+                                } == true,
+                                onClick = {
+                                    scope.launch {
+                                        if (tabItem.type is SupplyTabType.CategoryTab) {
+                                            if (lowEndMode.animationsDisabled) {
+                                                pagerState.scrollToPage(boardPageIndex)
+                                            } else {
+                                                pagerState.animateScrollToPage(boardPageIndex)
                                             }
-                                            SupplyTabType.NeedsAttention -> {
-                                                val attentionCount = items.count { (SUPPLY_STATUS_PRIORITY[it.status] ?: 99) < 5 }
-                                                if (attentionCount > 0) {
-                                                    Badge { Text(attentionCount.toString()) }
-                                                }
-                                            }
-                                            SupplyTabType.ToOrder -> {
-                                                val count = toOrderGroups.sumOf { it.items.size }
-                                                if (count > 0) {
-                                                    Badge { Text(count.toString()) }
-                                                }
-                                            }
-                                            is SupplyTabType.CategoryTab -> {
-                                                val isSubscribed = subscriptionData.subscribedCategoryIds.contains(type.category.id)
-                                                if (isSubscribed) {
-                                                    Icon(
-                                                        Icons.Filled.Notifications,
-                                                        contentDescription = "Subscribed",
-                                                        modifier = Modifier.size(12.dp)
-                                                    )
-                                                }
+                                            board.scrollToColumn(
+                                                tabItem.type.category.id,
+                                                animate = !lowEndMode.animationsDisabled
+                                            )
+                                        } else {
+                                            if (lowEndMode.animationsDisabled) {
+                                                pagerState.scrollToPage(index)
+                                            } else {
+                                                pagerState.animateScrollToPage(index)
                                             }
                                         }
                                     }
                                 }
                             )
                         }
-                    }
+                    )
                 }
+            }
 
                 HorizontalPager(
                     state = pagerState,
+                    // Keep every page (Updates, Needs Attention, To Order, board) composed while
+                    // on Supply so switching never rebuilds one.
+                    beyondViewportPageCount = boardPageIndex,
                     modifier = Modifier.weight(1f)
                 ) { page ->
                     if (page == boardPageIndex) {
@@ -570,28 +632,55 @@ fun SupplyDashboardScreen(
                             }
                             result
                         }
-                        LazyRow(
-                            state = boardScrollState,
-                            modifier = Modifier.fillMaxSize().padding(top = 12.dp, bottom = 120.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            contentPadding = PaddingValues(horizontal = 16.dp)
-                        ) {
-                            itemsIndexed(
-                                items = boardCategories,
-                                key = { _, cat -> cat.id }
-                            ) { _, category ->
-                                val categoryItems = boardItemsByCategory[category.id].orEmpty()
-                                CategoryBoardColumn(
-                                    category = category,
-                                    items = categoryItems,
-                                    headerColor = headerColors[category.id] ?: palette[0],
-                                    subscriptionManager = subscriptionManager,
-                                    subscriptionData = subscriptionData,
-                                    onAddItem = { openNewItemModal(category.id) },
-                                    onOpenItem = ::openDetailModal,
-                                    onLongPress = { item -> statusSheetItem = item }
-                                )
+                        LaunchedEffect(boardCategories) { board.updateKeys(boardCategories.map { it.id }) }
+                        // Columns are built in the background: the first few right away, then one
+                        // per frame, so opening Supply doesn't stall on every card at once but all
+                        // columns exist (and have real widths) before the user pans to them.
+                        var builtColumns by remember { mutableIntStateOf(4) }
+                        LaunchedEffect(boardCategories.size) {
+                            while (builtColumns < boardCategories.size) {
+                                withFrameNanos { }
+                                builtColumns++
                             }
+                        }
+                        val boardEdgeConnection = rememberSupplyBoardEdgeConnection(board, pagerState)
+                        val boardDensity = LocalDensity.current
+                        // Plain (non-lazy) row: every column stays composed, so panning never
+                        // composes a column mid-scroll.
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = 12.dp, bottom = 120.dp)
+                                .onSizeChanged { board.viewportPx = it.width }
+                                .nestedScroll(boardEdgeConnection)
+                                .horizontalScroll(board.scroll),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // 4dp + 12dp spacing = 16dp edge inset; kept as spacers so column
+                            // positions are plain row coordinates.
+                            Spacer(Modifier.width(4.dp))
+                            boardCategories.take(builtColumns).forEach { category ->
+                                key(category.id) {
+                                    val categoryItems = boardItemsByCategory[category.id].orEmpty()
+                                    CategoryBoardColumn(
+                                        category = category,
+                                        items = categoryItems,
+                                        headerColor = headerColors[category.id] ?: palette[0],
+                                        subscriptionManager = subscriptionManager,
+                                        subscriptionData = subscriptionData,
+                                        onAddItem = { openNewItemModal(category.id) },
+                                        onOpenItem = ::openDetailModal,
+                                        onLongPress = { item -> statusSheetItem = item },
+                                        modifier = Modifier.onPlaced { coordinates ->
+                                            board.columns[category.id] =
+                                                coordinates.positionInParent().x.roundToInt() to coordinates.size.width
+                                        }
+                                    )
+                                }
+                            }
+                            // Room to scroll past the last column (60% of the board's width) so
+                            // the last categories can reach the left edge and be selected.
+                            Spacer(Modifier.width(with(boardDensity) { (board.viewportPx * 0.6f).toDp() }))
                         }
                     } else {
                         val tabItem = supplyTabs.getOrNull(page)
@@ -609,7 +698,7 @@ fun SupplyDashboardScreen(
                                     items = items,
                                     categories = categories,
                                     onOpenItem = ::openDetailModal,
-                                    onLongPress = { item -> statusSheetItem = items.firstOrNull { it.id == item.id } },
+                                    onLongPress = { item -> statusSheetItem = item },
                                     modifier = Modifier.fillMaxSize()
                                 )
                                 SupplyTabType.ToOrder -> ToOrderPage(
@@ -713,9 +802,11 @@ fun SupplyDashboardScreen(
             val item = items.firstOrNull { it.id == modal.itemId }
             val itemTitle = item?.name ?: "Supply Item"
             SupplyModalFrame(
-                title = "",
+                // Category as the header eyebrow so the status-tinted band isn't an empty strip.
+                title = categories.firstOrNull { it.id == item?.categoryId }?.name?.uppercase().orEmpty(),
                 onDismiss = { dismissSupplyModal() },
                 headerTint = supplyStatusHeaderTint(item?.status),
+                wrapContentHeight = true,
                 actions = {
                     IconButton(onClick = {
                         scope.launch {
@@ -860,10 +951,7 @@ fun SupplyDashboardScreen(
                                     val nextTabItem = nextTabs.getOrNull(newIndex)
                                     if (nextTabItem?.type is SupplyTabType.CategoryTab) {
                                         pagerState.scrollToPage(boardPageIndex)
-                                        val catIndex = newOrder.indexOf(nextTabItem.type.category.id)
-                                        if (catIndex >= 0) {
-                                            boardScrollState.scrollToItem(catIndex)
-                                        }
+                                        board.scrollToColumn(nextTabItem.type.category.id, animate = false)
                                     } else {
                                         pagerState.scrollToPage(newIndex)
                                     }
@@ -1282,12 +1370,13 @@ private val ATTENTION_TIERS = listOf(
     AttentionTier("In Progress", setOf("ORDERED", "IN PROCESS", "ACKNOWLEDGED"), DashboardAccent.INFO),
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NeedsAttentionPage(
     items: List<SupplyItem>,
     categories: List<SupplyCategory>,
     onOpenItem: (String) -> Unit,
-    onLongPress: (DashboardInventoryItemModel) -> Unit,
+    onLongPress: (SupplyItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val categoryMap = remember(categories) { categories.associateBy { it.id } }
@@ -1318,46 +1407,123 @@ private fun NeedsAttentionPage(
         return
     }
 
-    Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 160.dp),
+    // Same layout as the To Order tab: one collapsible section card per tier. "In Progress"
+    // (already ordered) starts collapsed, like fully ordered jobs there.
+    var collapsedTiers by remember { mutableStateOf(setOf("In Progress")) }
+
+    // Lazy: only tier sections on screen are composed (cards inside an open section stay eager).
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(bottom = 160.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        tierGroups.forEach { (tier, tierItems) ->
-            DashboardWidgetRenderer(
-                widgets = listOf(
-                    DashboardWidgetModel.InventoryBlock(
-                        key = "attention-${tier.title}",
-                        title = tier.title,
-                        subtitle = "${tierItems.size} item${if (tierItems.size == 1) "" else "s"}",
-                        items = tierItems.map { item ->
-                            val categoryName = categoryMap[item.categoryId]?.name
-                            val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
-                            val supporting = listOfNotNull(
-                                quantity?.let { "Qty $it" },
-                                item.notes?.takeIf { it.isNotBlank() }
-                            ).joinToString("\n").ifBlank { null }
-                            DashboardInventoryItemModel(
-                                id = item.id,
-                                title = item.name,
-                                subtitle = categoryName ?: "",
-                                supportingText = supporting,
-                                badge = item.status,
-                                accent = supplyAccent(item.status)
-                            )
-                        }
-                    )
-                ),
-                onItemClick = { item ->
-                    if (item is DashboardInventoryItemModel) {
-                        onOpenItem(item.id)
+        items(tierGroups, key = { (tier, _) -> tier.title }) { (tier, tierItems) ->
+            AttentionTierSectionCard(
+                tier = tier,
+                items = tierItems,
+                isCollapsed = tier.title in collapsedTiers,
+                categoryMap = categoryMap,
+                onToggleCollapsed = {
+                    collapsedTiers = if (tier.title in collapsedTiers) {
+                        collapsedTiers - tier.title
+                    } else {
+                        collapsedTiers + tier.title
                     }
                 },
-                onItemLongPress = { item ->
-                    if (item is DashboardInventoryItemModel) onLongPress(item)
-                }
+                onOpenItem = onOpenItem,
+                onLongPress = onLongPress
             )
+        }
+    }
+}
+
+@Composable
+private fun AttentionTierSectionCard(
+    tier: AttentionTier,
+    items: List<SupplyItem>,
+    isCollapsed: Boolean,
+    categoryMap: Map<String, SupplyCategory>,
+    onToggleCollapsed: () -> Unit,
+    onOpenItem: (String) -> Unit,
+    onLongPress: (SupplyItem) -> Unit
+) {
+    DashboardSurfaceCard(
+        accent = tier.accent,
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggleCollapsed)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            DashboardSectionHeader(
+                title = tier.title,
+                subtitle = "${items.size} item${if (items.size == 1) "" else "s"}",
+                modifier = Modifier.weight(1f)
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val chipText = tier.title.uppercase()
+                val baseColor = supplyStatusColor(SUPPLY_STATUS_PRIORITY[tier.statuses.first()] ?: 99)
+                val (chipBgColor, chipTextColor) = getSoftStatusColors(chipText, baseColor)
+                StatusChip(
+                    text = chipText,
+                    backgroundColor = chipBgColor,
+                    contentColor = chipTextColor
+                )
+                Icon(
+                    imageVector = if (isCollapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                    contentDescription = if (isCollapsed) "Expand ${tier.title}" else "Collapse ${tier.title}"
+                )
+            }
+        }
+
+        val body: @Composable () -> Unit = {
+            // Cards in rows of up to [perRow] (~300dp each), last row kept the same card width.
+            BoxWithConstraints(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)
+            ) {
+                val perRow = ((maxWidth + 12.dp) / (300.dp + 12.dp)).toInt().coerceAtLeast(1)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items.chunked(perRow).forEachIndexed { rowIndex, row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            row.forEachIndexed { indexInRow, item ->
+                                Box(modifier = Modifier.weight(1f)) {
+                                    BoardCard(
+                                        zebraIndex = rowIndex * perRow + indexInRow,
+                                        item = item,
+                                        categoryName = categoryMap[item.categoryId]?.name,
+                                        onClick = { onOpenItem(item.id) },
+                                        onLongClick = { onLongPress(item) }
+                                    )
+                                }
+                            }
+                            repeat(perRow - row.size) { Spacer(modifier = Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (LocalLowEndMode.current.animationsDisabled) {
+            if (!isCollapsed) body()
+        } else {
+            AnimatedVisibility(
+                visible = !isCollapsed,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                body()
+            }
         }
     }
 }
@@ -1376,7 +1542,10 @@ private fun ToOrderPage(
     onEditItem: (jobFolderName: String, item: SpecialtyResolvedItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var collapsedJobIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Start in the final state on the very first frame (finished jobs collapsed, jobs with items
+    // still to order open) so nothing animates when you swipe onto this tab. Keyed on `loading`
+    // so the state is rebuilt from the loaded groups when the first load completes.
+    var collapsedJobIds by remember(loading) { mutableStateOf(autoCollapsedToOrderJobIds(groups)) }
 
     LaunchedEffect(groups) {
         val visibleJobIds = groups.map { it.folderName }.toSet()
@@ -1408,13 +1577,14 @@ private fun ToOrderPage(
         return
     }
 
-    Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 160.dp),
+    // Lazy: only job sections on screen are composed (items inside an open section stay eager).
+    val sections = remember(groups, collapsedJobIds) { buildToOrderJobSections(groups, collapsedJobIds) }
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(bottom = 160.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        buildToOrderJobSections(groups, collapsedJobIds).forEach { section ->
+        items(sections, key = { it.group.folderName }) { section ->
             ToOrderJobSectionCard(
                 section = section,
                 editable = editable,
@@ -1531,8 +1701,9 @@ private fun ToOrderJobSectionCard(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    section.group.items.forEach { resolvedItem ->
+                    section.group.items.forEachIndexed { index, resolvedItem ->
                         ToOrderItemRow(
+                            zebraIndex = index,
                             jobFolderName = section.group.folderName,
                             resolvedItem = resolvedItem,
                             editable = editable,
@@ -1552,8 +1723,9 @@ private fun ToOrderJobSectionCard(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    section.group.items.forEach { resolvedItem ->
+                    section.group.items.forEachIndexed { index, resolvedItem ->
                         ToOrderItemRow(
+                            zebraIndex = index,
                             jobFolderName = section.group.folderName,
                             resolvedItem = resolvedItem,
                             editable = editable,
@@ -1569,6 +1741,7 @@ private fun ToOrderJobSectionCard(
 
 @Composable
 private fun ToOrderItemRow(
+    zebraIndex: Int,
     jobFolderName: String,
     resolvedItem: SpecialtyResolvedItem,
     editable: Boolean,
@@ -1578,77 +1751,52 @@ private fun ToOrderItemRow(
     val item = resolvedItem.item
     val status = toOrderStatusLabel(resolvedItem.isComplete)
     val tier = if (resolvedItem.isComplete) 7 else 6
-    val accent = if (resolvedItem.isComplete) DashboardAccent.SUCCESS else DashboardAccent.WARNING
+    val baseColor = supplyStatusColor(tier)
+    val (bandBgColor, bandTextColor) = getSoftStatusColors(status, baseColor)
     val cardText = toOrderItemCardText(item)
+    val orderDate = cardText.orderDateLabel?.takeIf { resolvedItem.isComplete }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .let { base ->
-                if (editable) {
-                    base.combinedClickable(
-                        onClick = { onEditItem(jobFolderName, resolvedItem) },
-                        onLongClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
-                    )
-                } else {
-                    base
-                }
-            }
-            .background(DashboardSurfaceDefaults.accentWash(accent))
-            .padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+    SupplyTicketCard(
+        bandLabel = status,
+        bandTrailing = orderDate,
+        bandBgColor = bandBgColor,
+        bandTextColor = bandTextColor,
+        zebraIndex = zebraIndex,
+        // Sits inside the job's section card, so a lighter lift than the board.
+        elevation = 2.dp,
+        onClick = if (editable) ({ onEditItem(jobFolderName, resolvedItem) }) else null,
+        onLongClick = if (editable) ({ onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }) else null
     ) {
-        if (editable) {
-            IconButton(
-                onClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
-            ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (editable) {
+                IconButton(
+                    onClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
+                ) {
+                    Icon(
+                        imageVector = if (resolvedItem.isComplete) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                        contentDescription = if (resolvedItem.isComplete) "Mark not ordered" else "Mark ordered",
+                        tint = baseColor
+                    )
+                }
+            } else {
                 Icon(
                     imageVector = if (resolvedItem.isComplete) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
-                    contentDescription = if (resolvedItem.isComplete) "Mark not ordered" else "Mark ordered",
-                    tint = supplyStatusColor(tier)
+                    contentDescription = if (resolvedItem.isComplete) "Ordered" else "Not yet ordered",
+                    tint = baseColor,
+                    modifier = Modifier.padding(12.dp)
                 )
             }
-        } else {
-            Icon(
-                imageVector = if (resolvedItem.isComplete) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
-                contentDescription = if (resolvedItem.isComplete) "Ordered" else "Not yet ordered",
-                tint = supplyStatusColor(tier),
-                modifier = Modifier.padding(12.dp)
-            )
-        }
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val baseColor = supplyStatusColor(tier)
-                val (chipBgColor, chipTextColor) = getSoftStatusColors(status, baseColor)
-                StatusChip(
-                    text = status,
-                    backgroundColor = chipBgColor,
-                    contentColor = chipTextColor
-                )
-                if (resolvedItem.isComplete && !cardText.orderDateLabel.isNullOrBlank()) {
-                    StatusChip(
-                        text = cardText.orderDateLabel,
-                        backgroundColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 cardText.cabinetLabel?.let { cabinetLabel ->
                     Text(
-                        cabinetLabel,
-                        style = MaterialTheme.typography.bodyMedium,
+                        cabinetLabel.uppercase(),
+                        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.6.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1656,26 +1804,30 @@ private fun ToOrderItemRow(
                 }
                 Text(
                     cardText.itemName,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                cardText.quantityLabel?.let { quantityLabel ->
-                    Text(
-                        quantityLabel,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                    )
+                if (cardText.quantityLabel != null || cardText.supportingText.isNotBlank()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        cardText.quantityLabel?.let { SupplyQuantityPill(it.replace("Qty ", "×")) }
+                        if (cardText.supportingText.isNotBlank()) {
+                            Text(
+                                cardText.supportingText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
-            }
-            if (cardText.supportingText.isNotBlank()) {
-                Text(
-                    cardText.supportingText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }
@@ -1915,69 +2067,173 @@ private fun ToOrderEditDialog(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BoardCard(
+    zebraIndex: Int = 0,
     item: SupplyItem,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    categoryName: String? = null
 ) {
     val tier = item.status.let { SUPPLY_STATUS_PRIORITY[it] } ?: 99
     val baseColor = supplyStatusColor(tier)
-    val (chipBgColor, chipTextColor) = getSoftStatusColors(item.status, baseColor)
+    val (bandBgColor, bandTextColor) = getSoftStatusColors(item.status, baseColor)
+    val ageLabel = remember(item.statusAt) { supplyStatusAgeLabel(item.statusAt) }
+    val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
+    val sku = item.fields["sku"]?.takeIf { it.isNotBlank() }
+    val notes = item.notes?.takeIf { it.isNotBlank() }?.replace("\n", " ")
 
-    androidx.compose.material3.Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
-        shape = RoundedCornerShape(6.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (LocalKKCIsDarkTheme.current) MaterialTheme.colorScheme.surface else Color.White
-        ),
-        border = BorderStroke(
-            1.dp,
-            if (LocalKKCIsDarkTheme.current) MaterialTheme.colorScheme.outlineVariant else Color(0xFFD5DFE5)
-        )
+    SupplyTicketCard(
+        bandLabel = item.status,
+        bandTrailing = ageLabel,
+        bandBgColor = bandBgColor,
+        bandTextColor = bandTextColor,
+        zebraIndex = zebraIndex,
+        onClick = onClick,
+        onLongClick = onLongClick
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            StatusChip(
-                text = item.status,
-                backgroundColor = chipBgColor,
-                contentColor = chipTextColor
-            )
+        if (!categoryName.isNullOrBlank()) {
             Text(
-                text = item.name,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = if (LocalKKCIsDarkTheme.current) MaterialTheme.colorScheme.onSurface else Color(0xFF1E2A38)
-                ),
-                maxLines = 3,
+                text = categoryName.uppercase(),
+                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.6.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            val description = remember(item) {
-                val quantity = item.fields["quantity"]?.takeIf { it.isNotBlank() }
-                val notes = item.notes?.takeIf { it.isNotBlank() }
-                val sku = item.fields["sku"]?.takeIf { it.isNotBlank() }
-                listOfNotNull(
-                    quantity?.let { "Qty: $it" },
-                    sku?.let { "SKU: $sku" },
-                    notes?.replace("\n", " ")
-                ).joinToString(" • ")
+        }
+        Text(
+            text = item.name,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            ),
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (quantity != null || sku != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (quantity != null) SupplyQuantityPill("×$quantity")
+                if (sku != null) {
+                    Text(
+                        text = sku,
+                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
-            if (description.isNotEmpty()) {
+        }
+        if (notes != null) {
+            Text(
+                text = notes,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * "Ticket" card shared by the supply board, Needs Attention and To Order pages: a status band
+ * tinted with the tier color across the top, then [content] on a zebra-striped body.
+ * Click handlers are optional so read-only callers (non-admin To Order) get no ripple.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SupplyTicketCard(
+    bandLabel: String,
+    bandTrailing: String?,
+    bandBgColor: Color,
+    bandTextColor: Color,
+    zebraIndex: Int,
+    modifier: Modifier = Modifier,
+    elevation: Dp = 3.dp,
+    onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val lowEnd = LocalLowEndMode.current
+    val shape = RoundedCornerShape(10.dp)
+    // Zebra tint composited onto surface stays fully opaque, so the external shadow can't
+    // bleed through under the translucent status band (see CLAUDE.md "Frosted Glass Buttons").
+    val cardColor = kkcZebraTint(zebraIndex).compositeOver(MaterialTheme.colorScheme.surface)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(elevation = if (lowEnd.shadowsDisabled) 0.dp else elevation, shape = shape, clip = false)
+            .clip(shape)
+            .background(cardColor)
+            .then(
+                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                else Modifier
+            )
+            .then(
+                if (onClick != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                else Modifier
+            )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(bandBgColor)
+                .padding(horizontal = 12.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = bandLabel.uppercase(),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.8.sp
+                ),
+                color = bandTextColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            if (bandTrailing != null) {
                 Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    text = bandTrailing,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                    color = bandTextColor
                 )
             }
         }
+        Column(
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            content = content
+        )
     }
+}
+
+@Composable
+private fun SupplyQuantityPill(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    )
+}
+
+/**
+ * Compact "time in current status" label for the kanban ticket band: "today" under a day,
+ * otherwise whole days ("5d"). Null when [statusAt] is blank or not an ISO-8601 instant.
+ */
+internal fun supplyStatusAgeLabel(statusAt: String, now: java.time.Instant = java.time.Instant.now()): String? {
+    if (statusAt.isBlank()) return null
+    val at = runCatching { java.time.Instant.parse(statusAt) }.getOrNull() ?: return null
+    val days = java.time.Duration.between(at, now).toDays()
+    return if (days < 1) "today" else "${days}d"
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1993,8 +2249,10 @@ private fun CategoryBoardColumn(
     onLongPress: (SupplyItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDark = LocalKKCIsDarkTheme.current
-    val columnBgColor = if (isDark) Color(0xFF1C2B3E) else Color(0xFFEDF2F5)
+    val columnBgColor = MaterialTheme.colorScheme.surfaceVariant
+    // Category header colors are the fixed muted palette (all dark enough for white text).
+    val onHeader = Color.White
+    val addColor = MaterialTheme.colorScheme.primary
     val scope = rememberCoroutineScope()
     val isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id)
 
@@ -2021,7 +2279,7 @@ private fun CategoryBoardColumn(
                         text = category.name.uppercase(),
                         style = MaterialTheme.typography.titleSmall.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = onHeader
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -2034,7 +2292,7 @@ private fun CategoryBoardColumn(
                         Icon(
                             imageVector = if (isSubscribed) Icons.Filled.Notifications else Icons.Outlined.Notifications,
                             contentDescription = if (isSubscribed) "Unsubscribe from category" else "Subscribe to category",
-                            tint = Color.White.copy(alpha = 0.85f),
+                            tint = onHeader.copy(alpha = 0.85f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -2058,9 +2316,10 @@ private fun CategoryBoardColumn(
                             )
                         }
                     } else {
-                        items.forEach { item ->
+                        items.forEachIndexed { index, item ->
                             Box(modifier = Modifier.width(300.dp)) {
                                 BoardCard(
+                                    zebraIndex = index,
                                     item = item,
                                     onClick = { onOpenItem(item.id) },
                                     onLongClick = { onLongPress(item) }
@@ -2081,14 +2340,14 @@ private fun CategoryBoardColumn(
                             Icon(
                                 imageVector = Icons.Filled.Add,
                                 contentDescription = null,
-                                tint = if (isDark) Color(0xFF4FA7C0) else Color(0xFF356A73),
+                                tint = addColor,
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
                                 text = "Add another card",
                                 style = MaterialTheme.typography.labelLarge.copy(
                                     fontWeight = FontWeight.Medium,
-                                    color = if (isDark) Color(0xFF4FA7C0) else Color(0xFF356A73)
+                                    color = addColor
                                 )
                             )
                         }

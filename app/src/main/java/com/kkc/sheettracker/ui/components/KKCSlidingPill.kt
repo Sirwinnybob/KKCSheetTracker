@@ -5,14 +5,28 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import kotlin.math.roundToInt
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,6 +67,7 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
@@ -93,7 +108,7 @@ data class KKCPillStyle(
 )
 
 /** Black or white, whichever has the higher WCAG contrast on [color] (crossover at relative luminance ~0.18). */
-private fun contrastOn(color: Color): Color = if (color.luminance() > 0.179f) Color.Black else Color.White
+internal fun contrastOn(color: Color): Color = if (color.luminance() > 0.179f) Color.Black else Color.White
 
 /**
  * Pure color resolution for the sliding pill so it stays unit-testable.
@@ -312,11 +327,11 @@ fun Modifier.kkcPillIndicator(style: KKCPillStyle): Modifier {
 }
 
 /**
- * Last indicator position per [KKCSlidingPillRow] `persistKey`. Lets a pill that is disposed and
- * recreated on a selection change (a screen swapped by a `when`, like the flexible-mode Dashboard)
- * still slide from where it was instead of appearing at the new option.
+ * Last pill position (fractional item index) per sliding-row `persistKey`. Lets a pill that is
+ * disposed and recreated on a selection change (a screen swapped by a `when`, like the
+ * flexible-mode Dashboard) still slide from where it was instead of appearing at the new option.
  */
-private val lastPillBounds = mutableMapOf<String, Pair<Dp, Dp>>()
+private val lastPillIndex = mutableMapOf<String, Float>()
 
 data class KKCPillOption(
     val label: String,
@@ -329,104 +344,44 @@ data class KKCPillOption(
  * Segmented control whose selection pill slides between options. This is the hardwoods doc-controls
  * (Assembly / Plans & Elevs. / View 3D) look, shared so header buttons match it and both follow the
  * active theme.
+ *
+ * Just the track around [KKCSlidingTabRow]: all sliding behavior (pill motion, per-letter label
+ * color, stable label widths) lives there, so every slider in the app improves together.
  */
 @Composable
 fun KKCSlidingPillRow(
     options: List<KKCPillOption>,
     modifier: Modifier = Modifier,
     accent: KKCPillAccent = KKCPillAccent.PRIMARY,
-    persistKey: String? = null
+    persistKey: String? = null,
+    /** Stretch to the parent's width with equally wide segments (instead of hugging the labels). */
+    fillWidth: Boolean = false
 ) {
     if (options.isEmpty()) return
     val style = rememberKKCPillStyle(accent)
-    val lowEnd = LocalLowEndMode.current
-    val density = LocalDensity.current
-    val selectedIndex = remember(options) { options.indexOfFirst { it.isSelected }.coerceAtLeast(0) }
-    var itemBounds by remember { mutableStateOf(mapOf<Int, Pair<Dp, Dp>>()) }
-
+    val widthMod = if (fillWidth) Modifier.fillMaxWidth() else Modifier.wrapContentWidth()
     KKCPillContainer(
         style = style,
-        modifier = modifier.height(36.dp).wrapContentWidth()
+        modifier = modifier.height(36.dp).then(widthMod)
     ) {
-        Box(
-            modifier = Modifier
-                .height(36.dp)
-                .wrapContentWidth()
-                .padding(horizontal = 2.dp, vertical = 2.dp)
-        ) {
-            val currentBounds = itemBounds[selectedIndex]
-            val animLeft = remember { Animatable(0.dp, Dp.VectorConverter) }
-            val animWidth = remember { Animatable(0.dp, Dp.VectorConverter) }
-            var seeded by remember { mutableStateOf(false) }
-            LaunchedEffect(currentBounds) {
-                if (currentBounds == null) return@LaunchedEffect
-                if (!seeded) {
-                    val start = persistKey?.let { lastPillBounds[it] } ?: currentBounds
-                    animLeft.snapTo(start.first)
-                    animWidth.snapTo(start.second)
-                    seeded = true
-                }
-                persistKey?.let { lastPillBounds[it] = currentBounds }
-                val spec = if (lowEnd.animationsDisabled) {
-                    snap<Dp>()
-                } else {
-                    tween<Dp>(durationMillis = 420, easing = FastOutSlowInEasing)
-                }
-                coroutineScope {
-                    launch { animLeft.animateTo(currentBounds.first, spec) }
-                    launch { animWidth.animateTo(currentBounds.second, spec) }
-                }
-            }
-            if (seeded) {
-                Box(
-                    Modifier
-                        .offset(x = animLeft.value)
-                        .width(animWidth.value)
-                        .height(32.dp)
-                        .kkcPillIndicator(style)
+        KKCSlidingTabRow(
+            items = options.map { opt ->
+                KKCTabItem(
+                    label = opt.label,
+                    isSelected = opt.isSelected,
+                    onClick = opt.onClick,
+                    accent = accent,
+                    enabled = opt.enabled
                 )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .height(32.dp)
-                    .wrapContentWidth()
-            ) {
-                options.forEachIndexed { idx, opt ->
-                    val isSelected = selectedIndex == idx
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .height(32.dp)
-                            .zIndex(1f)
-                            .onGloballyPositioned { coordinates ->
-                                val leftDp = with(density) { coordinates.positionInParent().x.toDp() }
-                                val widthDp = with(density) { coordinates.size.width.toDp() }
-                                itemBounds = itemBounds + (idx to (leftDp to widthDp))
-                            }
-                            .clickable(
-                                enabled = opt.enabled,
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { opt.onClick() }
-                            .padding(horizontal = 12.dp)
-                    ) {
-                        Text(
-                            text = opt.label,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = when {
-                                isSelected -> style.selectedText
-                                opt.enabled -> style.unselectedText
-                                else -> style.unselectedText.copy(alpha = 0.38f)
-                            },
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-        }
+            },
+            modifier = widthMod,
+            scrollable = false,
+            height = 36.dp,
+            edgePadding = 2.dp,
+            itemPadding = 12.dp,
+            fillWidth = fillWidth,
+            persistKey = persistKey
+        )
     }
 }
 
@@ -435,21 +390,54 @@ data class KKCTabItem(
     val isSelected: Boolean,
     val onClick: () -> Unit,
     val accent: KKCPillAccent = KKCPillAccent.PRIMARY,
-    val alwaysBold: Boolean = false
+    val alwaysBold: Boolean = false,
+    /** Red count badge after the label (0 = none). */
+    val badgeCount: Int = 0,
+    /**
+     * Always reserve room for a two-digit badge, so the tab (and every tab after it) doesn't
+     * shift when a count appears or changes.
+     */
+    val reserveBadge: Boolean = false,
+    /** Small bell after the label (e.g. a subscribed supply category). */
+    val showBell: Boolean = false,
+    val enabled: Boolean = true
 )
 
 /**
- * Horizontally scrollable tab strip with the same sliding pill as [KKCSlidingPillRow], for the
- * hardwoods cutlist tabs (no container of its own — the caller supplies it). Pill and labels share
- * one 40dp centerline, so the pill stays centered on its label at any position. The pill takes the
- * selected item's [KKCTabItem.accent].
+ * The app's one horizontal sliding-pill engine: tab strips (supply, hardwoods cutlist, ...) use it
+ * directly with their own container, and [KKCSlidingPillRow] wraps it in a track. Improve sliding
+ * behavior here and every slider gets it.
+ *
+ * - The pill glides (spring) between items, moved in layout/draw only -- no per-frame recomposition.
+ * - Labels change color letter by letter as the pill's edge crosses them.
+ * - Labels never shift: selection doesn't change a label's width, and a scrollable strip scrolls
+ *   in proportion to the pill instead of re-centering on each selection.
+ *
+ * Pill and labels share one centerline, so the pill stays centered on its label at any position.
+ * The pill takes the selected item's [KKCTabItem.accent].
  */
 @Composable
 fun KKCSlidingTabRow(
     items: List<KKCTabItem>,
     modifier: Modifier = Modifier,
     /** False when the host already scrolls horizontally (nesting two scrollers crashes). */
-    scrollable: Boolean = true
+    scrollable: Boolean = true,
+    /**
+     * Live fractional tab index while the host content is being scrolled (e.g. a swiped board),
+     * or null when it is at rest. While non-null the pill tracks it exactly; once it returns to
+     * null the pill springs onto the selected tab.
+     */
+    trackingPosition: (() -> Float?)? = null,
+    /** Strip height; the pill is 32dp tall, centered in it. */
+    height: Dp = 40.dp,
+    /** Space before the first and after the last item. */
+    edgePadding: Dp = 4.dp,
+    /** Horizontal padding inside each item, around its label. */
+    itemPadding: Dp = 8.dp,
+    /** Equal-width items filling the strip's width (not scrollable). */
+    fillWidth: Boolean = false,
+    /** Remember the pill position under this key so a recreated strip slides from where it was. */
+    persistKey: String? = null
 ) {
     if (items.isEmpty()) return
     val primaryStyle = rememberKKCPillStyle(KKCPillAccent.PRIMARY)
@@ -458,81 +446,246 @@ fun KKCSlidingTabRow(
     val lowEnd = LocalLowEndMode.current
     val density = LocalDensity.current
     val selectedIndex = remember(items) { items.indexOfFirst { it.isSelected } }
-    var itemBounds by remember { mutableStateOf(mapOf<Int, Pair<Dp, Dp>>()) }
+    // Each tab's left edge and width in px, relative to the label row.
+    var itemBounds by remember { mutableStateOf(mapOf<Int, Pair<Float, Float>>()) }
     val scrollState = rememberScrollState()
+    var viewportPx by remember { mutableIntStateOf(0) }
+    val canScroll = scrollable && !fillWidth
+
+    // The pill's position is one animated fractional tab index; its CENTER follows the tab
+    // centers interpolated between the neighbouring tabs, and a spring keeps its velocity when the
+    // target moves again mid-flight -- e.g. while the selection follows a scrolling board -- so it
+    // stays smooth instead of restarting a fixed-length tween.
+    //
+    // The pill keeps its size while it travels and only grows/shrinks to the new tab's width once
+    // it has settled -- i.e. once the user stops scrolling the board or tapping around.
+    val position = remember { Animatable(0f) }
+    val pillWidth = remember { Animatable(0f) } // px
+    var seeded by remember { mutableStateOf(false) }
+    // True while the host drives the pill through [trackingPosition].
+    var tracking by remember { mutableStateOf(false) }
+    val currentTrackingPosition by rememberUpdatedState(trackingPosition)
+    val currentItemCount by rememberUpdatedState(items.size)
+    if (trackingPosition != null && !lowEnd.animationsDisabled) {
+        LaunchedEffect(Unit) {
+            snapshotFlow { currentTrackingPosition?.invoke() }.collect { raw ->
+                if (raw == null || !seeded) {
+                    tracking = false
+                    return@collect
+                }
+                val lastIndex = (currentItemCount - 1).coerceAtLeast(0)
+                val p = raw.coerceIn(0f, lastIndex.toFloat())
+                val lower = p.toInt().coerceIn(0, lastIndex)
+                val upper = (lower + 1).coerceAtMost(lastIndex)
+                val a = itemBounds[lower]?.second
+                val b = itemBounds[upper]?.second
+                tracking = true
+                position.snapTo(p)
+                // Width morphs between neighbouring tabs while following a drag.
+                if (a != null && b != null) pillWidth.snapTo(a + (b - a) * (p - lower))
+            }
+        }
+    }
+    val targetWidth = if (selectedIndex >= 0) itemBounds[selectedIndex]?.second else null
+    LaunchedEffect(selectedIndex, targetWidth, tracking) {
+        val target = targetWidth ?: return@LaunchedEffect
+        if (tracking && seeded) return@LaunchedEffect
+        if (!seeded) {
+            // A recreated strip starts where its predecessor's pill was and slides from there.
+            val start = persistKey?.let { lastPillIndex[it] }
+                ?.coerceIn(0f, items.lastIndex.toFloat())
+                ?: selectedIndex.toFloat()
+            position.snapTo(start)
+            pillWidth.snapTo(target)
+            seeded = true
+        }
+        persistKey?.let { lastPillIndex[it] = selectedIndex.toFloat() }
+        if (lowEnd.animationsDisabled) {
+            position.snapTo(selectedIndex.toFloat())
+            pillWidth.snapTo(target)
+        } else {
+            position.animateTo(
+                selectedIndex.toFloat(),
+                spring(dampingRatio = 1f, stiffness = 260f)
+            )
+            // Only reached when this animation was not superseded by a newer selection.
+            pillWidth.animateTo(target, tween(260, easing = FastOutSlowInEasing))
+        }
+    }
+
+    // Pill left edge and width (px, label-row coordinates) right now, or null while hidden. Only
+    // read from layout/draw/snapshotFlow lambdas: the animation then re-lays-out and redraws the
+    // strip each frame without recomposing every tab, which is what made the slide stutter.
+    fun pillSpan(): Pair<Float, Float>? {
+        if (!seeded || selectedIndex < 0) return null
+        val lastIndex = items.lastIndex
+        val p = position.value.coerceIn(0f, lastIndex.toFloat())
+        val lower = p.toInt().coerceIn(0, lastIndex)
+        val upper = (lower + 1).coerceAtMost(lastIndex)
+        val a = itemBounds[lower] ?: return null
+        val b = itemBounds[upper] ?: return null
+        val fraction = p - lower
+        val aCenter = a.first + a.second / 2
+        val center = aCenter + ((b.first + b.second / 2) - aCenter) * fraction
+        val width = pillWidth.value
+        return (center - width / 2) to width
+    }
+
+    // The strip scrolls in proportion to the pill's position along it: pill at the start -> strip
+    // at the start, pill at the end -> strip at the end, gliding continuously in between as the pill
+    // moves (so it moves with a panned board rather than only when the pill nears an edge). The
+    // pill always stays in view, and a pill that barely moves only nudges the labels.
+    if (canScroll) {
+        LaunchedEffect(selectedIndex, items.size) {
+            snapshotFlow {
+                val span = pillSpan()
+                val max = scrollState.maxValue
+                val first = itemBounds[0]
+                val last = itemBounds[items.lastIndex]
+                if (span == null || viewportPx <= 0 || max <= 0 || first == null || last == null) {
+                    null
+                } else {
+                    // Measured from the first tab's center to the last tab's, so the end tabs
+                    // are fully in view (not clipped) when the pill sits on them.
+                    val firstCenter = first.first + first.second / 2
+                    val lastCenter = last.first + last.second / 2
+                    val center = span.first + span.second / 2
+                    val t = if (lastCenter > firstCenter) (center - firstCenter) / (lastCenter - firstCenter) else 0f
+                    (t.coerceIn(0f, 1f) * max).roundToInt()
+                }
+            }.collect { target -> if (target != null && target != scrollState.value) scrollState.scrollTo(target) }
+        }
+    }
 
     Box(
         modifier = modifier
-            .height(40.dp)
-            .then(if (scrollable) Modifier.horizontalScroll(scrollState) else Modifier)
-            .padding(horizontal = 4.dp)
+            .height(height)
+            .onSizeChanged { viewportPx = it.width }
+            .then(if (canScroll) Modifier.horizontalScroll(scrollState) else Modifier)
+            .padding(horizontal = edgePadding)
     ) {
-        val currentBounds = if (selectedIndex >= 0) itemBounds[selectedIndex] else null
-        val animLeft = remember { Animatable(0.dp, Dp.VectorConverter) }
-        val animWidth = remember { Animatable(0.dp, Dp.VectorConverter) }
-        var seeded by remember { mutableStateOf(false) }
-        LaunchedEffect(currentBounds) {
-            if (currentBounds == null) return@LaunchedEffect
-            if (!seeded) {
-                animLeft.snapTo(currentBounds.first)
-                animWidth.snapTo(currentBounds.second)
-                seeded = true
-            }
-            val spec = if (lowEnd.animationsDisabled) {
-                snap<Dp>()
-            } else {
-                tween<Dp>(durationMillis = 420, easing = FastOutSlowInEasing)
-            }
-            coroutineScope {
-                launch { animLeft.animateTo(currentBounds.first, spec) }
-                launch { animWidth.animateTo(currentBounds.second, spec) }
-            }
-        }
-        if (seeded && selectedIndex >= 0) {
+        if (selectedIndex >= 0) {
+            val pillHeight = 32.dp
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
-                    .offset(x = animLeft.value)
-                    .width(animWidth.value)
-                    .height(32.dp)
+                    .layout { measurable, _ ->
+                        val span = pillSpan()
+                        val h = pillHeight.roundToPx()
+                        val w = span?.second?.roundToInt()?.coerceAtLeast(0) ?: 0
+                        val placeable = measurable.measure(Constraints.fixed(w, h))
+                        // Zero width so the pill never affects the strip's own size.
+                        layout(0, h) {
+                            if (span != null) placeable.place(span.first.roundToInt(), 0)
+                        }
+                    }
                     .kkcPillIndicator(styleFor(items[selectedIndex]))
             )
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.height(40.dp)
+            modifier = Modifier
+                .height(height)
+                .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
         ) {
             items.forEachIndexed { idx, item ->
                 val style = styleFor(item)
+                val onPill = if (selectedIndex >= 0) styleFor(items[selectedIndex]).selectedText else style.selectedText
+                val baseColor = if (item.enabled) style.unselectedText else style.unselectedText.copy(alpha = 0.38f)
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
+                        .then(if (fillWidth) Modifier.weight(1f) else Modifier)
                         .height(32.dp)
                         .zIndex(1f)
                         .onGloballyPositioned { coordinates ->
-                            val leftDp = with(density) { coordinates.positionInParent().x.toDp() }
-                            val widthDp = with(density) { coordinates.size.width.toDp() }
-                            itemBounds = itemBounds + (idx to (leftDp to widthDp))
+                            val left = coordinates.positionInParent().x
+                            val width = coordinates.size.width.toFloat()
+                            itemBounds = itemBounds + (idx to (left to width))
                         }
                         .clickable(
+                            enabled = item.enabled,
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { item.onClick() }
-                        .padding(horizontal = 8.dp)
                 ) {
-                    Text(
-                        text = item.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = when {
-                            item.alwaysBold -> FontWeight.Bold
-                            item.isSelected -> FontWeight.SemiBold
-                            else -> FontWeight.Normal
-                        },
-                        color = if (item.isSelected) style.selectedText else style.unselectedText,
-                        maxLines = 1
+                    KKCTabLabel(item, baseColor, Modifier.padding(horizontal = itemPadding))
+                    // The same label in the on-pill color, clipped to wherever the pill is right
+                    // now: each letter flips color the moment the pill's edge crosses it.
+                    KKCTabLabel(
+                        item,
+                        onPill,
+                        Modifier
+                            .clearAndSetSemantics { }
+                            .drawWithContent {
+                                val span = pillSpan() ?: return@drawWithContent
+                                val bounds = itemBounds[idx] ?: return@drawWithContent
+                                val left = span.first - bounds.first
+                                clipRect(left = left, right = left + span.second) {
+                                    this@drawWithContent.drawContent()
+                                }
+                            }
+                            .padding(horizontal = itemPadding)
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun KKCTabLabel(item: KKCTabItem, color: Color, modifier: Modifier) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier
+    ) {
+        if (item.alwaysBold) {
+            Text(
+                text = item.label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = color,
+                maxLines = 1
+            )
+        } else {
+            // The selected label is semibold; an invisible semibold copy holds that width for
+            // every state, so selecting a tab never widens it and shifts the labels after it.
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = item.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    modifier = Modifier.alpha(0f)
+                )
+                Text(
+                    text = item.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (item.isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = color,
+                    maxLines = 1
+                )
+            }
+        }
+        if (item.reserveBadge) {
+            Box(contentAlignment = Alignment.Center) {
+                // Invisible two-digit badge sets the reserved width; the real one centers in it.
+                androidx.compose.material3.Badge(modifier = Modifier.alpha(0f)) { Text("88") }
+                if (item.badgeCount > 0) {
+                    androidx.compose.material3.Badge { Text(item.badgeCount.toString()) }
+                }
+            }
+        } else if (item.badgeCount > 0) {
+            androidx.compose.material3.Badge { Text(item.badgeCount.toString()) }
+        }
+        if (item.showBell) {
+            Icon(
+                imageVector = Icons.Filled.Notifications,
+                contentDescription = "Subscribed",
+                tint = color,
+                modifier = Modifier.size(12.dp)
+            )
         }
     }
 }
@@ -618,9 +771,11 @@ fun KKCVerticalSlidingPillColumn(
     val selectedIndex = remember(options) { options.indexOfFirst { it.isSelected } }
     val rowHeight = 30.dp
     val rowGap = 4.dp
-    val pillTop by animateDpAsState(
+    // Read only inside layout/draw lambdas, so the slide doesn't recompose the column each frame
+    // (same approach as [KKCSlidingTabRow]).
+    val pillTop = animateDpAsState(
         targetValue = (rowHeight + rowGap) * selectedIndex.coerceAtLeast(0),
-        animationSpec = if (lowEnd.animationsDisabled) snap() else tween(380, easing = FastOutSlowInEasing),
+        animationSpec = if (lowEnd.animationsDisabled) snap() else spring(dampingRatio = 1f, stiffness = 260f),
         label = "verticalPillTop"
     )
     KKCPillContainer(style = style, modifier = modifier) {
@@ -628,14 +783,15 @@ fun KKCVerticalSlidingPillColumn(
             if (selectedIndex >= 0) {
                 Box(
                     Modifier
-                        .offset(y = pillTop)
+                        .offset { IntOffset(0, pillTop.value.roundToPx()) }
                         .fillMaxWidth()
                         .height(rowHeight)
                         .kkcPillIndicator(style)
                 )
             }
             Column(verticalArrangement = Arrangement.spacedBy(rowGap)) {
-                options.forEach { opt ->
+                options.forEachIndexed { idx, opt ->
+                    val baseColor = if (opt.enabled) style.unselectedText else style.unselectedText.copy(alpha = 0.38f)
                     Box(
                         contentAlignment = Alignment.CenterStart,
                         modifier = Modifier
@@ -647,16 +803,39 @@ fun KKCVerticalSlidingPillColumn(
                                 indication = null,
                                 onClick = opt.onClick
                             )
-                            .padding(horizontal = 12.dp)
                     ) {
+                        // Constant weight: a bolder active label would widen the widest row and
+                        // make the whole column (and pill) jump on every switch.
                         Text(
                             text = opt.label,
                             style = MaterialTheme.typography.labelMedium,
-                            // Constant weight: a bolder active label would widen the widest row and
-                            // make the whole column (and pill) jump on every switch.
                             fontWeight = FontWeight.Bold,
-                            color = if (opt.isSelected) style.selectedText else style.unselectedText,
-                            maxLines = 1
+                            color = baseColor,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                        // On-pill copy clipped to the pill: the label changes color line by line
+                        // as the pill slides over it.
+                        Text(
+                            text = opt.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = style.selectedText,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clearAndSetSemantics { }
+                                .drawWithContent {
+                                    if (selectedIndex < 0) return@drawWithContent
+                                    val rowTop = ((rowHeight + rowGap) * idx).toPx()
+                                    // This text is vertically centered in its row.
+                                    val textTop = rowTop + (rowHeight.toPx() - size.height) / 2
+                                    val top = pillTop.value.toPx() - textTop
+                                    clipRect(top = top, bottom = top + rowHeight.toPx()) {
+                                        this@drawWithContent.drawContent()
+                                    }
+                                }
+                                .padding(horizontal = 12.dp)
                         )
                     }
                 }

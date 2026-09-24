@@ -1,5 +1,16 @@
 package com.kkc.sheettracker.ui.specialty
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
+import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.heightIn
@@ -152,24 +163,54 @@ fun CompactSpecialtySection(
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
+    // Themed like the sliders: neutral card with a themed header/count pill, themed checkboxes and
+    // zebra rows. On two-color themes the pill and checked boxes use the secondary color.
+    val pillStyle = rememberKKCPillStyle()
+    val statusColors = KKCThemeColors.statusColors
+    val accent = if (pillStyle.filledContainer) pillStyle.fillColor else MaterialTheme.colorScheme.primary
+    val onAccent = if (pillStyle.filledContainer) pillStyle.selectedText else MaterialTheme.colorScheme.onPrimary
+    val allDone = rowModels.isNotEmpty() && completedCount == rowModels.size
     Surface(
         modifier = modifier.fillMaxWidth(),
-        tonalElevation = 3.dp,
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
         shape = MaterialTheme.shapes.large
     ) {
         Column(
             modifier = Modifier.padding(horizontal = KKCSpacing.cardPaddingSmall, vertical = KKCSpacing.m),
             verticalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)
         ) {
-            Text(
-                text = if (rowModels.isEmpty() && scanState.status == ScanStatus.LOADING) {
-                    "Specialty loading..."
-                } else {
-                    "Specialty $completedCount/${rowModels.size}"
-                },
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (rowModels.isEmpty() && scanState.status == ScanStatus.LOADING) {
+                        "Specialty loading..."
+                    } else {
+                        "Specialty"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                if (rowModels.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (allDone) statusColors.complete else pillStyle.fillColor
+                    ) {
+                        Text(
+                            text = "$completedCount/${rowModels.size}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (allDone) Color.White else pillStyle.selectedText,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
 
             if (rowModels.isEmpty() && scanState.status != ScanStatus.LOADING) {
                 Text(
@@ -186,7 +227,7 @@ fun CompactSpecialtySection(
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)
             ) {
-                items(rowModels, key = { rowModel -> rowModel.resolved.item.id }) { rowModel ->
+                itemsIndexed(rowModels, key = { _, rowModel -> rowModel.resolved.item.id }) { rowIndex, rowModel ->
                     val item = rowModel.resolved.item
                     val itemId = item.id
                     val completionKey = compactCompletionKeyForMode(item, mode)
@@ -202,15 +243,25 @@ fun CompactSpecialtySection(
                     val stationText = item.stations.joinToString(" • ") { station ->
                         station.name.replace('_', ' ')
                     }
+                    // Two-color zebra (primary/secondary alternating, like the sheet viewer). A done item
+                    // is shown by its checkbox only: a green wash here hid the primary-color rows.
+                    val rowBackground = kkcZebraTint(rowIndex)
                     Row(
                     modifier = Modifier
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(rowBackground)
+                        .padding(end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)
                     ) {
                         Checkbox(
                             checked = checked,
                             enabled = itemEnabled,
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = accent,
+                                checkmarkColor = onAccent
+                            ),
                             onCheckedChange = onChange@{ next ->
                                 val key = completionKey ?: return@onChange
                                 val previous = completionOverrides[itemId] ?: checked

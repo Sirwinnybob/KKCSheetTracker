@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,8 +53,15 @@ import com.kkc.sheettracker.data.models.ALL_SAFETY_STATUSES
 import com.kkc.sheettracker.data.models.SAFETY_CATEGORIES
 import com.kkc.sheettracker.data.models.SafetyComment
 import com.kkc.sheettracker.data.models.SafetyItem
+import androidx.compose.ui.graphics.compositeOver
+import com.kkc.sheettracker.ui.components.KKCPillAction
+import com.kkc.sheettracker.ui.components.KKCPillActionRow
+import com.kkc.sheettracker.ui.components.KKCPillOption
+import com.kkc.sheettracker.ui.components.KKCSlidingPillRow
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
+import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -150,35 +159,31 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
                 }
             },
             actions = {
-                Button(
-                    onClick = { showReportDialog = true },
+                KKCPillActionRow(
+                    actions = listOf(
+                        KKCPillAction("Report Safety Concern", { showReportDialog = true }, Icons.Filled.Add)
+                    ),
                     modifier = Modifier.padding(end = 8.dp)
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Report Safety Concern")
-                }
+                )
             }
         )
 
-        TabRow(selectedTabIndex = selectedTab) {
-            SafetyDocumentsScreenLogic.tabTitles.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    text = { Text(title) },
-                    icon = {
-                        Icon(
-                            imageVector = if (index == 2) {
-                                Icons.Filled.Warning
-                            } else {
-                                Icons.Filled.PictureAsPdf
-                            },
-                            contentDescription = null
-                        )
-                    }
-                )
-            }
+        // Same full-width sliding selector as the molding library categories.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            KKCSlidingPillRow(
+                options = SafetyDocumentsScreenLogic.tabTitles.mapIndexed { index, title ->
+                    KKCPillOption(
+                        label = title,
+                        isSelected = selectedTab == index,
+                        onClick = { selectedTab = index }
+                    )
+                },
+                fillWidth = true
+            )
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
@@ -201,16 +206,19 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
                             .padding(24.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        val cardShape = RoundedCornerShape(16.dp)
-                        Box(
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                            shadowElevation = 2.dp,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                          Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .shadow(elevation = 2.dp, shape = cardShape, clip = false)
-                                .clip(cardShape)
-                                .background(MaterialTheme.colorScheme.surface)
                                 .padding(24.dp),
                             contentAlignment = Alignment.Center
-                        ) {
+                          ) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -235,6 +243,7 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
                                     Text("Subscribe with Password")
                                 }
                             }
+                          }
                         }
                     }
                 } else {
@@ -254,11 +263,12 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
                         }
                     } else {
                         LazyColumn(
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            contentPadding = PaddingValues(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 120.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(concerns, key = { it.id }) { item ->
+                            itemsIndexed(concerns, key = { _, it -> it.id }) { index, item ->
                                 SafetyConcernCard(
+                                    zebraIndex = index,
                                     item = item,
                                     repository = repository,
                                     onClick = { selectedConcernForDetail = item }
@@ -380,17 +390,54 @@ private fun SafetyPdfList(
             )
         }
     } else {
-        LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
-            items(files, key = { it.absolutePath }) { file ->
-                ListItem(
-                    headlineContent = { Text(file.nameWithoutExtension) },
-                    leadingContent = {
-                        Icon(Icons.Filled.PictureAsPdf, contentDescription = null)
-                    },
+        val pillStyle = rememberKKCPillStyle()
+        val iconAccent = if (pillStyle.filledContainer) pillStyle.container else MaterialTheme.colorScheme.primary
+        LazyColumn(
+            contentPadding = PaddingValues(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            itemsIndexed(files, key = { _, file -> file.absolutePath }) { index, file ->
+                // Same card treatment as the job lists: bordered, faint two-color zebra, themed icon.
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = kkcZebraTint(index).compositeOver(MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    shadowElevation = 2.dp,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenPdf(file) }
-                )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Icon(
+                                Icons.Filled.PictureAsPdf,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(8.dp).size(22.dp)
+                            )
+                        }
+                        Text(
+                            text = file.nameWithoutExtension,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            Icons.Filled.ChevronRight,
+                            contentDescription = null,
+                            tint = iconAccent.copy(alpha = 0.7f)
+                        )
+                    }
+                }
             }
         }
     }
@@ -989,20 +1036,21 @@ private fun ConcernDetailDialog(
 
 @Composable
 private fun SafetyConcernCard(
+    zebraIndex: Int,
     item: SafetyItem,
     repository: SafetyRepository,
     onClick: () -> Unit
 ) {
-    val cardShape = RoundedCornerShape(12.dp)
-    Box(
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = kkcZebraTint(zebraIndex).compositeOver(MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        shadowElevation = 2.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(elevation = 2.dp, shape = cardShape, clip = false)
-            .clip(cardShape)
-            .background(MaterialTheme.colorScheme.surface)
             .clickable { onClick() }
-            .padding(16.dp)
     ) {
+      Box(modifier = Modifier.padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1061,6 +1109,7 @@ private fun SafetyConcernCard(
                 }
             }
         }
+      }
     }
 }
 

@@ -75,6 +75,7 @@ import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import com.kkc.sheettracker.ui.theme.boldGradientBrush
 import com.kkc.sheettracker.ui.theme.kkcFrostedBaseColor
+import com.kkc.sheettracker.ui.theme.kkcFrostedContentColor
 import com.kkc.sheettracker.ui.timecard.BgPickerSheet
 import com.kkc.sheettracker.ui.timecard.TimecardIcon
 import com.kkc.sheettracker.ui.components.SupplyIcon
@@ -237,6 +238,12 @@ private fun MorphingNavIconRow(
         val indicatorColor = MaterialTheme.colorScheme.surfaceVariant
         val navBoldTokens = LocalKKCThemeTokens.current
         val navBoldPalette = navBoldTokens.palette(LocalKKCIsDarkTheme.current)
+        // Bold mode tints the glass with the theme glow; primary/onSurfaceVariant can land
+        // right on that tint (e.g. green on green in dark mode), so use a contrast-picked color.
+        val onGlass = kkcFrostedContentColor()
+        val selectedTint = if (navBoldTokens.boldMode) onGlass else MaterialTheme.colorScheme.primary
+        val unselectedTint = if (navBoldTokens.boldMode) onGlass.copy(alpha = 0.8f)
+                             else MaterialTheme.colorScheme.onSurfaceVariant
         fun Modifier.navSelectionBackground(active: Boolean): Modifier {
             if (!active) return this
             return if (navBoldTokens.boldMode) {
@@ -266,8 +273,7 @@ private fun MorphingNavIconRow(
                         Icon(
                             if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
                             contentDescription = "Calculator",
-                            tint = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (isCalculatorOpen) selectedTint else unselectedTint,
                             modifier = Modifier.size(iconSize)
                         )
                         if (!lowEnd.animationsDisabled) {
@@ -280,8 +286,7 @@ private fun MorphingNavIconRow(
                                     text = "Calc",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = if (isCalculatorOpen) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (isCalculatorOpen) selectedTint else unselectedTint
                                 )
                             }
                         } else if (showLabels) {
@@ -289,8 +294,7 @@ private fun MorphingNavIconRow(
                                 text = "Calc",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = if (isCalculatorOpen) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isCalculatorOpen) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (isCalculatorOpen) selectedTint else unselectedTint
                             )
                         }
                     }
@@ -302,8 +306,7 @@ private fun MorphingNavIconRow(
                 Icon(
                     if (selected) dest.selectedIcon else dest.unselectedIcon,
                     contentDescription = dest.label,
-                    tint = if (selected) MaterialTheme.colorScheme.primary
-                           else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (selected) selectedTint else unselectedTint,
                     modifier = Modifier.size(iconSize)
                 )
             }
@@ -351,8 +354,7 @@ private fun MorphingNavIconRow(
                                     text = dest.label,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (selected) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (selected) selectedTint else unselectedTint,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -362,8 +364,7 @@ private fun MorphingNavIconRow(
                                 text = dest.label,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (selected) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (selected) selectedTint else unselectedTint
                             )
                         }
                     }
@@ -545,6 +546,18 @@ private fun MorphingNavBar(
                             ) {
                                 when (decor) {
                                     "search" -> lastSearch?.let { dec ->
+                                        val searchBold = LocalKKCThemeTokens.current.boldMode
+                                        val searchOnGlass = kkcFrostedContentColor()
+                                        val searchHint = if (searchBold) searchOnGlass.copy(alpha = 0.75f)
+                                                         else MaterialTheme.colorScheme.onSurfaceVariant
+                                        // Bold glass: default primary buttons can vanish into the tint,
+                                        // so use a translucent chip of the contrast color instead.
+                                        val searchButtonColors = if (searchBold) ButtonDefaults.buttonColors(
+                                            containerColor = searchOnGlass.copy(alpha = 0.22f),
+                                            contentColor = searchOnGlass,
+                                            disabledContainerColor = searchOnGlass.copy(alpha = 0.08f),
+                                            disabledContentColor = searchOnGlass.copy(alpha = 0.45f)
+                                        ) else ButtonDefaults.buttonColors()
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalAlignment = Alignment.CenterVertically,
@@ -556,7 +569,7 @@ private fun MorphingNavBar(
                                                 modifier = Modifier.weight(1f),
                                                 singleLine = true,
                                                 textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                                    color = searchOnGlass
                                                 ),
                                                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
@@ -567,7 +580,7 @@ private fun MorphingNavBar(
                                                             Text(
                                                                 dec.placeholder,
                                                                 style = MaterialTheme.typography.bodyMedium,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                color = searchHint
                                                             )
                                                         }
                                                         innerTextField()
@@ -577,6 +590,7 @@ private fun MorphingNavBar(
                                             Button(
                                                 onClick = { dec.onGo() },
                                                 shape = MaterialTheme.shapes.extraLarge,
+                                                colors = searchButtonColors,
                                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                             ) {
                                                 Text("Go", style = MaterialTheme.typography.labelMedium)
@@ -586,6 +600,7 @@ private fun MorphingNavBar(
                                                     onClick = { dec.onParts() },
                                                     enabled = dec.isPartsEnabled,
                                                     shape = MaterialTheme.shapes.extraLarge,
+                                                    colors = searchButtonColors,
                                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                                 ) {
                                                     Text("Parts", style = MaterialTheme.typography.labelMedium)
@@ -608,7 +623,7 @@ private fun MorphingNavBar(
                                             Text(
                                                 text = dec.contextLine,
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = searchHint,
                                                 modifier = Modifier.padding(top = 3.dp, start = 2.dp)
                                             )
                                         }

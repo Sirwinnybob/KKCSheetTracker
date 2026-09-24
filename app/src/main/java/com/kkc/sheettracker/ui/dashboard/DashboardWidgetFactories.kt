@@ -387,6 +387,8 @@ fun DashboardShell(
     title: String,
     subtitle: String? = null,
     loading: Boolean,
+    /** False hides the full-width progress bar (the refresh button still spins while loading). */
+    showLoadingBar: Boolean = true,
     errorMessage: String? = null,
     onRefresh: (() -> Unit)? = null,
     emptyMessage: String? = null,
@@ -456,7 +458,7 @@ fun DashboardShell(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (loading) {
+                if (loading && showLoadingBar) {
                     LinearProgressIndicator(modifier = androidx.compose.ui.Modifier.fillMaxWidth())
                 }
                 if (!errorMessage.isNullOrBlank()) {

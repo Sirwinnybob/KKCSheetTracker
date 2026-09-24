@@ -5,6 +5,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 
 private val LightColorScheme = lightColorScheme(
@@ -53,13 +55,80 @@ private val DarkColorScheme = darkColorScheme(
     onError = Color(0xFF330000)
 )
 
+/**
+ * The scheme's pale container roles, derived from the theme's own colors instead of the fixed
+ * blue in [LightColorScheme]/[DarkColorScheme]. Everything that uses `primaryContainer`,
+ * `secondaryContainer`, `tertiaryContainer`, `surfaceVariant` or `outlineVariant` (chips, headers,
+ * selected states, dividers) therefore follows the theme as a paler version of primary/secondary.
+ */
+internal data class KKCDerivedContainers(
+    val primaryContainer: Color,
+    val onPrimaryContainer: Color,
+    val secondaryContainer: Color,
+    val onSecondaryContainer: Color,
+    val tertiaryContainer: Color,
+    val onTertiaryContainer: Color,
+    val surfaceVariant: Color,
+    val outlineVariant: Color
+)
+
+internal fun deriveContainers(palette: KKCThemePalette, darkTheme: Boolean): KKCDerivedContainers {
+    val primary = palette.primary
+    val secondary = palette.secondary
+    // The second hue: the theme's secondary, unless it is too pale (light mode) or too dark (dark
+    // mode) to tint from -- e.g. the default theme's pale-blue secondary -- then primary again.
+    val accent = when {
+        secondary == null -> primary
+        !darkTheme && secondary.luminance() > 0.7f -> primary
+        darkTheme && secondary.luminance() < 0.12f -> primary
+        else -> secondary
+    }
+    return if (!darkTheme) {
+        fun pale(color: Color, whiteAmount: Float) = lerp(color, Color.White, whiteAmount)
+        fun deep(color: Color) = lerp(color, Color.Black, 0.72f)
+        KKCDerivedContainers(
+            primaryContainer = pale(primary, 0.86f),
+            onPrimaryContainer = deep(primary),
+            secondaryContainer = pale(accent, 0.86f),
+            onSecondaryContainer = deep(accent),
+            tertiaryContainer = pale(accent, 0.80f),
+            onTertiaryContainer = deep(accent),
+            surfaceVariant = pale(primary, 0.90f),
+            outlineVariant = pale(primary, 0.78f)
+        )
+    } else {
+        val surface = palette.surface
+        fun tinted(color: Color, amount: Float) = lerp(surface, color, amount)
+        fun light(color: Color) = lerp(color, Color.White, 0.72f)
+        KKCDerivedContainers(
+            primaryContainer = tinted(primary, 0.26f),
+            onPrimaryContainer = light(primary),
+            secondaryContainer = tinted(accent, 0.26f),
+            onSecondaryContainer = light(accent),
+            tertiaryContainer = tinted(accent, 0.32f),
+            onTertiaryContainer = light(accent),
+            surfaceVariant = tinted(primary, 0.14f),
+            outlineVariant = tinted(primary, 0.24f)
+        )
+    }
+}
+
 fun KKCThemeTokens.toColorScheme(darkTheme: Boolean): ColorScheme {
     val palette = palette(darkTheme)
     val base = if (darkTheme) DarkColorScheme else LightColorScheme
+    val containers = deriveContainers(palette, darkTheme)
     return base.copy(
         primary = palette.primary,
         background = palette.background,
-        surface = palette.surface
+        surface = palette.surface,
+        primaryContainer = containers.primaryContainer,
+        onPrimaryContainer = containers.onPrimaryContainer,
+        secondaryContainer = containers.secondaryContainer,
+        onSecondaryContainer = containers.onSecondaryContainer,
+        tertiaryContainer = containers.tertiaryContainer,
+        onTertiaryContainer = containers.onTertiaryContainer,
+        surfaceVariant = containers.surfaceVariant,
+        outlineVariant = containers.outlineVariant
     )
 }
 

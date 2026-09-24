@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -88,6 +89,9 @@ fun SupplyModalFrame(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     headerTint: Color? = null,
+    // true: the modal shrinks to its content (capped at the usual 92% height) instead of always
+    // filling it. Content must then avoid fillMaxSize/fillMaxHeight or it re-expands to the cap.
+    wrapContentHeight: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -110,12 +114,13 @@ fun SupplyModalFrame(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         BackHandler { requestDismiss() }
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 18.dp, vertical = 36.dp),
             contentAlignment = Alignment.Center
         ) {
+            val maxModalHeight = maxHeight * 0.92f
             AnimatedVisibility(
                 visibleState = transitionState,
                 enter = SupplyModalEnter,
@@ -126,7 +131,10 @@ fun SupplyModalFrame(
                     modifier = modifier
                         .fillMaxWidth()
                         .widthIn(max = 1040.dp)
-                        .fillMaxHeight(0.92f),
+                        .then(
+                            if (wrapContentHeight) Modifier.heightIn(max = maxModalHeight)
+                            else Modifier.fillMaxHeight(0.92f)
+                        ),
                     shape = RoundedCornerShape(14.dp),
                     tonalElevation = 0.dp,
                     shadowElevation = 16.dp,
@@ -137,43 +145,52 @@ fun SupplyModalFrame(
                         ?.copy(alpha = 0.16f)
                         ?.compositeOver(modalBgColor)
                         ?: Color.Transparent
-                    Scaffold(
-                        containerColor = Color.Transparent,
-                        topBar = {
-                            TopAppBar(
-                                title = {
-                                    Text(
-                                        title,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                },
-                                actions = {
-                                    actions()
-                                    IconButton(onClick = { requestDismiss() }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Close")
-                                    }
-                                },
-                                colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = topBarColor,
-                                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                    val topBar: @Composable () -> Unit = {
+                        TopAppBar(
+                            title = {
+                                Text(
+                                    title,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                            },
+                            actions = {
+                                actions()
+                                IconButton(onClick = { requestDismiss() }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Close")
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = topBarColor,
+                                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                                actionIconContentColor = MaterialTheme.colorScheme.onSurface
                             )
-                            if (headerTint != null) {
-                                HorizontalDivider(
-                                    thickness = 2.dp,
-                                    color = headerTint.copy(alpha = 0.85f)
-                                )
-                            }
-                        }
-                    ) { innerPadding ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding),
-                            content = content
                         )
+                        if (headerTint != null) {
+                            HorizontalDivider(
+                                thickness = 2.dp,
+                                color = headerTint.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+                    if (wrapContentHeight) {
+                        // Scaffold always takes the full max height, so stack the bar manually.
+                        Column {
+                            Column { topBar() }
+                            Column(content = content)
+                        }
+                    } else {
+                        Scaffold(
+                            containerColor = Color.Transparent,
+                            topBar = { Column { topBar() } }
+                        ) { innerPadding ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding),
+                                content = content
+                            )
+                        }
                     }
                 }
             }

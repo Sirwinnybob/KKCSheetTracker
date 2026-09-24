@@ -80,6 +80,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.automirrored.filled.Send
 
 private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp")
 
@@ -258,20 +262,22 @@ fun SupplyItemDetailScreen(
     val scanMode by barcodeStore.scanMode.collectAsState()
     var itemScanResult by remember { mutableStateOf<String?>(null) }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    // The supply modal sizes itself to this content (wrapContentHeight), so the root and the
+    // wide layout must not fill the available height — only the narrow LazyColumn does.
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val isWide = maxWidth >= 600.dp
         var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
         when {
             isLoading -> {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxWidth().height(240.dp),
                     contentAlignment = Alignment.Center
                 ) { CircularProgressIndicator() }
             }
             errorMessage != null -> {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxWidth().height(240.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -291,7 +297,7 @@ fun SupplyItemDetailScreen(
                 if (isWide) {
                     Row(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .padding(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(24.dp)
                     ) {
@@ -299,8 +305,9 @@ fun SupplyItemDetailScreen(
                         Column(
                             modifier = Modifier
                                 .weight(0.68f)
-                                .fillMaxHeight()
-                                .verticalScroll(rememberScrollState()),
+                                .verticalScroll(rememberScrollState())
+                                // Room for the last card's shadow; the scroll viewport clips it otherwise.
+                                .padding(bottom = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             Text(
@@ -308,34 +315,6 @@ fun SupplyItemDetailScreen(
                                 style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                val tier = SUPPLY_STATUS_PRIORITY[currentItem.status] ?: 99
-                                val baseColor = supplyStatusColor(tier)
-                                val (chipBgColor, chipTextColor) = getSoftStatusColors(currentItem.status, baseColor)
-                                StatusChip(
-                                    text = currentItem.status,
-                                    backgroundColor = chipBgColor,
-                                    contentColor = chipTextColor,
-                                    modifier = Modifier
-                                        .border(
-                                            BorderStroke(0.5.dp, chipTextColor.copy(alpha = 0.25f)),
-                                            shape = CircleShape
-                                        )
-                                        .clickable { showStatusSheet = true }
-                                )
-                                IconButton(onClick = { showStatusSheet = true }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.Add, "Change Status", modifier = Modifier.size(16.dp))
-                                }
-                                Text("in category ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(
-                                    categoryMap[currentItem.categoryId]?.name ?: "unknown",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
 
                             if (!currentItem.notes.isNullOrBlank()) {
                                 DetailSection(title = "Notes", accent = supplyAccent(currentItem.status)) {
@@ -349,6 +328,8 @@ fun SupplyItemDetailScreen(
                             val detailFields = schema.mapNotNull { f ->
                                 val v = (currentItem.fields[f.key] ?: currentItem.customFields[f.key])
                                     ?.takeIf { it.isNotBlank() }
+                                    // SKU already listed under Barcodes (tagged there) — don't show it twice.
+                                    ?.takeUnless { f.key == "sku" && it in currentItem.barcodes }
                                 v?.let { DetailField(f.label, it, f.type, f.key) }
                             }
                             if (detailFields.isNotEmpty()) {
@@ -449,114 +430,103 @@ fun SupplyItemDetailScreen(
 
 
 
-                            HorizontalDivider()
-
-                            // Comments and Actions Tabbed View
-                            var commentTab by remember { mutableStateOf(0) }
-                            TabRow(selectedTabIndex = commentTab, containerColor = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
-                                Tab(selected = commentTab == 0, onClick = { commentTab = 0 }) {
-                                    Text("Comments", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
-                                }
-                                Tab(selected = commentTab == 1, onClick = { commentTab = 1 }) {
-                                    Text("Actions", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
-                                }
-                            }
-                            if (commentTab == 0) {
-                                // Comments form + CommentCard list
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    DashboardSurfaceCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(9.dp)) {
-                                        Column(
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text("Add Comment", style = MaterialTheme.typography.labelLarge)
-                                            if (employeeName.isBlank()) {
-                                                OutlinedTextField(
-                                                    value = commentAuthor,
-                                                    onValueChange = { commentAuthor = it },
-                                                    label = { Text("Your Name") },
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    singleLine = true,
-                                                    shape = RoundedCornerShape(4.dp)
-                                                )
-                                            }
-                                            OutlinedTextField(
-                                                value = commentText,
-                                                onValueChange = { commentText = it },
-                                                label = { Text("Comment") },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                minLines = 2,
-                                                maxLines = 4,
-                                                shape = RoundedCornerShape(4.dp)
-                                            )
-                                            Button(
-                                                onClick = {
-                                                    val author = commentAuthor.ifBlank { "Unknown" }
-                                                    val text = commentText.trim()
-                                                    if (text.isNotBlank()) {
-                                                        coroutineScope.launch {
-                                                            isSubmittingComment = true
-                                                            try {
-                                                                withContext(Dispatchers.IO) {
-                                                                    repository.addComment(itemId, author, text, tabletId)
-                                                                }
-                                                                commentText = ""
-                                                                val updated = withContext(Dispatchers.IO) {
-                                                                    repository.getComments(itemId)
-                                                                }
-                                                                comments = updated
-                                                            } catch (_: Exception) {
-                                                            } finally {
-                                                                isSubmittingComment = false
-                                                            }
-                                                        }
+                            // Comments: thread first, compact composer underneath. The old
+                            // Comments/Actions tabs are gone — "Actions" only ever showed a placeholder.
+                            DetailSection(
+                                title = "Comments",
+                                subtitle = if (comments.isEmpty()) null else "${comments.size}"
+                            ) {
+                                if (comments.isEmpty()) {
+                                    Text(
+                                        "No comments yet. Leave a note for the next person.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    comments.forEach { comment ->
+                                        CommentCard(
+                                            comment = comment,
+                                            onDelete = {
+                                                coroutineScope.launch {
+                                                    withContext(Dispatchers.IO) {
+                                                        repository.deleteComment(currentItem.id, comment.id)
                                                     }
-                                                },
-                                                enabled = commentText.isNotBlank() && commentAuthor.isNotBlank() && !isSubmittingComment,
-                                                modifier = Modifier.align(Alignment.End)
-                                            ) {
-                                                if (isSubmittingComment) {
-                                                    CircularProgressIndicator(
-                                                        modifier = Modifier.size(16.dp),
-                                                        strokeWidth = 2.dp
-                                                    )
-                                                } else {
-                                                    Text("Submit")
+                                                    comments = withContext(Dispatchers.IO) {
+                                                        repository.getComments(currentItem.id)
+                                                    }
                                                 }
-                                            }
-                                        }
-                                    }
-
-                                    if (comments.isEmpty()) {
-                                        Text(
-                                            "No comments yet.",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            },
                                             modifier = Modifier.fillMaxWidth()
                                         )
-                                    } else {
-                                        comments.forEach { comment ->
-                                            CommentCard(
-                                                comment = comment,
-                                                onDelete = {
-                                                    coroutineScope.launch {
+                                    }
+                                }
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                    thickness = 0.5.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.Bottom,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Name only when the tablet has no employee set; it shares the
+                                    // composer row instead of taking a full-width line.
+                                    if (employeeName.isBlank()) {
+                                        OutlinedTextField(
+                                            value = commentAuthor,
+                                            onValueChange = { commentAuthor = it },
+                                            placeholder = { Text("Name", maxLines = 1) },
+                                            modifier = Modifier.weight(0.35f),
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                    }
+                                    OutlinedTextField(
+                                        value = commentText,
+                                        onValueChange = { commentText = it },
+                                        placeholder = { Text("Add a comment…") },
+                                        modifier = Modifier.weight(1f),
+                                        minLines = 1,
+                                        maxLines = 4,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    FilledIconButton(
+                                        onClick = {
+                                            val author = commentAuthor.ifBlank { "Unknown" }
+                                            val text = commentText.trim()
+                                            if (text.isNotBlank()) {
+                                                coroutineScope.launch {
+                                                    isSubmittingComment = true
+                                                    try {
                                                         withContext(Dispatchers.IO) {
-                                                            repository.deleteComment(currentItem.id, comment.id)
+                                                            repository.addComment(itemId, author, text, tabletId)
                                                         }
-                                                        comments = withContext(Dispatchers.IO) {
-                                                            repository.getComments(currentItem.id)
+                                                        commentText = ""
+                                                        val updated = withContext(Dispatchers.IO) {
+                                                            repository.getComments(itemId)
                                                         }
+                                                        comments = updated
+                                                    } catch (_: Exception) {
+                                                    } finally {
+                                                        isSubmittingComment = false
                                                     }
-                                                },
-                                                modifier = Modifier.fillMaxWidth()
+                                                }
+                                            }
+                                        },
+                                        enabled = commentText.isNotBlank() && commentAuthor.isNotBlank() && !isSubmittingComment,
+                                        modifier = Modifier.size(52.dp)
+                                    ) {
+                                        if (isSubmittingComment) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp
                                             )
+                                        } else {
+                                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Post comment")
                                         }
                                     }
                                 }
-                            } else {
-                                Text("No recent activity log.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
                             }
                         }
 
@@ -564,23 +534,35 @@ fun SupplyItemDetailScreen(
                         Column(
                             modifier = Modifier
                                 .weight(0.32f)
-                                .fillMaxHeight()
-                                .verticalScroll(rememberScrollState()),
+                                .verticalScroll(rememberScrollState())
+                                .padding(bottom = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Text("LIST", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            SideActionButton(
-                                onClick = {},
-                                icon = Icons.Default.List,
-                                text = categoryMap[currentItem.categoryId]?.name ?: "None",
-                                bold = true,
-                                interactive = false
-                            )
-
-                            Text("ADD TO CARD", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DetailSection(title = "Status") {
                                 Box {
-                                    SideActionButton(onClick = { showLabelsDropdown = true }, icon = Icons.Default.Bookmark, text = "Labels")
+                                    val tier = SUPPLY_STATUS_PRIORITY[currentItem.status] ?: 99
+                                    val statusColor = supplyStatusColor(tier)
+                                    val (statusBg, statusText) = getSoftStatusColors(currentItem.status, statusColor)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(statusBg)
+                                            .clickable { showLabelsDropdown = true }
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            currentItem.status.uppercase(),
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                letterSpacing = 0.8.sp
+                                            ),
+                                            color = statusText,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Icon(Icons.Filled.ArrowDropDown, contentDescription = "Change status", tint = statusText)
+                                    }
                                     DropdownMenu(
                                         expanded = showLabelsDropdown,
                                         onDismissRequest = { showLabelsDropdown = false }
@@ -633,8 +615,23 @@ fun SupplyItemDetailScreen(
                                         }
                                     }
                                 }
-                                SideActionButton(onClick = { galleryLauncher.launch("image/*") }, icon = Icons.Default.AttachFile, text = "Attachment")
+                                val statusMeta = remember(currentItem.statusAt, currentItem.statusBy) {
+                                    supplyStatusMetaLabel(currentItem)
+                                }
+                                if (statusMeta.isNotEmpty()) {
+                                    Text(
+                                        statusMeta,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
 
+                            DetailSection(
+                                title = "Photos",
+                                subtitle = currentItem.attachmentIds.size.takeIf { it > 0 }
+                                    ?.let { "$it file${if (it == 1) "" else "s"}" }
+                            ) {
                                 // Existing attachments
                                 val attachmentCount = currentItem.attachmentIds.size
                                 currentItem.attachmentIds.forEach { att ->
@@ -781,9 +778,16 @@ fun SupplyItemDetailScreen(
                                 }
                             }
 
-                            Text("ACTIONS", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SideActionButton(onClick = { showDeleteConfirmDialog = true }, icon = Icons.Default.Delete, text = "Delete")
+                            OutlinedButton(
+                                onClick = { showDeleteConfirmDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Delete item")
                             }
                         }
                     }
@@ -847,6 +851,7 @@ fun SupplyItemDetailScreen(
                         val detailFields = schema.mapNotNull { f ->
                             val v = (currentItem.fields[f.key] ?: currentItem.customFields[f.key])
                                 ?.takeIf { it.isNotBlank() }
+                                ?.takeUnless { f.key == "sku" && it in currentItem.barcodes }
                             v?.let { DetailField(f.label, it, f.type, f.key) }
                         }
                         if (detailFields.isNotEmpty()) {
@@ -1328,6 +1333,15 @@ fun SupplyItemDetailScreen(
     }
 }
 
+/** "For 72d by Kevin Palmer" — how long the item has held its status and who set it. */
+internal fun supplyStatusMetaLabel(item: SupplyItem): String {
+    val ageLabel = supplyStatusAgeLabel(item.statusAt)
+    return listOfNotNull(
+        ageLabel?.let { if (it == "today") "Set today" else "For $it" },
+        item.statusBy.takeIf { it.isNotBlank() }?.let { "by $it" }
+    ).joinToString(" ")
+}
+
 @Composable
 private fun DetailSection(
     title: String,
@@ -1432,43 +1446,69 @@ private fun ItemBarcodeSection(
 ) {
     var confirmRemoveBarcode by remember { mutableStateOf<String?>(null) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("BARCODES", style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-
+    DetailSection(
+        title = "Barcodes",
+        subtitle = if (item.barcodes.isEmpty()) null else "${item.barcodes.size} linked"
+    ) {
         if (item.barcodes.isEmpty()) {
             Text("No barcodes linked.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            item.barcodes.forEach { barcode ->
+            item.barcodes.forEachIndexed { index, barcode ->
+                if (index > 0) {
+                    HorizontalDivider(
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    Icon(
+                        Icons.Filled.QrCodeScanner, null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Text(
                         barcode,
                         style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f, fill = false),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (barcode == item.fields["sku"]) {
+                        Text(
+                            "SKU",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.secondaryContainer)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
                     IconButton(onClick = { confirmRemoveBarcode = barcode }) {
-                        Icon(Icons.Filled.Delete, "Remove barcode",
-                            tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Outlined.Delete, "Remove barcode",
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                            modifier = Modifier.size(20.dp))
                     }
                 }
             }
         }
 
-        OutlinedButton(
+        TextButton(
             onClick = { barcodeStore.setScanMode(ScanMode.Item(item.id)) },
-            modifier = Modifier.fillMaxWidth()
+            // Zero start padding so the icon lines up with the section text above.
+            contentPadding = PaddingValues(start = 0.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+            modifier = Modifier.align(Alignment.Start)
         ) {
-            Icon(Icons.Filled.QrCodeScanner, null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Add Barcode")
+            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Add barcode")
         }
     }
 
