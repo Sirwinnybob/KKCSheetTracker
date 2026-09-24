@@ -399,6 +399,32 @@ class MixCatalogCacheTest {
         }
     }
 
+    @Test
+    fun `parseMutationResult accepts a result that Gson decoded into Any with double numbers`() {
+        // Mirrors MixServiceClient: operation.result is Any?, so Gson yields maps of Double.
+        val wire = """
+            {"ok": true, "catalog": {"revision": 2933316141, "entries": [
+              {"name": "19mm Pre_FinishedMix", "mixFilename": "19mm Pre_FinishedMix.mix",
+               "lifecycle": "active", "programs": ["R1.pgm"], "status": "compiled",
+               "lastCompileOk": true, "compiledProgramMtimes": [1789662729769373900]}
+            ]}}
+        """.trimIndent()
+        val decoded: Any? = Gson().fromJson(wire, Any::class.java)
+
+        val snapshot = MixCatalogJson.parseMutationResult(decoded, "592 - GIELISH", "19mm Pre_Finished")
+
+        assertEquals(2933316141L, snapshot?.revision)
+        assertEquals(listOf("R1.pgm"), snapshot?.entries?.single()?.programs)
+    }
+
+    @Test
+    fun `longValue still rejects fractional and non-positive revisions`() {
+        val decoded: Any? = Gson().fromJson("""{"ok": true, "catalog": {"revision": 7.5, "entries": []}}""", Any::class.java)
+        assertNull(MixCatalogJson.parseMutationResult(decoded, "J", "M"))
+        val zero: Any? = Gson().fromJson("""{"ok": true, "catalog": {"revision": 0, "entries": []}}""", Any::class.java)
+        assertNull(MixCatalogJson.parseMutationResult(zero, "J", "M"))
+    }
+
     private class SequencedCatalogReader : MixCatalogReader {
         val firstStarted = CompletableDeferred<Unit>()
         val secondStarted = CompletableDeferred<Unit>()

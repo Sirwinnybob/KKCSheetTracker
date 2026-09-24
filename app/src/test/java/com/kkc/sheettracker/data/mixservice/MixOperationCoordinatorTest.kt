@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data.mixservice
 
+import com.google.gson.Gson
 import java.nio.file.Files
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +52,28 @@ class MixOperationCoordinatorTest {
         assertEquals(1, service.submitCount)
         assertTrue(store.saved.any { it.current.state == "submitting" })
         assertTrue(store.saved.any { it.current.state == "completed" })
+    }
+
+    @Test
+    fun `gson-decoded catalog result advances to the queued pgm edits`() = runBlocking {
+        val store = InMemorySessionStore()
+        val service = CatalogService(gsonRoundTripResults = true)
+        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+        val edits = listOf(PgmEditRow(name = "R2.pgm", secondPass = "standard", removePUnload = false))
+
+        coordinator.restore()
+        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+        coordinator.start(
+            session(
+                actions = listOf(
+                    ManageCodeOperationAction.catalogCreate("M", "MMix", listOf("R2.pgm"), 7L),
+                    ManageCodeOperationAction.pgmEdits("M", "request", edits),
+                )
+            )
+        )
+        withTimeout(1_000) { coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true } }
+
+        assertEquals(listOf("catalog_create", "pgm_edits"), service.submissionKinds)
     }
 
     @Test
@@ -1170,8 +1193,14 @@ class MixOperationCoordinatorTest {
 
     private inner class CatalogService(
         private val result: MixCatalogMutationResult = MixCatalogMutationResult.Success(MixCatalogSnapshot()),
+        // Mirrors MixServiceClient decoding operation.result as Any? with plain Gson(), which
+        // turns every JSON number (including an integral revision) into a Double.
+        private val gsonRoundTripResults: Boolean = false,
         private val onCatalogSubmit: (ManageCodeOperationAction) -> Unit = {},
     ) : MixOperationService {
+        private fun Map<String, Any?>.roundTripped(): Any? =
+            if (gsonRoundTripResults) Gson().fromJson(Gson().toJson(this), Any::class.java) else this
+
         var submitCount = 0
         val submitted = mutableListOf<ManageCodeOperationAction>()
         val submissionKinds = mutableListOf<String>()
@@ -1219,12 +1248,12 @@ class MixOperationCoordinatorTest {
                         revision = action.expectedRevision + 1,
                     )
                     operation(id = id, state = "completed", stage = "completed")
-                        .copy(kind = action.kind, result = snapshot.toOperationResult())
+                        .copy(kind = action.kind, result = snapshot.toOperationResult().roundTripped())
                 }
                 is MixCatalogMutationResult.SyncFailed -> operation(id = id, state = "completed", stage = "completed")
                     .copy(
                         kind = action.kind,
-                        result = mutation.snapshot.toOperationResult(),
+                        result = mutation.snapshot.toOperationResult().roundTripped(),
                         warning = MixOperationWarning(
                             code = mutation.code,
                             message = mutation.code,
