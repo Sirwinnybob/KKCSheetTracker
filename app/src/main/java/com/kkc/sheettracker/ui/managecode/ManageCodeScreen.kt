@@ -297,11 +297,15 @@ fun ManageCodeMaterialCard(
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
+                // Expands to show every row; the screen's outer list does the scrolling. The max is
+                // only a finite bound (required inside the outer LazyColumn) -- LazyColumn wraps its
+                // content, so the generous per-row allowance never adds blank space.
                 LazyColumn(
                     state = listState,
+                    userScrollEnabled = false,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = (rowsState.value.size.coerceAtMost(4) * 132).dp),
+                        .heightIn(max = (rowsState.value.size * 240 + 16).dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
@@ -338,8 +342,7 @@ private fun ManageCodeRowView(
     loadThumbnail: suspend (ManageCodeRow) -> ImageBitmap?,
     dragModifier: Modifier
 ) {
-    // Only fetched when this row is actually composed -- collapsed cards and rows scrolled
-    // out of the inner LazyColumn's viewport never touch the loader.
+    // Only fetched when this row is actually composed -- collapsed cards never touch the loader.
     var thumbnail by remember(row.pageNumber) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(row.pageNumber, row.thumbnailPath) {
         thumbnail = loadThumbnail(row)
