@@ -18,20 +18,20 @@ object EmployeeDirectory {
     // Offline fallback, used only when `.time_cards\employees.json` hasn't been read yet
     // (e.g. tablet not synced). Kept intentionally small/static.
     private val fallbackRecords: List<EmployeeRecord> = listOf(
-        EmployeeRecord("023", "Jonathan Thornton"),
-        EmployeeRecord("067", "Jared Rosenburg"),
-        EmployeeRecord("101", "Chris Tennent"),
-        EmployeeRecord("189", "Kevin Leafdale"),
+        EmployeeRecord("703", "Anthony Vetter"),
         EmployeeRecord("223", "Barry Roper"),
+        EmployeeRecord("501", "Cameron Baker"),
+        EmployeeRecord("101", "Chris Tennent"),
         EmployeeRecord("345", "Donald McEdward"),
-        EmployeeRecord("389", "Winston Ferguson"),
+        EmployeeRecord("555", "John Ferguson"),
+        EmployeeRecord("189", "Kevin Leafdale"),
+        EmployeeRecord("901", "Kevin Olson"),
+        EmployeeRecord("989", "Kevin Palmer"),
         EmployeeRecord("423", "Michael Diekotto"),
         EmployeeRecord("467", "Montgomery Blackburn"),
-        EmployeeRecord("501", "Cameron Baker"),
-        EmployeeRecord("623", "Tye Lewin"),
         EmployeeRecord("701", "Nate Hoseteetter"),
-        EmployeeRecord("901", "Kevin Olsen"),
-        EmployeeRecord("989", "Kevin Palmer")
+        EmployeeRecord("623", "Tye Lewin"),
+        EmployeeRecord("389", "Winston Ferguson")
     )
 
     private val _recordsFlow = MutableStateFlow(fallbackRecords)
