@@ -49,8 +49,10 @@ import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
 import com.kkc.sheettracker.data.mixservice.MixCatalogMutationResult
 import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
 import com.kkc.sheettracker.data.mixservice.MixGenerationTarget
-import com.kkc.sheettracker.data.mixservice.buildManageCodeChange
+import com.kkc.sheettracker.data.mixservice.MaterialSubmission
+import com.kkc.sheettracker.data.mixservice.MixLifecycle
 import com.kkc.sheettracker.data.mixservice.buildManageCodeActions
+import com.kkc.sheettracker.data.mixservice.planMaterialSubmission
 import com.kkc.sheettracker.data.mixservice.buildExternalDeleteAction
 import com.kkc.sheettracker.data.mixservice.buildManageCodeRows
 import com.kkc.sheettracker.data.mixservice.defaultMixName
@@ -294,6 +296,21 @@ fun ManageCodeMaterialCard(
                 )
             }
 
+            state.activeMixes.forEach { entry ->
+                val compile = when (entry.lastCompileOk) {
+                    true -> "compiled ${entry.lastCompiledAt.orEmpty()}".trim()
+                    false -> "compile failed"
+                    null -> entry.status ?: "not compiled"
+                }
+                Text(
+                    text = "Existing mix: ${entry.name} — ${entry.programs.size} PGMs, $compile",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                )
+            }
+            val membership = remember(state.activeMixes) { mixMembershipByPgm(state.activeMixes) }
+
             AnimatedVisibility(
                 visible = expanded && state.hasPgmsOnThisCnc,
                 enter = expandVertically() + fadeIn(),
@@ -320,6 +337,7 @@ fun ManageCodeMaterialCard(
                                 locked = locked,
                                 zebra = index % 2 == 1,
                                 selection = selection,
+                                mixName = row.pgmFiles.firstNotNullOfOrNull { membership[it] },
                                 onSelectionChanged = { onSelectionChanged(row.editablePgm, it) },
                                 loadThumbnail = loadThumbnail,
                                 dragModifier = if (locked) Modifier else Modifier.draggableHandle(
@@ -340,6 +358,7 @@ private fun ManageCodeRowView(
     locked: Boolean,
     zebra: Boolean,
     selection: ManageCodeRowSelection,
+    mixName: String?,
     onSelectionChanged: (ManageCodeRowSelection) -> Unit,
     loadThumbnail: suspend (ManageCodeRow) -> ImageBitmap?,
     dragModifier: Modifier
@@ -404,6 +423,9 @@ private fun ManageCodeRowView(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
+                mixName?.let {
+                    Text("in $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
             }
             if (!locked) {
                 LabeledCheckbox("MIX", selection.mix) { onSelectionChanged(selection.copy(mix = it)) }
@@ -643,6 +665,7 @@ fun ManageCodeScreen(
     var pendingMixAction by remember { mutableStateOf<PendingMixAction?>(null) }
     var pendingDuplicateWarning by remember { mutableStateOf<PendingDuplicateMixAction?>(null) }
     var selectedTargets by remember { mutableStateOf<Map<String, MixGenerationTarget>>(emptyMap()) }
+    var pendingMixChoice by remember { mutableStateOf<Pair<String, Set<String>>?>(null) } // material to tapped pgms
     var allowedDuplicateMaterials by remember { mutableStateOf<Set<String>>(emptySet()) }
     var refreshAttempt by remember { mutableIntStateOf(0) }
     var startRequest by remember { mutableIntStateOf(0) }
@@ -700,6 +723,7 @@ fun ManageCodeScreen(
             locked = locked,
             selections = selections,
             mixConflict = emptyList(),
+            activeMixes = catalog?.entries?.filter { it.lifecycle == MixLifecycle.ACTIVE }.orEmpty(),
         )
         return state
     }
@@ -748,6 +772,20 @@ fun ManageCodeScreen(
         materialStates = materialStates + (materialName to updateMixLayoutSelection(state, editablePgm, selection))
     }
 
+    fun requestMixChange(materialName: String, pgms: Set<String>, checked: Boolean) {
+        val state = materialStates[materialName] ?: return
+        when (val outcome = mixCheckOutcome(state, pgms, checked, hasChoice = materialName in selectedTargets)) {
+            is MixCheckOutcome.Prompt -> pendingMixChoice = materialName to outcome.pgms
+            is MixCheckOutcome.Apply -> {
+                val updated = applyMixChecks(state, outcome.pgms, outcome.checked)
+                materialStates = materialStates + (materialName to updated)
+                if (state.activeMixes.isNotEmpty() && shouldClearMixChoice(updated)) {
+                    selectedTargets = selectedTargets - materialName
+                }
+            }
+        }
+    }
+
     fun updateRows(materialName: String, rows: List<ManageCodeRow>) {
         val state = materialStates[materialName] ?: return
         materialStates = materialStates + (materialName to updateMixLayoutRows(state, rows))
@@ -771,20 +809,28 @@ fun ManageCodeScreen(
                 preflightMessage = "Catalog refreshed — choose a new action for $materialName"
                 return ManageCodeSessionPreparation.SelectAction(pending)
             }
-            if (catalog.entries.any { it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.EXTERNAL }) {
+            if (catalog.entries.any { it.lifecycle == MixLifecycle.EXTERNAL }) {
                 return ManageCodeSessionPreparation.SelectAction(PendingMixAction(materialName, catalog))
             }
-            val target = selectedDecision.target ?: mixActionDialogContent(catalog).automaticTarget
-                ?: return ManageCodeSessionPreparation.SelectAction(PendingMixAction(materialName, catalog))
-            val plan = resolveMixGenerationTarget(target, catalog, materialName)
-                ?: return ManageCodeSessionPreparation.Blocked("Mix catalog changed — choose an action again")
-            val change = buildManageCodeChange(
+            val submission = planMaterialSubmission(
                 rows = state.rows,
                 selections = state.selections,
                 locked = state.locked,
-                originalPrograms = plan.programsBaseline,
+                catalog = catalog,
+                materialName = materialName,
+                selectedTarget = selectedDecision.target,
+                automaticTarget = mixActionDialogContent(catalog).automaticTarget,
             )
-            if (change.orderOrMembershipChanged) {
+            val (plan, change) = when (submission) {
+                MaterialSubmission.NeedsTarget ->
+                    return ManageCodeSessionPreparation.SelectAction(PendingMixAction(materialName, catalog))
+                MaterialSubmission.StaleTarget ->
+                    return ManageCodeSessionPreparation.Blocked("Mix catalog changed — choose an action again")
+                is MaterialSubmission.Ready -> submission.plan to submission.change
+            }
+            if (!change.orderOrMembershipChanged && change.editRows.isEmpty()) continue
+            if (plan != null && change.orderOrMembershipChanged) {
+                val target = selectedDecision.target ?: MixGenerationTarget.FirstDefault
                 val duplicates = preSubmitPgmConflicts(
                     jobWideConflicts = serviceClient.getPgmConflicts(
                         job = jobFolderName,
@@ -976,20 +1022,31 @@ fun ManageCodeScreen(
                             expandedMaterial = if (expandedMaterial == material.materialName) null else material.materialName
                         },
                         onRowsReordered = { updateRows(material.materialName, it) },
-                        onSelectionChanged = { pgm, sel -> updateSelection(material.materialName, pgm, sel) },
-                        onSelectAll = { field, checked ->
-                            val updated = state.selections.mapValues { (pgm, selection) ->
-                                if (pgm in state.locked) selection else when (field) {
-                                    "MIX" -> selection.copy(mix = checked)
-                                    "PUNLOAD" -> selection.copy(removePUnload = checked)
-                                    "2ND" -> toggleSecondPass(selection, checked)
-                                    "SUPER" -> toggleSuperPass(selection, checked)
-                                    else -> selection
-                                }
+                        onSelectionChanged = { pgm, sel ->
+                            val previous = state.selections[pgm] ?: ManageCodeRowSelection()
+                            if (sel.mix != previous.mix) {
+                                requestMixChange(material.materialName, setOf(pgm), sel.mix)
+                            } else {
+                                updateSelection(material.materialName, pgm, sel)
                             }
-                            materialStates = materialStates + (
-                                material.materialName to updateMixLayoutSelections(state, updated)
-                            )
+                        },
+                        onSelectAll = { field, checked ->
+                            if (field == "MIX") {
+                                val unlocked = state.rows.map { it.editablePgm }.filter { it !in state.locked }.toSet()
+                                requestMixChange(material.materialName, unlocked, checked)
+                            } else {
+                                val updated = state.selections.mapValues { (pgm, selection) ->
+                                    if (pgm in state.locked) selection else when (field) {
+                                        "PUNLOAD" -> selection.copy(removePUnload = checked)
+                                        "2ND" -> toggleSecondPass(selection, checked)
+                                        "SUPER" -> toggleSuperPass(selection, checked)
+                                        else -> selection
+                                    }
+                                }
+                                materialStates = materialStates + (
+                                    material.materialName to updateMixLayoutSelections(state, updated)
+                                )
+                            }
                         },
                         loadThumbnail = loadThumbnail
                     )
@@ -1089,6 +1146,33 @@ fun ManageCodeScreen(
                     }
                 },
             )
+        }
+
+        pendingMixChoice?.let { (materialName, tapped) ->
+            val catalog = materialCatalogs[materialName]
+            if (catalog == null) {
+                pendingMixChoice = null
+            } else {
+                ExistingMixChoiceDialog(
+                    catalog = catalog,
+                    materialName = materialName,
+                    onReplace = { target ->
+                        pendingMixChoice = null
+                        selectedTargets = selectedTargets + (materialName to target)
+                        materialStates[materialName]?.let { current ->
+                            materialStates = materialStates + (materialName to applyReplaceChoice(current, target, tapped))
+                        }
+                    },
+                    onAdditional = { target ->
+                        pendingMixChoice = null
+                        selectedTargets = selectedTargets + (materialName to target)
+                        materialStates[materialName]?.let { current ->
+                            materialStates = materialStates + (materialName to applyAdditionalChoice(current, tapped))
+                        }
+                    },
+                    onCancel = { pendingMixChoice = null },
+                )
+            }
         }
 
         pendingDuplicateWarning?.let { pending ->
