@@ -29,6 +29,15 @@ Status: Approved (brainstorm), pending spec review
 
 ### 1. Queue execution (bug fix)
 
+**Root cause (found while planning):** `MixServiceClient` decodes `operation.result` as `Any?` with
+plain `Gson()`, so every JSON number becomes a `Double`. `MixCatalogJson.parseMutationResult`
+re-serializes it, writing `"revision": 2.933316141E9`, and `longValue` (`toLongOrNull`) rejects
+that. The completed mix is recorded as a failed catalog step (`network_error`), so the queued
+`pgm_edits` step never runs. Operator Retry then resubmits the create and gets
+`catalog_changed`, which matches the CNC history (`mix_write` completed → `mix_write` failed
+`catalog_changed` on jobs 592, 669, 675, 681). Existing coordinator tests built the result with
+`Long` values, which hid the bug.
+
 - Per material the queue is: mix step (create or replace, if any MIX change) → second-pass/PUNLOAD
   step (if any edit rows). Materials run one after another in screen order.
 - **Root cause first.** Static reading of the coordinator does not reveal the drop, so the first
