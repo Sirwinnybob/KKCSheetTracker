@@ -117,8 +117,12 @@ fun KKCThemeTokens.toColorScheme(darkTheme: Boolean): ColorScheme {
     val palette = palette(darkTheme)
     val base = if (darkTheme) DarkColorScheme else LightColorScheme
     val containers = deriveContainers(palette, darkTheme)
+    // Dark mode only: lift a deep team primary so primary-colored controls stay readable. The
+    // palette itself is untouched, so team-colored chrome (headers, bold mode) keeps the brand color.
+    val primary = if (darkTheme) readableDarkPrimary(palette.primary, palette.surface) else palette.primary
     return base.copy(
-        primary = palette.primary,
+        primary = primary,
+        onPrimary = if (darkTheme) contentColorFor(primary) else base.onPrimary,
         background = palette.background,
         surface = palette.surface,
         primaryContainer = containers.primaryContainer,
