@@ -12,6 +12,7 @@ data class ManageCodeRowSelection(
     val superPass: Boolean = false
 )
 
+@Suppress("UNUSED_PARAMETER")
 fun deriveRowSelection(
     editablePgm: String,
     mixPrograms: List<String>,
@@ -21,7 +22,8 @@ fun deriveRowSelection(
     val current = editHistory?.files?.get(editablePgm)?.current
     val mode = current?.mode ?: "none"
     return ManageCodeRowSelection(
-        mix = if (hasExistingMix) mixPrograms.contains(editablePgm) else true,
+        // Existing mix membership is shown as a tag; MIX means "include in a new/replaced mix".
+        mix = !hasExistingMix,
         removePUnload = current?.punloadRemoved ?: false,
         secondPass = mode == "standard" || mode == "super",
         superPass = mode == "super"

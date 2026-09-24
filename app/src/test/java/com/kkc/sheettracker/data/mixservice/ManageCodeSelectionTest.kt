@@ -27,10 +27,10 @@ class ManageCodeSelectionTest {
     }
 
     @Test
-    fun `deriveRowSelection reflects existing mix membership when a mix exists`() {
+    fun `deriveRowSelection leaves MIX unchecked when material already has a mix`() {
         val inMix = deriveRowSelection("R1.pgm", mixPrograms = listOf("R1.pgm"), hasExistingMix = true, editHistory = null)
         val notInMix = deriveRowSelection("R2.pgm", mixPrograms = listOf("R1.pgm"), hasExistingMix = true, editHistory = null)
-        assertTrue(inMix.mix)
+        assertFalse(inMix.mix)
         assertFalse(notInMix.mix)
     }
 
