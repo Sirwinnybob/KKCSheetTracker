@@ -2379,7 +2379,7 @@ private fun Modifier.verticalScrollbar(
 }
 
 @Composable
-private fun CategoryColumnLayout(
+internal fun CategoryColumnLayout(
     header: @Composable () -> Unit,
     content: @Composable () -> Unit,
     modifier: Modifier = Modifier

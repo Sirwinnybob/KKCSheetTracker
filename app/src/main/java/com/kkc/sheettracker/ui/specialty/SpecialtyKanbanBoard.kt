@@ -18,9 +18,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.animateBounds
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowColumn
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.LookaheadScope
+import com.kkc.sheettracker.ui.supply.CategoryColumnLayout
+import com.kkc.sheettracker.ui.supply.SupplyBoardState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,13 +40,11 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -62,7 +66,6 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS
@@ -138,22 +141,15 @@ internal fun kanbanDetailLine(item: SpecialtyItem): String? {
 }
 
 internal data class SpecialtyActionRowSpec(
-    val actions: List<KKCPillAction>,
-    val dividerAfterIndex: Int?
+    val leading: List<KKCPillAction>,
+    val trailing: List<KKCPillAction>
 )
 
-/** Specialty actions on the left, a divider, then the reference-document pills. */
+/** Specialty actions grouped on the left, reference-document pills grouped on the right. */
 internal fun specialtyActionRow(
     specialtyActions: List<KKCPillAction>,
     referenceActions: List<KKCPillAction>
-): SpecialtyActionRowSpec = SpecialtyActionRowSpec(
-    actions = specialtyActions + referenceActions,
-    dividerAfterIndex = if (specialtyActions.isNotEmpty() && referenceActions.isNotEmpty()) {
-        specialtyActions.lastIndex
-    } else {
-        null
-    }
-)
+): SpecialtyActionRowSpec = SpecialtyActionRowSpec(leading = specialtyActions, trailing = referenceActions)
 
 /** Header colors for the two non-station columns. */
 internal val KANBAN_SHEET_RIPS_COLOR = Color(0xFF475569)
@@ -205,14 +201,13 @@ internal fun SpecialtyKanbanCard(
         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (toggle != null) {
-                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-                        Checkbox(
-                            checked = toggle.checked,
-                            onCheckedChange = { next -> onToggle(toggle, next) },
-                            enabled = isToggleEnabled(toggle.controlId, inFlightUpdates),
-                            colors = CheckboxDefaults.colors(checkedColor = columnColor)
-                        )
-                    }
+                    // Default 48dp touch target: this checkbox is the card's main action.
+                    Checkbox(
+                        checked = toggle.checked,
+                        onCheckedChange = { next -> onToggle(toggle, next) },
+                        enabled = isToggleEnabled(toggle.controlId, inFlightUpdates),
+                        colors = CheckboxDefaults.colors(checkedColor = columnColor)
+                    )
                 }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
@@ -284,15 +279,28 @@ internal fun SpecialtyKanbanCard(
                     Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
                 }
             }
-            if (showDims) {
+            if (item.category == SpecialtyItemCategory.TO_ORDER) {
+                // Same as the list: To Order items edit quantity only (dims/material pass through).
+                SpecialtyQuantitySection(
+                    item = item,
+                    onPatchQuantity = { q -> onPatchDims(item.dimensions, q, item.material) }
+                )
+            } else if (showDims) {
                 SpecialtyDimsSection(item = item, isSawStation = isSawStation, onPatchDims = onPatchDims)
             }
         }
     }
 }
 
-internal val KANBAN_COLUMN_WIDTH = 260.dp
+/** Card width inside a bucket; matches the Supply board's cards. */
+internal val KANBAN_CARD_WIDTH = 300.dp
 
+/**
+ * One bucket, laid out like a Supply board column: the header sits over a [FlowColumn] that fills
+ * the board height and wraps cards into extra sub-columns instead of scrolling vertically, so the
+ * bucket grows wider as it fills. The header is pinned to the bucket's resulting width.
+ */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun SpecialtyKanbanColumnFrame(
     label: String,
@@ -300,37 +308,90 @@ internal fun SpecialtyKanbanColumnFrame(
     done: Int,
     total: Int,
     modifier: Modifier = Modifier,
-    content: LazyListScope.() -> Unit
+    /** Emits the bucket's cards; apply [itemMotion] to each so reordering (done -> bottom) animates. */
+    content: @Composable (itemMotion: Modifier) -> Unit
 ) {
+    val shadowsOff = LocalLowEndMode.current.shadowsDisabled
+    val animationsOn = !LocalLowEndMode.current.animationsDisabled
     Card(
-        modifier = modifier.width(KANBAN_COLUMN_WIDTH).fillMaxHeight(),
+        modifier = modifier
+            .fillMaxHeight()
+            .wrapContentWidth()
+            .shadow(elevation = if (shadowsOff) 0.dp else 3.dp, shape = RoundedCornerShape(8.dp), clip = false),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(kanbanHeaderColor(color))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label.uppercase(),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Text(text = "$done/$total", style = MaterialTheme.typography.labelLarge, color = Color.White)
-        }
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            // Last card clears the floating nav bar and its Add Item decoration.
-            contentPadding = PaddingValues(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 140.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            content = content
+        CategoryColumnLayout(
+            modifier = Modifier.fillMaxHeight(),
+            header = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(kanbanHeaderColor(color))
+                        // Same 48dp bar as a Supply column header (10dp padding around a 28dp control).
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = label.uppercase(),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(text = "$done/$total", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                }
+            },
+            content = {
+                // Scoped per bucket so card motion is measured relative to the bucket, not the
+                // scrolling board (panning must not animate cards).
+                LookaheadScope {
+                    val itemMotion = if (animationsOn) Modifier.animateBounds(lookaheadScope = this) else Modifier
+                    FlowColumn(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        content(itemMotion)
+                    }
+                }
+            }
+        )
+    }
+}
+
+/**
+ * The station pill row. It is the only reader of the board's active column, so crossing a column
+ * while panning recomposes just this row -- not every bucket and card on the board.
+ */
+@Composable
+private fun KanbanStationPillRow(
+    columns: List<SpecialtyKanbanColumn>,
+    board: SupplyBoardState,
+    onSelect: (String) -> Unit
+) {
+    val activeKey by remember(board) { derivedStateOf { board.activeKey() } }
+    KKCPillContainer(
+        style = rememberKKCPillStyle(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+    ) {
+        KKCSlidingTabRow(
+            modifier = Modifier.fillMaxWidth(),
+            trackingPosition = { if (board.isScrollInProgress) board.position() else null },
+            items = columns.map { column ->
+                KKCTabItem(
+                    label = column.label.uppercase(),
+                    isSelected = (activeKey ?: columns.firstOrNull()?.id) == column.id,
+                    alwaysBold = true,
+                    onClick = { onSelect(column.id) }
+                )
+            }
         )
     }
 }
@@ -370,32 +431,17 @@ internal fun SpecialtyKanbanBoard(
         }
     }
 
-    val activeKey by remember(board) { derivedStateOf { board.activeKey() } }
-
     Column(modifier = modifier) {
-        KKCPillContainer(
-            style = rememberKKCPillStyle(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp)
-        ) {
-            KKCSlidingTabRow(
-                modifier = Modifier.fillMaxWidth(),
-                trackingPosition = { if (board.isScrollInProgress) board.position() else null },
-                items = columns.map { column ->
-                    KKCTabItem(
-                        label = column.label.uppercase(),
-                        isSelected = (activeKey ?: columns.firstOrNull()?.id) == column.id,
-                        alwaysBold = true,
-                        onClick = { scope.launch { board.scrollToColumn(column.id, animate = animationsOn) } }
-                    )
-                }
-            )
-        }
+        KanbanStationPillRow(
+            columns = columns,
+            board = board,
+            onSelect = { id -> scope.launch { board.scrollToColumn(id, animate = animationsOn) } }
+        )
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 12.dp)
+                // Buckets stop above the floating nav bar + Add Item decoration (Supply uses 120dp).
+                .padding(top = 12.dp, bottom = 140.dp)
                 .onSizeChanged { board.viewportPx = it.width }
                 .horizontalScroll(board.scroll),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -415,8 +461,12 @@ internal fun SpecialtyKanbanBoard(
                             done = sheetRipItems.count(sheetRipIsDone),
                             total = sheetRipItems.size,
                             modifier = placed
-                        ) {
-                            items(sheetRipItems, key = { it.id }) { rip -> sheetRipRow(rip) }
+                        ) { itemMotion ->
+                            sheetRipItems.forEach { rip ->
+                                key(rip.id) {
+                                    Box(modifier = itemMotion.width(KANBAN_CARD_WIDTH)) { sheetRipRow(rip) }
+                                }
+                            }
                         }
                     } else {
                         // Station columns only hold items that include this station (split items
@@ -433,8 +483,8 @@ internal fun SpecialtyKanbanBoard(
                             done = column.items.count(isDone),
                             total = column.items.size,
                             modifier = placed
-                        ) {
-                            items(ordered, key = { it.item.id }) { resolved ->
+                        ) { itemMotion ->
+                            ordered.forEach { resolved -> key(resolved.item.id) {
                                 SpecialtyKanbanCard(
                                     resolved = resolved,
                                     columnId = column.id,
@@ -447,9 +497,9 @@ internal fun SpecialtyKanbanBoard(
                                     onEdit = onEdit,
                                     onDelete = onDelete,
                                     onPatchDims = { d, q, m -> onPatchDims(resolved, d, q, m) },
-                                    modifier = if (animationsOn) Modifier.animateItem() else Modifier
+                                    modifier = itemMotion.width(KANBAN_CARD_WIDTH)
                                 )
-                            }
+                            } }
                         }
                     }
                 }
