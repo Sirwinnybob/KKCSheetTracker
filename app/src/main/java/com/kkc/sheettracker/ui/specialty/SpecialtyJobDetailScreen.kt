@@ -267,6 +267,66 @@ internal fun SpecialtyJobDetailScreen(
         }
     )
 
+    val onToggleChecked: (SpecialtyResolvedItem, SpecialtyChecklistToggle, Boolean) -> Unit = { resolved, toggle, next ->
+        val itemId = resolved.item.id
+        val controlId = toggle.controlId
+        val previous = completionOverrides[controlId] ?: toggle.checked
+        completionOverrides[controlId] = next
+        startInFlightUpdate(inFlightUpdates, controlId)
+        coroutineScope.launch {
+            try {
+                specialtyStateStore.setItemCompletionKey(
+                    jobFolderName = jobFolderName,
+                    itemId = itemId,
+                    completionKey = toggle.completionKey,
+                    completed = next
+                )
+                completionOverrides.remove(controlId)
+                toggleErrorMessage = null
+            } catch (_: Exception) {
+                completionOverrides[controlId] = previous
+                val message = "Failed to update checklist item. Please retry."
+                toggleErrorMessage = message
+                snackbarHostState.showSnackbar(message)
+            } finally {
+                finishInFlightUpdate(inFlightUpdates, controlId)
+            }
+        }
+    }
+    val onPatchItemDims: (SpecialtyResolvedItem, String?, Double?, String?) -> Unit = { resolved, dims, qty, mat ->
+        coroutineScope.launch {
+            try {
+                specialtyStateStore.patchSpecialtyItemFields(jobFolderName, resolved.item.id, dims, qty, mat)
+            } catch (_: Exception) {
+                snackbarHostState.showSnackbar("Failed to save dimensions.")
+            }
+        }
+    }
+    val onEditItem: (com.kkc.sheettracker.data.models.SpecialtyItem) -> Unit = { item ->
+        editingItem = item
+        showAddSheet = true
+    }
+    val sheetRipTarget: (AdminBoardStockItem) -> Int = { item ->
+        Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
+    }
+    val sheetRipIsDone: (AdminBoardStockItem) -> Boolean = { item ->
+        resolveSheetRipTallyState(
+            specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
+            sheetRipDone[item.id] == true,
+            sheetRipTarget(item)
+        ).isComplete
+    }
+    val onSetSheetRipDone: (AdminBoardStockItem, Boolean) -> Unit = { item, completed ->
+        coroutineScope.launch {
+            specialtyStateStore.setSheetRipCompletion(
+                jobFolderName = jobFolderName,
+                item = item,
+                target = sheetRipTarget(item),
+                completed = completed
+            )
+        }
+    }
+
     SharedTransitionLayout {
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
@@ -326,14 +386,7 @@ internal fun SpecialtyJobDetailScreen(
             }
 
             if (sheetRipItems.isNotEmpty()) {
-                val sheetDoneCount = sheetRipItems.count { item ->
-                    val target = Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
-                    resolveSheetRipTallyState(
-                        specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
-                        sheetRipDone[item.id] == true,
-                        target
-                    ).isComplete
-                }
+                val sheetDoneCount = sheetRipItems.count(sheetRipIsDone)
                 val sheetExpanded = SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS in activeExpandedSectionIds
                 item(key = "sheet-rips-spacing") {
                     Spacer(Modifier.height(12.dp))
@@ -358,14 +411,6 @@ internal fun SpecialtyJobDetailScreen(
                 val sheetRipEntries = specialtySheetRipLazyRowEntries(sheetRipItems)
                 itemsIndexed(items = sheetRipEntries, key = { _, entry -> entry.key }) { index, entry ->
                     val item = entry.item
-                    val target = Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
-                    val tally = resolveSheetRipTallyState(
-                        specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
-                        sheetRipDone[item.id] == true,
-                        target
-                    )
-                    val isDone = tally.isComplete
-                    val alpha = if (isDone) 0.5f else 1f
                     AnimatedVisibility(
                         visible = sheetExpanded,
                         enter = expandVertically(tween(300)) + fadeIn(tween(300)),
@@ -381,88 +426,19 @@ internal fun SpecialtyJobDetailScreen(
                                 .fillMaxWidth()
                                 .padding(bottom = 8.dp)
                         ) {
-                            Surface(
-                                tonalElevation = 3.dp,
-                                shape = MaterialTheme.shapes.medium,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        start = 8.dp,
-                                        top = if (index == 0) 8.dp else 0.dp,
-                                        end = 8.dp,
-                                        bottom = 8.dp
-                                    )
-                                    .alpha(alpha)
-                                    .clickable {
-                                        coroutineScope.launch {
-                                            specialtyStateStore.setSheetRipCompletion(
-                                                jobFolderName = jobFolderName,
-                                                item = item,
-                                                target = target,
-                                                completed = !isDone
-                                            )
-                                        }
-                                    }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Checkbox(
-                                        checked = isDone,
-                                        onCheckedChange = { next ->
-                                            coroutineScope.launch {
-                                                specialtyStateStore.setSheetRipCompletion(
-                                                    jobFolderName = jobFolderName,
-                                                    item = item,
-                                                    target = target,
-                                                    completed = next
-                                                )
-                                            }
-                                        }
-                                    )
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = item.material,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Text(
-                                            text = specialtySheetRipItemLabel(item),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-
-                                    if (item.moldingId != null) {
-                                        IconButton(onClick = { previewMoldingItem = item }) {
-                                            Icon(
-                                                Icons.Filled.Visibility,
-                                                contentDescription = "Preview ${item.name} molding profile"
-                                            )
-                                        }
-                                    }
-
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        val feet = item.feet ?: 0.0
-                                        val rips = target
-                                        Text(
-                                            text = "${feet.toInt()} ft",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = specialtySheetRipLengthLabel(rips, item.ripLength),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
+                            SpecialtySheetRipRow(
+                                item = item,
+                                isDone = sheetRipIsDone(item),
+                                target = sheetRipTarget(item),
+                                onSetDone = { completed -> onSetSheetRipDone(item, completed) },
+                                onPreviewMolding = if (item.moldingId != null) ({ previewMoldingItem = item }) else null,
+                                modifier = Modifier.padding(
+                                    start = 8.dp,
+                                    top = if (index == 0) 8.dp else 0.dp,
+                                    end = 8.dp,
+                                    bottom = 8.dp
+                                )
+                            )
                         }
                     }
                 }
@@ -541,49 +517,13 @@ internal fun SpecialtyJobDetailScreen(
                                         onJumpToCabinet = onJumpToCabinet,
                                         basePath = scanState.snapshot.basePath,
                                         jobFolderName = jobFolderName,
-                                        onEditItem = { tabletItem ->
-                                            editingItem = tabletItem
-                                            showAddSheet = true
-                                        },
+                                        onEditItem = onEditItem,
                                         onDeleteItem = { itemId ->
                                             deleteTargetItemId = itemId
                                         },
                                         myTabletId = specialtyStateStore.tabletId,
-                                        onPatchDims = { dims, qty, mat ->
-                                            coroutineScope.launch {
-                                                try {
-                                                    specialtyStateStore.patchSpecialtyItemFields(jobFolderName, resolved.item.id, dims, qty, mat)
-                                                } catch (_: Exception) {
-                                                    snackbarHostState.showSnackbar("Failed to save dimensions.")
-                                                }
-                                            }
-                                        },
-                                        onCheckedChange = { toggle, next ->
-                                            val itemId = resolved.item.id
-                                            val controlId = toggle.controlId
-                                            val previous = completionOverrides[controlId] ?: toggle.checked
-                                            completionOverrides[controlId] = next
-                                            startInFlightUpdate(inFlightUpdates, controlId)
-                                            coroutineScope.launch {
-                                                try {
-                                                    specialtyStateStore.setItemCompletionKey(
-                                                        jobFolderName = jobFolderName,
-                                                        itemId = itemId,
-                                                        completionKey = toggle.completionKey,
-                                                        completed = next
-                                                    )
-                                                    completionOverrides.remove(controlId)
-                                                    toggleErrorMessage = null
-                                                } catch (_: Exception) {
-                                                    completionOverrides[controlId] = previous
-                                                    val message = "Failed to update checklist item. Please retry."
-                                                    toggleErrorMessage = message
-                                                    snackbarHostState.showSnackbar(message)
-                                                } finally {
-                                                    finishInFlightUpdate(inFlightUpdates, controlId)
-                                                }
-                                            }
-                                        }
+                                        onPatchDims = { dims, qty, mat -> onPatchItemDims(resolved, dims, qty, mat) },
+                                        onCheckedChange = { toggle, next -> onToggleChecked(resolved, toggle, next) }
                                     )
                                 }
                             }
@@ -1060,7 +1000,58 @@ internal fun SpecialtyChecklistRow(
     )
 }
 
-private fun specialtyItemTitle(cabinetLabel: String?, cabinetNumbers: List<String>, name: String): String {
+/** One sheet-rip tally row (material, label, feet, rip count). Used by the list and the board. */
+@Composable
+internal fun SpecialtySheetRipRow(
+    item: AdminBoardStockItem,
+    isDone: Boolean,
+    target: Int,
+    onSetDone: (Boolean) -> Unit,
+    onPreviewMolding: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        tonalElevation = 3.dp,
+        shape = MaterialTheme.shapes.medium,
+        modifier = modifier
+            .fillMaxWidth()
+            .alpha(if (isDone) 0.5f else 1f)
+            .clickable { onSetDone(!isDone) }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Checkbox(checked = isDone, onCheckedChange = onSetDone)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = item.material, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = specialtySheetRipItemLabel(item),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (onPreviewMolding != null) {
+                IconButton(onClick = onPreviewMolding) {
+                    Icon(Icons.Filled.Visibility, contentDescription = "Preview ${item.name} molding profile")
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(text = "${(item.feet ?: 0.0).toInt()} ft", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    text = specialtySheetRipLengthLabel(target, item.ripLength),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+internal fun specialtyItemTitle(cabinetLabel: String?, cabinetNumbers: List<String>, name: String): String {
     val explicitLabel = cabinetLabel?.trim().orEmpty()
     if (explicitLabel.isNotBlank()) return "$explicitLabel - $name"
     val cleaned = cabinetNumbers
@@ -1324,7 +1315,7 @@ private fun stationFilterLabel(station: SpecialtyStation): String = when (statio
 }
 
 @Composable
-private fun SpecialtyDimsSection(
+internal fun SpecialtyDimsSection(
     item: com.kkc.sheettracker.data.models.SpecialtyItem,
     isSawStation: Boolean,
     onPatchDims: (String?, Double?, String?) -> Unit
