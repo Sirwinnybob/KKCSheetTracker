@@ -58,7 +58,9 @@ fun ProgressPill(
     modifier: Modifier = Modifier,
     state: ProgressState = ProgressState.from(done, total),
     showCheckOnComplete: Boolean = true,
-    skippedFillColor: Color? = null
+    skippedFillColor: Color? = null,
+    // Optional section color (e.g. a station's bar color) for the in-progress/complete fill.
+    progressFillColor: Color? = null
 ) {
     val lowEnd = LocalLowEndMode.current
     val colors = KKCThemeColors.statusColors
@@ -71,8 +73,8 @@ fun ProgressPill(
     }
     val fillColor = when (state) {
         ProgressState.NOT_STARTED -> Color.Transparent
-        ProgressState.IN_PROGRESS -> colors.inProgressBorder
-        ProgressState.COMPLETE -> colors.completeBorder
+        ProgressState.IN_PROGRESS -> progressFillColor ?: colors.inProgressBorder
+        ProgressState.COMPLETE -> progressFillColor ?: colors.completeBorder
         ProgressState.SKIPPED -> skippedFillColor ?: colors.skipBorder
     }
     // Solid, not semi-transparent: Modifier.shadow() + a translucent background lets the shadow

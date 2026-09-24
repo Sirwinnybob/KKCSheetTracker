@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.specialty
 
+import com.kkc.sheettracker.ui.jobs.stationBarColor
+
 import com.kkc.sheettracker.ui.components.KKCPillAction
 import com.kkc.sheettracker.ui.components.KKCPillActionRow
 import androidx.compose.animation.AnimatedVisibility
@@ -280,7 +282,8 @@ internal fun SpecialtyJobDetailScreen(
                 .fillMaxSize()
                 .padding(padding),
             state = listState,
-            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 112.dp)
+            // Clears the nav bar plus its "Add Item" decoration so the last section is fully visible.
+            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 172.dp)
         ) {
             item(key = "summary") {
                 Text(
@@ -530,7 +533,10 @@ internal fun SpecialtyJobDetailScreen(
                                     sectionId = section.id
                                 )
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            // Match the station bar colors on the job list cards.
+                            tintColor = if (section.id == SPECIALTY_VIEWER_SECTION_ID_OTHER) null
+                                        else stationBarColor(section.id)
                         )
                     }
 
@@ -821,6 +827,7 @@ private fun CompactSpecialtyProgressCard(
     headerLeading: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
     headerActions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
     inlineContent: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+    progressColor: Color = MaterialTheme.colorScheme.primary,
 ) {
     StatusBorderedCard(
         status = specialtyCardStatus(segmentedStatusCounts, fraction),
@@ -880,7 +887,7 @@ private fun CompactSpecialtyProgressCard(
                     modifier = Modifier
                         .fillMaxWidth(fraction.coerceIn(0f, 1f))
                         .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.extraLarge)
+                        .background(progressColor, MaterialTheme.shapes.extraLarge)
                 )
             }
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -934,6 +941,9 @@ internal fun SpecialtyChecklistRow(
         title = title,
         subtitle = "$completedSteps/$totalSteps steps complete",
         fraction = fraction,
+        // Items tagged for a single station take that station's color; multi-station items stay primary.
+        progressColor = orderedStations.singleOrNull()?.let { stationBarColor(it.name) }
+            ?: MaterialTheme.colorScheme.primary,
         segmentedStatusCounts = statusCounts,
         headerLeading = {
             toggles.forEach { toggle ->

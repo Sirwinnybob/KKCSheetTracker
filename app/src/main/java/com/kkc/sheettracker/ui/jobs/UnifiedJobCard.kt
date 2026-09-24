@@ -516,7 +516,7 @@ private fun stationDisplayName(station: String): String = when (station.uppercas
     else -> station
 }
 
-private fun stationBarColor(station: String): Color = when (station.uppercase()) {
+internal fun stationBarColor(station: String): Color = when (station.uppercase()) {
     "SAW" -> Color(0xFFD97706)
     "ASSEMBLY", "ASSM" -> Color(0xFF2563EB)
     "HARDWOODS", "HW" -> Color(0xFF16A34A)
