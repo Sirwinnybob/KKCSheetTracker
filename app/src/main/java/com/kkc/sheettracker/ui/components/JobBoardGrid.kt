@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -102,7 +103,8 @@ fun JobBoardGrid(
     modifier: Modifier = Modifier,
     pendingItems: List<JobBoardItem> = emptyList(),
     columns: Int = 3,
-    scanGeneration: Long = 0L
+    scanGeneration: Long = 0L,
+    header: (LazyGridScope.() -> Unit)? = null
 ) {
     LaunchedEffect(scanGeneration) {
         clearBoardCardCache()
@@ -122,6 +124,7 @@ fun JobBoardGrid(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                header?.invoke(this)
                 // Active Production section header (only when pending section exists)
                 if (pendingItems.isNotEmpty()) {
                     item(span = { GridItemSpan(maxCurrentLineSpan) }) {

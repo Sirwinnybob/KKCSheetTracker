@@ -19,6 +19,13 @@ class UiPreferencesStore(context: Context) {
     fun setBoardView(screen: String, value: Boolean) =
         prefs.edit().putBoolean("board_view_$screen", value).apply()
 
+    /** When board view is on, show delivery-sheet thumbnails instead of job cards. */
+    fun getBoardThumbnails(screen: String): Boolean =
+        prefs.getBoolean("board_thumbnails_$screen", false)
+
+    fun setBoardThumbnails(screen: String, value: Boolean) =
+        prefs.edit().putBoolean("board_thumbnails_$screen", value).apply()
+
     /**
      * Admin mode is a simple, non-security hide/show gate unlocked by a plain-text
      * password in Settings. When on, extra UI (the supply "To Order" tab and job-lineup
