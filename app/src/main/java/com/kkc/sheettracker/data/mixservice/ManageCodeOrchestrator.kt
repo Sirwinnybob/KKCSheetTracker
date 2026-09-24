@@ -106,6 +106,48 @@ fun isValidMixName(name: String): Boolean {
 fun defaultMixName(materialName: String): String =
     materialName.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifBlank { "Mix" } + "Mix"
 
+/** Next free "<Material>Mix N" name for an additional mix, starting at 2. */
+fun nextAdditionalMixName(materialName: String, catalog: MixCatalogSnapshot): String {
+    val base = defaultMixName(materialName)
+    return (2..999).asSequence().map { "$base $it" }.first { isCatalogMixNameAvailable(it, catalog) }
+}
+
+sealed interface MaterialSubmission {
+    /** MIX is checked but no create/replace choice exists yet — prompt the operator. */
+    data object NeedsTarget : MaterialSubmission
+    /** The chosen target no longer matches the catalog revision — re-prompt. */
+    data object StaleTarget : MaterialSubmission
+    /** [plan] is null for an edits-only submission that leaves the existing mix untouched. */
+    data class Ready(val plan: MixGenerationPlan?, val change: ManageCodeChange) : MaterialSubmission
+}
+
+/**
+ * Plans one material. With an active mix and no MIX box checked, the submission is edits-only:
+ * unchecked MIX means "do not touch the mix", not "remove from the mix".
+ */
+fun planMaterialSubmission(
+    rows: List<ManageCodeRow>,
+    selections: Map<String, ManageCodeRowSelection>,
+    locked: Set<String>,
+    catalog: MixCatalogSnapshot,
+    materialName: String,
+    selectedTarget: MixGenerationTarget?,
+    automaticTarget: MixGenerationTarget?,
+): MaterialSubmission {
+    val hasActive = catalog.entries.any { it.lifecycle == MixLifecycle.ACTIVE }
+    val anyMixChecked = rows.any { it.editablePgm !in locked && selections[it.editablePgm]?.mix == true }
+    if (hasActive && selectedTarget == null && !anyMixChecked) {
+        val change = buildManageCodeChange(rows, selections, locked, originalPrograms = emptyList())
+        return MaterialSubmission.Ready(null, change.copy(orderOrMembershipChanged = false))
+    }
+    val target = selectedTarget ?: automaticTarget ?: return MaterialSubmission.NeedsTarget
+    val plan = resolveMixGenerationTarget(target, catalog, materialName) ?: return MaterialSubmission.StaleTarget
+    return MaterialSubmission.Ready(
+        plan,
+        buildManageCodeChange(rows, selections, locked, originalPrograms = plan.programsBaseline),
+    )
+}
+
 /**
  * Converts one resolved catalog intent into the durable actions consumed by
  * [MixOperationCoordinator]. Catalog replacement/creation is deliberately first so PGM edits
@@ -114,11 +156,11 @@ fun defaultMixName(materialName: String): String =
 fun buildManageCodeActions(
     job: String,
     material: String,
-    plan: MixGenerationPlan,
+    plan: MixGenerationPlan?,
     change: ManageCodeChange,
     requestId: String = ""
 ): List<ManageCodeOperationAction> = buildList {
-    if (change.orderOrMembershipChanged) {
+    if (plan != null && change.orderOrMembershipChanged) {
         add(
             when (plan.mutation) {
                 MixCatalogMutation.CREATE -> ManageCodeOperationAction.catalogCreate(
