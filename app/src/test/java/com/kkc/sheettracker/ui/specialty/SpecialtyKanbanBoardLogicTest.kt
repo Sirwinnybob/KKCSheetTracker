@@ -118,4 +118,15 @@ class SpecialtyKanbanBoardLogicTest {
         assertEquals(1, spec.dividerAfterIndex)
         assertNull(specialtyActionRow(specialty, emptyList()).dividerAfterIndex)
     }
+
+    @Test
+    fun headerColor_keepsWhiteTextReadableForEveryStation() {
+        val ids = com.kkc.sheettracker.data.models.SpecialtyStation.entries.map { it.name } +
+            listOf(com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS, com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER)
+        ids.forEach { id ->
+            val bg = kanbanHeaderColor(kanbanColumnColor(id))
+            val ratio = com.kkc.sheettracker.ui.theme.contrastRatio(androidx.compose.ui.graphics.Color.White, bg)
+            org.junit.Assert.assertTrue("$id header contrast $ratio", ratio >= 4.5f)
+        }
+    }
 }

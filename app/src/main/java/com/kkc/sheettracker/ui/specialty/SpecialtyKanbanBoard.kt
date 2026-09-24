@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -140,6 +141,9 @@ internal fun kanbanColumnColor(columnId: String): Color = when (columnId) {
     else -> stationBarColor(columnId)
 }
 
+/** Header bar background: the column color darkened so white header text stays readable (>= 4.5:1). */
+internal fun kanbanHeaderColor(color: Color): Color = lerp(color, Color.Black, 0.25f)
+
 @Composable
 internal fun SpecialtyKanbanCard(
     resolved: SpecialtyResolvedItem,
@@ -161,10 +165,10 @@ internal fun SpecialtyKanbanCard(
     val totalSteps = toggles.size.coerceAtLeast(1)
     val completedSteps = toggles.count { it.checked }.coerceAtMost(totalSteps)
     val dots = kanbanStationDots(resolved, columnId, toggles, stationOrder)
-    val detail = kanbanDetailLine(item)
     val isSawStation = SpecialtyStation.SAW in item.stations
     val showDims = item.category != SpecialtyItemCategory.TO_ORDER &&
         (isSawStation || item.dimensions != null || item.quantity != null)
+    val detail = if (showDims) kanbanDetailLine(item.copy(material = null)) else kanbanDetailLine(item)
 
     Surface(
         shape = MaterialTheme.shapes.medium,
@@ -282,7 +286,7 @@ internal fun SpecialtyKanbanColumnFrame(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(color)
+                .background(kanbanHeaderColor(color))
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
