@@ -42,6 +42,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -754,61 +757,96 @@ fun KKCPillActionRow(
     actions: List<KKCPillAction>,
     modifier: Modifier = Modifier,
     /** Draws a padded vertical divider after the pill at this index (splits two groups). */
-    dividerAfterIndex: Int? = null
+    dividerAfterIndex: Int? = null,
+    /**
+     * A second group pushed to the right end. With it the row spans its full width, [actions] on
+     * the left and these on the right; if both don't fit, the whole row scrolls sideways.
+     */
+    trailingActions: List<KKCPillAction> = emptyList()
 ) {
-    if (actions.isEmpty()) return
+    if (actions.isEmpty() && trailingActions.isEmpty()) return
     val style = rememberKKCPillStyle()
     // Outer padding equals the gap between buttons so the track border reads as an even frame.
     val gap = 4.dp
-    KKCPillContainer(style = style, modifier = modifier.height(32.dp + gap * 2)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(gap),
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(gap)
-        ) {
-            actions.forEachIndexed { index, action ->
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .height(32.dp)
-                        .kkcPillIndicator(style)
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable(onClick = action.onClick)
-                        .padding(horizontal = 14.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (action.icon != null) {
-                            Icon(
-                                imageVector = action.icon,
-                                contentDescription = null,
-                                tint = style.selectedText,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                        Text(
-                            text = action.label,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = style.selectedText,
-                            maxLines = 1
+    val containerModifier = if (trailingActions.isEmpty()) modifier else modifier.fillMaxWidth()
+    KKCPillContainer(style = style, modifier = containerModifier.height(32.dp + gap * 2)) {
+        if (trailingActions.isEmpty()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(gap),
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(gap)
+            ) {
+                actions.forEachIndexed { index, action ->
+                    KKCPillActionButton(action, style)
+                    if (pillActionRowDividerAfter(index, dividerAfterIndex, actions.size)) {
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 8.dp)
+                                .width(1.dp)
+                                .height(20.dp)
+                                .background(style.selectedText.copy(alpha = 0.35f))
                         )
                     }
                 }
-                if (pillActionRowDividerAfter(index, dividerAfterIndex, actions.size)) {
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .width(1.dp)
-                            .height(20.dp)
-                            .background(style.selectedText.copy(alpha = 0.35f))
-                    )
+            }
+        } else {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                // At least as wide as the track, so SpaceBetween pins the groups to both ends;
+                // wider content (narrow screens, many pills) scrolls instead.
+                val trackWidth = maxWidth
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .widthIn(min = trackWidth)
+                        .padding(gap)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        actions.forEach { KKCPillActionButton(it, style) }
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        trailingActions.forEach { KKCPillActionButton(it, style) }
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun KKCPillActionButton(action: KKCPillAction, style: KKCPillStyle) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .height(32.dp)
+            .kkcPillIndicator(style)
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = action.onClick)
+            .padding(horizontal = 14.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (action.icon != null) {
+                Icon(
+                    imageVector = action.icon,
+                    contentDescription = null,
+                    tint = style.selectedText,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Text(
+                text = action.label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = style.selectedText,
+                maxLines = 1
+            )
         }
     }
 }
