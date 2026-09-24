@@ -250,6 +250,23 @@ internal fun SpecialtyJobDetailScreen(
         navBarDeco.specialtyDecoration = specialtyDecoration
     }
 
+    val actionRow = specialtyActionRow(
+        specialtyActions = buildList {
+            add(KKCPillAction("Door Panels", onOpenDoorPanels))
+            add(KKCPillAction("Rip List", onOpenSawRipList))
+            if (availability.hasClosetRods) add(KKCPillAction("Closet Rods", onOpenClosetRods))
+            add(KKCPillAction("Split View", onOpenSplitView))
+        },
+        referenceActions = buildList {
+            if (availability.hasAssemblySheet) add(KKCPillAction("Assembly", { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }))
+            if (availability.hasPlansElevations) add(KKCPillAction("Plans & Elevations", { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }))
+            if (availability.hasDeliverySheet) add(KKCPillAction("Delivery", { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }))
+            if (availability.hasPullsSheet) add(KKCPillAction("Pulls", { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }))
+            if (availability.hasThreeDAssets) add(KKCPillAction("3D", onOpenThreeD))
+            add(KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print))
+        }
+    )
+
     SharedTransitionLayout {
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
@@ -300,63 +317,12 @@ internal fun SpecialtyJobDetailScreen(
                 )
             }
 
-            item(key = "actions-reference") {
-                val referenceActions = buildList {
-                    if (availability.hasAssemblySheet) {
-                        add(KKCPillAction("Assembly", { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }))
-                    }
-                    if (availability.hasPlansElevations) {
-                        add(KKCPillAction("Plans & Elevations", { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }))
-                    }
-                    if (availability.hasDeliverySheet) {
-                        add(KKCPillAction("Delivery", { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }))
-                    }
-                    if (availability.hasPullsSheet) {
-                        add(KKCPillAction("Pulls", { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }))
-                    }
-                    if (availability.hasThreeDAssets) {
-                        add(KKCPillAction("3D", onOpenThreeD))
-                    }
-                    add(KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print))
-                }
+            item(key = "actions") {
                 KKCPillActionRow(
-                    actions = referenceActions,
+                    actions = actionRow.actions,
+                    dividerAfterIndex = actionRow.dividerAfterIndex,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
-            }
-
-            item(key = "actions-specialty") {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    SpecialtyActionWidget(
-                        modifier = Modifier.width(168.dp),
-                        title = "Door Panels",
-                        subtitle = "View filtered panel cut lists",
-                        onClick = onOpenDoorPanels
-                    )
-                    SpecialtyActionWidget(
-                        modifier = Modifier.width(168.dp),
-                        title = "Rip List",
-                        subtitle = "View sheet stock rip cuts",
-                        onClick = onOpenSawRipList
-                    )
-                    if (availability.hasClosetRods) {
-                        SpecialtyActionWidget(
-                            modifier = Modifier.width(168.dp),
-                            title = "Closet Rods",
-                            subtitle = "View rod cut list",
-                            onClick = onOpenClosetRods
-                        )
-                    }
-                    SpecialtyActionWidget(
-                        modifier = Modifier.width(168.dp),
-                        title = "Split View",
-                        subtitle = "Open assembly + plans workspace",
-                        onClick = onOpenSplitView
-                    )
-                }
             }
 
             if (sheetRipItems.isNotEmpty()) {
@@ -784,40 +750,6 @@ private fun SpecialtySectionHeader(
         }
     }
 }
-@Composable
-private fun SpecialtyActionWidget(
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        tonalElevation = 2.dp,
-        shape = MaterialTheme.shapes.large,
-        modifier = modifier
-            .heightIn(min = 92.dp)
-            .clickable(onClick = onClick)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
 @Composable
 private fun CompactSpecialtyProgressCard(
     title: String,
