@@ -114,4 +114,19 @@ class UiPreferencesStoreTest {
         store.setScrollPreviewLabelOnly(true)
         assertTrue(store.getScrollPreviewLabelOnly())
     }
+
+    @Test
+    fun specialtyKanbanLayout_defaultsToFalse() {
+        val store = UiPreferencesStore(context)
+        assertFalse(store.getSpecialtyKanbanLayout())
+    }
+
+    @Test
+    fun specialtyKanbanLayout_persists() {
+        val store = UiPreferencesStore(context)
+        store.setSpecialtyKanbanLayout(true)
+        assertTrue(store.getSpecialtyKanbanLayout())
+        store.setSpecialtyKanbanLayout(false)
+        assertFalse(store.getSpecialtyKanbanLayout())
+    }
 }

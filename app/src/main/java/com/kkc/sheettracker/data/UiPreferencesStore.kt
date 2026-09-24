@@ -27,6 +27,16 @@ class UiPreferencesStore(context: Context) {
         prefs.edit().putBoolean("board_thumbnails_$screen", value).apply()
 
     /**
+     * Experimental kanban layout for specialty job screens. One choice for every job on this
+     * tablet (not per job); may move to Settings if the layout is kept.
+     */
+    fun getSpecialtyKanbanLayout(): Boolean =
+        prefs.getBoolean("specialty_kanban_layout", false)
+
+    fun setSpecialtyKanbanLayout(enabled: Boolean) =
+        prefs.edit().putBoolean("specialty_kanban_layout", enabled).apply()
+
+    /**
      * Admin mode is a simple, non-security hide/show gate unlocked by a plain-text
      * password in Settings. When on, extra UI (the supply "To Order" tab and job-lineup
      * editing) becomes visible. This is intentionally not real authentication.
