@@ -165,7 +165,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val prefs = getSharedPreferences("kkc_tracker", MODE_PRIVATE)
-        // One-time rollout (8.5.9): turn Flexible Mode on for every tablet once. The marker keeps
+        // One-time rollout (8.5.8): turn Flexible Mode on for every tablet once. The marker keeps
         // a later manual opt-out from being overridden by future updates.
         if (!prefs.getBoolean("flexible_mode_default_applied_v1", false)) {
             prefs.edit()
