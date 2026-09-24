@@ -78,6 +78,8 @@ data class ManageCodeMaterialState(
     val mixConflict: List<String> = emptyList(),
     /** Set only by an operator row reorder or selection edit, never by target hydration. */
     val mixLayoutDirty: Boolean = false,
+    /** Active catalog mixes for display (header line + per-row "in <name>" tag). */
+    val activeMixes: List<com.kkc.sheettracker.data.mixservice.MixCatalogEntry> = emptyList(),
 )
 
 /** Prefers the job-wide service check; a material snapshot is only a failure fallback. */
