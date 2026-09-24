@@ -400,7 +400,16 @@ data class KKCTabItem(
     val reserveBadge: Boolean = false,
     /** Small bell after the label (e.g. a subscribed supply category). */
     val showBell: Boolean = false,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    /** Fixed item width (e.g. a table column); null sizes the item to its label. */
+    val width: Dp? = null,
+    /** Share of the leftover strip width (e.g. a stretchy table column); overrides [width]. */
+    val weight: Float? = null,
+    /**
+     * Content drawn flush before the label, inside the item (so the pill covers it too); gets the
+     * label's current color. E.g. a table's marker-column header folded into the next column.
+     */
+    val prefix: (@Composable (color: Color) -> Unit)? = null
 )
 
 /**
@@ -437,7 +446,20 @@ fun KKCSlidingTabRow(
     /** Equal-width items filling the strip's width (not scrollable). */
     fillWidth: Boolean = false,
     /** Remember the pill position under this key so a recreated strip slides from where it was. */
-    persistKey: String? = null
+    persistKey: String? = null,
+    /** Where each label sits inside its item (start-aligned for table headers). */
+    itemAlignment: Alignment = Alignment.Center,
+    /** Non-selectable content before the first item (e.g. a table's marker column). */
+    leading: (@Composable () -> Unit)? = null,
+    /** Content after item `index` (e.g. a column resize handle). */
+    separator: (@Composable (index: Int) -> Unit)? = null,
+    /** Non-selectable content after the last item. */
+    trailing: (@Composable () -> Unit)? = null,
+    /**
+     * How far the pill extends past each side of its item -- room around labels that fill their
+     * item edge to edge (table columns), reaching into the gap between items.
+     */
+    pillOutset: Dp = 0.dp
 ) {
     if (items.isEmpty()) return
     val primaryStyle = rememberKKCPillStyle(KKCPillAccent.PRIMARY)
@@ -450,7 +472,10 @@ fun KKCSlidingTabRow(
     var itemBounds by remember { mutableStateOf(mapOf<Int, Pair<Float, Float>>()) }
     val scrollState = rememberScrollState()
     var viewportPx by remember { mutableIntStateOf(0) }
-    val canScroll = scrollable && !fillWidth
+    // Weighted items need a bounded width, so they rule out scrolling (like fillWidth).
+    val stretches = fillWidth || items.any { it.weight != null }
+    val canScroll = scrollable && !stretches
+    val outsetPx = with(density) { pillOutset.toPx() }
 
     // The pill's position is one animated fractional tab index; its CENTER follows the tab
     // centers interpolated between the neighbouring tabs, and a spring keeps its velocity when the
@@ -527,7 +552,7 @@ fun KKCSlidingTabRow(
         val fraction = p - lower
         val aCenter = a.first + a.second / 2
         val center = aCenter + ((b.first + b.second / 2) - aCenter) * fraction
-        val width = pillWidth.value
+        val width = pillWidth.value + outsetPx * 2
         return (center - width / 2) to width
     }
 
@@ -586,16 +611,23 @@ fun KKCSlidingTabRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .height(height)
-                .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+                .then(if (stretches) Modifier.fillMaxWidth() else Modifier)
         ) {
+            leading?.invoke()
             items.forEachIndexed { idx, item ->
                 val style = styleFor(item)
                 val onPill = if (selectedIndex >= 0) styleFor(items[selectedIndex]).selectedText else style.selectedText
                 val baseColor = if (item.enabled) style.unselectedText else style.unselectedText.copy(alpha = 0.38f)
+                val sizeModifier = when {
+                    item.weight != null -> Modifier.weight(item.weight)
+                    item.width != null -> Modifier.width(item.width)
+                    fillWidth -> Modifier.weight(1f)
+                    else -> Modifier
+                }
                 Box(
-                    contentAlignment = Alignment.Center,
+                    contentAlignment = itemAlignment,
                     modifier = Modifier
-                        .then(if (fillWidth) Modifier.weight(1f) else Modifier)
+                        .then(sizeModifier)
                         .height(32.dp)
                         .zIndex(1f)
                         .onGloballyPositioned { coordinates ->
@@ -611,11 +643,13 @@ fun KKCSlidingTabRow(
                 ) {
                     KKCTabLabel(item, baseColor, Modifier.padding(horizontal = itemPadding))
                     // The same label in the on-pill color, clipped to wherever the pill is right
-                    // now: each letter flips color the moment the pill's edge crosses it.
-                    KKCTabLabel(
-                        item,
-                        onPill,
-                        Modifier
+                    // now: each letter flips color the moment the pill's edge crosses it. The clip
+                    // layer matches the item's bounds exactly (whatever the label's alignment),
+                    // so item coordinates line up with the pill's.
+                    Box(
+                        contentAlignment = itemAlignment,
+                        modifier = Modifier
+                            .matchParentSize()
                             .clearAndSetSemantics { }
                             .drawWithContent {
                                 val span = pillSpan() ?: return@drawWithContent
@@ -625,16 +659,26 @@ fun KKCSlidingTabRow(
                                     this@drawWithContent.drawContent()
                                 }
                             }
-                            .padding(horizontal = itemPadding)
-                    )
+                    ) {
+                        KKCTabLabel(item, onPill, Modifier.padding(horizontal = itemPadding))
+                    }
                 }
+                separator?.invoke(idx)
             }
+            trailing?.invoke()
         }
     }
 }
 
 @Composable
 private fun KKCTabLabel(item: KKCTabItem, color: Color, modifier: Modifier) {
+    if (item.prefix != null) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
+            item.prefix.invoke(color)
+            KKCTabLabel(item.copy(prefix = null), color, Modifier)
+        }
+        return
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),

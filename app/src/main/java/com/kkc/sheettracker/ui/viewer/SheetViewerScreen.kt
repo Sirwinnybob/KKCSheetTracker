@@ -129,7 +129,6 @@ import com.kkc.sheettracker.ui.components.ResizeHandle
 import com.kkc.sheettracker.ui.components.SheetStatusBadge
 import com.kkc.sheettracker.ui.components.SortColumn
 import com.kkc.sheettracker.ui.components.SortDirection
-import com.kkc.sheettracker.ui.components.SortHeader
 import com.kkc.sheettracker.ui.components.animateEntrance
 import com.kkc.sheettracker.ui.components.VerticalSplitLayout
 import com.kkc.sheettracker.ui.components.headerBackground
@@ -146,6 +145,7 @@ import com.kkc.sheettracker.ui.components.KKCPillToggleButton
 import com.kkc.sheettracker.ui.components.KKCSlidingPillRow
 import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
 import com.kkc.sheettracker.ui.components.KKCTabItem
+import com.kkc.sheettracker.ui.components.contrastOn
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import kotlinx.coroutines.CancellationException
@@ -3037,47 +3037,105 @@ private fun PartsTable(
         // Fixed width for the marker column — not resizable.
         val rotColWidth = 20.dp
 
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-            shadowElevation = 2.dp,
+        // Only parts flagged bad (submitted or draft), keeping the current sort order.
+        var badOnly by rememberSaveable { mutableStateOf(false) }
+        val shownParts = remember(parts, badOnly, badParts, draftBadParts) {
+            if (badOnly) parts.filter { it.number in badParts || it.number in draftBadParts } else parts
+        }
+
+        // Sort header as a sliding pill: the pill sits behind the sorted column and slides to a
+        // newly tapped one. Items are the table's own column widths and the resize handles sit
+        // between them, so the header stays aligned with the rows below.
+        val headerPill = rememberKKCPillStyle()
+        KKCPillContainer(
+            style = headerPill,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                // Marker column header — muted, not sortable.
-                Text(
-                    "*",
-                    modifier = Modifier.width(rotColWidth),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                )
-                SortHeader("#", Modifier.width(numberColDp.dp), sortColumn == SortColumn.NUMBER, sortDirection) { onSortChange(SortColumn.NUMBER) }
-                ResizeHandle(onDrag = onResizeNumber)
-                SortHeader("Width", Modifier.width(widthColDp.dp), sortColumn == SortColumn.WIDTH, sortDirection) { onSortChange(SortColumn.WIDTH) }
-                ResizeHandle(onDrag = onResizeWidth)
-                SortHeader("Length", Modifier.width(lengthColDp.dp), sortColumn == SortColumn.LENGTH, sortDirection) { onSortChange(SortColumn.LENGTH) }
-                ResizeHandle(onDrag = onResizeLength)
-                SortHeader("Name", Modifier.weight(nameWeight), sortColumn == SortColumn.NAME, sortDirection) { onSortChange(SortColumn.NAME) }
-                ResizeHandle(onDrag = onResizeNameWeight)
-                SortHeader("Cab", Modifier.width(cabColDp.dp), sortColumn == SortColumn.CAB, sortDirection) { onSortChange(SortColumn.CAB) }
-                ResizeHandle(onDrag = onResizeCab)
-                SortHeader("Room", Modifier.width(roomColDp.dp), sortColumn == SortColumn.ROOM, sortDirection) { onSortChange(SortColumn.ROOM) }
-                ResizeHandle(onDrag = onResizeRoom)
-                Spacer(Modifier.width(actionColWidth))
+            val columns = listOf(
+                Triple(SortColumn.NUMBER, "#", onResizeNumber),
+                Triple(SortColumn.WIDTH, "Width", onResizeWidth),
+                Triple(SortColumn.LENGTH, "Length", onResizeLength),
+                Triple(SortColumn.NAME, "Name", onResizeNameWeight),
+                Triple(SortColumn.CAB, "Cab", onResizeCab),
+                Triple(SortColumn.ROOM, "Room", onResizeRoom)
+            )
+            fun arrow(col: SortColumn) = if (sortColumn != col) "" else when (sortDirection) {
+                SortDirection.ASC -> " ▲"
+                SortDirection.DESC -> " ▼"
+                SortDirection.NONE -> ""
             }
+            KKCSlidingTabRow(
+                items = columns.map { (col, title, _) ->
+                    KKCTabItem(
+                        label = title + arrow(col),
+                        isSelected = sortColumn == col,
+                        onClick = { onSortChange(col) },
+                        // "#" also spans the marker column, so its "*" header is under the pill too.
+                        prefix = if (col == SortColumn.NUMBER) { color ->
+                            Text(
+                                "*",
+                                modifier = Modifier.width(rotColWidth),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                color = color.copy(alpha = color.alpha * 0.6f)
+                            )
+                        } else null,
+                        width = when (col) {
+                            SortColumn.NUMBER -> rotColWidth + numberColDp.dp
+                            SortColumn.WIDTH -> widthColDp.dp
+                            SortColumn.LENGTH -> lengthColDp.dp
+                            SortColumn.CAB -> cabColDp.dp
+                            SortColumn.ROOM -> roomColDp.dp
+                            SortColumn.NAME -> null
+                        },
+                        weight = if (col == SortColumn.NAME) nameWeight else null
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+                scrollable = false,
+                height = 40.dp,
+                edgePadding = 12.dp,
+                itemPadding = 0.dp,
+                itemAlignment = Alignment.CenterStart,
+                pillOutset = 6.dp,
+                separator = { index -> ResizeHandle(onDrag = columns[index].third) },
+                trailing = {
+                    // Bad-parts filter, in the rows' flag column.
+                    val badColor = KKCThemeColors.statusColors.bad
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .width(actionColWidth)
+                            .height(32.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (badOnly) badColor else Color.Transparent)
+                            .clickable { badOnly = !badOnly }
+                    ) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = if (badOnly) "Show all parts" else "Show only bad parts",
+                            tint = if (badOnly) contrastOn(badColor) else headerPill.unselectedText.copy(alpha = 0.6f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            )
+        }
+
+        if (badOnly && shownParts.isEmpty()) {
+            Text(
+                "No bad parts on this sheet",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp)
+            )
         }
 
         LazyColumn(contentPadding = PaddingValues(bottom = 160.dp)) {
-            itemsIndexed(items = parts, key = { _, part -> part.number }) { rowIndex, part ->
+            itemsIndexed(items = shownParts, key = { _, part -> part.number }) { rowIndex, part ->
                 val isBad = part.number in badParts
                 val isDraft = part.number in draftBadParts
                 val isSelected = part.number == selectedPartNumber
