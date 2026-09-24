@@ -745,10 +745,16 @@ data class KKCPillAction(
  * button showing the pill — nothing slides because none of them is "selected". Same theme rules as
  * the sliders: primary-colored track and secondary-colored pills on two-color themes.
  */
+/** True when a group divider belongs right after the pill at [index]. Never after the last pill. */
+internal fun pillActionRowDividerAfter(index: Int, dividerAfterIndex: Int?, count: Int): Boolean =
+    dividerAfterIndex != null && index == dividerAfterIndex && index < count - 1
+
 @Composable
 fun KKCPillActionRow(
     actions: List<KKCPillAction>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Draws a padded vertical divider after the pill at this index (splits two groups). */
+    dividerAfterIndex: Int? = null
 ) {
     if (actions.isEmpty()) return
     val style = rememberKKCPillStyle()
@@ -762,7 +768,7 @@ fun KKCPillActionRow(
                 .horizontalScroll(rememberScrollState())
                 .padding(gap)
         ) {
-            actions.forEach { action ->
+            actions.forEachIndexed { index, action ->
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -792,6 +798,15 @@ fun KKCPillActionRow(
                             maxLines = 1
                         )
                     }
+                }
+                if (pillActionRowDividerAfter(index, dividerAfterIndex, actions.size)) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 8.dp)
+                            .width(1.dp)
+                            .height(20.dp)
+                            .background(style.selectedText.copy(alpha = 0.35f))
+                    )
                 }
             }
         }

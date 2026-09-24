@@ -67,4 +67,14 @@ class KKCSlidingPillTest {
         assertEquals(SolidColor(LightStatusColors.skip.copy(alpha = 0.2f)), one.fill)
         assertEquals(LightStatusColors.skip, one.unselectedText)
     }
+
+    @Test
+    fun pillActionRowDividerOnlyBetweenTwoRealGroups() {
+        // divider after index 3 of 10 actions -> after the 4th pill only
+        assertEquals(listOf(3), (0 until 10).filter { pillActionRowDividerAfter(it, 3, 10) })
+        // no divider requested
+        assertEquals(emptyList<Int>(), (0 until 10).filter { pillActionRowDividerAfter(it, null, 10) })
+        // never a trailing divider after the last pill
+        assertEquals(emptyList<Int>(), (0 until 4).filter { pillActionRowDividerAfter(it, 3, 4) })
+    }
 }
