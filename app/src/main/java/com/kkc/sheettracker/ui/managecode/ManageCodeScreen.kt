@@ -722,9 +722,9 @@ fun ManageCodeScreen(
         val hasPgms = pgms.isNotEmpty() || (!loadLiveData && material.metadata?.pages.orEmpty().isNotEmpty())
         val pages = material.metadata?.pages.orEmpty()
         var rows = buildManageCodeRows(pages)
-        val existingMix = catalog?.entries
-            ?.filter { it.lifecycle == com.kkc.sheettracker.data.mixservice.MixLifecycle.ACTIVE }
-            ?.singleOrNull()
+        val activeMixes = catalog?.entries?.filter { it.lifecycle == MixLifecycle.ACTIVE }.orEmpty()
+        // Row order follows the mix only when it is unambiguous; any active mix unchecks MIX.
+        val existingMix = activeMixes.singleOrNull()
         if (existingMix != null) {
             rows = com.kkc.sheettracker.data.mixservice.applyExistingOrder(rows, existingMix.programs)
         }
@@ -736,7 +736,7 @@ fun ManageCodeScreen(
             row.editablePgm to deriveRowSelection(
                 row.editablePgm,
                 existingMix?.programs.orEmpty(),
-                hasExistingMix = existingMix != null,
+                hasExistingMix = activeMixes.isNotEmpty(),
                 editHistory = editHistory
             )
         }
@@ -747,7 +747,7 @@ fun ManageCodeScreen(
             locked = locked,
             selections = selections,
             mixConflict = emptyList(),
-            activeMixes = catalog?.entries?.filter { it.lifecycle == MixLifecycle.ACTIVE }.orEmpty(),
+            activeMixes = activeMixes,
         )
         return state
     }
@@ -940,16 +940,10 @@ fun ManageCodeScreen(
             val snapshot = catalogRepository.cached(jobFolderName, action.material)
             if (snapshot != null) {
                 materialCatalogs = materialCatalogs + (material.materialName to snapshot)
-                val hydrated = loadMaterialState(material, snapshot)
-                materialStates = materialStates + (
-                    material.materialName to mergeCatalogRefreshMaterialState(materialStates[material.materialName], hydrated)
-                )
-            } else {
-                val hydrated = loadMaterialState(material, null)
-                materialStates = materialStates + (
-                    material.materialName to mergeCatalogRefreshMaterialState(materialStates[material.materialName], hydrated)
-                )
             }
+            // The operator's layout was submitted with the session; show fresh post-run state so a
+            // stale MIX selection or Replace/Additional choice cannot leak into the next run.
+            materialStates = materialStates + (material.materialName to loadMaterialState(material, snapshot))
             refreshedOperationIds = refreshedOperationIds + refreshKey
         }
     }
