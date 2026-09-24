@@ -39,6 +39,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.ViewKanban
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
@@ -70,6 +72,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Alignment
@@ -99,6 +102,7 @@ import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSpecialtyDecoration
 import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.UiPreferencesStore
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS
 import com.kkc.sheettracker.data.SpecialtyStateStore
@@ -203,6 +207,9 @@ internal fun SpecialtyJobDetailScreen(
     var previewMoldingItem by remember(jobFolderName) { mutableStateOf<AdminBoardStockItem?>(null) }
     val moldingSvgImageLoader = rememberSvgImageLoader()
     val isDarkTheme = LocalKKCIsDarkTheme.current
+    val context = LocalContext.current
+    val uiPrefs = remember { UiPreferencesStore(context) }
+    var kanbanLayout by remember { mutableStateOf(uiPrefs.getSpecialtyKanbanLayout()) }
 
     // Show current content immediately, then verify this job in the background.
     LaunchedEffect(jobFolderName) {
@@ -345,6 +352,15 @@ internal fun SpecialtyJobDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        kanbanLayout = !kanbanLayout
+                        uiPrefs.setSpecialtyKanbanLayout(kanbanLayout)
+                    }) {
+                        Icon(
+                            imageVector = if (kanbanLayout) Icons.AutoMirrored.Filled.ViewList else Icons.Filled.ViewKanban,
+                            contentDescription = if (kanbanLayout) "List layout" else "Kanban layout"
+                        )
+                    }
                     if (archiveActionVisible(adminEnabled = adminEnabled, sourceIsLive = true)) {
                         TextButton(onClick = { showArchiveActionSheet = true }) {
                             Text("Archive")
@@ -354,6 +370,63 @@ internal fun SpecialtyJobDetailScreen(
                 )
         },
     ) { padding ->
+        if (kanbanLayout) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(top = 12.dp)
+            ) {
+                Text(
+                    text = if (resolvedItems.isEmpty() &&
+                        scanState.status != com.kkc.sheettracker.data.models.ScanStatus.READY
+                    ) "Specialty checklist details are loading." else "$completedItems / $totalItems items complete",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                )
+                KKCPillActionRow(
+                    actions = actionRow.actions,
+                    dividerAfterIndex = actionRow.dividerAfterIndex,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                )
+                if (resolvedItems.isEmpty() && sheetRipItems.isEmpty()) {
+                    Text(
+                        "No specialty checklist items found.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                } else {
+                    val kanbanColumns = remember(sections, sheetRipItems) {
+                        buildSpecialtyKanbanColumns(sections, hasSheetRips = sheetRipItems.isNotEmpty())
+                    }
+                    SpecialtyKanbanBoard(
+                        columns = kanbanColumns,
+                        stationOrder = stationOrder,
+                        completionOverrides = completionOverrides,
+                        inFlightUpdates = inFlightUpdates,
+                        sheetRipItems = sheetRipItems,
+                        sheetRipIsDone = sheetRipIsDone,
+                        sheetRipRow = { rip ->
+                            SpecialtySheetRipRow(
+                                item = rip,
+                                isDone = sheetRipIsDone(rip),
+                                target = sheetRipTarget(rip),
+                                onSetDone = { completed -> onSetSheetRipDone(rip, completed) },
+                                onPreviewMolding = if (rip.moldingId != null) ({ previewMoldingItem = rip }) else null
+                            )
+                        },
+                        onToggle = onToggleChecked,
+                        onView = onJumpToCabinet,
+                        onEdit = onEditItem,
+                        onDelete = { itemId -> deleteTargetItemId = itemId },
+                        onPatchDims = onPatchItemDims,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        } else {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -541,6 +614,7 @@ internal fun SpecialtyJobDetailScreen(
                     )
                 }
             }
+        }
         }
 
         // Add / Edit sheet
