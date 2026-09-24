@@ -426,6 +426,7 @@ class MainActivity : ComponentActivity() {
                             prefs.edit().putBoolean("flexible_mode_enabled", enabled).apply()
                         },
                         onReinstallLatest = { updateManager.reinstallLatest() },
+                        onCheckForUpdates = { updateManager.checkForUpdates(checkSelf = true) },
                         hasPendingUpdates = updateManager.pendingUpdateApk != null || updateManager.pendingExternalUpdates.isNotEmpty(),
                         pendingSelfUpdate = updateManager.pendingUpdateApk,
                         pendingExternalUpdates = updateManager.pendingExternalUpdates,

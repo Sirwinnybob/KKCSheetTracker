@@ -60,6 +60,8 @@ fun SettingsScreen(
     onWorkModeChanged: (WorkMode) -> Unit,
     onFlexibleModeChanged: (Boolean) -> Unit,
     onReinstallLatest: () -> Unit,
+    /** Re-scans for app updates; run each time Settings opens. */
+    onCheckForUpdates: () -> Unit = {},
     onTabletIdChanged: (String) -> Unit,
     onBasePathChanged: (String) -> Unit,
     syncthingApiKey: String,
@@ -99,7 +101,11 @@ fun SettingsScreen(
     var employeeNameDirty by remember { mutableStateOf(false) }
     var employeeNameSaved by remember { mutableStateOf(false) }
     var employeeDropdownExpanded by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { EmployeeDirectory.refresh(File(basePath)) }
+    // Checks that run each time Settings opens.
+    LaunchedEffect(Unit) {
+        EmployeeDirectory.refresh(File(basePath))
+        onCheckForUpdates()
+    }
     val employeeRecords by EmployeeDirectory.recordsFlow.collectAsState()
     val allEmployees = remember(employeeRecords) {
         employeeRecords.map { Triple(it.pin, it.name, it.displayName) }
