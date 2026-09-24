@@ -70,6 +70,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -270,9 +271,29 @@ internal fun SpecialtyJobDetailScreen(
             if (availability.hasDeliverySheet) add(KKCPillAction("Delivery", { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }))
             if (availability.hasPullsSheet) add(KKCPillAction("Pulls", { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }))
             if (availability.hasThreeDAssets) add(KKCPillAction("3D", onOpenThreeD))
-            add(KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print))
         }
     )
+
+    // A saved toggle keeps its optimistic override until the reloaded items actually show it:
+    // resolvedItems re-parses on IO after the save, so dropping the override on save success made
+    // the checkbox (and, in kanban, the whole card) flip back for a moment. An override also goes
+    // once any reload newer than its save lands, so a change from another tablet still wins.
+    val latestResolvedItems by rememberUpdatedState(resolvedItems)
+    val overrideSavedAt = remember(jobFolderName) { HashMap<String, List<SpecialtyResolvedItem>>() }
+    LaunchedEffect(resolvedItems, inFlightUpdates.size) {
+        if (completionOverrides.isEmpty()) return@LaunchedEffect
+        val stored = resolvedItems
+            .flatMap { checklistTogglesForItem(it, emptyMap()) }
+            .associate { it.controlId to it.checked }
+        completionOverrides.keys.toList().forEach { controlId ->
+            if (!isToggleEnabled(controlId, inFlightUpdates)) return@forEach
+            val savedAt = overrideSavedAt[controlId]
+            if (stored[controlId] == completionOverrides[controlId] || (savedAt != null && savedAt !== resolvedItems)) {
+                completionOverrides.remove(controlId)
+                overrideSavedAt.remove(controlId)
+            }
+        }
+    }
 
     val onToggleChecked: (SpecialtyResolvedItem, SpecialtyChecklistToggle, Boolean) -> Unit = { resolved, toggle, next ->
         val itemId = resolved.item.id
@@ -288,7 +309,8 @@ internal fun SpecialtyJobDetailScreen(
                     completionKey = toggle.completionKey,
                     completed = next
                 )
-                completionOverrides.remove(controlId)
+                // Cleared by the reconcile effect above once the reload shows the saved state.
+                overrideSavedAt[controlId] = latestResolvedItems
                 toggleErrorMessage = null
             } catch (_: Exception) {
                 completionOverrides[controlId] = previous
@@ -352,6 +374,9 @@ internal fun SpecialtyJobDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showPrintDialog = true }) {
+                        Icon(Icons.Default.Print, contentDescription = "Print")
+                    }
                     IconButton(onClick = {
                         kanbanLayout = !kanbanLayout
                         uiPrefs.setSpecialtyKanbanLayout(kanbanLayout)
@@ -385,11 +410,21 @@ internal fun SpecialtyJobDetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                 )
+                // Same inset/height as the station pill row below it, so both bars line up full-width.
                 KKCPillActionRow(
-                    actions = actionRow.actions,
-                    dividerAfterIndex = actionRow.dividerAfterIndex,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                    actions = actionRow.leading,
+                    trailingActions = actionRow.trailing,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
                 )
+                // Same inline save-failure text the list shows (in addition to the snackbar).
+                if (!toggleErrorMessage.isNullOrBlank()) {
+                    Text(
+                        text = toggleErrorMessage.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                    )
+                }
                 if (resolvedItems.isEmpty() && sheetRipItems.isEmpty()) {
                     Text(
                         "No specialty checklist items found.",
@@ -452,8 +487,8 @@ internal fun SpecialtyJobDetailScreen(
 
             item(key = "actions") {
                 KKCPillActionRow(
-                    actions = actionRow.actions,
-                    dividerAfterIndex = actionRow.dividerAfterIndex,
+                    actions = actionRow.leading,
+                    trailingActions = actionRow.trailing,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
             }
@@ -1396,7 +1431,7 @@ internal fun SpecialtyDimsSection(
 ) {
     var editing by remember(item.id) { mutableStateOf(false) }
     var editDims by remember(item.id) { mutableStateOf(item.dimensions ?: "") }
-    var editQty by remember(item.id) { mutableStateOf(item.quantity?.toString() ?: "") }
+    var editQty by remember(item.id) { mutableStateOf(item.quantity?.let(::formatSpecialtyQuantity) ?: "") }
     var editMat by remember(item.id) { mutableStateOf(item.material ?: "") }
     val hasData = !item.dimensions.isNullOrBlank() || item.quantity != null || !item.material.isNullOrBlank()
 
@@ -1415,7 +1450,7 @@ internal fun SpecialtyDimsSection(
                     }) { Text("Save") }
                     TextButton(onClick = {
                         editDims = item.dimensions ?: ""
-                        editQty = item.quantity?.toString() ?: ""
+                        editQty = item.quantity?.let(::formatSpecialtyQuantity) ?: ""
                         editMat = item.material ?: ""
                         editing = false
                     }) { Text("Cancel") }
@@ -1427,7 +1462,7 @@ internal fun SpecialtyDimsSection(
                     SuggestionChip(onClick = { editing = true }, label = { Text("Add dims...", style = MaterialTheme.typography.labelSmall) })
                 } else {
                     if (!item.dimensions.isNullOrBlank()) SuggestionChip(onClick = { editing = true }, label = { Text(item.dimensions, style = MaterialTheme.typography.labelSmall) })
-                    if (item.quantity != null) SuggestionChip(onClick = { editing = true }, label = { Text("Qty: ${item.quantity}", style = MaterialTheme.typography.labelSmall) })
+                    if (item.quantity != null) SuggestionChip(onClick = { editing = true }, label = { Text("Qty: ${formatSpecialtyQuantity(item.quantity)}", style = MaterialTheme.typography.labelSmall) })
                     if (!item.material.isNullOrBlank()) SuggestionChip(onClick = { editing = true }, label = { Text(item.material, style = MaterialTheme.typography.labelSmall) })
                 }
             }
@@ -1435,19 +1470,29 @@ internal fun SpecialtyDimsSection(
     } else if (hasData) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (!item.dimensions.isNullOrBlank()) Row { Text("Dims: ", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold); Text(item.dimensions, style = MaterialTheme.typography.bodySmall) }
-            if (item.quantity != null) Row { Text("Qty: ", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold); Text(item.quantity.toString(), style = MaterialTheme.typography.bodySmall) }
+            if (item.quantity != null) Row { Text("Qty: ", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold); Text(formatSpecialtyQuantity(item.quantity), style = MaterialTheme.typography.bodySmall) }
             if (!item.material.isNullOrBlank()) Row { Text("Material: ", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold); Text(item.material, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
 
+/**
+ * Quantity for display and edit fields: at most 4 decimals, trailing zeros dropped. Stored values
+ * carry float noise (e.g. 51.042500000000004) that otherwise showed up verbatim.
+ */
+internal fun formatSpecialtyQuantity(quantity: Double): String =
+    java.math.BigDecimal(quantity)
+        .setScale(4, java.math.RoundingMode.HALF_UP)
+        .stripTrailingZeros()
+        .toPlainString()
+
 @Composable
-private fun SpecialtyQuantitySection(
+internal fun SpecialtyQuantitySection(
     item: com.kkc.sheettracker.data.models.SpecialtyItem,
     onPatchQuantity: (Double?) -> Unit
 ) {
     var editing by remember(item.id) { mutableStateOf(false) }
-    var editQty by remember(item.id) { mutableStateOf(item.quantity?.toString() ?: "") }
+    var editQty by remember(item.id) { mutableStateOf(item.quantity?.let(::formatSpecialtyQuantity) ?: "") }
 
     if (editing) {
         Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1457,14 +1502,14 @@ private fun SpecialtyQuantitySection(
                 editing = false
             }) { Text("Save") }
             TextButton(onClick = {
-                editQty = item.quantity?.toString() ?: ""
+                editQty = item.quantity?.let(::formatSpecialtyQuantity) ?: ""
                 editing = false
             }) { Text("Cancel") }
         }
     } else {
         Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (item.quantity != null) {
-                SuggestionChip(onClick = { editing = true }, label = { Text("Qty: ${item.quantity}", style = MaterialTheme.typography.labelSmall) })
+                SuggestionChip(onClick = { editing = true }, label = { Text("Qty: ${formatSpecialtyQuantity(item.quantity)}", style = MaterialTheme.typography.labelSmall) })
             } else {
                 SuggestionChip(onClick = { editing = true }, label = { Text("Add quantity...", style = MaterialTheme.typography.labelSmall) })
             }

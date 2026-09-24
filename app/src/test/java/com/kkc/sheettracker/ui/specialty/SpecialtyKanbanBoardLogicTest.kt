@@ -110,13 +110,21 @@ class SpecialtyKanbanBoardLogicTest {
     }
 
     @Test
-    fun actionRow_specialtyActionsFirst_dividerAfterLastSpecialty() {
+    fun quantityFormat_trimsFloatNoiseAndTrailingZeros() {
+        assertEquals("51.0425", formatSpecialtyQuantity(51.042500000000004))
+        assertEquals("2", formatSpecialtyQuantity(2.0))
+        assertEquals("0.5", formatSpecialtyQuantity(0.5))
+        assertEquals("1.2346", formatSpecialtyQuantity(1.23456))
+        assertEquals("120", formatSpecialtyQuantity(120.0))
+    }
+
+    @Test
+    fun actionRow_specialtyActionsLeft_referenceActionsRight() {
         val specialty = listOf(KKCPillAction("Door Panels", {}), KKCPillAction("Split View", {}))
-        val reference = listOf(KKCPillAction("Assembly", {}), KKCPillAction("Print", {}))
+        val reference = listOf(KKCPillAction("Assembly", {}), KKCPillAction("Delivery", {}))
         val spec = specialtyActionRow(specialty, reference)
-        assertEquals(listOf("Door Panels", "Split View", "Assembly", "Print"), spec.actions.map { it.label })
-        assertEquals(1, spec.dividerAfterIndex)
-        assertNull(specialtyActionRow(specialty, emptyList()).dividerAfterIndex)
+        assertEquals(listOf("Door Panels", "Split View"), spec.leading.map { it.label })
+        assertEquals(listOf("Assembly", "Delivery"), spec.trailing.map { it.label })
     }
 
     @Test
