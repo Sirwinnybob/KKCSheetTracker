@@ -396,6 +396,38 @@ class SupplyRepositoryTest {
         assertEquals("Wood Screws", repository.getItem("i1")?.name)
     }
 
+    private fun writeNullFieldsItem(basePath: String) {
+        val itemsDir = File(basePath, ".supply/items").apply { mkdirs() }
+        File(itemsDir, "i1.json").writeText(
+            """{"id":"i1","categoryId":"c1","name":"x","notes":null,"fields":null,"customFields":null,"attachmentIds":null,"barcodes":null}"""
+        )
+    }
+
+    @Test
+    fun itemFileWithNullCollectionsResolvesFromFiles() {
+        val basePath = createTempBasePath()
+        writeNullFieldsItem(basePath)
+
+        val item = SupplyRepository(basePath, SupplyLiveStateStore()).getItem("i1")
+
+        assertNotNull(item)
+        assertTrue(item!!.fields.isEmpty())
+        assertTrue(item.barcodes.isEmpty())
+        assertEquals("", item.updatedAt)
+    }
+
+    @Test
+    fun ownWriteToItemWithNullCollectionsResolvesThroughLiveOverlay() {
+        val basePath = createTempBasePath()
+        writeNullFieldsItem(basePath)
+        val store = liveStoreWith(liveItem())
+        val repository = SupplyRepository(basePath, store)
+
+        repository.updateItemBarcodes("i1", listOf("B1"))
+
+        assertEquals(listOf("B1"), repository.getItem("i1")?.barcodes)
+    }
+
     @Test
     fun ownDeleteHidesItemWhileLive() {
         val basePath = createTempBasePath()

@@ -88,6 +88,14 @@ Polls every 2 seconds (`run_until(stop_event)`, same shape as `DeliveryScheduleL
 - **Commit rule:** the new signature is committed only after the build and `on_document`
   (`service.replace`) both succeed. A torn or unreadable file is retried on the next poll, and the
   service keeps serving its last good document.
+- **Health policy (added after final review, 2026-09-28):** after 15 consecutive failed polls
+  (~30 s; unavailable tree, failed build, invalid document, failed publication — a busy tree that
+  changes during the build does not count) the monitor calls `on_health_change(False)` and the app
+  unregisters the service. Open sockets then receive `not_running` and close within ~1 s, so
+  tablets fall back to reading `.supply` files instead of sitting on a frozen document. The next
+  successful build calls `on_health_change(True)` and re-registers the service. Every root `stat`
+  (including `Path.is_dir()`, which re-raises EACCES/EIO/ESTALE) is inside the `OSError` guard,
+  and `run_until` logs and survives any unexpected exception, so the monitor thread cannot die.
 - `poll_once(initial=True)` always builds. A missing `.supply` directory on initial hydration is
   the legitimate empty state (empty lists/maps, default schema).
 
@@ -270,6 +278,7 @@ comment order; deletes hide the item or comment.
 |---|---|
 | Initial server build fails | Feed not started; socket sends `not_running`; tablets read files |
 | Torn/corrupt supply file on server | Last good document retained; retried next poll |
+| Build keeps failing, or tree unreadable, for ~30 s | Service unregistered; tablets get `not_running` and read files; re-registered on the next good build |
 | Server unreachable / VPN down | Client backs off to 30 s; tablet reads files throughout |
 | Socket drops mid-session | Store clears live state, one fallback scan runs, client reconnects and gets a fresh snapshot |
 | Hours Tracker restarts (revision resets to 0) | New connection starts with a new snapshot; revision checks are per connection |

@@ -40,6 +40,9 @@ class SupplyRepository(
         return runCatching { gson.fromJson(file.readText(), object : TypeToken<T>() {}.type) as T }.getOrNull()
     }
 
+    private fun readStoredItem(file: File): StoredSupplyItem? =
+        readJson<StoredSupplyItem>(file)?.let { normalizeStoredItem(it) }
+
     // ── Status resolution ─────────────────────────────────────────────────────
 
     private fun resolveStatus(itemId: String): SupplyStatusRecord {
@@ -92,7 +95,7 @@ class SupplyRepository(
         val statusFiles = statusDir.listFiles()?.toList().orEmpty()
         return itemsDir.listFiles { f -> f.extension == "json" && !f.name.contains(".sync-conflict-") }
             ?.mapNotNull { file ->
-                val stored = readJson<StoredSupplyItem>(file) ?: return@mapNotNull null
+                val stored = readStoredItem(file) ?: return@mapNotNull null
                 stored.resolveWith(resolveStatusFrom(stored.id, statusFiles))
             }
             ?: emptyList()
@@ -100,7 +103,7 @@ class SupplyRepository(
 
     fun getItem(itemId: String): SupplyItem? {
         liveStore.view()?.let { return it.item(itemId) }
-        return readJson<StoredSupplyItem>(File(itemsDir, "$itemId.json"))?.resolve()
+        return readStoredItem(File(itemsDir, "$itemId.json"))?.resolve()
     }
 
     fun getComments(itemId: String): List<SupplyComment> {
@@ -192,7 +195,7 @@ class SupplyRepository(
         customFields: Map<String, String>? = null
     ): SupplyItem? {
         val file = File(itemsDir, "$itemId.json")
-        val existing = readJson<StoredSupplyItem>(file) ?: return null
+        val existing = readStoredItem(file) ?: return null
         val updated = existing.copy(
             name = name, categoryId = categoryId,
             notes = notes?.takeIf { it.isNotBlank() },
@@ -210,7 +213,7 @@ class SupplyRepository(
 
     fun addAttachment(itemId: String, attachment: SupplyAttachment, sourceFile: File): SupplyItem? {
         val itemFile = File(itemsDir, "$itemId.json")
-        val existing = readJson<StoredSupplyItem>(itemFile) ?: return null
+        val existing = readStoredItem(itemFile) ?: return null
         val destDir = File(supplyDir, "attachments/$itemId")
         destDir.mkdirs()
         sourceFile.copyTo(File(destDir, attachment.storedName), overwrite = true)
@@ -230,7 +233,7 @@ class SupplyRepository(
 
     fun updateItemBarcodes(itemId: String, barcodes: List<String>): SupplyItem? {
         val file = File(itemsDir, "$itemId.json")
-        val existing = readJson<StoredSupplyItem>(file) ?: return null
+        val existing = readStoredItem(file) ?: return null
         val updated = existing.copy(
             barcodes = barcodes,
             updatedAt = java.time.Instant.now().toString()
@@ -280,6 +283,29 @@ class SupplyRepository(
         // Latest-wins by parsed instant, with the raw string as a stable tiebreak.
         internal val SUPPLY_STATUS_RECENCY: Comparator<SupplyStatusRecord> =
             compareBy({ parseInstantOrMin(it.at) }, { it.at })
+
+        private fun <T> nullable(value: T): T? = value
+
+        /**
+         * The no-arg constructor makes Gson apply defaults for ABSENT keys, but an explicit JSON
+         * `null` (e.g. `"fields": null` from an admin PATCH) still lands as null in these non-null
+         * properties and NPEs in copy()/resolve. Normalize once after reading; null id = unusable.
+         */
+        internal fun normalizeStoredItem(stored: StoredSupplyItem): StoredSupplyItem? {
+            val id = nullable(stored.id) ?: return null
+            return StoredSupplyItem(
+                id = id,
+                categoryId = nullable(stored.categoryId) ?: "",
+                name = nullable(stored.name) ?: "",
+                notes = stored.notes,
+                fields = nullable(stored.fields) ?: emptyMap(),
+                customFields = nullable(stored.customFields) ?: emptyMap(),
+                attachmentIds = nullable(stored.attachmentIds) ?: emptyList(),
+                barcodes = nullable(stored.barcodes) ?: emptyList(),
+                createdAt = nullable(stored.createdAt) ?: "",
+                updatedAt = nullable(stored.updatedAt) ?: ""
+            )
+        }
 
         /** Stored item + resolved status -> UI item. SKU is folded into barcodes (shared with the live overlay). */
         internal fun resolveStoredItem(stored: StoredSupplyItem, s: SupplyStatusRecord): SupplyItem {
