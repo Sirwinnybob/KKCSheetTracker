@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
  * pulsing edge glow, used identically across all 4 job screens so a highlighted row looks the same
  * everywhere. Callers gate [active] off after ~1.8s (see each screen's highlight LaunchedEffect);
  * the infinite animations here only exist while [active] is true, so nothing keeps animating
- * (or recomposing) once a row settles back to normal — same idle-cost pattern as RefreshIconButton.
+ * (or recomposing) once a row settles back to normal.
  *
  * No rotation, small amplitude, slow duration — shop tablets run at 0.5x system animation scale
  * and a fast/rotating effect read as a violent jiggle there; a few dp of vertical bounce reads as

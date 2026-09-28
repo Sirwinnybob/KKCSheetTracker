@@ -620,8 +620,14 @@ fun HardwoodsWorkspaceScreen(
     val totals = selectedDoc?.totals.orEmpty()
     var showRipCutList by rememberSaveable(jobFolderName) { mutableStateOf(isRipCutEntry) }
     var selectedRipSource: BoardStockSource? by rememberSaveable(jobFolderName) { mutableStateOf(null) }
-    val useDoorPanelsSheetFilter = rememberSaveable(jobFolderName) {
-        mutableStateOf(isDoorPanelsEntry)
+    // Specialty entries default to the plywood (sheet) door parts, hardwoods entries to the rest.
+    val defaultDoorCutMaterialFilter = if (hiddenMaterialsMode == HiddenMaterialsMode.SPECIALTY) {
+        DoorCutMaterialFilter.Plywood
+    } else {
+        DoorCutMaterialFilter.Hardwood
+    }
+    var doorCutMaterialFilter by rememberSaveable(jobFolderName) {
+        mutableStateOf(defaultDoorCutMaterialFilter)
     }
     var doorPanelGroupMode by rememberSaveable(jobFolderName) {
         mutableStateOf(DoorPanelGroupMode.ByMaterial)
@@ -645,47 +651,43 @@ fun HardwoodsWorkspaceScreen(
     val rows = remember(
         rawRows,
         selectedDocType,
-        useDoorPanelsSheetFilter.value,
+        doorCutMaterialFilter,
         rawCutlistIndexJson
     ) {
-        applyDoorPanelsSheetFilter(
+        applyDoorCutMaterialFilter(
             rows = rawRows,
             selectedDocType = selectedDocType,
-            enabled = useDoorPanelsSheetFilter.value,
+            filter = doorCutMaterialFilter,
             rawCutlistIndexJson = rawCutlistIndexJson ?: ""
         )
     }
     var showChangedOnly by rememberSaveable(jobFolderName) { mutableStateOf(false) }
     var isClassicView by rememberSaveable(jobFolderName) { mutableStateOf(false) }
+    // The Hardwood/Plywood filter is not reset here: it starts at the entry mode's default and
+    // the operator's toggle survives returning from other screens.
     LaunchedEffect(jobFolderName, initialDocType, initialRowId) {
         when {
             isDoorPanelsEntry -> {
-                // Door Panels must always enter on DOOR_CUT_LIST with sheet filter on.
+                // Door Panels must always enter on DOOR_CUT_LIST.
                 selectedDocType = initialDocType
                 showRipCutList = false
                 showChangedOnly = false
-                useDoorPanelsSheetFilter.value = true
             }
             isSawRipEntry -> {
                 selectedDocType = initialDocType
                 showRipCutList = true
+                // Specialty entry lands on the sheet stock items; other rip lists stay one tab away.
+                selectedRipSource = BoardStockSource.MANUAL
                 showChangedOnly = false
-                useDoorPanelsSheetFilter.value = false
             }
             isRipCutEntry -> {
                 selectedDocType = initialDocType
                 showRipCutList = true
                 showChangedOnly = false
-                useDoorPanelsSheetFilter.value = false
-            }
-            else -> {
-                if (useDoorPanelsSheetFilter.value) {
-                    useDoorPanelsSheetFilter.value = false
-                }
             }
         }
     }
-    val isDoorPanelsActive = useDoorPanelsSheetFilter.value
+    val isDoorCutListView = selectedDocType == HardwoodDocType.DOOR_CUT_LIST
 
     // Bundles four engine()/disk-backed reads (row progress, revision history, skipped
     // cabinets, rip-10 totals) into one background load instead of four separate
@@ -866,11 +868,11 @@ fun HardwoodsWorkspaceScreen(
                 ?: ""
         }
     }
-    val partSections = remember(rows, totals, isDoorPanelsActive, doorPanelGroupMode, cabinetToRoom) {
+    val partSections = remember(rows, totals, isDoorCutListView, doorPanelGroupMode, cabinetToRoom) {
         when {
-            isDoorPanelsActive && doorPanelGroupMode == DoorPanelGroupMode.ByCabinet ->
+            isDoorCutListView && doorPanelGroupMode == DoorPanelGroupMode.ByCabinet ->
                 buildCabinetSections(rows)
-            isDoorPanelsActive && doorPanelGroupMode == DoorPanelGroupMode.ByRoom ->
+            isDoorCutListView && doorPanelGroupMode == DoorPanelGroupMode.ByRoom ->
                 buildRoomSections(rows, cabinetToRoom)
             else ->
                 buildHardwoodsPartSections(rows, totals, HardwoodsRowSortMode.CutlistOrder)
@@ -1418,7 +1420,7 @@ fun HardwoodsWorkspaceScreen(
                     thickness = 1.dp,
                     modifier = Modifier.fillMaxWidth()
                 )
-                if (isDoorPanelsActive) {
+                if (isDoorCutListView && !showRipCutList && selectedDoc != null) {
                     Spacer(Modifier.height(2.dp))
                     Row(
                         modifier = Modifier
@@ -1443,6 +1445,19 @@ fun HardwoodsWorkspaceScreen(
                                     },
                                     isSelected = doorPanelGroupMode == mode,
                                     onClick = { doorPanelGroupMode = mode }
+                                )
+                            }
+                        )
+                        Spacer(Modifier.weight(1f))
+                        KKCSlidingPillRow(
+                            options = DoorCutMaterialFilter.entries.map { filter ->
+                                KKCPillOption(
+                                    label = when (filter) {
+                                        DoorCutMaterialFilter.Hardwood -> "Hardwood"
+                                        DoorCutMaterialFilter.Plywood -> "Plywood"
+                                    },
+                                    isSelected = doorCutMaterialFilter == filter,
+                                    onClick = { doorCutMaterialFilter = filter }
                                 )
                             }
                         )
@@ -1484,7 +1499,6 @@ fun HardwoodsWorkspaceScreen(
                         sheetRipDone = sheetRipDone,
                         isSawRipEntry = isSawRipEntry,
                         totalsDoneMap = totalsDoneMap,
-                        hideSections = isSawRipEntry,
                         sectionTitle = if (isSawRipEntry) "Rip List" else "Board Stock",
                         onPreviewMolding = { previewMoldingItem = it },
                         modifier = Modifier.fillMaxSize()
@@ -2696,7 +2710,6 @@ private fun HardwoodsBoardStockList(
     totalsDoneMap: Map<String, Int>,
     modifier: Modifier = Modifier,
     adminItems: List<AdminBoardStockItem> = emptyList(),
-    hideSections: Boolean = false,
     sectionTitle: String = "Board Stock",
     onPreviewMolding: ((AdminBoardStockItem) -> Unit)? = null,
     selectedSource: BoardStockSource? = null
@@ -3038,7 +3051,7 @@ private fun HardwoodsBoardStockList(
                 }
             }
         }
-        if (!hideSections) sectionsToShow.forEach { sourceSection ->
+        sectionsToShow.forEach { sourceSection ->
             val sourceKey = sourceSection.source.name
             if (selectedSource == null) {
                 stickyHeader(key = "source-label:$sourceKey") {
@@ -3448,18 +3461,23 @@ private fun formatLinearFeet(value: Double): String {
     return "%.3f".format(safe).trimEnd('0').trimEnd('.')
 }
 
-internal fun applyDoorPanelsSheetFilter(
+internal fun applyDoorCutMaterialFilter(
     rows: List<HardwoodCutlistRow>,
     selectedDocType: HardwoodDocType,
-    enabled: Boolean,
+    filter: DoorCutMaterialFilter,
     rawCutlistIndexJson: String?
 ): List<HardwoodCutlistRow> {
-    if (!enabled || selectedDocType != HardwoodDocType.DOOR_CUT_LIST) return rows
+    if (selectedDocType != HardwoodDocType.DOOR_CUT_LIST) return rows
     val metadata = parseDoorCutUnitTypeMetadata(rawCutlistIndexJson)
-    return if (metadata.hasUnitTypeMetadata) {
-        filterDoorCutRowsToSheets(rows, metadata)
-    } else {
-        rows
+    // Without unit-type metadata sheet rows can't be told apart, so both filters show everything.
+    if (!metadata.hasUnitTypeMetadata) return rows
+    val sheetRows = filterDoorCutRowsToSheets(rows, metadata)
+    return when (filter) {
+        DoorCutMaterialFilter.Plywood -> sheetRows
+        DoorCutMaterialFilter.Hardwood -> {
+            val sheetRowSet = sheetRows.toHashSet()
+            rows.filterNot { it in sheetRowSet }
+        }
     }
 }
 

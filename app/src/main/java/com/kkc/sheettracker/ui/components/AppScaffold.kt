@@ -893,7 +893,7 @@ fun TopBarClock(modifier: Modifier = Modifier) {
         }
     }
     Box(
-        modifier = modifier.padding(horizontal = 16.dp),
+        modifier = modifier.kkcTopBarItem("clock").padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(

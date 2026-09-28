@@ -1,10 +1,6 @@
 package com.kkc.sheettracker.ui.components
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -17,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -40,37 +35,6 @@ import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import com.kkc.sheettracker.ui.theme.KKCAlpha
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
-
-/**
- * Refresh icon button that spins continuously while [loading] is true. The infinite animation
- * only exists while spinning — gating it inside the `if` keeps the topbar icon fully idle
- * (no per-frame recomposition) the rest of the time, since this button is on-screen constantly.
- */
-@Composable
-fun RefreshIconButton(
-    loading: Boolean,
-    onClick: () -> Unit,
-    contentDescription: String = "Refresh"
-) {
-    IconButton(onClick = onClick) {
-        if (loading) {
-            val infiniteTransition = rememberInfiniteTransition(label = "refreshSpin")
-            val rotation by infiniteTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(animation = tween(900, easing = LinearEasing)),
-                label = "refreshRotation"
-            )
-            Icon(
-                Icons.Default.Refresh,
-                contentDescription = contentDescription,
-                modifier = Modifier.rotate(rotation)
-            )
-        } else {
-            Icon(Icons.Default.Refresh, contentDescription = contentDescription)
-        }
-    }
-}
 
 fun parseJobLabelColor(hex: String): Color = try {
     Color(android.graphics.Color.parseColor(hex))

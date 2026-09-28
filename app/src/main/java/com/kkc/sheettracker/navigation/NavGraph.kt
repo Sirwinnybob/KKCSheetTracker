@@ -140,6 +140,8 @@ import com.kkc.sheettracker.ui.components.AppBottomNavBar
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.LocalOnOpenSettings
 import com.kkc.sheettracker.ui.components.LocalHasPendingUpdates
+import com.kkc.sheettracker.ui.components.LocalKKCTopBarSharedScope
+import com.kkc.sheettracker.ui.components.ProvideKKCTopBarRoute
 import com.kkc.sheettracker.ui.components.NavBarDecorationState
 import com.kkc.sheettracker.ui.components.CalculatorOverlayHost
 import com.kkc.sheettracker.ui.components.ClockInOverlay
@@ -2897,6 +2899,7 @@ private fun LegacySingleStackNavigation(
                         .padding(top = paddingValues.calculateTopPadding())
                 ) {
                 SharedTransitionLayout {
+                CompositionLocalProvider(LocalKKCTopBarSharedScope provides this@SharedTransitionLayout) {
                     NavHost(
                         navController = navController,
                         startDestination = startRoute,
@@ -2926,7 +2929,7 @@ private fun LegacySingleStackNavigation(
                             ) + fadeOut(animationSpec = tween(200))
                         }
                     ) {
-                    composable("dashboard") {
+                    composable("dashboard") { ProvideKKCTopBarRoute {
                         if (flexibleModeEnabled) {
                             val context = LocalContext.current
                             val dashPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
@@ -3050,9 +3053,9 @@ private fun LegacySingleStackNavigation(
                                 }
                             }
                         }
-                    }
+                    } }
 
-                    composable("jobs") {
+                    composable("jobs") { ProvideKKCTopBarRoute {
                         val cncSpec = com.kkc.sheettracker.ui.jobs.rememberCncJobsSpec(
                             scanCoordinator = scanCoordinator,
                             appStateStore = appStateStore,
@@ -3176,7 +3179,7 @@ private fun LegacySingleStackNavigation(
                             selectedFlexMode = flexMode,
                             onFlexModeSelected = { flexMode = it }
                         )
-                    }
+                    } }
 
                 composable(
                     "job/{folderName}",
@@ -3703,7 +3706,7 @@ private fun LegacySingleStackNavigation(
                     )
                 }
 
-                composable("search") {
+                composable("search") { ProvideKKCTopBarRoute {
                     when (workMode) {
                         WorkMode.CNC -> {
                             SearchScreen(
@@ -3760,7 +3763,7 @@ private fun LegacySingleStackNavigation(
                             )
                         }
                     }
-                }
+                } }
 
                 composable("hours") {
                     val context = LocalContext.current
@@ -3802,7 +3805,7 @@ private fun LegacySingleStackNavigation(
                     TimecardScreen(store = legacyTimecardStore)
                 }
 
-                composable("supply") {
+                composable("supply") { ProvideKKCTopBarRoute {
                     SupplyTabHost(
                         navController = rememberNavController(),
                         basePath = basePath,
@@ -3811,9 +3814,9 @@ private fun LegacySingleStackNavigation(
                         subscriptionManager = supplySubscriptionManager,
                         active = (currentNavDest == NavDestination.SUPPLY)
                     )
-                }
+                } }
 
-                composable("settings") {
+                composable("settings") { ProvideKKCTopBarRoute {
                     SettingsScreen(
                         tabletId = tabletId,
                         basePath = basePath,
@@ -3867,7 +3870,7 @@ private fun LegacySingleStackNavigation(
                         uiPreferencesStore = UiPreferencesStore(LocalContext.current),
                         idlePowerSaveStore = IdlePowerSaveStore(LocalContext.current),
                     )
-                }
+                } }
 
                 composable("settings/assemblyViewerDefaults") {
                     AssemblyViewerDefaultsScreen(
@@ -3941,6 +3944,7 @@ private fun LegacySingleStackNavigation(
                 }
 
                 }
+                } // CompositionLocalProvider(LocalKKCTopBarSharedScope)
                 }
 
                 if (showHoursLoginDialog) {

@@ -41,7 +41,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
-import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import androidx.compose.runtime.Composable
@@ -71,7 +70,6 @@ import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodJob
 import com.kkc.sheettracker.data.models.HardwoodJobSummary
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
-import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
@@ -177,15 +175,8 @@ fun HardwoodsDashboardScreen(
                         "Hardwoods Dashboard",
                         style = MaterialTheme.typography.titleMedium
                     )
-                },
-                
-                actions = {
-                    RefreshIconButton(
-                        loading = scanState.status == ScanStatus.LOADING,
-                        onClick = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
-                    )
-                },
-                )
+                }
+            )
         }
     ) { padding ->
         if (loading) {

@@ -69,6 +69,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -502,13 +510,16 @@ internal fun SpecialtyJobDetailScreen(
                     ) {
                         val isDark = LocalKKCIsDarkTheme.current
                         val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
-                        Surface(
-                            shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
-                            color = backdropColor,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                        val isLast = index == sheetRipEntries.lastIndex
+                        Box(
                             modifier = Modifier
+                                .padding(bottom = if (isLast) 8.dp else 0.dp)
                                 .fillMaxWidth()
-                                .padding(bottom = 8.dp)
+                                .specialtySectionBackdrop(
+                                    color = backdropColor,
+                                    borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                    isLast = isLast
+                                )
                         ) {
                             SpecialtySheetRipRow(
                                 item = item,
@@ -538,6 +549,9 @@ internal fun SpecialtyJobDetailScreen(
                     val sectionKey = section.id
                     val sectionDone = section.items.count { isChecklistItemComplete(it, completionOverrides) }
                     val sectionExpanded = section.id in activeExpandedSectionIds
+                    // Match the station bar colors on the job list cards.
+                    val sectionTint = if (section.id == SPECIALTY_VIEWER_SECTION_ID_OTHER) null
+                                      else stationBarColor(section.id)
 
                     item(key = "section-$sectionKey-spacing") {
                         Spacer(Modifier.height(12.dp))
@@ -556,9 +570,7 @@ internal fun SpecialtyJobDetailScreen(
                                 )
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            // Match the station bar colors on the job list cards.
-                            tintColor = if (section.id == SPECIALTY_VIEWER_SECTION_ID_OTHER) null
-                                        else stationBarColor(section.id)
+                            tintColor = sectionTint
                         )
                     }
 
@@ -572,14 +584,24 @@ internal fun SpecialtyJobDetailScreen(
                             exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
                         ) {
                             val isDark = LocalKKCIsDarkTheme.current
-                            val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
-                            Surface(
-                                shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
-                                color = backdropColor,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                            val baseBackdrop = if (isDark) Color(0xFF22252A) else Color.White
+                            // Faint wash of the section color, continuing the header's gradient.
+                            val backdropColor = sectionTint
+                                ?.copy(alpha = if (isDark) 0.12f else 0.05f)
+                                ?.compositeOver(baseBackdrop)
+                                ?: baseBackdrop
+                            val backdropBorder = sectionTint?.copy(alpha = 0.35f)
+                                ?: MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                            val isLast = index == sectionEntries.lastIndex
+                            Box(
                                 modifier = Modifier
+                                    .padding(bottom = if (isLast) 8.dp else 0.dp)
                                     .fillMaxWidth()
-                                    .padding(bottom = 8.dp)
+                                    .specialtySectionBackdrop(
+                                        color = backdropColor,
+                                        borderColor = backdropBorder,
+                                        isLast = isLast
+                                    )
                             ) {
                                 Column(
                                     modifier = Modifier.padding(
@@ -964,7 +986,9 @@ internal fun SpecialtyChecklistRow(
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                 )
             }
-            orderedStations.forEach { station ->
+            // Station checkboxes already name each station (and the section header names a
+            // single-station row), so the chips only show when there is nothing to check.
+            if (toggles.isEmpty()) orderedStations.forEach { station ->
                 val chip = stationChipSpec(station)
                 StatusChip(
                     text = chip.label,
@@ -1200,6 +1224,57 @@ internal fun specialtyItemTitle(cabinetLabel: String?, cabinetNumbers: List<Stri
         if (cab.startsWith("#")) cab else "#$cab"
     }
     return "$cabinetLabel - $name"
+}
+
+/**
+ * One slice of a section's shared backdrop. Each lazy row draws its own slice so the rows
+ * read as a single connected panel under the sticky header: sides always, and the rounded
+ * bottom edge only on the last row. The top stays open because the header sits above it.
+ */
+private fun Modifier.specialtySectionBackdrop(
+    color: Color,
+    borderColor: Color,
+    isLast: Boolean,
+    cornerRadius: Dp = 10.dp,
+    borderWidth: Dp = 3.dp
+): Modifier = drawBehind {
+    val stroke = borderWidth.toPx()
+    val half = stroke / 2f
+    val w = size.width
+    val h = size.height
+    val r = if (isLast) cornerRadius.toPx().coerceAtMost(h / 2f) else 0f
+    val corner = CornerRadius(r, r)
+    drawPath(
+        path = Path().apply {
+            addRoundRect(
+                RoundRect(
+                    left = 0f, top = 0f, right = w, bottom = h,
+                    topLeftCornerRadius = CornerRadius.Zero,
+                    topRightCornerRadius = CornerRadius.Zero,
+                    bottomRightCornerRadius = corner,
+                    bottomLeftCornerRadius = corner
+                )
+            )
+        },
+        color = color
+    )
+    val outline = Path().apply {
+        if (isLast) {
+            val ir = (r - half).coerceAtLeast(0f)
+            moveTo(half, 0f)
+            lineTo(half, h - half - ir)
+            arcTo(Rect(half, h - half - 2 * ir, half + 2 * ir, h - half), 180f, -90f, false)
+            lineTo(w - half - ir, h - half)
+            arcTo(Rect(w - half - 2 * ir, h - half - 2 * ir, w - half, h - half), 90f, -90f, false)
+            lineTo(w - half, 0f)
+        } else {
+            moveTo(half, 0f)
+            lineTo(half, h)
+            moveTo(w - half, 0f)
+            lineTo(w - half, h)
+        }
+    }
+    drawPath(path = outline, color = borderColor, style = Stroke(width = stroke))
 }
 
 internal data class SpecialtyLazyRowEntry<T>(

@@ -451,7 +451,6 @@ fun SupplyDashboardScreen(
         emptyMessage = "No supply data is available yet.",
         hasContent = !isLoading && errorMessage == null && (items.isNotEmpty() || categories.isNotEmpty() || notifications.isNotEmpty()),
         scrollable = false,
-        onRefresh = { scope.launch { loadData(); reloadUpdates() } },
         topBarActions = {
             Box {
                 IconButton(onClick = { showOverflowMenu = true }) {

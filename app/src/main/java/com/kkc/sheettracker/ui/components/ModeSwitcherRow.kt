@@ -31,5 +31,9 @@ fun ModeSwitcherRow(
             )
         }
     }
-    KKCSlidingPillRow(options = options, modifier = modifier.padding(end = 4.dp), persistKey = persistKey)
+    KKCSlidingPillRow(
+        options = options,
+        modifier = modifier.kkcTopBarItem("mode-switcher").padding(end = 4.dp),
+        persistKey = persistKey
+    )
 }

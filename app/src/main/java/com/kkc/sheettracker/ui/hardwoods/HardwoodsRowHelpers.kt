@@ -16,11 +16,17 @@ enum class HardwoodsRowSortMode {
     WidthAscLengthAsc
 }
 
-/** Groups for the Door Panels view only. */
+/** Groups for the Door Cut List view only. */
 enum class DoorPanelGroupMode {
     ByMaterial,
     ByCabinet,
     ByRoom
+}
+
+/** Door Cut List material filter: Plywood = SHEET unit-type rows (door panels), Hardwood = everything else. */
+enum class DoorCutMaterialFilter {
+    Hardwood,
+    Plywood
 }
 
 fun List<HardwoodCutlistRow>.sortedFor(mode: HardwoodsRowSortMode): List<HardwoodCutlistRow> {

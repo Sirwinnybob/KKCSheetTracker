@@ -6,7 +6,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.snap
@@ -111,7 +110,6 @@ import com.kkc.sheettracker.ui.components.KKCBrandedTitle
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
-import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.animateEntrance
 import com.kkc.sheettracker.ui.components.mergeActiveReorder
@@ -129,6 +127,9 @@ import java.io.File
  * Pinning copies a card: the grid original keeps its schedule spot, the pinned copy fades in above
  * the grid, and every other grid item (headers, dividers, cards) springs to its new position.
  * Low-end mode (animations off) gets no item motion at all.
+ *
+ * No `animateContentSize` here: it always `clipToBounds()`, and this modifier sits before the
+ * card's `kkcCardDepth`, so it would clip the card's shadow away entirely.
  */
 private fun LazyGridItemScope.gridItemMotion(enabled: Boolean): Modifier =
     if (enabled) {
@@ -140,7 +141,6 @@ private fun LazyGridItemScope.gridItemMotion(enabled: Boolean): Modifier =
                     visibilityThreshold = IntOffset.VisibilityThreshold
                 )
             )
-            .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessLow))
     } else {
         Modifier
     }
@@ -439,10 +439,6 @@ fun UnifiedJobsScreen(
                             onSelect = onFlexModeSelected
                         )
                     }
-                    RefreshIconButton(
-                        loading = scanStatus == ScanStatus.LOADING,
-                        onClick = { spec.refresh(RefreshReason.USER_REFRESH, force = true) }
-                    )
                     // Cycles List -> Grid (job cards) -> Thumbnails (delivery sheets) -> List.
                     // The icon shows the view the next tap switches to.
                     IconButton(

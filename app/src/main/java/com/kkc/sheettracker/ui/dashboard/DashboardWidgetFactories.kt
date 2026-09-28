@@ -64,7 +64,6 @@ import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.ui.components.KKCBrandedTitle
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.MarkdownText
-import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.headerBackground
@@ -387,10 +386,9 @@ fun DashboardShell(
     title: String,
     subtitle: String? = null,
     loading: Boolean,
-    /** False hides the full-width progress bar (the refresh button still spins while loading). */
+    /** False hides the full-width progress bar while loading. */
     showLoadingBar: Boolean = true,
     errorMessage: String? = null,
-    onRefresh: (() -> Unit)? = null,
     emptyMessage: String? = null,
     hasContent: Boolean = true,
     scrollable: Boolean = true,
@@ -409,9 +407,6 @@ fun DashboardShell(
                     }
                 },
                 actions = {
-                    if (onRefresh != null) {
-                        RefreshIconButton(loading = loading, onClick = onRefresh)
-                    }
                     topBarActions()
                     TopBarClock()
                 },

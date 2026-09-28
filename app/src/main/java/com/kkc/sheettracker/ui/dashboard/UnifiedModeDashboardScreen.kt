@@ -5,7 +5,6 @@ import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -78,7 +77,6 @@ import com.kkc.sheettracker.data.models.HardwoodScanState
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.JobMaterialKey
 import com.kkc.sheettracker.data.models.MaterialUiModel
-import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SheetStatusKey
@@ -227,7 +225,6 @@ private fun CncDashboardContent(
         errorMessage = scanState.errorMessage ?: appUiState.errorMessage,
         emptyMessage = "No CNC dashboard widgets are available yet.",
         hasContent = widgets.isNotEmpty(),
-        onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) },
         topBarActions = { modeSwitcher?.invoke(this) }
     ) {
         DashboardWidgetRenderer(
@@ -349,13 +346,14 @@ private fun CncRecentMaterialsSection(
     jobRepository: JobRepository,
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
 ) {
-    val lowEnd = LocalLowEndMode.current
     DashboardSurfaceCard {
         DashboardSectionHeader(
             title = "Recent In-Progress Materials",
             subtitle = if (items.isEmpty()) null else "${items.size} recent material${if (items.size == 1) "" else "s"}"
         )
-        Box(modifier = if (lowEnd.animationsDisabled) Modifier else Modifier.animateContentSize()) {
+        // No animateContentSize: it always clipToBounds(), which cuts the material cards'
+        // shadows and defeats scrollShadowBleed below.
+        Box {
             when {
                 !hasLoadedOnce -> {
                     Row(
@@ -865,7 +863,6 @@ private fun HardwoodsDashboardContent(
         errorMessage = scanState.errorMessage,
         emptyMessage = "No hardwood jobs are available yet.",
         hasContent = jobInfos.isNotEmpty(),
-        onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) },
         topBarActions = { modeSwitcher?.invoke(this) }
     ) {
         DashboardWidgetRenderer(
@@ -929,8 +926,7 @@ private fun AssemblyDashboardContent(
         loading = scanState.status == ScanStatus.LOADING,
         errorMessage = scanState.errorMessage,
         emptyMessage = "No assembly jobs are available yet.",
-        hasContent = cardItems.isNotEmpty(),
-        onRefresh = { scanCoordinator.refresh(RefreshReason.USER_REFRESH, force = true) }
+        hasContent = cardItems.isNotEmpty()
     ) {
         DashboardWidgetRenderer(
             widgets = widgets,
@@ -1006,8 +1002,7 @@ private fun SpecialtyDashboardContent(
         loading = scanState.status == ScanStatus.LOADING,
         errorMessage = scanState.errorMessage,
         emptyMessage = "No specialty jobs are available yet.",
-        hasContent = jobs.isNotEmpty() || inProgressItems.isNotEmpty() || recentJobs.isNotEmpty(),
-        onRefresh = { specialtyStateStore.refresh(RefreshReason.USER_REFRESH, force = true) }
+        hasContent = jobs.isNotEmpty() || inProgressItems.isNotEmpty() || recentJobs.isNotEmpty()
     ) {
         DashboardWidgetRenderer(
             widgets = widgets,

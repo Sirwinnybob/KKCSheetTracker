@@ -61,7 +61,7 @@ fun KKCBrandedTitle(modifier: Modifier = Modifier) {
     val tokens = LocalKKCThemeTokens.current
     val header = tokens.header
     val kind = resolveBrandedTitleKind(header)
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = modifier.kkcTopBarItem("branded-title"), verticalAlignment = Alignment.CenterVertically) {
         val surface = MaterialTheme.colorScheme.surface
         val headerColor = MaterialTheme.colorScheme.primary
             .copy(alpha = tokens.surface.headerTintAlpha)

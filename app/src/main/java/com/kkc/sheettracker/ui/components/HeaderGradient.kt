@@ -1,6 +1,11 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
@@ -11,7 +16,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
@@ -49,6 +56,74 @@ val LocalOnOpenSettings = staticCompositionLocalOf<() -> Unit> { {} }
  * sites get it without each one needing its own parameter. Defaults to false outside that provider.
  */
 val LocalHasPendingUpdates = staticCompositionLocalOf { false }
+
+/**
+ * Shared-transition scope wrapping the root `NavHost`. Together with [LocalKKCTopBarRouteScope]
+ * it lets [KKCTopAppBar] stay pinned while routes slide beneath it: the background is a shared
+ * element (identical on every screen, so it never visibly moves) and the title/actions crossfade
+ * between screens. Null outside that `NavHost` — the bar then renders as a plain in-place header.
+ */
+val LocalKKCTopBarSharedScope = staticCompositionLocalOf<SharedTransitionScope?> { null }
+
+/**
+ * The route's `AnimatedVisibilityScope`, provided per top-level tab via [ProvideKKCTopBarRoute].
+ * Routes that don't provide it keep the old behavior (header slides with the screen).
+ */
+val LocalKKCTopBarRouteScope = staticCompositionLocalOf<AnimatedVisibilityScope?> { null }
+
+/** Opts a `composable(...)` route's [KKCTopAppBar] into the pinned/morphing header transition. */
+@Composable
+fun AnimatedVisibilityScope.ProvideKKCTopBarRoute(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalKKCTopBarRouteScope provides this, content = content)
+}
+
+/** True inside [KKCTopAppBar]'s title/actions, so shared components only tag their top-bar instance. */
+private val LocalInKKCTopBar = staticCompositionLocalOf { false }
+
+/**
+ * Tags a top-bar item (refresh, clock, mode switcher, ...) so that when the incoming screen's bar
+ * has the same item it glides from its old spot to its new one. Items without a match on the other
+ * screen stay in the bar's crossfading content layer. No-op outside [KKCTopAppBar] or outside an
+ * opted-in route.
+ */
+@Composable
+fun Modifier.kkcTopBarItem(key: String): Modifier =
+    if (LocalInKKCTopBar.current) {
+        then(kkcTopBarShared("kkc-top-bar-item:$key", zIndex = 3f, crossfade = false))
+    } else {
+        this
+    }
+
+/**
+ * `sharedElement` (target only — matched items move, no double-draw dimming) or `sharedBounds`
+ * (both screens drawn, crossfading). Empty outside an opted-in route.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun kkcTopBarShared(
+    key: String,
+    zIndex: Float,
+    crossfade: Boolean,
+    anchorStart: Boolean = false
+): Modifier {
+    val sharedScope = LocalKKCTopBarSharedScope.current ?: return Modifier
+    val routeScope = LocalKKCTopBarRouteScope.current ?: return Modifier
+    return with(sharedScope) {
+        val state = rememberSharedContentState(key = key)
+        when {
+            !crossfade -> Modifier.sharedElement(state, routeScope, zIndexInOverlay = zIndex)
+            // Titles differ in width ("Settings" vs the logo); don't stretch them to the animating
+            // bounds — keep each at natural size, pinned to the leading edge.
+            anchorStart -> Modifier.sharedBounds(
+                state,
+                routeScope,
+                resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(ContentScale.None, Alignment.CenterStart),
+                zIndexInOverlay = zIndex
+            )
+            else -> Modifier.sharedBounds(state, routeScope, zIndexInOverlay = zIndex)
+        }
+    }
+}
 
 /**
  * Very slight blue wash used as the background of every screen's [androidx.compose.material3.TopAppBar]
@@ -113,7 +188,7 @@ fun Modifier.headerBackground(): Modifier {
  * elevation automatically. Prevents code duplication and ensures a consistent visual style
  * across all shop floor and administration screens.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun KKCTopAppBar(
     title: @Composable () -> Unit,
@@ -128,26 +203,51 @@ fun KKCTopAppBar(
 ) {
     val onOpenSettings = LocalOnOpenSettings.current
     val hasPendingUpdates = LocalHasPendingUpdates.current
-    TopAppBar(
-        title = title,
-        modifier = modifier
-            .headerBackground()
-            .shadow(elevation = 2.dp, clip = false),
-        navigationIcon = navigationIcon,
-        actions = {
-            actions()
-            BatteryIndicator()
-            IconButton(onClick = onOpenSettings) {
-                if (hasPendingUpdates) {
-                    BadgedBox(badge = { Badge {} }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
-                    }
-                } else {
-                    Icon(Icons.Filled.Settings, contentDescription = "Settings")
+    // Layers during a route transition (overlay z-order, bottom to top):
+    //  0 background — target-only shared element; every screen paints the same header art, so
+    //    the swap is invisible and the bar reads as static.
+    //  1 content    — both screens' title/actions in the same bounds, crossfading; covers items
+    //    only one screen has.
+    //  2 title      — crossfades and slides if the title slot moves.
+    //  3 items      — [kkcTopBarItem]-tagged items present on both screens glide to their new spot.
+    // Background is a sibling, not a parent: a sharedElement parent hides the outgoing screen's
+    // subtree, which would stop its title/actions from crossfading out.
+    val backgroundShared = kkcTopBarShared("kkc-top-bar-background", zIndex = 0f, crossfade = false)
+    val contentShared = kkcTopBarShared("kkc-top-bar-content", zIndex = 1f, crossfade = true)
+    val titleShared = kkcTopBarShared("kkc-top-bar-title", zIndex = 2f, crossfade = true, anchorStart = true)
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .then(backgroundShared)
+                .headerBackground()
+                .shadow(elevation = 2.dp, clip = false)
+        )
+        TopAppBar(
+            title = {
+                CompositionLocalProvider(LocalInKKCTopBar provides true) {
+                    Box(modifier = titleShared) { title() }
                 }
-            }
-        },
-        windowInsets = windowInsets,
-        colors = colors
-    )
+            },
+            modifier = contentShared,
+            navigationIcon = navigationIcon,
+            actions = {
+                CompositionLocalProvider(LocalInKKCTopBar provides true) {
+                    actions()
+                    BatteryIndicator(modifier = Modifier.kkcTopBarItem("battery"))
+                    IconButton(onClick = onOpenSettings, modifier = Modifier.kkcTopBarItem("settings")) {
+                        if (hasPendingUpdates) {
+                            BadgedBox(badge = { Badge {} }) {
+                                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                            }
+                        } else {
+                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                        }
+                    }
+                }
+            },
+            windowInsets = windowInsets,
+            colors = colors
+        )
+    }
 }
