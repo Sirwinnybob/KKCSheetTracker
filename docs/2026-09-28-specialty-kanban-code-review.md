@@ -8,7 +8,7 @@ Paths are under `app/src/main/java/com/kkc/sheettracker/` unless given in full.
 ## Resolution
 
 Every finding below was addressed on `claude/code-review-ultra-9w4mpb` except C28. The app
-builds and the app module's UI and data unit tests pass; nothing was run on a tablet.
+builds, the debug APK assembles, and all 1,331 app unit tests pass; nothing was run on a tablet.
 
 | Findings | Commit |
 |---|---|
@@ -28,6 +28,9 @@ builds and the app module's UI and data unit tests pass; nothing was run on a ta
   history isn't worth it.
 - Also fixed on the branch: `SheetViewerScreenTest.resolveCncSidecarFile_keepsAbsolutePath` used a
   Windows-only absolute path and failed on Linux (`1131d82`, test only).
+- Also fixed: `SpecialtyScanCoordinatorTest.refreshDetectsTrackerSidecarChangeWithoutCacheIndexUpdate`
+  could assert before its second scan ran (it waited for a status that was already READY) and
+  failed under a loaded full test run; it now waits for the expected count (test only).
 
 ## Bugs
 
