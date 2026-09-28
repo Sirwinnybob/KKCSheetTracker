@@ -5,6 +5,30 @@ Nothing was built, run or fixed as part of this review.
 Paths are under `app/src/main/java/com/kkc/sheettracker/` unless given in full.
 **New** means introduced on this branch; **Pre-existing** means `main` already had it.
 
+## Resolution
+
+Every finding below was addressed on `claude/code-review-ultra-9w4mpb` except C28. The app
+builds and the app module's UI and data unit tests pass; nothing was run on a tablet.
+
+| Findings | Commit |
+|---|---|
+| B1, B1a, B1b, B1c, B2, B3, B4, B5, I10, P1, P7 | `fa36359` |
+| B6, B7, B8 | `3d286bd` |
+| I1–I5 (and C10) | `887279c` |
+| I6–I9 | `fe8ce8d` |
+| P3–P6, P8–P10, C6 | `73c7a8c` |
+| C1–C5, C7, C21, C22 | `d02123f` |
+| C14–C20 | `262dbbf` |
+| C8, C9, C11–C13, C23–C27 | `d2c8827` |
+| D1–D4 | the commit that added this table |
+
+- P2 needed no separate change: with P1 and P7, a tick recomposes only the cards whose state
+  changed and no longer recomposes the whole screen.
+- C28 is left as is: the version bump is already in the pushed commit `5e6d947`, and rewriting that
+  history isn't worth it.
+- Also fixed on the branch: `SheetViewerScreenTest.resolveCncSidecarFile_keepsAbsolutePath` used a
+  Windows-only absolute path and failed on Linux (`1131d82`, test only).
+
 ## Bugs
 
 | # | Where | Finding | Status |

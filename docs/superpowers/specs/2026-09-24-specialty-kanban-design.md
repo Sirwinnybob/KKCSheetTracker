@@ -1,7 +1,8 @@
 # Specialty Job Screen — Experimental Kanban Layout
 
 Date: 2026-09-24
-Status: Approved design, not implemented
+Status: Implemented (experimental). Where the shipped code differs, the "As built" section of
+the plan (`docs/superpowers/plans/2026-09-24-specialty-kanban.md`) is current.
 
 ## Goal
 
@@ -44,12 +45,13 @@ The top part does not scroll away; columns scroll vertically on their own.
   3. Other — last, only when there are station-less items.
 - Default collapsed-section settings are ignored; columns are always open.
 - Column data comes from the existing `buildSpecialtyDetailSections` (plus the sheet rip items).
-- Column header: solid bar in the station color from `stationBarColor` (same colors as the list
-  headers), white uppercase station name on the left, `done/total` on the right. Sheet Rips uses a
-  dark slate color; Other uses gray.
-- Columns are 260dp wide (about three visible in portrait) and fill the board height. Each column
-  is a vertical lazy list; its bottom content padding lets the last card clear the nav bar and the
-  Add Item decoration.
+- Column header: solid bar in the station color from `stationBarColor`, darkened
+  (`kanbanHeaderColor`) so the white uppercase station name on the left and `done/total` on the
+  right stay readable. Sheet Rips uses a dark slate color; Other uses gray.
+- Cards are 300dp wide, like the Supply board. Columns fill the board height and, like Supply
+  columns, spill into extra sub-columns instead of scrolling vertically (a card taller than its
+  column scrolls inside itself). The board stops 172dp above the bottom (the list's padding) so
+  cards clear the nav bar and the Add Item decoration, or above the keyboard when it is taller.
 - Horizontal board: plain scrolling row (non-lazy), same as the Supply board. Columns are built a
   few up front, then one per frame. Column positions and the active column come from the existing
   `SupplyBoardState` (`rememberSupplyBoardState`, `position()`, `activeKey()`, `scrollToColumn`).
@@ -62,16 +64,17 @@ The top part does not scroll away; columns scroll vertically on their own.
 
 Top to bottom:
 
+- The card has the list row's status border (in progress / complete).
 - Top row: the checkbox for this column's station on the left (filled with the station color when
-  checked); delete (red trash icon) in the top-right corner.
+  checked, labelled for screen readers); the To Order chip on the right for To Order items.
 - Title (e.g. `#26 - 3 Panel Island End`).
 - Step count (`1/3 steps complete`) and a thin progress bar in the station color.
 - Station dots: one small dot per other station the item needs, in that station's color; filled =
-  that station done, outline = not done. No station text tags.
-- Material, or Order Date — whichever the item has, same as the list row — cut to one line with
-  ellipsis.
+  that station done, outline = not done. No station text tags (screen readers get "Saw done" etc.).
+- The list row's details: notes, supplier, model, tracking, order date and URL, the dims / Qty
+  editors (including `Add dims...`), the attachments menu and "Saving..." while a save runs.
 - Bottom row: filled `View` button, outlined `Edit` button with the pencil icon after the label,
-  then `Add dims...` on items where the list shows it today.
+  and delete (red trash icon) at the far end.
 
 In the Other column (no stations), the checkbox uses the item's single toggle, exactly as the list.
 
@@ -81,9 +84,11 @@ In the Other column (no stations), the checkbox uses the item's single toggle, e
   (`checklistTogglesForItem`) and save path as the list: optimistic override, in-flight tracking,
   revert and the existing "Failed to update checklist item" message on failure.
 - View, Edit, delete, and Add dims call the same handlers as the list view.
-- Checked cards drop to the bottom of their column and render dimmed. Unchecked cards keep list
-  order; checked cards keep list order among themselves. With animations enabled the move animates
-  (`animateItem`); in low-end mode (animations disabled) it jumps.
+- Checked cards drop to the bottom of their column with their title, steps and bar dimmed.
+  Unchecked cards keep list order; checked cards keep list order among themselves. With animations
+  enabled the move animates (`animateBounds`); in low-end mode (animations disabled, or lazy
+  loading on) it jumps. Finished sheet rips drop to the bottom the same way.
+- On archive and view-only screens the board is read-only: no checkboxes, Edit, Delete or editors.
 - Checking a station updates that item's dot in every other column it appears in.
 
 ## Edge cases

@@ -10,11 +10,53 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-specialty-kanban-design.md`
 
+## As built (updated 2026-09-28)
+
+This plan is the original step-by-step record. The shipped code on branch
+`claude/code-review-ultra-9w4mpb` differs from it in these ways; where a task below disagrees,
+the code (and this list) wins. Do not re-apply the superseded snippets.
+
+- **Action row:** no `|` divider and no Print pill. `KKCPillActionRow` takes `actions` (specialty
+  actions, left) and `trailingActions` (reference documents, right) plus `fillWidth = true`, so the
+  row is full width from the first frame; its edges fade while pills are scrolled off-screen.
+  `dividerAfterIndex`, `pillActionRowDividerAfter` and `SpecialtyActionRowSpec` /
+  `specialtyActionRow` were removed. Print is a top-bar icon.
+- **Checkbox saves:** do **not** remove the override when the save returns (the Task 5 snippet
+  does, which makes checked cards flip back for a moment). All checklist screens use
+  `ChecklistOverrides` + `rememberLoadedChecklist` (`ui/specialty/ChecklistOverrides.kt`): each
+  load is numbered, a reload is forced after every save, and a tick stays until the stored value
+  matches it or a load that started after the save lands. Read-only saves therefore snap back.
+- **Columns:** no per-column `LazyColumn`, `KANBAN_COLUMN_WIDTH` or `animateItem`. Columns are the
+  Supply board's layout, shared through `ui/supply/BoardColumns.kt` (`BoardColumnsRow`,
+  `BoardColumnCard`, `BoardCardFlow`, `BOARD_CARD_WIDTH` = 300dp): cards fill the board height and
+  spill into sub-columns, and move with `animateBounds` (off when low-end animations or lazy
+  loading are on). Buckets keep 172dp (the list's bottom padding) above the nav bar, or clear the
+  keyboard when it is taller. A card taller than its bucket scrolls inside itself.
+- **Column data:** columns are `SpecialtyDetailSection`s (`buildSpecialtyKanbanColumns`); headers
+  use `kanbanHeaderColor` (station color darkened for white text).
+- **Cards:** `StatusBorderedCard` like the list rows; a card done in its column dims only its title,
+  steps and bar. Default 48dp checkbox with a screen-reader label; To Order chip in the header;
+  station dots with descriptions; the list row's details block (`SpecialtyItemDetails`: notes,
+  supplier, model, tracking, order date/URL, dims/Qty editors, attachments, "Saving...") instead
+  of a one-line detail; Delete at the end of the View / Edit row. Card toggle state is one
+  value-compared `KanbanCardToggleState` so unchanged cards skip recomposition.
+- **Sheet rips:** done states load on IO in one pass (`SpecialtyStateStore.loadSheetRipDoneStates`);
+  finished rips sort to the bottom like cards.
+- **Read-only:** `SpecialtyJobDetailScreen(readOnly)` (archive, and live view-only mode) disables
+  checkboxes and hides Edit / Delete / Add Item and the editors in both layouts.
+- **Layout setting:** screens follow a toggle made on another open specialty screen
+  (`UiPreferencesStore.observeSpecialtyKanbanLayout`).
+- **Out-of-plan changes on the same branch:** `CardDepth.kt` (`kkcCardDepth`, now used by job,
+  Supply, dashboard, settings and kanban cards), `JobBoardGrid.kt`, `UnifiedJobCard.kt`,
+  `UnifiedJobsScreen.kt`, `SupplyDashboardScreen.kt`, the assembly checklist screens and the
+  `8.6.1` version bump. See `docs/2026-09-28-specialty-kanban-code-review.md` for why.
+
 ---
 
 ## Conventions for every task
 
-- Repo root: `C:\Scripts\KKCSheetTracker`. Branch: `main` (this repo commits directly to `main`).
+- Repo root: `C:\Scripts\KKCSheetTracker`. Branch: `claude/code-review-ultra-9w4mpb` (the plan
+  originally said `main`; the work and its review fixes landed on this feature branch).
 - Run unit tests for the app module only (the `updater-agent` module has unrelated failures):
   `.\gradlew.bat :app:testDebugUnitTest --tests "<fully.qualified.TestClass>"`
 - Compile check: `.\gradlew.bat :app:compileDebugKotlin -q` (no output = success).
@@ -35,6 +77,12 @@
 | `app/src/test/java/com/kkc/sheettracker/data/UiPreferencesStoreTest.kt` | pref tests |
 | `app/src/test/java/com/kkc/sheettracker/ui/components/KKCSlidingPillTest.kt` | divider helper test |
 | `app/src/test/java/com/kkc/sheettracker/ui/specialty/SpecialtyKanbanBoardLogicTest.kt` | **new**: helper tests |
+
+Also changed as built (see "As built" above): `ui/specialty/ChecklistOverrides.kt` (new),
+`ui/supply/BoardColumns.kt` (new), `ui/supply/SupplyDashboardScreen.kt`, `ui/components/CardDepth.kt`
+(new), `ui/components/JobBoardGrid.kt`, `ui/jobs/UnifiedJobCard.kt`, `ui/jobs/UnifiedJobsScreen.kt`,
+`data/SpecialtyProgressStore.kt`, `data/SpecialtyStateStore.kt`, the assembly checklist screens,
+`navigation/NavGraph.kt`, `navigation/ArchiveJobDetailHost.kt` and `app/build.gradle.kts`.
 
 ---
 
@@ -502,6 +550,8 @@ Pulls logic the board needs out of the list's inline lambdas so both layouts cal
 - [ ] **Step 2: Add shared handlers** inside `SpecialtyJobDetailScreen`, right after the `actionRow` val from Task 4:
 
 ```kotlin
+    // SUPERSEDED -- do not copy. Removing the override on save made checked cards flip back
+    // briefly; the shipped code uses ChecklistOverrides.toggle (see "As built" at the top).
     val onToggleChecked: (SpecialtyResolvedItem, SpecialtyChecklistToggle, Boolean) -> Unit = { resolved, toggle, next ->
         val itemId = resolved.item.id
         val controlId = toggle.controlId
@@ -1235,14 +1285,21 @@ Expected: `Success`.
 adb exec-out screencap -p > "%TEMP%\kanban1.png"
 ```
 
-Check against the spec:
+Check against the spec and "As built" above:
 - Top-bar icon toggles; the choice survives leaving and reopening another job.
-- Action row: Door Panels, Rip List, (Closet Rods), Split View, `|`, Assembly … Print — in both layouts.
-- Columns: Sheet Rips first (slate), stations in Settings order with station colors, Other last (gray); header shows `done/total`.
+- Action row: Door Panels, Rip List, (Closet Rods), Split View on the left; Assembly, Plans &
+  Elevations, Delivery, Pulls, 3D (as available) pinned right; full width from the first frame, no
+  `|` divider. Print is the top-bar printer icon.
+- Columns: Sheet Rips first (slate), stations in Settings order with darkened station colors, Other
+  last (gray); header shows `done/total`. Long columns spill into sub-columns.
 - Station pill row follows panning and jumps on tap.
-- Card: one checkbox (station-colored when checked), delete top-right, title, steps, bar, dots, one-line material/order date, View + `Edit ✎`, Add dims on saw items.
-- Checking a card drops it to the bottom dimmed and fills its dot on other columns.
-- Last card scrolls clear of the nav bar / Add Item.
+- Card: status border, one checkbox (station-colored when checked), To Order chip where relevant,
+  title, steps, bar, labelled dots, the list row's details (notes, supplier, dims/Qty, attachments,
+  Saving...), View + `Edit ✎` + Delete.
+- Checking a card drops it to the bottom (title/steps/bar dimmed) and fills its dot on other columns;
+  the tick doesn't flip back after the save.
+- Buckets stop above the nav bar / Add Item; with the keyboard up, a card's dims fields stay visible.
+- An archived specialty job: nothing tickable or editable, summary says "(read-only)".
 - Repeat once in dark mode and once with low-end animations disabled (no slide, instant jump).
 
 - [ ] **Step 4: Report** findings to the user with the screenshot; fix issues as new tasks before calling the feature done.
