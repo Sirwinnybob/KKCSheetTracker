@@ -415,6 +415,7 @@ private fun ArchiveSpecialtyDetail(
     }
     SpecialtyJobDetailScreen(
         jobFolderName = session.folderName,
+        readOnly = session.readOnly,
         specialtyStateStore = session.specialtyStateStore,
         specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
         jobRepository = session.jobRepository,

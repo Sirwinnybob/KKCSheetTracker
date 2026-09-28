@@ -154,13 +154,14 @@ internal fun kanbanCardToggleState(
     columnId: String,
     toggles: List<SpecialtyChecklistToggle>,
     stationOrder: List<SpecialtyStation>,
-    inFlightUpdates: Map<String, Boolean>
+    inFlightUpdates: Map<String, Boolean>,
+    readOnly: Boolean = false
 ): KanbanCardToggleState {
     val toggle = kanbanColumnToggle(toggles, columnId)
     val totalSteps = toggles.size.coerceAtLeast(1)
     return KanbanCardToggleState(
         toggle = toggle,
-        enabled = toggle == null || isToggleEnabled(toggle.controlId, inFlightUpdates),
+        enabled = !readOnly && (toggle == null || isToggleEnabled(toggle.controlId, inFlightUpdates)),
         completedSteps = toggles.count { it.checked }.coerceAtMost(totalSteps),
         totalSteps = totalSteps,
         dots = kanbanStationDots(resolved, columnId, toggles, stationOrder)
@@ -218,7 +219,8 @@ internal fun SpecialtyKanbanCard(
     onEdit: (SpecialtyItem) -> Unit,
     onDelete: (String) -> Unit,
     onPatchDims: (String?, Double?, String?) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    readOnly: Boolean = false
 ) {
     val item = resolved.item
     val toggle = toggleState.toggle
@@ -259,7 +261,7 @@ internal fun SpecialtyKanbanCard(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
+                if (!readOnly) IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
                     Icon(
                         Icons.Filled.Delete,
                         contentDescription = "Delete item",
@@ -318,7 +320,7 @@ internal fun SpecialtyKanbanCard(
                         modifier = Modifier.heightIn(min = 32.dp)
                     ) { Text("View", style = MaterialTheme.typography.labelMedium) }
                 }
-                OutlinedButton(
+                if (!readOnly) OutlinedButton(
                     onClick = { onEdit(item) },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     modifier = Modifier.heightIn(min = 32.dp)
@@ -332,10 +334,11 @@ internal fun SpecialtyKanbanCard(
                 // Same as the list: To Order items edit quantity only (dims/material pass through).
                 SpecialtyQuantitySection(
                     item = item,
-                    onPatchQuantity = { q -> onPatchDims(item.dimensions, q, item.material) }
+                    onPatchQuantity = { q -> onPatchDims(item.dimensions, q, item.material) },
+                    readOnly = readOnly
                 )
             } else if (showDims) {
-                SpecialtyDimsSection(item = item, isSawStation = isSawStation, onPatchDims = onPatchDims)
+                SpecialtyDimsSection(item = item, isSawStation = isSawStation, onPatchDims = onPatchDims, readOnly = readOnly)
             }
         }
     }
@@ -467,6 +470,7 @@ internal fun SpecialtyKanbanBoard(
     onEdit: (SpecialtyItem) -> Unit,
     onDelete: (String) -> Unit,
     onPatchDims: (SpecialtyResolvedItem, String?, Double?, String?) -> Unit,
+    readOnly: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val board = rememberSupplyBoardState()
@@ -536,7 +540,8 @@ internal fun SpecialtyKanbanBoard(
                                 columnId = column.id,
                                 toggles = checklistTogglesForItem(resolved, completionOverrides),
                                 stationOrder = stationOrder,
-                                inFlightUpdates = inFlightUpdates
+                                inFlightUpdates = inFlightUpdates,
+                                readOnly = readOnly
                             )
                         }
                         val isDone: (SpecialtyResolvedItem) -> Boolean = { r -> stateById.getValue(r.item.id).done }
@@ -559,6 +564,7 @@ internal fun SpecialtyKanbanBoard(
                                     onEdit = onEdit,
                                     onDelete = onDelete,
                                     onPatchDims = { d, q, m -> onPatchDims(resolved, d, q, m) },
+                                    readOnly = readOnly,
                                     modifier = itemMotion.width(KANBAN_CARD_WIDTH)
                                 )
                             } }

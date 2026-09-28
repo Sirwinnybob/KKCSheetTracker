@@ -706,11 +706,11 @@ private fun MultiBackStackNavigation(
             liveEngine = liveIndexEngine
         )
     }
-    val sheetRipProgressStore = remember(basePath) {
-        SheetRipProgressStore(File(basePath))
+    val sheetRipProgressStore = remember(basePath, isViewOnlyMode) {
+        SheetRipProgressStore(File(basePath), readOnly = isViewOnlyMode)
     }
-    val tabletSpecialtyItemsStore = remember(basePath, tabletId) {
-        TabletSpecialtyItemsStore(File(basePath), tabletId)
+    val tabletSpecialtyItemsStore = remember(basePath, tabletId, isViewOnlyMode) {
+        TabletSpecialtyItemsStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
     }
     val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, hardwoodsProgressStore, sheetRipProgressStore, tabletSpecialtyItemsStore, basePath) {
         SpecialtyStateStore(
@@ -1761,6 +1761,7 @@ private fun JobsTabHost(
             }
             SpecialtyJobDetailScreen(
                 jobFolderName = folderName,
+                readOnly = isViewOnlyMode,
                 specialtyStateStore = specialtyStateStore,
                 specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                 jobRepository = jobRepository,
@@ -2604,11 +2605,11 @@ private fun LegacySingleStackNavigation(
             liveEngine = unifiedEngine
         )
     }
-    val sheetRipProgressStore = remember(basePath) {
-        SheetRipProgressStore(File(basePath))
+    val sheetRipProgressStore = remember(basePath, isViewOnlyMode) {
+        SheetRipProgressStore(File(basePath), readOnly = isViewOnlyMode)
     }
-    val tabletSpecialtyItemsStore = remember(basePath, tabletId) {
-        TabletSpecialtyItemsStore(File(basePath), tabletId)
+    val tabletSpecialtyItemsStore = remember(basePath, tabletId, isViewOnlyMode) {
+        TabletSpecialtyItemsStore(File(basePath), tabletId, readOnly = isViewOnlyMode)
     }
     val specialtyStateStore = remember(specialtyScanCoordinator, specialtyProgressStore, hardwoodsProgressStore, sheetRipProgressStore, tabletSpecialtyItemsStore, basePath) {
         SpecialtyStateStore(
@@ -3214,6 +3215,7 @@ private fun LegacySingleStackNavigation(
                     }
                     SpecialtyJobDetailScreen(
                         jobFolderName = folderName,
+                        readOnly = isViewOnlyMode,
                         specialtyStateStore = specialtyStateStore,
                         specialtyViewerDefaultsStore = legacySpecialtyViewerDefaultsStore,
                         jobRepository = jobRepository,

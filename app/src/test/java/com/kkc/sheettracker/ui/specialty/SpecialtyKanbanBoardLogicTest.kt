@@ -128,6 +128,28 @@ class SpecialtyKanbanBoardLogicTest {
     }
 
     @Test
+    fun editedQuantity_untouchedFieldKeepsExactStoredValue() {
+        // The field shows 0.3333; saving without touching it must not truncate the stored value.
+        assertEquals(0.333333, editedSpecialtyQuantity(0.333333, "0.3333")!!, 0.0)
+        assertEquals(0.333333, editedSpecialtyQuantity(0.333333, " 0.3333 ")!!, 0.0)
+        assertEquals(0.5, editedSpecialtyQuantity(0.333333, "0.5")!!, 0.0)
+        assertEquals(3.0, editedSpecialtyQuantity(null, "3")!!, 0.0)
+        assertNull(editedSpecialtyQuantity(2.0, ""))
+        assertNull(editedSpecialtyQuantity(2.0, "abc"))
+        assertNull(editedSpecialtyQuantity(null, "NaN"))
+        assertNull(editedSpecialtyQuantity(null, "1e999"))
+    }
+
+    @Test
+    fun cardToggleState_readOnlyDisablesCheckbox() {
+        val item = resolved("a", listOf(SpecialtyStation.SAW))
+        val toggles = checklistTogglesForItem(item, emptyMap())
+        val order = SpecialtyStation.entries.toList()
+        assertTrue(kanbanCardToggleState(item, "SAW", toggles, order, emptyMap()).enabled)
+        assertFalse(kanbanCardToggleState(item, "SAW", toggles, order, emptyMap(), readOnly = true).enabled)
+    }
+
+    @Test
     fun cardToggleState_equalWhenNothingChanged_differsForTickAndInFlight() {
         val item = resolved("a", listOf(SpecialtyStation.SAW, SpecialtyStation.ASSEMBLY))
         val order = SpecialtyStation.entries.toList()

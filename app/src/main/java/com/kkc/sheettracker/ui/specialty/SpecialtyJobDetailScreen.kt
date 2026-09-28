@@ -132,6 +132,7 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.standards.MoldingDetailOverlay
 import com.kkc.sheettracker.ui.standards.rememberSvgImageLoader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -141,6 +142,11 @@ import java.io.File
 @Composable
 internal fun SpecialtyJobDetailScreen(
     jobFolderName: String,
+    /**
+     * Archive and view-only mode: the stores drop every write, so the screen shows the checklist
+     * without checkboxes, edit, delete or Add Item that would look saved but change nothing.
+     */
+    readOnly: Boolean = false,
     specialtyStateStore: SpecialtyStateStore,
     specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
     jobRepository: JobRepository,
@@ -245,6 +251,12 @@ internal fun SpecialtyJobDetailScreen(
 
     val completedItems = resolvedItems.count { isChecklistItemComplete(it, completionOverrides) }
     val totalItems = resolvedItems.size
+    val summaryText = when {
+        resolvedItems.isEmpty() && scanState.status != com.kkc.sheettracker.data.models.ScanStatus.READY ->
+            "Specialty checklist details are loading."
+        readOnly -> "$completedItems / $totalItems items complete (read-only)"
+        else -> "$completedItems / $totalItems items complete"
+    }
 
     val navBarDeco = LocalNavBarDecoration.current
     LaunchedEffect(Unit) {
@@ -268,7 +280,7 @@ internal fun SpecialtyJobDetailScreen(
         )
     }
     SideEffect {
-        navBarDeco.specialtyDecoration = specialtyDecoration
+        navBarDeco.specialtyDecoration = if (readOnly) null else specialtyDecoration
     }
 
     val actionRow = specialtyActionRow(
@@ -310,7 +322,8 @@ internal fun SpecialtyJobDetailScreen(
         }
     }
 
-    val onToggleChecked: (SpecialtyResolvedItem, SpecialtyChecklistToggle, Boolean) -> Unit = { resolved, toggle, next ->
+    val onToggleChecked: (SpecialtyResolvedItem, SpecialtyChecklistToggle, Boolean) -> Unit = toggle@{ resolved, toggle, next ->
+        if (readOnly) return@toggle
         val itemId = resolved.item.id
         val controlId = toggle.controlId
         completionOverrides[controlId] = next
@@ -342,7 +355,8 @@ internal fun SpecialtyJobDetailScreen(
             }
         }
     }
-    val onPatchItemDims: (SpecialtyResolvedItem, String?, Double?, String?) -> Unit = { resolved, dims, qty, mat ->
+    val onPatchItemDims: (SpecialtyResolvedItem, String?, Double?, String?) -> Unit = patch@{ resolved, dims, qty, mat ->
+        if (readOnly) return@patch
         coroutineScope.launch {
             try {
                 specialtyStateStore.patchSpecialtyItemFields(jobFolderName, resolved.item.id, dims, qty, mat)
@@ -365,14 +379,21 @@ internal fun SpecialtyJobDetailScreen(
             sheetRipTarget(item)
         ).isComplete
     }
-    val onSetSheetRipDone: (AdminBoardStockItem, Boolean) -> Unit = { item, completed ->
+    val onSetSheetRipDone: (AdminBoardStockItem, Boolean) -> Unit = rip@{ item, completed ->
+        if (readOnly) return@rip
         coroutineScope.launch {
-            specialtyStateStore.setSheetRipCompletion(
-                jobFolderName = jobFolderName,
-                item = item,
-                target = sheetRipTarget(item),
-                completed = completed
-            )
+            try {
+                specialtyStateStore.setSheetRipCompletion(
+                    jobFolderName = jobFolderName,
+                    item = item,
+                    target = sheetRipTarget(item),
+                    completed = completed
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                snackbarHostState.showSnackbar("Failed to update sheet rip. Please retry.")
+            }
         }
     }
 
@@ -423,9 +444,7 @@ internal fun SpecialtyJobDetailScreen(
                     .padding(top = 12.dp)
             ) {
                 Text(
-                    text = if (resolvedItems.isEmpty() &&
-                        scanState.status != com.kkc.sheettracker.data.models.ScanStatus.READY
-                    ) "Specialty checklist details are loading." else "$completedItems / $totalItems items complete",
+                    text = summaryText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
@@ -470,6 +489,7 @@ internal fun SpecialtyJobDetailScreen(
                                 isDone = sheetRipIsDone(rip),
                                 target = sheetRipTarget(rip),
                                 onSetDone = { completed -> onSetSheetRipDone(rip, completed) },
+                                enabled = !readOnly,
                                 onPreviewMolding = if (rip.moldingId != null) ({ previewMoldingItem = rip }) else null
                             )
                         },
@@ -478,6 +498,7 @@ internal fun SpecialtyJobDetailScreen(
                         onEdit = onEditItem,
                         onDelete = { itemId -> deleteTargetItemId = itemId },
                         onPatchDims = onPatchItemDims,
+                        readOnly = readOnly,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -493,13 +514,7 @@ internal fun SpecialtyJobDetailScreen(
         ) {
             item(key = "summary") {
                 Text(
-                    text = if (resolvedItems.isEmpty() &&
-                        scanState.status != com.kkc.sheettracker.data.models.ScanStatus.READY
-                    ) {
-                        "Specialty checklist details are loading."
-                    } else {
-                        "$completedItems / $totalItems items complete"
-                    },
+                    text = summaryText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 12.dp)
@@ -561,6 +576,7 @@ internal fun SpecialtyJobDetailScreen(
                                 isDone = sheetRipIsDone(item),
                                 target = sheetRipTarget(item),
                                 onSetDone = { completed -> onSetSheetRipDone(item, completed) },
+                                enabled = !readOnly,
                                 onPreviewMolding = if (item.moldingId != null) ({ previewMoldingItem = item }) else null,
                                 modifier = Modifier.padding(
                                     start = 8.dp,
@@ -653,7 +669,8 @@ internal fun SpecialtyJobDetailScreen(
                                         },
                                         myTabletId = specialtyStateStore.tabletId,
                                         onPatchDims = { dims, qty, mat -> onPatchItemDims(resolved, dims, qty, mat) },
-                                        onCheckedChange = { toggle, next -> onToggleChecked(resolved, toggle, next) }
+                                        onCheckedChange = { toggle, next -> onToggleChecked(resolved, toggle, next) },
+                                        readOnly = readOnly
                                     )
                                 }
                             }
@@ -708,7 +725,13 @@ internal fun SpecialtyJobDetailScreen(
                     TextButton(onClick = {
                         deleteTargetItemId = null
                         coroutineScope.launch {
-                            specialtyStateStore.deleteTabletItem(jobFolderName, deletingItemId)
+                            try {
+                                specialtyStateStore.deleteTabletItem(jobFolderName, deletingItemId)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                snackbarHostState.showSnackbar("Failed to delete item. Please retry.")
+                            }
                         }
                     }) { Text("Delete") }
                 },
@@ -912,7 +935,8 @@ internal fun SpecialtyChecklistRow(
     jobFolderName: String = "",
     onEditItem: ((com.kkc.sheettracker.data.models.SpecialtyItem) -> Unit)? = null,
     onDeleteItem: ((String) -> Unit)? = null,
-    myTabletId: String = ""
+    myTabletId: String = "",
+    readOnly: Boolean = false
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val item = resolved.item
@@ -950,7 +974,7 @@ internal fun SpecialtyChecklistRow(
         segmentedStatusCounts = statusCounts,
         headerLeading = {
             toggles.forEach { toggle ->
-                val enabled = isToggleEnabled(toggle.controlId, inFlightUpdates)
+                val enabled = !readOnly && isToggleEnabled(toggle.controlId, inFlightUpdates)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -976,7 +1000,7 @@ internal fun SpecialtyChecklistRow(
             }
         },
         headerActions = {
-            IconButton(
+            if (!readOnly) IconButton(
                 onClick = { onEditItem?.invoke(item) },
                 modifier = Modifier.size(32.dp)
             ) {
@@ -987,7 +1011,7 @@ internal fun SpecialtyChecklistRow(
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
-            IconButton(
+            if (!readOnly) IconButton(
                 onClick = { onDeleteItem?.invoke(item.id) },
                 modifier = Modifier.size(32.dp)
             ) {
@@ -1034,7 +1058,8 @@ internal fun SpecialtyChecklistRow(
                 if (item.category == com.kkc.sheettracker.data.models.SpecialtyItemCategory.TO_ORDER) {
                     SpecialtyQuantitySection(
                         item = item,
-                        onPatchQuantity = { q -> onPatchDims?.invoke(item.dimensions, q, item.material) }
+                        onPatchQuantity = { q -> onPatchDims?.invoke(item.dimensions, q, item.material) },
+                        readOnly = readOnly
                     )
                 } else {
                     val isSawStation = SpecialtyStation.SAW in item.stations
@@ -1042,7 +1067,8 @@ internal fun SpecialtyChecklistRow(
                         SpecialtyDimsSection(
                             item = item,
                             isSawStation = isSawStation,
-                            onPatchDims = { d, q, m -> onPatchDims?.invoke(d, q, m) }
+                            onPatchDims = { d, q, m -> onPatchDims?.invoke(d, q, m) },
+                            readOnly = readOnly
                         )
                     }
                 }
@@ -1139,7 +1165,8 @@ internal fun SpecialtySheetRipRow(
     target: Int,
     onSetDone: (Boolean) -> Unit,
     onPreviewMolding: (() -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     Surface(
         tonalElevation = 3.dp,
@@ -1147,7 +1174,7 @@ internal fun SpecialtySheetRipRow(
         modifier = modifier
             .fillMaxWidth()
             .alpha(if (isDone) 0.5f else 1f)
-            .clickable { onSetDone(!isDone) }
+            .clickable(enabled = enabled) { onSetDone(!isDone) }
     ) {
         Row(
             modifier = Modifier
@@ -1156,7 +1183,7 @@ internal fun SpecialtySheetRipRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Checkbox(checked = isDone, onCheckedChange = onSetDone)
+            Checkbox(checked = isDone, onCheckedChange = onSetDone, enabled = enabled)
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = item.material, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -1492,7 +1519,8 @@ private fun stationFilterLabel(station: SpecialtyStation): String = when (statio
 internal fun SpecialtyDimsSection(
     item: com.kkc.sheettracker.data.models.SpecialtyItem,
     isSawStation: Boolean,
-    onPatchDims: (String?, Double?, String?) -> Unit
+    onPatchDims: (String?, Double?, String?) -> Unit,
+    readOnly: Boolean = false
 ) {
     var editing by remember(item.id) { mutableStateOf(false) }
     var editDims by remember(item.id) { mutableStateOf(item.dimensions ?: "") }
@@ -1500,7 +1528,7 @@ internal fun SpecialtyDimsSection(
     var editMat by remember(item.id) { mutableStateOf(item.material ?: "") }
     val hasData = !item.dimensions.isNullOrBlank() || item.quantity != null || !item.material.isNullOrBlank()
 
-    if (isSawStation) {
+    if (isSawStation && !readOnly) {
         if (editing) {
             Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1510,7 +1538,7 @@ internal fun SpecialtyDimsSection(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
-                        onPatchDims(editDims.trim().takeIf { it.isNotBlank() }, editQty.trim().toDoubleOrNull(), editMat.trim().takeIf { it.isNotBlank() })
+                        onPatchDims(editDims.trim().takeIf { it.isNotBlank() }, editedSpecialtyQuantity(item.quantity, editQty), editMat.trim().takeIf { it.isNotBlank() })
                         editing = false
                     }) { Text("Save") }
                     TextButton(onClick = {
@@ -1554,11 +1582,33 @@ internal fun formatSpecialtyQuantity(quantity: Double): String {
         .toPlainString()
 }
 
+/**
+ * The quantity to save from a Qty field. The field is pre-filled with the rounded display text, so
+ * text still equal to that means "unchanged" and keeps the exact stored value instead of writing
+ * the rounded one back. Blank clears it; unparseable or non-finite text also saves null, as before.
+ */
+internal fun editedSpecialtyQuantity(original: Double?, fieldText: String): Double? {
+    val text = fieldText.trim()
+    if (original != null && text == formatSpecialtyQuantity(original)) return original
+    return text.toDoubleOrNull()?.takeIf { it.isFinite() }
+}
+
 @Composable
 internal fun SpecialtyQuantitySection(
     item: com.kkc.sheettracker.data.models.SpecialtyItem,
-    onPatchQuantity: (Double?) -> Unit
+    onPatchQuantity: (Double?) -> Unit,
+    readOnly: Boolean = false
 ) {
+    if (readOnly) {
+        if (item.quantity != null) {
+            Text(
+                text = "Qty: ${formatSpecialtyQuantity(item.quantity)}",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+        return
+    }
     var editing by remember(item.id) { mutableStateOf(false) }
     var editQty by remember(item.id) { mutableStateOf(item.quantity?.let(::formatSpecialtyQuantity) ?: "") }
 
@@ -1566,7 +1616,7 @@ internal fun SpecialtyQuantitySection(
         Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedTextField(value = editQty, onValueChange = { editQty = it }, label = { Text("Qty") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             Button(onClick = {
-                onPatchQuantity(editQty.trim().toDoubleOrNull())
+                onPatchQuantity(editedSpecialtyQuantity(item.quantity, editQty))
                 editing = false
             }) { Text("Save") }
             TextButton(onClick = {
