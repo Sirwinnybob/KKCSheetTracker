@@ -342,6 +342,7 @@ adb shell dumpsys package com.example.timecard | Select-String "versionName|vers
 | How does legacy Android update discovery work? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\update` |
 | How are PDF markup files written? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\PdfMarkupStore.kt` |
 | How are supply files read/written on tablet? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\SupplyRepository.kt` |
+| How does the tablet get live supply data? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\SupplyLiveClient.kt`, `SupplyLiveStateStore.kt`; server `C:\Scripts\Hours Tracker\backend\routes\supply_live.py`, `supply_live_document.py` |
 
 ## Common Mistakes
 
