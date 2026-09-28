@@ -67,14 +67,11 @@ class TrackerChangeMonitor(
     private var startupWarmupUntilMs = 0L
 
     fun start() {
-        val initialInvalidations = synchronized(lock) {
+        synchronized(lock) {
             if (started) return
             started = true
             startupWarmupUntilMs = System.currentTimeMillis() + STARTUP_WARMUP_MS
-            val refreshInvalidations = refreshTrackedDirsLocked()
-            refreshInvalidations + pollSignaturesLocked()
         }
-        queueInvalidations(initialInvalidations)
         interactionJob = scope.launch {
             viewerInteraction.collectLatest { interacting ->
                 if (!interacting) {
@@ -88,6 +85,9 @@ class TrackerChangeMonitor(
             }
         }
         pollJob = scope.launch {
+            // Initial discovery + signature snapshot. start() runs on the main thread (lifecycle
+            // ON_START), and listing every job's tracker dirs blocked it for seconds at cold start.
+            pollOnce()
             while (isActive) {
                 val interrupted = select {
                     onTimeout(intervalOverrideMs.value ?: pollingIntervalMs) { false }
