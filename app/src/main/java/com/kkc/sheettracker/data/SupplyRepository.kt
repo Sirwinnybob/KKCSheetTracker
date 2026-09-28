@@ -6,7 +6,12 @@ import com.kkc.sheettracker.data.models.*
 import java.io.File
 import java.util.UUID
 
-class SupplyRepository(private val basePath: String) {
+class SupplyRepository(
+    private val basePath: String,
+    // Live read model (spec 2026-09-28-supply-live-websocket-design). When view() is null
+    // (socket down, never connected) every read below uses the .supply files as before.
+    private val liveStore: SupplyLiveStateStore = SupplyLiveStateStore.shared
+) {
 
     private val supplyDir get() = File(basePath, ".supply")
     private val itemsDir  get() = File(supplyDir, "items")
@@ -63,11 +68,15 @@ class SupplyRepository(private val basePath: String) {
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    fun getCategories(): List<SupplyCategory> =
-        readJson<List<SupplyCategory>>(File(supplyDir, "categories.json")) ?: emptyList()
+    fun getCategories(): List<SupplyCategory> {
+        liveStore.view()?.let { return it.categories }
+        return readJson<List<SupplyCategory>>(File(supplyDir, "categories.json")) ?: emptyList()
+    }
 
-    fun getSchema(): List<SupplySchemaField> =
-        readJson<List<SupplySchemaField>>(File(supplyDir, "schema.json")) ?: emptyList()
+    fun getSchema(): List<SupplySchemaField> {
+        liveStore.view()?.let { return it.schema }
+        return readJson<List<SupplySchemaField>>(File(supplyDir, "schema.json")) ?: emptyList()
+    }
 
     // Schema for rendering item fields. Falls back to the builtin defaults when
     // schema.json is missing/empty (e.g. not yet synced to this tablet), so the
@@ -76,6 +85,7 @@ class SupplyRepository(private val basePath: String) {
         getSchema().ifEmpty { DEFAULT_SUPPLY_SCHEMA }
 
     fun getItems(): List<SupplyItem> {
+        liveStore.view()?.let { return it.items }
         if (!itemsDir.exists()) return emptyList()
         // List the status directory once and reuse it across all items, instead of
         // re-listing it inside resolve()/resolveStatus() for every item.
@@ -88,10 +98,13 @@ class SupplyRepository(private val basePath: String) {
             ?: emptyList()
     }
 
-    fun getItem(itemId: String): SupplyItem? =
-        readJson<StoredSupplyItem>(File(itemsDir, "$itemId.json"))?.resolve()
+    fun getItem(itemId: String): SupplyItem? {
+        liveStore.view()?.let { return it.item(itemId) }
+        return readJson<StoredSupplyItem>(File(itemsDir, "$itemId.json"))?.resolve()
+    }
 
     fun getComments(itemId: String): List<SupplyComment> {
+        liveStore.view()?.let { return it.comments(itemId) }
         val dir = File(commentsDir, itemId)
         if (!dir.exists()) return emptyList()
         return dir.listFiles { f -> f.extension == "json" && !f.name.contains(".sync-conflict-") }
@@ -107,10 +120,12 @@ class SupplyRepository(private val basePath: String) {
     fun setStatus(itemId: String, status: String, by: String, tabletId: String) {
         statusDir.mkdirs()
         val file = File(statusDir, "$itemId.$tabletId.json")
+        val record = SupplyStatusRecord(status, by, java.time.Instant.now().toString())
         // AUD-10: atomic write so a concurrent reader (getItems(), a peer tablet via Syncthing,
         // or the Hours backend) never observes a truncated status file and falls back to
         // "IN STOCK".
-        atomicWriteFile(file, gson.toJson(SupplyStatusRecord(status, by, java.time.Instant.now().toString())))
+        atomicWriteFile(file, gson.toJson(record))
+        liveStore.recordStatus(itemId, record)
     }
 
     fun addComment(itemId: String, author: String, text: String, tabletId: String): SupplyComment {
@@ -120,6 +135,7 @@ class SupplyRepository(private val basePath: String) {
         val comment = SupplyComment(id, author, text, java.time.Instant.now().toString())
         // AUD-10: atomic write so a concurrent reader never sees a partial comment file.
         atomicWriteFile(File(dir, "$id.json"), gson.toJson(comment))
+        liveStore.recordCommentAdded(itemId, comment)
         return comment
     }
 
@@ -135,6 +151,7 @@ class SupplyRepository(private val basePath: String) {
             val cat = SupplyCategory(UUID.randomUUID().toString(), name.trim(), existing.size)
             val updated = existing + cat
             atomicWriteFile(File(supplyDir, "categories.json"), gson.toJson(updated))
+            liveStore.recordCategoryCreated(cat)
             return cat
         }
     }
@@ -159,6 +176,7 @@ class SupplyRepository(private val basePath: String) {
         // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
         // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
         atomicWriteFile(File(itemsDir, "$id.json"), gson.toJson(stored))
+        liveStore.recordItemUpserted(stored)
         if (status != "IN STOCK") {
             setStatus(id, status, "", tabletId)
         }
@@ -186,6 +204,7 @@ class SupplyRepository(private val basePath: String) {
         // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
         // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
         atomicWriteFile(file, gson.toJson(updated))
+        liveStore.recordItemUpserted(updated)
         return updated.resolve()
     }
 
@@ -205,6 +224,7 @@ class SupplyRepository(private val basePath: String) {
         // the attachment binary copy just above is plain (overwrite = true) — that is tracked
         // separately as L-04 and intentionally out of scope for H-07.
         atomicWriteFile(itemFile, gson.toJson(updated))
+        liveStore.recordItemUpserted(updated)
         return updated.resolve()
     }
 
@@ -219,6 +239,7 @@ class SupplyRepository(private val basePath: String) {
         // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
         // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
         atomicWriteFile(file, gson.toJson(updated))
+        liveStore.recordItemUpserted(updated)
         return updated.resolve()
     }
 
@@ -236,12 +257,15 @@ class SupplyRepository(private val basePath: String) {
         if (commentDir.exists()) {
             commentDir.deleteRecursively()
         }
+        if (deletedItem) liveStore.recordItemDeleted(itemId)
         return deletedItem
     }
 
     fun deleteComment(itemId: String, commentId: String): Boolean {
         val file = File(File(commentsDir, itemId), "$commentId.json")
-        return if (file.exists()) file.delete() else false
+        val deleted = if (file.exists()) file.delete() else false
+        if (deleted) liveStore.recordCommentDeleted(itemId, commentId)
+        return deleted
     }
 
     companion object {
