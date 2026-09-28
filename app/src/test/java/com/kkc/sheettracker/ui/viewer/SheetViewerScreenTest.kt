@@ -239,7 +239,9 @@ class SheetViewerScreenTest {
     @Test
     fun resolveCncSidecarFile_keepsAbsolutePath() {
         val pdfFile = File("C:/Ready Jobs/597b - TEST JOB/CNC/597b - Material.pdf")
-        val absolute = File("D:/cache/part.png")
+        // Absolute on whatever OS runs the test ("D:/..." is only absolute on Windows, so it
+        // failed on Linux CI and cloud sessions while passing on the Windows dev machine).
+        val absolute = File(System.getProperty("java.io.tmpdir"), "cache/part.png").absoluteFile
 
         assertEquals(absolute, resolveCncSidecarFile(pdfFile, absolute.path))
     }
