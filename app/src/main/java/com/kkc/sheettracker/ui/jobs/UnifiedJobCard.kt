@@ -54,6 +54,7 @@ import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.hardwoods.toStatusCounts
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.components.kkcCardDepth
 
 @Composable
 fun UnifiedJobCard(
@@ -199,12 +200,7 @@ fun UnifiedJobCard(
 
     ProgressCard(
         modifier = modifier
-            .shadow(if (lowEnd.shadowsDisabled) 0.dp else 4.dp, RoundedCornerShape(12.dp), clip = false)
-            .clip(RoundedCornerShape(12.dp))
-            .then(
-                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                else Modifier
-            )
+            .kkcCardDepth(RoundedCornerShape(12.dp), lifted = gridLayout, shadowsDisabled = lowEnd.shadowsDisabled)
             .background(MaterialTheme.colorScheme.surface),
         title = model.folderName,
         subtitle = subtitle,

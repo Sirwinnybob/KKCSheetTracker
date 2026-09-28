@@ -284,9 +284,11 @@ private fun JobBoardCard(
         boardPlaceholderColors[abs(item.jobNumber.hashCode()) % boardPlaceholderColors.size]
     }
 
+    val cardShape = RoundedCornerShape(6.dp)
     Card(
-        shape = RoundedCornerShape(6.dp),
+        shape = cardShape,
         modifier = modifier
+            .kkcCardDepth(cardShape, lifted = true, shadowsDisabled = LocalLowEndMode.current.shadowsDisabled)
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
