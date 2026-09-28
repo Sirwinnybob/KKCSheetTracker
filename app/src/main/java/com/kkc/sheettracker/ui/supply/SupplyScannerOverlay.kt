@@ -30,7 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.kkc.sheettracker.data.ScannerSettingsStore
 import com.kkc.sheettracker.data.SupplyBarcodeStore
@@ -42,6 +44,23 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val SCANNER_TAG = "SupplyScannerOverlay"
+
+// Suppliers use no single standard, so accept the common product/case symbologies plus QR
+// (Hours Tracker prints SKU-XXXXXX labels as QR). Excludes PDF417/Aztec/Codabar/Code 93 —
+// rare on product packaging, and PDF417 would pick up shipping-label codes by mistake.
+private val SUPPLY_SCANNER_OPTIONS = BarcodeScannerOptions.Builder()
+    .setBarcodeFormats(
+        Barcode.FORMAT_UPC_A,
+        Barcode.FORMAT_UPC_E,
+        Barcode.FORMAT_EAN_13,
+        Barcode.FORMAT_EAN_8,
+        Barcode.FORMAT_CODE_128,
+        Barcode.FORMAT_CODE_39,
+        Barcode.FORMAT_ITF,
+        Barcode.FORMAT_QR_CODE,
+        Barcode.FORMAT_DATA_MATRIX
+    )
+    .build()
 
 /**
  * Full-screen barcode scanner overlay using CameraX + ML Kit.
@@ -77,7 +96,7 @@ fun SupplyScannerOverlay(
     var camera by remember { mutableStateOf<Camera?>(null) }
     var isTorchOn by remember { mutableStateOf(true) }
     val scannerSettingsStore = remember { ScannerSettingsStore(context) }
-    val barcodeScanner = remember { BarcodeScanning.getClient() }
+    val barcodeScanner = remember { BarcodeScanning.getClient(SUPPLY_SCANNER_OPTIONS) }
 
     var detectedBox by remember { mutableStateOf<android.graphics.Rect?>(null) }
     val scope = rememberCoroutineScope()
