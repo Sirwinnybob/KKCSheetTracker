@@ -170,8 +170,10 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1153,7 +1155,6 @@ private fun MultiBackStackNavigation(
                         basePath = basePath,
                         tabletId = tabletId,
                         isDebugBuild = isDebugBuild,
-                        workMode = workMode,
                         appStateFlags = appStateFlags,
                         continuousScrollDefault = continuousScrollDefault,
                         specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
@@ -2378,7 +2379,6 @@ private fun StandardsTabHost(
     basePath: String,
     tabletId: String,
     isDebugBuild: Boolean,
-    workMode: WorkMode,
     appStateFlags: AppStateFeatureFlags,
     continuousScrollDefault: Boolean,
     specialtyViewerDefaultsStore: com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore,
@@ -2427,7 +2427,6 @@ private fun StandardsTabHost(
                 useStandardSheets = useStandardSheets,
                 continuousScrollDefault = continuousScrollDefault,
                 specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
-                workMode = workMode,
                 appStateFlags = appStateFlags,
                 active = active,
                 onExitArchive = { navController.popBackStack() },
@@ -2462,6 +2461,17 @@ private fun SupplyTabHost(
     }
 }
 
+private val archiveCacheDisposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+/** Clears started on leaving the archive and not yet finished; a job reopened meanwhile counts as gone. */
+private val archiveCacheClearsInFlight = java.util.concurrent.atomic.AtomicInteger(0)
+
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @Composable
 private fun ArchiveLibraryHost
 (
@@ -2471,7 +2481,6 @@ private fun ArchiveLibraryHost
     useStandardSheets: Boolean,
     continuousScrollDefault: Boolean,
     specialtyViewerDefaultsStore: com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore,
-    workMode: WorkMode,
     appStateFlags: AppStateFeatureFlags,
     active: Boolean = true,
     onExitArchive: () -> Unit,
@@ -2479,6 +2488,24 @@ private fun ArchiveLibraryHost
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val context = LocalContext.current
+    // Leaving the archive drops every downloaded job. Declared before the NavHost so it is
+    // disposed after it (an open ArchiveJobDetailHost closes its session first). Skipped when the
+    // Activity is only being recreated (e.g. dark-mode toggle): nav state restores straight back
+    // into the open archived job, which still needs its files.
+    DisposableEffect(Unit) {
+        onDispose {
+            if (context.findActivity()?.isChangingConfigurations == true) return@onDispose
+            val cacheRoot = File(context.cacheDir, "archive-cache")
+            archiveCacheClearsInFlight.incrementAndGet()
+            archiveCacheDisposalScope.launch {
+                try {
+                    com.kkc.sheettracker.data.ArchiveCacheManager(cacheRoot, serverUrl = "").clearAll()
+                } finally {
+                    archiveCacheClearsInFlight.decrementAndGet()
+                }
+            }
+        }
+    }
     NavHost(
         navController = navController,
         startDestination = "archive",
@@ -2489,24 +2516,38 @@ private fun ArchiveLibraryHost
                 tabletId = tabletId,
                 isDebugBuild = isDebugBuild,
                 active = active && backStackEntry?.destination?.route == "archive",
-                onOpenArchiveJob = { archiveJobId, folderName, contentVersion ->
+                onOpenArchiveJob = { archiveJobId, folderName, contentVersion, mode ->
                     navController.navigate(
-                        "archive/job/${URLEncoder.encode(archiveJobId, "UTF-8")}/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(contentVersion, "UTF-8")}"
+                        "archive/job/${URLEncoder.encode(archiveJobId, "UTF-8")}/${URLEncoder.encode(folderName, "UTF-8")}/${URLEncoder.encode(contentVersion, "UTF-8")}/${mode.name}"
                     ) { launchSingleTop = true }
                 },
+                onBack = onExitArchive,
             )
         }
         composable(
-            "archive/job/{archiveJobId}/{folderName}/{contentVersion}",
+            "archive/job/{archiveJobId}/{folderName}/{contentVersion}/{workMode}",
             arguments = listOf(
                 navArgument("archiveJobId") { type = NavType.StringType },
                 navArgument("folderName") { type = NavType.StringType },
                 navArgument("contentVersion") { type = NavType.StringType },
+                navArgument("workMode") { type = NavType.StringType },
             ),
         ) { backStackEntry ->
             val archiveJobId = URLDecoder.decode(backStackEntry.arguments?.getString("archiveJobId").orEmpty(), "UTF-8")
             val folderName = URLDecoder.decode(backStackEntry.arguments?.getString("folderName").orEmpty(), "UTF-8")
             val contentVersion = URLDecoder.decode(backStackEntry.arguments?.getString("contentVersion").orEmpty(), "UTF-8")
+            val jobWorkMode = WorkMode.fromStored(backStackEntry.arguments?.getString("workMode"))
+            // Returning to a tab restores its saved nav stack, which can land back on a job whose
+            // files were cleared when the archive was left. Fall back to the list instead of
+            // opening an empty job.
+            val cacheAvailable = remember(archiveJobId) {
+                archiveCacheClearsInFlight.get() == 0 &&
+                    File(context.cacheDir, "archive-cache/$archiveJobId").isDirectory
+            }
+            if (!cacheAvailable) {
+                LaunchedEffect(archiveJobId) { navController.popBackStack("archive", inclusive = false) }
+                return@composable
+            }
             ArchiveJobDetailHost(
                 archiveJobId = archiveJobId,
                 folderName = folderName,
@@ -2518,9 +2559,9 @@ private fun ArchiveLibraryHost
                 useStandardSheets = useStandardSheets,
                 continuousScrollDefault = continuousScrollDefault,
                 specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
-                workMode = workMode,
+                workMode = jobWorkMode,
                 appStateFlags = appStateFlags,
-                onExitArchive = onExitArchive,
+                onExitArchive = { navController.popBackStack() },
             )
         }
     }
@@ -3890,7 +3931,6 @@ private fun LegacySingleStackNavigation(
                         useStandardSheets = useStandardSheets,
                         continuousScrollDefault = continuousScrollDefault,
                         specialtyViewerDefaultsStore = legacySpecialtyViewerDefaultsStore,
-                        workMode = workMode,
                         appStateFlags = appStateFlags,
                         active = currentNavDest == NavDestination.STANDARDS && currentRoute == "standards/archive",
                         onExitArchive = { navController.popBackStack() },

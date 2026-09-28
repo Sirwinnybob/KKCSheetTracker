@@ -82,4 +82,24 @@ class ArchiveLibraryPresentationTest {
         assertFalse(canRestoreArchivedJob(opening = true))
         assertTrue(canRestoreArchivedJob(opening = false))
     }
+
+    @Test
+    fun `archivedAt shows the shop-local calendar date, not the UTC one`() {
+        val pacific = java.time.ZoneId.of("America/Los_Angeles")
+        assertEquals("Aug 20, 2026", formatArchivedAt("2026-08-20T18:53:39Z", pacific))
+        // 02:00 UTC on the 21st is still the evening of the 20th in the shop.
+        assertEquals("Aug 20, 2026", formatArchivedAt("2026-08-21T02:00:00Z", pacific))
+    }
+
+    @Test
+    fun `unparseable archivedAt passes through unchanged`() {
+        assertEquals("sometime", formatArchivedAt("sometime"))
+    }
+
+    @Test
+    fun `job count label reflects search filtering`() {
+        assertEquals("42 jobs", archiveJobCountLabel(shown = 42, total = 42))
+        assertEquals("1 job", archiveJobCountLabel(shown = 1, total = 1))
+        assertEquals("3 of 42 jobs", archiveJobCountLabel(shown = 3, total = 42))
+    }
 }

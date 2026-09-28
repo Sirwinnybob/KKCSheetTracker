@@ -13,3 +13,10 @@ enum class WorkMode {
         }
     }
 }
+
+fun WorkMode.shortLabel(): String = when (this) {
+    WorkMode.CNC -> "CNC"
+    WorkMode.HARDWOODS -> "HW"
+    WorkMode.ASSEMBLY -> "ASM"
+    WorkMode.SPECIALTY -> "SPC"
+}

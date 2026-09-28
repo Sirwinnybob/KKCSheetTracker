@@ -26,3 +26,30 @@ fun kkcZebraTint(rowIndex: Int): Color {
     val dark = LocalKKCIsDarkTheme.current
     return kkcZebraTint(tokens.palette(dark), dark, rowIndex)
 }
+
+/**
+ * Full-strength version of [kkcZebraTint]'s color choice for [rowIndex] (same primary/secondary
+ * alternation, no alpha fade) -- used to make a single row (e.g. "the job you just opened") stand
+ * out against the otherwise very faint zebra striping.
+ *
+ * Many team themes reuse the same deep brand color (navy, maroon, black) for both their light and
+ * dark palette -- [readableDarkPrimary] lifts it in dark mode the same way [toColorScheme] already
+ * does for `colorScheme.primary`, otherwise the "highlighted" row is barely different from the
+ * dark surface it sits on.
+ */
+fun kkcZebraHighlight(palette: KKCThemePalette, darkTheme: Boolean, rowIndex: Int): Color {
+    val odd = rowIndex % 2 != 0
+    val secondary = palette.secondary
+    val raw = when {
+        secondary != null -> if (odd) secondary else palette.primary
+        else -> palette.primary
+    }
+    return if (darkTheme) readableDarkPrimary(raw, palette.surface) else raw
+}
+
+@Composable
+fun kkcZebraHighlight(rowIndex: Int): Color {
+    val tokens = LocalKKCThemeTokens.current
+    val dark = LocalKKCIsDarkTheme.current
+    return kkcZebraHighlight(tokens.palette(dark), dark, rowIndex)
+}

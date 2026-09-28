@@ -213,6 +213,31 @@ fun rememberKKCPillStyle(accent: KKCPillAccent = KKCPillAccent.PRIMARY): KKCPill
     }
 }
 
+/**
+ * Low-emphasis pill colors for controls repeated down a list (one action row per item), where the
+ * two-color theme's solid track/pill would turn every row into the loudest thing on screen. Same
+ * shapes as [kkcPillStyle], but a neutral track and a translucent primary pill on every theme.
+ */
+@Composable
+fun rememberKKCQuietPillStyle(): KKCPillStyle {
+    val primary = MaterialTheme.colorScheme.primary
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val surface = MaterialTheme.colorScheme.surface
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
+    return remember(primary, onSurface, surface, outlineVariant) {
+        KKCPillStyle(
+            container = surface,
+            containerBorder = outlineVariant.copy(alpha = 0.75f),
+            filledContainer = false,
+            fill = SolidColor(primary.copy(alpha = 0.18f)),
+            fillColor = primary.copy(alpha = 0.18f),
+            border = primary.copy(alpha = 0.5f),
+            selectedText = onSurface,
+            unselectedText = onSurface
+        )
+    }
+}
+
 /** The track a sliding pill rides on. */
 @Composable
 fun KKCPillContainer(
@@ -763,10 +788,10 @@ fun KKCPillActionRow(
      * Span the full width even while [trailingActions] is empty. Set it when the trailing group
      * loads in later (or may never appear), so the row's width and layout don't jump.
      */
-    fillWidth: Boolean = false
+    fillWidth: Boolean = false,
+    style: KKCPillStyle = rememberKKCPillStyle()
 ) {
     if (actions.isEmpty() && trailingActions.isEmpty()) return
-    val style = rememberKKCPillStyle()
     // Outer padding equals the gap between buttons so the track border reads as an even frame.
     val gap = 4.dp
     val spanWidth = fillWidth || trailingActions.isNotEmpty()
