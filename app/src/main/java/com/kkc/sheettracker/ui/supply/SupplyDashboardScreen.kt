@@ -5,21 +5,12 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.platform.LocalDensity
-import kotlin.math.roundToInt
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.runtime.key
-import androidx.compose.ui.layout.onPlaced
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.FlowColumn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.ui.layout.Layout
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,8 +32,6 @@ import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
 import com.kkc.sheettracker.ui.components.KKCTabItem
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
@@ -619,55 +608,32 @@ fun SupplyDashboardScreen(
                             }
                             result
                         }
-                        LaunchedEffect(boardCategories) { board.updateKeys(boardCategories.map { it.id }) }
+                        val boardEdgeConnection = rememberSupplyBoardEdgeConnection(board, pagerState)
                         // Columns are built in the background: the first few right away, then one
                         // per frame, so opening Supply doesn't stall on every card at once but all
                         // columns exist (and have real widths) before the user pans to them.
-                        var builtColumns by remember { mutableIntStateOf(4) }
-                        LaunchedEffect(boardCategories.size) {
-                            while (builtColumns < boardCategories.size) {
-                                withFrameNanos { }
-                                builtColumns++
-                            }
-                        }
-                        val boardEdgeConnection = rememberSupplyBoardEdgeConnection(board, pagerState)
-                        val boardDensity = LocalDensity.current
-                        // Plain (non-lazy) row: every column stays composed, so panning never
-                        // composes a column mid-scroll.
-                        Row(
+                        val categoriesById = boardCategories.associateBy { it.id }
+                        BoardColumnsRow(
+                            board = board,
+                            keys = boardCategories.map { it.id },
+                            initialBuiltColumns = 4,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(top = 12.dp, bottom = 120.dp)
-                                .onSizeChanged { board.viewportPx = it.width }
-                                .nestedScroll(boardEdgeConnection)
-                                .horizontalScroll(board.scroll),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            // 4dp + 12dp spacing = 16dp edge inset; kept as spacers so column
-                            // positions are plain row coordinates.
-                            Spacer(Modifier.width(4.dp))
-                            boardCategories.take(builtColumns).forEach { category ->
-                                key(category.id) {
-                                    val categoryItems = boardItemsByCategory[category.id].orEmpty()
-                                    CategoryBoardColumn(
-                                        category = category,
-                                        items = categoryItems,
-                                        headerColor = headerColors[category.id] ?: palette[0],
-                                        subscriptionManager = subscriptionManager,
-                                        subscriptionData = subscriptionData,
-                                        onAddItem = { openNewItemModal(category.id) },
-                                        onOpenItem = ::openDetailModal,
-                                        onLongPress = { item -> statusSheetItem = item },
-                                        modifier = Modifier.onPlaced { coordinates ->
-                                            board.columns[category.id] =
-                                                coordinates.positionInParent().x.roundToInt() to coordinates.size.width
-                                        }
-                                    )
-                                }
-                            }
-                            // Room to scroll past the last column (60% of the board's width) so
-                            // the last categories can reach the left edge and be selected.
-                            Spacer(Modifier.width(with(boardDensity) { (board.viewportPx * 0.6f).toDp() }))
+                                .padding(top = 12.dp, bottom = 120.dp),
+                            scrollModifier = Modifier.nestedScroll(boardEdgeConnection)
+                        ) { categoryId, placed ->
+                            val category = categoriesById.getValue(categoryId)
+                            CategoryBoardColumn(
+                                category = category,
+                                items = boardItemsByCategory[category.id].orEmpty(),
+                                headerColor = headerColors[category.id] ?: palette[0],
+                                subscriptionManager = subscriptionManager,
+                                subscriptionData = subscriptionData,
+                                onAddItem = { openNewItemModal(category.id) },
+                                onOpenItem = ::openDetailModal,
+                                onLongPress = { item -> statusSheetItem = item },
+                                modifier = placed
+                            )
                         }
                     } else {
                         val tabItem = supplyTabs.getOrNull(page)
@@ -1476,7 +1442,7 @@ private fun AttentionTierSectionCard(
             BoxWithConstraints(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)
             ) {
-                val perRow = ((maxWidth + 12.dp) / (300.dp + 12.dp)).toInt().coerceAtLeast(1)
+                val perRow = ((maxWidth + 12.dp) / (BOARD_CARD_WIDTH + 12.dp)).toInt().coerceAtLeast(1)
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items.chunked(perRow).forEachIndexed { rowIndex, row ->
                         Row(
@@ -2238,17 +2204,10 @@ private fun CategoryBoardColumn(
     val scope = rememberCoroutineScope()
     val isSubscribed = subscriptionData.subscribedCategoryIds.contains(category.id)
 
-    androidx.compose.material3.Card(
-        modifier = modifier
-            .fillMaxHeight()
-            .wrapContentWidth()
-            .kkcCardDepth(RoundedCornerShape(8.dp), elevation = 3.dp),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = columnBgColor)
-    ) {
-        CategoryColumnLayout(
-            modifier = Modifier.fillMaxHeight(),
-            header = {
+    BoardColumnCard(
+        containerColor = columnBgColor,
+        modifier = modifier,
+        header = {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2280,16 +2239,10 @@ private fun CategoryBoardColumn(
                     }
                 }
             },
-            content = {
-                FlowColumn(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+    ) {
+                BoardCardFlow {
                     if (items.isEmpty()) {
-                        Box(modifier = Modifier.width(300.dp)) {
+                        Box(modifier = Modifier.width(BOARD_CARD_WIDTH)) {
                             Text(
                                 text = "No items in this category.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -2299,7 +2252,7 @@ private fun CategoryBoardColumn(
                         }
                     } else {
                         items.forEachIndexed { index, item ->
-                            Box(modifier = Modifier.width(300.dp)) {
+                            Box(modifier = Modifier.width(BOARD_CARD_WIDTH)) {
                                 BoardCard(
                                     zebraIndex = index,
                                     item = item,
@@ -2311,7 +2264,7 @@ private fun CategoryBoardColumn(
                     }
                     Box(
                         modifier = Modifier
-                            .width(300.dp)
+                            .width(BOARD_CARD_WIDTH)
                             .clickable { onAddItem() }
                             .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
@@ -2335,8 +2288,6 @@ private fun CategoryBoardColumn(
                         }
                     }
                 }
-            }
-        )
     }
 }
 

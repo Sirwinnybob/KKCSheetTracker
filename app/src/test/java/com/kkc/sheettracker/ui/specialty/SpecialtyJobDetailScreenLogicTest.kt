@@ -371,4 +371,33 @@ class SpecialtyJobDetailScreenLogicTest {
         assertTrue(reuseUnchangedResolvedItems(emptyList(), fresh) === fresh)
         assertEquals(listOf("a"), reuseUnchangedResolvedItems(previous, fresh).map { it.item.id })
     }
+
+    @Test
+    fun quantityFormat_trimsFloatNoiseAndTrailingZeros() {
+        assertEquals("51.0425", formatSpecialtyQuantity(51.042500000000004))
+        assertEquals("2", formatSpecialtyQuantity(2.0))
+        assertEquals("0.5", formatSpecialtyQuantity(0.5))
+        assertEquals("1.2346", formatSpecialtyQuantity(1.23456))
+        assertEquals("120", formatSpecialtyQuantity(120.0))
+    }
+
+    @Test
+    fun quantityFormat_nonFiniteDoesNotThrow() {
+        assertEquals("NaN", formatSpecialtyQuantity(Double.NaN))
+        assertEquals("Infinity", formatSpecialtyQuantity(Double.POSITIVE_INFINITY))
+        assertEquals("-Infinity", formatSpecialtyQuantity(Double.NEGATIVE_INFINITY))
+    }
+
+    @Test
+    fun editedQuantity_untouchedFieldKeepsExactStoredValue() {
+        // The field shows 0.3333; saving without touching it must not truncate the stored value.
+        assertEquals(0.333333, editedSpecialtyQuantity(0.333333, "0.3333")!!, 0.0)
+        assertEquals(0.333333, editedSpecialtyQuantity(0.333333, " 0.3333 ")!!, 0.0)
+        assertEquals(0.5, editedSpecialtyQuantity(0.333333, "0.5")!!, 0.0)
+        assertEquals(3.0, editedSpecialtyQuantity(null, "3")!!, 0.0)
+        assertNull(editedSpecialtyQuantity(2.0, ""))
+        assertNull(editedSpecialtyQuantity(2.0, "abc"))
+        assertNull(editedSpecialtyQuantity(null, "NaN"))
+        assertNull(editedSpecialtyQuantity(null, "1e999"))
+    }
 }

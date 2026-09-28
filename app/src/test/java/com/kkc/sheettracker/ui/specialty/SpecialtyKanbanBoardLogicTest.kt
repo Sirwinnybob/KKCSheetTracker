@@ -9,6 +9,8 @@ import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
+import com.kkc.sheettracker.ui.theme.contrastRatio
+import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -105,15 +107,6 @@ class SpecialtyKanbanBoardLogicTest {
     }
 
     @Test
-    fun quantityFormat_trimsFloatNoiseAndTrailingZeros() {
-        assertEquals("51.0425", formatSpecialtyQuantity(51.042500000000004))
-        assertEquals("2", formatSpecialtyQuantity(2.0))
-        assertEquals("0.5", formatSpecialtyQuantity(0.5))
-        assertEquals("1.2346", formatSpecialtyQuantity(1.23456))
-        assertEquals("120", formatSpecialtyQuantity(120.0))
-    }
-
-    @Test
     fun cardStatus_followsCompletedSteps() {
         assertEquals(SheetStatus.NOT_STARTED, kanbanCardStatus(0, 2))
         assertEquals(SheetStatus.IN_PROGRESS, kanbanCardStatus(1, 2))
@@ -130,26 +123,6 @@ class SpecialtyKanbanBoardLogicTest {
     @Test
     fun orderCards_worksForSheetRipsToo() {
         assertEquals(listOf("b", "a"), orderKanbanCards(listOf("a", "b")) { it == "a" })
-    }
-
-    @Test
-    fun quantityFormat_nonFiniteDoesNotThrow() {
-        assertEquals("NaN", formatSpecialtyQuantity(Double.NaN))
-        assertEquals("Infinity", formatSpecialtyQuantity(Double.POSITIVE_INFINITY))
-        assertEquals("-Infinity", formatSpecialtyQuantity(Double.NEGATIVE_INFINITY))
-    }
-
-    @Test
-    fun editedQuantity_untouchedFieldKeepsExactStoredValue() {
-        // The field shows 0.3333; saving without touching it must not truncate the stored value.
-        assertEquals(0.333333, editedSpecialtyQuantity(0.333333, "0.3333")!!, 0.0)
-        assertEquals(0.333333, editedSpecialtyQuantity(0.333333, " 0.3333 ")!!, 0.0)
-        assertEquals(0.5, editedSpecialtyQuantity(0.333333, "0.5")!!, 0.0)
-        assertEquals(3.0, editedSpecialtyQuantity(null, "3")!!, 0.0)
-        assertNull(editedSpecialtyQuantity(2.0, ""))
-        assertNull(editedSpecialtyQuantity(2.0, "abc"))
-        assertNull(editedSpecialtyQuantity(null, "NaN"))
-        assertNull(editedSpecialtyQuantity(null, "1e999"))
     }
 
     @Test
@@ -185,12 +158,12 @@ class SpecialtyKanbanBoardLogicTest {
 
     @Test
     fun headerColor_keepsWhiteTextReadableForEveryStation() {
-        val ids = com.kkc.sheettracker.data.models.SpecialtyStation.entries.map { it.name } +
-            listOf(com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS, com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER)
+        val ids = SpecialtyStation.entries.map { it.name } +
+            listOf(SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS, SPECIALTY_VIEWER_SECTION_ID_OTHER)
         ids.forEach { id ->
             val bg = kanbanHeaderColor(kanbanColumnColor(id))
-            val ratio = com.kkc.sheettracker.ui.theme.contrastRatio(androidx.compose.ui.graphics.Color.White, bg)
-            org.junit.Assert.assertTrue("$id header contrast $ratio", ratio >= 4.5f)
+            val ratio = contrastRatio(Color.White, bg)
+            assertTrue("$id header contrast $ratio", ratio >= 4.5f)
         }
     }
 }

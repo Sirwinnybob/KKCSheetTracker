@@ -208,6 +208,11 @@ internal fun SpecialtyJobDetailScreen(
     val context = LocalContext.current
     val uiPrefs = remember { UiPreferencesStore(context) }
     var kanbanLayout by remember { mutableStateOf(uiPrefs.getSpecialtyKanbanLayout()) }
+    // Follow a toggle made on another open specialty screen (the setting is per tablet).
+    DisposableEffect(uiPrefs) {
+        val stopObserving = uiPrefs.observeSpecialtyKanbanLayout { kanbanLayout = it }
+        onDispose { stopObserving() }
+    }
 
     // Show current content immediately, then verify this job in the background.
     LaunchedEffect(jobFolderName) {
@@ -399,21 +404,11 @@ internal fun SpecialtyJobDetailScreen(
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
                 )
                 // Same inline save-failure text the list shows (in addition to the snackbar).
-                if (!toggleErrorMessage.isNullOrBlank()) {
-                    Text(
-                        text = toggleErrorMessage.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                    )
+                toggleErrorMessage?.takeIf { it.isNotBlank() }?.let { message ->
+                    SpecialtyChecklistError(message, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                 }
                 if (resolvedItems.isEmpty() && sheetRipItems.isEmpty()) {
-                    Text(
-                        "No specialty checklist items found.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
+                    SpecialtyChecklistEmpty(Modifier.padding(horizontal = 16.dp))
                 } else {
                     val kanbanColumns = remember(sections, sheetRipItems) {
                         buildSpecialtyKanbanColumns(sections, hasSheetRips = sheetRipItems.isNotEmpty())
@@ -536,12 +531,7 @@ internal fun SpecialtyJobDetailScreen(
 
             if (resolvedItems.isEmpty()) {
                 item(key = "empty") {
-                    Text(
-                        "No specialty checklist items found.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
+                    SpecialtyChecklistEmpty(Modifier.padding(top = 12.dp))
                 }
             } else {
                 sections.forEach { section ->
@@ -623,14 +613,8 @@ internal fun SpecialtyJobDetailScreen(
                 }
             }
 
-            if (!toggleErrorMessage.isNullOrBlank()) {
-                item(key = "error") {
-                    Text(
-                        text = toggleErrorMessage.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
+            toggleErrorMessage?.takeIf { it.isNotBlank() }?.let { message ->
+                item(key = "error") { SpecialtyChecklistError(message) }
             }
         }
         }
@@ -1129,6 +1113,28 @@ internal fun SpecialtyItemDetails(
             )
         }
     }
+}
+
+/** The inline checklist save-failure text (shown with the snackbar) in both layouts. */
+@Composable
+private fun SpecialtyChecklistError(message: String, modifier: Modifier = Modifier) {
+    Text(
+        text = message,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = modifier
+    )
+}
+
+/** The empty-checklist text in both layouts. */
+@Composable
+private fun SpecialtyChecklistEmpty(modifier: Modifier = Modifier) {
+    Text(
+        "No specialty checklist items found.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier
+    )
 }
 
 /** One sheet-rip tally row (material, label, feet, rip count). Used by the list and the board. */

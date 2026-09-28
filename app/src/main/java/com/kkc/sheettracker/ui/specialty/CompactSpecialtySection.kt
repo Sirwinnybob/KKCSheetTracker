@@ -296,7 +296,7 @@ fun CompactSpecialtySection(
                             }
                             if (item.quantity != null) {
                                 Text(
-                                    text = "Qty: ${item.quantity}",
+                                    text = "Qty: ${formatSpecialtyQuantity(item.quantity)}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1

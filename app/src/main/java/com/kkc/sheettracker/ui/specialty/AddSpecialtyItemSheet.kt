@@ -111,7 +111,8 @@ fun AddSpecialtyItemSheet(
 
     // CUSTOM fields
     var dimensions by remember(existingItem?.id) { mutableStateOf(existingItem?.dimensions ?: "") }
-    var quantityText by remember(existingItem?.id) { mutableStateOf(existingItem?.quantity?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "") }
+    // Same display rule as the checklist (no float noise); saving untouched text keeps the exact value.
+    var quantityText by remember(existingItem?.id) { mutableStateOf(existingItem?.quantity?.let(::formatSpecialtyQuantity) ?: "") }
     var material by remember(existingItem?.id) { mutableStateOf(existingItem?.material ?: "") }
 
     // TO_ORDER fields
@@ -139,7 +140,7 @@ fun AddSpecialtyItemSheet(
             stations = selectedStations.toList(),
             notes = notes.trim().takeIf { it.isNotBlank() },
             dimensions = dimensions.trim().takeIf { it.isNotBlank() },
-            quantity = quantityText.trim().toDoubleOrNull(),
+            quantity = editedSpecialtyQuantity(existingItem?.quantity, quantityText),
             material = material.trim().takeIf { it.isNotBlank() },
             supplier = supplier.trim().takeIf { it.isNotBlank() },
             modelNumber = modelNumber.trim().takeIf { it.isNotBlank() },

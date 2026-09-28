@@ -37,6 +37,19 @@ class UiPreferencesStore(context: Context) {
         prefs.edit().putBoolean("specialty_kanban_layout", enabled).apply()
 
     /**
+     * Calls [onChange] with the new value whenever the specialty kanban layout setting changes, so
+     * every open specialty screen (e.g. one kept on another tab's back stack) follows a toggle.
+     * Returns the function that stops observing.
+     */
+    fun observeSpecialtyKanbanLayout(onChange: (Boolean) -> Unit): () -> Unit {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { changed, key ->
+            if (key == "specialty_kanban_layout") onChange(changed.getBoolean(key, false))
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    /**
      * Admin mode is a simple, non-security hide/show gate unlocked by a plain-text
      * password in Settings. When on, extra UI (the supply "To Order" tab and job-lineup
      * editing) becomes visible. This is intentionally not real authentication.

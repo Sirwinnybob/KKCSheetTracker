@@ -8,6 +8,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 
@@ -128,5 +130,22 @@ class UiPreferencesStoreTest {
         assertTrue(store.getSpecialtyKanbanLayout())
         store.setSpecialtyKanbanLayout(false)
         assertFalse(store.getSpecialtyKanbanLayout())
+    }
+
+    @Test
+    fun specialtyKanbanLayout_observerSeesOnlyItsKeyAndCanStop() {
+        val store = UiPreferencesStore(context)
+        val seen = mutableListOf<Boolean>()
+        val stop = store.observeSpecialtyKanbanLayout { seen += it }
+        val listener = argumentCaptor<SharedPreferences.OnSharedPreferenceChangeListener>()
+        verify(prefs).registerOnSharedPreferenceChangeListener(listener.capture())
+
+        store.setSpecialtyKanbanLayout(true)
+        listener.firstValue.onSharedPreferenceChanged(prefs, "specialty_kanban_layout")
+        listener.firstValue.onSharedPreferenceChanged(prefs, "board_view_jobs")
+        assertEquals(listOf(true), seen)
+
+        stop()
+        verify(prefs).unregisterOnSharedPreferenceChangeListener(listener.firstValue)
     }
 }

@@ -2,7 +2,6 @@ package com.kkc.sheettracker.ui.specialty
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +16,6 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,20 +25,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.animateBounds
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowColumn
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.layout.LookaheadScope
-import com.kkc.sheettracker.ui.supply.CategoryColumnLayout
+import com.kkc.sheettracker.ui.supply.BOARD_CARD_WIDTH
+import com.kkc.sheettracker.ui.supply.BoardCardFlow
+import com.kkc.sheettracker.ui.supply.BoardColumnCard
+import com.kkc.sheettracker.ui.supply.BoardColumnsRow
 import com.kkc.sheettracker.ui.supply.SupplyBoardState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
@@ -51,26 +46,18 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.IntState
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.kkc.sheettracker.ui.components.kkcCardDepth
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onPlaced
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -94,27 +81,23 @@ import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import com.kkc.sheettracker.ui.jobs.stationBarColor
 import com.kkc.sheettracker.ui.supply.rememberSupplyBoardState
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
-/** One board column: Sheet Rips (items empty; rips render separately), a station, or Other. */
-internal data class SpecialtyKanbanColumn(
-    val id: String,
-    val label: String,
-    val items: List<SpecialtyResolvedItem>
-)
-
-/** Sheet Rips first (when present), then the list's station sections in order, Other last. */
+/**
+ * The board's columns: Sheet Rips first when present (its items are empty; rips render
+ * separately), then the list's station sections in order, Other last.
+ */
 internal fun buildSpecialtyKanbanColumns(
     sections: List<SpecialtyDetailSection>,
     hasSheetRips: Boolean
-): List<SpecialtyKanbanColumn> = buildList {
-    if (hasSheetRips) add(SpecialtyKanbanColumn(SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS, "Sheet Rips", emptyList()))
-    sections.forEach { add(SpecialtyKanbanColumn(it.id, it.label, it.items)) }
-}
+): List<SpecialtyDetailSection> =
+    if (hasSheetRips) listOf(SpecialtyDetailSection(SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS, "Sheet Rips", emptyList())) + sections
+    else sections
 
 /**
  * The checkbox a card shows in [columnId]: that station's toggle for station-split items, else the
- * item's single completion toggle (shared across its columns, as in the list).
+ * item's single completion toggle (shared across its columns, as in the list). A split item with no
+ * toggle for [columnId] gets none (null): it can't happen while items only land in their own
+ * stations' columns, and guessing one of its toggles would tick the wrong station.
  */
 internal fun kanbanColumnToggle(
     toggles: List<SpecialtyChecklistToggle>,
@@ -215,8 +198,8 @@ internal fun <T> orderKanbanCards(
 }
 
 /** Header colors for the two non-station columns. */
-internal val KANBAN_SHEET_RIPS_COLOR = Color(0xFF475569)
-internal val KANBAN_OTHER_COLOR = Color(0xFF6B7280)
+private val KANBAN_SHEET_RIPS_COLOR = Color(0xFF475569)
+private val KANBAN_OTHER_COLOR = Color(0xFF6B7280)
 
 internal fun kanbanColumnColor(columnId: String): Color = when (columnId) {
     SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS -> KANBAN_SHEET_RIPS_COLOR
@@ -377,15 +360,12 @@ internal fun SpecialtyKanbanCard(
 /** Space kept under the buckets; the same as the list layout's bottom content padding. */
 internal val KANBAN_BOTTOM_CLEARANCE = 172.dp
 
-/** Card width inside a bucket; matches the Supply board's cards. */
-internal val KANBAN_CARD_WIDTH = 300.dp
-
 /**
- * One bucket, laid out like a Supply board column: the header sits over a [FlowColumn] that fills
- * the board height and wraps cards into extra sub-columns instead of scrolling vertically, so the
- * bucket grows wider as it fills. The header is pinned to the bucket's resulting width.
+ * One bucket, laid out like a Supply board column ([BoardColumnCard]): the header sits over cards
+ * that fill the board height and wrap into extra sub-columns instead of scrolling vertically, so
+ * the bucket grows wider as it fills. The header is pinned to the bucket's resulting width.
  */
-@OptIn(ExperimentalLayoutApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun SpecialtyKanbanColumnFrame(
     label: String,
@@ -399,63 +379,38 @@ internal fun SpecialtyKanbanColumnFrame(
     // animateBounds measures the bucket twice every layout; skip it where low-end mode asks for
     // lighter loading as well as where animations are off.
     val animationsOn = !LocalLowEndMode.current.animationsDisabled && !LocalLowEndMode.current.lazyLoadingActive
-    Card(
-        modifier = modifier
-            .fillMaxHeight()
-            .wrapContentWidth()
-            // Same depth as the Supply board's columns, including the low-end hairline edge.
-            .kkcCardDepth(RoundedCornerShape(8.dp), elevation = 3.dp),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        CategoryColumnLayout(
-            modifier = Modifier.fillMaxHeight(),
-            header = {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(kanbanHeaderColor(color))
-                        // Same 48dp bar as a Supply column header (10dp padding around a 28dp control).
-                        .heightIn(min = 48.dp)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = label.uppercase(),
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(text = "$done/$total", style = MaterialTheme.typography.labelLarge, color = Color.White)
-                }
-            },
-            content = {
-                // Scoped per bucket so card motion is measured relative to the bucket, not the
-                // scrolling board (panning must not animate cards).
-                LookaheadScope {
-                    val itemMotion = if (animationsOn) Modifier.animateBounds(lookaheadScope = this) else Modifier
-                    FlowColumn(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        content(itemMotion)
-                    }
-                }
+    BoardColumnCard(
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = modifier,
+        header = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(kanbanHeaderColor(color))
+                    // Same 48dp bar as a Supply column header (10dp padding around a 28dp control).
+                    .heightIn(min = 48.dp)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = label.uppercase(),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(text = "$done/$total", style = MaterialTheme.typography.labelLarge, color = Color.White)
             }
-        )
+        }
+    ) {
+        // Scoped per bucket so card motion is measured relative to the bucket, not the scrolling
+        // board (panning must not animate cards).
+        LookaheadScope {
+            val itemMotion = if (animationsOn) Modifier.animateBounds(lookaheadScope = this) else Modifier
+            BoardCardFlow { content(itemMotion) }
+        }
     }
-}
-
-/** Composes [content] once the board's staggered build has reached column [index]. */
-@Composable
-private fun StaggeredColumnSlot(index: Int, builtColumns: IntState, content: @Composable () -> Unit) {
-    val built by remember(index, builtColumns) { derivedStateOf { builtColumns.intValue > index } }
-    if (built) content()
 }
 
 /**
@@ -464,11 +419,14 @@ private fun StaggeredColumnSlot(index: Int, builtColumns: IntState, content: @Co
  */
 @Composable
 private fun KanbanStationPillRow(
-    columns: List<SpecialtyKanbanColumn>,
+    columns: List<SpecialtyDetailSection>,
     board: SupplyBoardState,
     onSelect: (String) -> Unit
 ) {
     val activeKey by remember(board) { derivedStateOf { board.activeKey() } }
+    // For the frame after a column appears or goes, the board's keys lag behind [columns]; an
+    // active key that isn't a current column falls back to the first rather than selecting none.
+    val selectedId = activeKey?.takeIf { key -> columns.any { it.id == key } } ?: columns.firstOrNull()?.id
     KKCPillContainer(
         style = rememberKKCPillStyle(),
         modifier = Modifier
@@ -481,7 +439,7 @@ private fun KanbanStationPillRow(
             items = columns.map { column ->
                 KKCTabItem(
                     label = column.label.uppercase(),
-                    isSelected = (activeKey ?: columns.firstOrNull()?.id) == column.id,
+                    isSelected = selectedId == column.id,
                     alwaysBold = true,
                     onClick = { onSelect(column.id) }
                 )
@@ -491,13 +449,12 @@ private fun KanbanStationPillRow(
 }
 
 /**
- * Station columns side by side, panned horizontally like the Supply board, with a sliding station
- * pill row that tracks the column at the left edge. Every column stays composed (built a few up
- * front, then one per frame) so panning never builds a column mid-swipe.
+ * Station columns side by side, panned horizontally like the Supply board ([BoardColumnsRow]),
+ * with a sliding station pill row that tracks the column at the left edge.
  */
 @Composable
 internal fun SpecialtyKanbanBoard(
-    columns: List<SpecialtyKanbanColumn>,
+    columns: List<SpecialtyDetailSection>,
     stationOrder: List<SpecialtyStation>,
     completionOverrides: Map<String, Boolean>,
     inFlightUpdates: Map<String, Boolean>,
@@ -517,18 +474,8 @@ internal fun SpecialtyKanbanBoard(
     val board = rememberSupplyBoardState()
     val scope = rememberCoroutineScope()
     val animationsOn = !LocalLowEndMode.current.animationsDisabled
-    LaunchedEffect(columns.map { it.id }) { board.updateKeys(columns.map { it.id }) }
     val stationRank = remember(stationOrder) { specialtyStationRank(stationOrder) }
-
-    // Columns are built a few up front, then one per frame. Each column reads the count through
-    // its own derived state, so a new column recomposes only that column's slot, not the board.
-    val builtColumns = remember { mutableIntStateOf(3) }
-    LaunchedEffect(columns.size) {
-        while (builtColumns.intValue < columns.size) {
-            withFrameNanos { }
-            builtColumns.intValue++
-        }
-    }
+    val columnsById = columns.associateBy { it.id }
 
     Column(modifier = modifier) {
         KanbanStationPillRow(
@@ -536,7 +483,10 @@ internal fun SpecialtyKanbanBoard(
             board = board,
             onSelect = { id -> scope.launch { board.scrollToColumn(id, animate = animationsOn) } }
         )
-        Row(
+        BoardColumnsRow(
+            board = board,
+            keys = columns.map { it.id },
+            initialBuiltColumns = 3,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = 12.dp)
@@ -547,84 +497,67 @@ internal fun SpecialtyKanbanBoard(
                         .exclude(WindowInsets.systemBars)
                         .union(WindowInsets(bottom = KANBAN_BOTTOM_CLEARANCE))
                 )
-                .onSizeChanged { board.viewportPx = it.width }
-                .horizontalScroll(board.scroll),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // 4dp + 12dp spacing = 16dp inset, matching SupplyBoardState's edge.
-            Spacer(Modifier.width(4.dp))
-            columns.forEachIndexed { index, column ->
-                key(column.id) { StaggeredColumnSlot(index, builtColumns) {
-                    val placed = Modifier.onPlaced { coords ->
-                        board.columns[column.id] = coords.positionInParent().x.roundToInt() to coords.size.width
-                    }
-                    val color = kanbanColumnColor(column.id)
-                    if (column.id == SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS) {
-                        SpecialtyKanbanColumnFrame(
-                            label = column.label,
-                            color = color,
-                            done = sheetRipItems.count(sheetRipIsDone),
-                            total = sheetRipItems.size,
-                            modifier = placed
-                        ) { itemMotion ->
-                            // Same as the station buckets: finished rips drop to the bottom.
-                            orderKanbanCards(sheetRipItems, sheetRipIsDone).forEach { rip ->
-                                key(rip.id) {
-                                    Box(modifier = itemMotion.width(KANBAN_CARD_WIDTH)) { sheetRipRow(rip) }
-                                }
-                            }
+        ) { columnId, placed ->
+            val column = columnsById.getValue(columnId)
+            val color = kanbanColumnColor(column.id)
+            if (column.id == SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS) {
+                SpecialtyKanbanColumnFrame(
+                    label = column.label,
+                    color = color,
+                    done = sheetRipItems.count(sheetRipIsDone),
+                    total = sheetRipItems.size,
+                    modifier = placed
+                ) { itemMotion ->
+                    // Same as the station buckets: finished rips drop to the bottom.
+                    orderKanbanCards(sheetRipItems, sheetRipIsDone).forEach { rip ->
+                        key(rip.id) {
+                            Box(modifier = itemMotion.width(BOARD_CARD_WIDTH)) { sheetRipRow(rip) }
                         }
-                    } else {
-                        // Station columns only hold items that include this station (split items
-                        // then have a toggle keyed by it); Other holds station-less, unsplit items.
-                        // kanbanColumnToggle relies on that.
-                        val stateById = column.items.associate { resolved ->
-                            resolved.item.id to kanbanCardToggleState(
+                    }
+                }
+            } else {
+                // Station columns only hold items that include this station (split items then
+                // have a toggle keyed by it); Other holds station-less, unsplit items.
+                // kanbanColumnToggle relies on that. Each card keeps its own state even if two
+                // items were ever to share an id.
+                val cards = column.items.map { resolved ->
+                    resolved to kanbanCardToggleState(
+                        resolved = resolved,
+                        columnId = column.id,
+                        toggles = checklistTogglesForItem(resolved, completionOverrides),
+                        stationRank = stationRank,
+                        inFlightUpdates = inFlightUpdates,
+                        readOnly = readOnly
+                    )
+                }
+                SpecialtyKanbanColumnFrame(
+                    label = column.label,
+                    color = color,
+                    done = cards.count { (_, state) -> state.done },
+                    total = cards.size,
+                    modifier = placed
+                ) { itemMotion ->
+                    orderKanbanCards(cards) { (_, state) -> state.done }.forEach { (resolved, state) ->
+                        key(resolved.item.id) {
+                            SpecialtyKanbanCard(
                                 resolved = resolved,
                                 columnId = column.id,
-                                toggles = checklistTogglesForItem(resolved, completionOverrides),
-                                stationRank = stationRank,
-                                inFlightUpdates = inFlightUpdates,
-                                readOnly = readOnly
+                                columnColor = color,
+                                toggleState = state,
+                                onToggle = { toggle, next -> onToggle(resolved, toggle, next) },
+                                onView = onView,
+                                onEdit = onEdit,
+                                onDelete = onDelete,
+                                onPatchDims = { d, q, m -> onPatchDims(resolved, d, q, m) },
+                                basePath = basePath,
+                                jobFolderName = jobFolderName,
+                                readOnly = readOnly,
+                                modifier = itemMotion.width(BOARD_CARD_WIDTH)
                             )
                         }
-                        val isDone: (SpecialtyResolvedItem) -> Boolean = { r -> stateById.getValue(r.item.id).done }
-                        val ordered = orderKanbanCards(column.items, isDone)
-                        SpecialtyKanbanColumnFrame(
-                            label = column.label,
-                            color = color,
-                            done = column.items.count(isDone),
-                            total = column.items.size,
-                            modifier = placed
-                        ) { itemMotion ->
-                            ordered.forEach { resolved -> key(resolved.item.id) {
-                                SpecialtyKanbanCard(
-                                    resolved = resolved,
-                                    columnId = column.id,
-                                    columnColor = color,
-                                    toggleState = stateById.getValue(resolved.item.id),
-                                    onToggle = { toggle, next -> onToggle(resolved, toggle, next) },
-                                    onView = onView,
-                                    onEdit = onEdit,
-                                    onDelete = onDelete,
-                                    onPatchDims = { d, q, m -> onPatchDims(resolved, d, q, m) },
-                                    basePath = basePath,
-                                    jobFolderName = jobFolderName,
-                                    readOnly = readOnly,
-                                    modifier = itemMotion.width(KANBAN_CARD_WIDTH)
-                                )
-                            } }
-                        }
                     }
-                } }
-            }
-            // Room to scroll the last columns up to the left edge so they can become active. The
-            // width is read during layout, so a viewport size change doesn't recompose the board.
-            Spacer(
-                Modifier.layout { _, _ ->
-                    layout((board.viewportPx * 0.6f).roundToInt(), 0) {}
                 }
-            )
+            }
         }
     }
 }
