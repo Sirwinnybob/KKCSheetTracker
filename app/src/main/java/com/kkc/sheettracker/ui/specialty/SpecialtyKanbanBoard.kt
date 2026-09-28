@@ -23,9 +23,23 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.animateBounds
-import androidx.compose.ui.layout.LookaheadScope
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector2D
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.node.LayoutModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.round
+import kotlinx.coroutines.CoroutineStart
 import com.kkc.sheettracker.ui.supply.BOARD_CARD_WIDTH
 import com.kkc.sheettracker.ui.supply.BoardCardFlow
 import com.kkc.sheettracker.ui.supply.BoardColumnCard
@@ -361,11 +375,55 @@ internal fun SpecialtyKanbanCard(
 internal val KANBAN_BOTTOM_CLEARANCE = 172.dp
 
 /**
+ * Slides a card to its new spot when its bucket reorders (done -> bottom) or reflows. It tracks the
+ * card's position within the bucket only, so panning the board never animates it, and it does so
+ * from the one regular placement pass -- no per-bucket LookaheadScope / animateBounds approach pass
+ * and no lookahead coordinate math on every placement.
+ */
+private data object KanbanCardMotionElement : ModifierNodeElement<KanbanCardMotionNode>() {
+    override fun create() = KanbanCardMotionNode()
+    override fun update(node: KanbanCardMotionNode) = Unit
+    override fun InspectorInfo.inspectableProperties() {
+        name = "kanbanCardMotion"
+    }
+}
+
+private class KanbanCardMotionNode : Modifier.Node(), LayoutModifierNode {
+    private var offset: Animatable<IntOffset, AnimationVector2D>? = null
+
+    override fun onDetach() {
+        offset = null
+    }
+
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
+        val placeable = measurable.measure(constraints)
+        return layout(placeable.width, placeable.height) {
+            // This node's own position in the bucket, as the bucket just placed it.
+            val target = coordinates?.positionInParent()?.round()
+            if (target == null) {
+                placeable.place(0, 0)
+                return@layout
+            }
+            // First placement (or reattached): start where it is, nothing to animate.
+            val anim = offset ?: Animatable(target, IntOffset.VectorConverter).also { offset = it }
+            if (anim.targetValue != target) {
+                // Undispatched so targetValue updates now and a second placement this frame
+                // doesn't start the same animation again.
+                this@KanbanCardMotionNode.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    anim.animateTo(target, spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset.VisibilityThreshold))
+                }
+            }
+            // Reading anim.value here re-runs just this placement each animation frame.
+            placeable.place(anim.value - target)
+        }
+    }
+}
+
+/**
  * One bucket, laid out like a Supply board column ([BoardColumnCard]): the header sits over cards
  * that fill the board height and wrap into extra sub-columns instead of scrolling vertically, so
  * the bucket grows wider as it fills. The header is pinned to the bucket's resulting width.
  */
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun SpecialtyKanbanColumnFrame(
     label: String,
@@ -376,9 +434,7 @@ internal fun SpecialtyKanbanColumnFrame(
     /** Emits the bucket's cards; apply [itemMotion] to each so reordering (done -> bottom) animates. */
     content: @Composable (itemMotion: Modifier) -> Unit
 ) {
-    // animateBounds measures the bucket twice every layout; skip it where low-end mode asks for
-    // lighter loading as well as where animations are off.
-    val animationsOn = !LocalLowEndMode.current.animationsDisabled && !LocalLowEndMode.current.lazyLoadingActive
+    val animationsOn = !LocalLowEndMode.current.animationsDisabled
     BoardColumnCard(
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
         modifier = modifier,
@@ -404,12 +460,8 @@ internal fun SpecialtyKanbanColumnFrame(
             }
         }
     ) {
-        // Scoped per bucket so card motion is measured relative to the bucket, not the scrolling
-        // board (panning must not animate cards).
-        LookaheadScope {
-            val itemMotion = if (animationsOn) Modifier.animateBounds(lookaheadScope = this) else Modifier
-            BoardCardFlow { content(itemMotion) }
-        }
+        val itemMotion = if (animationsOn) Modifier.then(KanbanCardMotionElement) else Modifier
+        BoardCardFlow { content(itemMotion) }
     }
 }
 
@@ -475,7 +527,8 @@ internal fun SpecialtyKanbanBoard(
     val scope = rememberCoroutineScope()
     val animationsOn = !LocalLowEndMode.current.animationsDisabled
     val stationRank = remember(stationOrder) { specialtyStationRank(stationOrder) }
-    val columnsById = columns.associateBy { it.id }
+    val columnsById = remember(columns) { columns.associateBy { it.id } }
+    val columnKeys = remember(columns) { columns.map { it.id } }
 
     Column(modifier = modifier) {
         KanbanStationPillRow(
@@ -485,7 +538,7 @@ internal fun SpecialtyKanbanBoard(
         )
         BoardColumnsRow(
             board = board,
-            keys = columns.map { it.id },
+            keys = columnKeys,
             initialBuiltColumns = 3,
             modifier = Modifier
                 .fillMaxSize()
@@ -520,15 +573,21 @@ internal fun SpecialtyKanbanBoard(
                 // have a toggle keyed by it); Other holds station-less, unsplit items.
                 // kanbanColumnToggle relies on that. Each card keeps its own state even if two
                 // items were ever to share an id.
-                val cards = column.items.map { resolved ->
-                    resolved to kanbanCardToggleState(
-                        resolved = resolved,
-                        columnId = column.id,
-                        toggles = checklistTogglesForItem(resolved, completionOverrides),
-                        stationRank = stationRank,
-                        inFlightUpdates = inFlightUpdates,
-                        readOnly = readOnly
-                    )
+                // Remembered so a bucket rebuilt for an unrelated reason (a column built, a rip
+                // ticked) doesn't recompute every card's toggles and order.
+                val cards = remember(column, completionOverrides, inFlightUpdates, stationRank, readOnly) {
+                    orderKanbanCards(
+                        column.items.map { resolved ->
+                            resolved to kanbanCardToggleState(
+                                resolved = resolved,
+                                columnId = column.id,
+                                toggles = checklistTogglesForItem(resolved, completionOverrides),
+                                stationRank = stationRank,
+                                inFlightUpdates = inFlightUpdates,
+                                readOnly = readOnly
+                            )
+                        }
+                    ) { (_, state) -> state.done }
                 }
                 SpecialtyKanbanColumnFrame(
                     label = column.label,
@@ -537,7 +596,7 @@ internal fun SpecialtyKanbanBoard(
                     total = cards.size,
                     modifier = placed
                 ) { itemMotion ->
-                    orderKanbanCards(cards) { (_, state) -> state.done }.forEach { (resolved, state) ->
+                    cards.forEach { (resolved, state) ->
                         key(resolved.item.id) {
                             SpecialtyKanbanCard(
                                 resolved = resolved,
