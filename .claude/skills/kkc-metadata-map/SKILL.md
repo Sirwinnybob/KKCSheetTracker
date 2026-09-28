@@ -327,7 +327,7 @@ adb shell dumpsys package com.example.timecard | Select-String "versionName|vers
 | How does Android append/order CNC tracker events? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\ProgressStore.kt`, `TrackerEventLog.kt` |
 | How does Android append/order hardwood events? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\HardwoodsProgressStore.kt`, `TrackerEventLog.kt` |
 | How are cabinet/sheet indexes generated? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\cabinet_sheet_indexer.py` |
-| How does Ready Jobs Watcher publish the Cabinet Vision molding library? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\moldings_sync.py` |
+| How is the Cabinet Vision molding library published? | `C:\Scripts\cv-molding-sync\cv_molding_sync.py` (live since 2026-09-28; old RJW reference: `ready_jobs_watcher\moldings_sync.py`) |
 | How does Hours Tracker store molding dimension overrides? | `C:\Scripts\Hours Tracker\backend\routes\molding_dimensions_store.py` |
 | How does Hours Tracker store the crown Face Frame/Frameless tag? | `C:\Scripts\Hours Tracker\backend\routes\molding_frame_style_store.py` |
 | How does Hours Tracker publish the tablet-facing molding cache (SVGs, `library.json`, `usage_index.json`)? | `C:\Scripts\Hours Tracker\backend\routes\molding_cache_publish.py` |
