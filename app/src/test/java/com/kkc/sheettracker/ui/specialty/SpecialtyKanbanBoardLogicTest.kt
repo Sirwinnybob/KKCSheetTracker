@@ -3,6 +3,7 @@ package com.kkc.sheettracker.ui.specialty
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS
 import com.kkc.sheettracker.data.SpecialtyProgressStore
+import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SpecialtyCompletionState
 import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
@@ -111,6 +112,25 @@ class SpecialtyKanbanBoardLogicTest {
         assertEquals("0.5", formatSpecialtyQuantity(0.5))
         assertEquals("1.2346", formatSpecialtyQuantity(1.23456))
         assertEquals("120", formatSpecialtyQuantity(120.0))
+    }
+
+    @Test
+    fun cardStatus_followsCompletedSteps() {
+        assertEquals(SheetStatus.NOT_STARTED, kanbanCardStatus(0, 2))
+        assertEquals(SheetStatus.IN_PROGRESS, kanbanCardStatus(1, 2))
+        assertEquals(SheetStatus.COMPLETE, kanbanCardStatus(2, 2))
+    }
+
+    @Test
+    fun checkboxLabel_namesItemAndStation() {
+        assertEquals("Pantry done at Saw", kanbanCheckboxLabel("Pantry", "SAW"))
+        assertEquals("Pantry done at Edge bander", kanbanCheckboxLabel("Pantry", "EDGE_BANDER"))
+        assertEquals("Pantry done", kanbanCheckboxLabel("Pantry", SPECIALTY_VIEWER_SECTION_ID_OTHER))
+    }
+
+    @Test
+    fun orderCards_worksForSheetRipsToo() {
+        assertEquals(listOf("b", "a"), orderKanbanCards(listOf("a", "b")) { it == "a" })
     }
 
     @Test

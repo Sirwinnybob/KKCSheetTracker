@@ -74,6 +74,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Alignment
@@ -975,11 +977,18 @@ internal fun SpecialtyChecklistRow(
                     androidx.compose.runtime.CompositionLocalProvider(
                         androidx.compose.material3.LocalMinimumInteractiveComponentSize provides androidx.compose.ui.unit.Dp.Unspecified
                     ) {
+                        val checkboxLabel = if (toggles.size > 1) {
+                            "$title done at ${toggle.label ?: toggle.completionKey}"
+                        } else {
+                            "$title done"
+                        }
                         Checkbox(
                             checked = toggle.checked,
                             onCheckedChange = { next -> onCheckedChange(toggle, next) },
                             enabled = enabled,
-                            modifier = Modifier.scale(0.8f)
+                            modifier = Modifier
+                                .scale(0.8f)
+                                .semantics { contentDescription = checkboxLabel }
                         )
                     }
                     if (toggles.size > 1) {

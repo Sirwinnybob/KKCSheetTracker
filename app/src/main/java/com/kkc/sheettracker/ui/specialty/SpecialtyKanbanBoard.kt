@@ -1,6 +1,5 @@
 package com.kkc.sheettracker.ui.specialty
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -50,7 +49,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -81,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER
 import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
+import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
@@ -90,6 +89,7 @@ import com.kkc.sheettracker.ui.components.KKCPillContainer
 import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
 import com.kkc.sheettracker.ui.components.KKCTabItem
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
+import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import com.kkc.sheettracker.ui.jobs.stationBarColor
@@ -174,11 +174,25 @@ internal fun kanbanCardToggleState(
     )
 }
 
+/** The card's status border, from its item's completed steps (same rule as the list row). */
+internal fun kanbanCardStatus(completedSteps: Int, totalSteps: Int): SheetStatus = when {
+    totalSteps > 0 && completedSteps >= totalSteps -> SheetStatus.COMPLETE
+    completedSteps > 0 -> SheetStatus.IN_PROGRESS
+    else -> SheetStatus.NOT_STARTED
+}
+
+/** What a card's checkbox marks done, for screen readers: the item, and the station if any. */
+internal fun kanbanCheckboxLabel(title: String, columnId: String): String {
+    val station = SpecialtyStation.entries.firstOrNull { it.name == columnId } ?: return "$title done"
+    val stationLabel = station.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
+    return "$title done at $stationLabel"
+}
+
 /** Unchecked cards keep list order on top; checked cards keep list order at the bottom. */
-internal fun orderKanbanCards(
-    items: List<SpecialtyResolvedItem>,
-    isDone: (SpecialtyResolvedItem) -> Boolean
-): List<SpecialtyResolvedItem> {
+internal fun <T> orderKanbanCards(
+    items: List<T>,
+    isDone: (T) -> Boolean
+): List<T> {
     val (done, open) = items.partition(isDone)
     return open + done
 }
@@ -230,13 +244,14 @@ internal fun SpecialtyKanbanCard(
     val completedSteps = toggleState.completedSteps
     val dots = toggleState.dots
 
-    Surface(
+    val title = specialtyItemTitle(item.cabinetLabel, item.cabinetNumbers, item.name)
+    // Same status border as the list row. A card done in this column also dims its summary
+    // (title, steps, progress), but not its controls and details, which stay readable.
+    StatusBorderedCard(
+        status = kanbanCardStatus(completedSteps, totalSteps),
         shape = MaterialTheme.shapes.medium,
         tonalElevation = 2.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-        modifier = modifier
-            .fillMaxWidth()
-            .alpha(if (done) 0.5f else 1f)
+        modifier = modifier.fillMaxWidth()
     ) {
         // Buckets don't scroll vertically (cards spill into sub-columns instead), so a card is at
         // most as tall as its bucket; one taller than that (e.g. the dims editor on a short
@@ -250,11 +265,13 @@ internal fun SpecialtyKanbanCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (toggle != null) {
                     // Default 48dp touch target: this checkbox is the card's main action.
+                    val checkboxLabel = kanbanCheckboxLabel(title, columnId)
                     Checkbox(
                         checked = toggle.checked,
                         onCheckedChange = { next -> onToggle(toggle, next) },
                         enabled = toggleState.enabled,
-                        colors = CheckboxDefaults.colors(checkedColor = columnColor)
+                        colors = CheckboxDefaults.colors(checkedColor = columnColor),
+                        modifier = Modifier.semantics { contentDescription = checkboxLabel }
                     )
                 }
                 Spacer(Modifier.weight(1f))
@@ -265,31 +282,28 @@ internal fun SpecialtyKanbanCard(
                         contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                     )
                 }
-                if (!readOnly) IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = "Delete item",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
             }
-            Text(
-                text = specialtyItemTitle(item.cabinetLabel, item.cabinetNumbers, item.name),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "$completedSteps/$totalSteps steps complete",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            LinearProgressIndicator(
-                progress = { completedSteps.toFloat() / totalSteps.toFloat() },
-                modifier = Modifier.fillMaxWidth().height(4.dp),
-                color = columnColor,
-                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-            )
+            Column(
+                modifier = Modifier.alpha(if (done) 0.6f else 1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "$completedSteps/$totalSteps steps complete",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                LinearProgressIndicator(
+                    progress = { completedSteps.toFloat() / totalSteps.toFloat() },
+                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                    color = columnColor,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+            }
             if (dots.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     dots.forEach { dot ->
@@ -337,6 +351,17 @@ internal fun SpecialtyKanbanCard(
                     Text("Edit", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.width(4.dp))
                     Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                }
+                if (!readOnly) {
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { onDelete(item.id) }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = "Delete $title",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
@@ -525,7 +550,8 @@ internal fun SpecialtyKanbanBoard(
                             total = sheetRipItems.size,
                             modifier = placed
                         ) { itemMotion ->
-                            sheetRipItems.forEach { rip ->
+                            // Same as the station buckets: finished rips drop to the bottom.
+                            orderKanbanCards(sheetRipItems, sheetRipIsDone).forEach { rip ->
                                 key(rip.id) {
                                     Box(modifier = itemMotion.width(KANBAN_CARD_WIDTH)) { sheetRipRow(rip) }
                                 }
