@@ -165,6 +165,7 @@ Second caveat: if a Cabinet Vision molding profile is renamed or removed, `cv-mo
 | `C:\Scripts\Ready Jobs Watcher\metadata_snapshots\<job>\<date>\<stamp-reason>\manifest.json` | Ready Jobs Watcher | Snapshot inventory of per-job/global metadata |
 | `C:\Scripts\Ready Jobs Watcher\*.log` | Ready Jobs Watcher | Main diagnostics; include `ready_jobs_watcher.log`, `cnc_scan.log`, `backup.log` |
 | `C:\Scripts\Ready Jobs Watcher\bad_parts_blacklist.json`, `permanently_ignored_blacklist.json` | Ready Jobs Watcher legacy bad-parts flow | Legacy PDF-highlight suppression |
+| `C:\Scripts\cv-molding-sync\config.json` (gitignored; CV DB creds + `root_dir`), `cv_molding_sync.log`, Task Scheduler `KKC CV Molding Sync` | cv-molding-sync (CV PC) | Molding sync config, per-run summary log, and the 15-min schedule. The task runs only while the user is logged on |
 | `C:\Scripts\Hours Tracker\config.json`, `%APPDATA%\TimeCardTracker\config.json` | Hours Tracker | Local paths for update share, Excel export, timecards, DB |
 | `C:\Scripts\Hours Tracker\backend\hours.db`, `%APPDATA%\TimeCardTracker\hours.db`, Docker `/data/hours.db` | Hours Tracker | SQLite reporting/read cache; JSON remains source of truth |
 | `hours.db-wal`, `hours.db-shm` | SQLite | WAL sidecars for the Hours Tracker reporting DB |
