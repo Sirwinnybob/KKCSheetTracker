@@ -498,6 +498,8 @@ internal fun SpecialtyJobDetailScreen(
                         onEdit = onEditItem,
                         onDelete = { itemId -> deleteTargetItemId = itemId },
                         onPatchDims = onPatchItemDims,
+                        basePath = scanState.snapshot.basePath,
+                        jobFolderName = jobFolderName,
                         readOnly = readOnly,
                         modifier = Modifier.weight(1f)
                     )
@@ -938,7 +940,6 @@ internal fun SpecialtyChecklistRow(
     myTabletId: String = "",
     readOnly: Boolean = false
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
     val item = resolved.item
     val title = specialtyItemTitle(item.cabinetLabel, item.cabinetNumbers, item.name)
     val completionKeys = completionKeysForItem(item)
@@ -952,14 +953,6 @@ internal fun SpecialtyChecklistRow(
         skipped = 0,
         notStarted = (totalSteps - completedSteps).coerceAtLeast(0)
     )
-    val notes = item.notes?.trim().orEmpty()
-    val attachmentCount = item.attachments.size
-    val supplier = item.supplier?.trim().orEmpty()
-    val model = item.model?.trim().orEmpty()
-    val tracking = item.tracking?.trim().orEmpty()
-    val orderDate = item.orderDate?.trim().orEmpty()
-    val orderUrl = item.orderUrl?.trim().orEmpty()
-    var attachmentsExpanded by remember(item.id) { mutableStateOf(false) }
     val orderedStations = remember(item.stations, stationOrder) {
         orderSpecialtyStations(item.stations, stationOrder)
     }
@@ -1048,113 +1041,145 @@ internal fun SpecialtyChecklistRow(
             }
         },
         inlineContent = {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                if (notes.isNotBlank()) SpecialtyMetaRow(label = "Notes", value = notes)
-                if (supplier.isNotBlank()) SpecialtyMetaRow(label = "Supplier", value = supplier)
-                if (model.isNotBlank()) SpecialtyMetaRow(label = "Model", value = model)
-                if (tracking.isNotBlank()) SpecialtyMetaRow(label = "Tracking", value = tracking)
-                if (orderDate.isNotBlank()) SpecialtyMetaRow(label = "Order Date", value = orderDate)
-                if (orderUrl.isNotBlank()) SpecialtyMetaRow(label = "Order URL", value = orderUrl)
-                if (item.category == com.kkc.sheettracker.data.models.SpecialtyItemCategory.TO_ORDER) {
-                    SpecialtyQuantitySection(
-                        item = item,
-                        onPatchQuantity = { q -> onPatchDims?.invoke(item.dimensions, q, item.material) },
-                        readOnly = readOnly
-                    )
-                } else {
-                    val isSawStation = SpecialtyStation.SAW in item.stations
-                    if (isSawStation || item.dimensions != null || item.quantity != null || !item.material.isNullOrBlank()) {
-                        SpecialtyDimsSection(
-                            item = item,
-                            isSawStation = isSawStation,
-                            onPatchDims = { d, q, m -> onPatchDims?.invoke(d, q, m) },
-                            readOnly = readOnly
+            SpecialtyItemDetails(
+                item = item,
+                onPatchDims = onPatchDims,
+                basePath = basePath,
+                jobFolderName = jobFolderName,
+                saving = toggles.any { toggle -> !isToggleEnabled(toggle.controlId, inFlightUpdates) },
+                readOnly = readOnly
+            )
+        }
+    )
+}
+
+/**
+ * An item's notes, order details, dims / quantity editor, attachments menu and "Saving..." line:
+ * everything under the header. Shared by the list row and the kanban card so both show the same.
+ */
+@Composable
+internal fun SpecialtyItemDetails(
+    item: com.kkc.sheettracker.data.models.SpecialtyItem,
+    onPatchDims: ((String?, Double?, String?) -> Unit)?,
+    basePath: String,
+    jobFolderName: String,
+    saving: Boolean,
+    readOnly: Boolean
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notes = item.notes?.trim().orEmpty()
+    val attachmentCount = item.attachments.size
+    val supplier = item.supplier?.trim().orEmpty()
+    val model = item.model?.trim().orEmpty()
+    val tracking = item.tracking?.trim().orEmpty()
+    val orderDate = item.orderDate?.trim().orEmpty()
+    val orderUrl = item.orderUrl?.trim().orEmpty()
+    var attachmentsExpanded by remember(item.id) { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        if (notes.isNotBlank()) SpecialtyMetaRow(label = "Notes", value = notes)
+        if (supplier.isNotBlank()) SpecialtyMetaRow(label = "Supplier", value = supplier)
+        if (model.isNotBlank()) SpecialtyMetaRow(label = "Model", value = model)
+        if (tracking.isNotBlank()) SpecialtyMetaRow(label = "Tracking", value = tracking)
+        if (orderDate.isNotBlank()) SpecialtyMetaRow(label = "Order Date", value = orderDate)
+        if (orderUrl.isNotBlank()) SpecialtyMetaRow(label = "Order URL", value = orderUrl)
+        if (item.category == com.kkc.sheettracker.data.models.SpecialtyItemCategory.TO_ORDER) {
+            SpecialtyQuantitySection(
+                item = item,
+                onPatchQuantity = { q -> onPatchDims?.invoke(item.dimensions, q, item.material) },
+                readOnly = readOnly
+            )
+        } else {
+            val isSawStation = SpecialtyStation.SAW in item.stations
+            if (isSawStation || item.dimensions != null || item.quantity != null || !item.material.isNullOrBlank()) {
+                SpecialtyDimsSection(
+                    item = item,
+                    isSawStation = isSawStation,
+                    onPatchDims = { d, q, m -> onPatchDims?.invoke(d, q, m) },
+                    readOnly = readOnly
+                )
+            }
+        }
+        if (attachmentCount > 0) {
+            Box {
+                Surface(
+                    tonalElevation = 0.dp,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.clickable { attachmentsExpanded = !attachmentsExpanded }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Attachments ($attachmentCount)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Icon(
+                            imageVector = if (attachmentsExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                            contentDescription = "Arrow Drop Down icon",
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
-                if (attachmentCount > 0) {
-                    Box {
-                        Surface(
-                            tonalElevation = 0.dp,
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier.clickable { attachmentsExpanded = !attachmentsExpanded }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
+                DropdownMenu(
+                    expanded = attachmentsExpanded,
+                    onDismissRequest = { attachmentsExpanded = false }
+                ) {
+                    item.attachments.forEach { att ->
+                        DropdownMenuItem(
+                            text = {
                                 Text(
-                                    text = "Attachments ($attachmentCount)",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary
+                                    text = att.originalName.ifBlank { att.filename },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Icon(
-                                    imageVector = if (attachmentsExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                    contentDescription = "Arrow Drop Down icon",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                        DropdownMenu(
-                            expanded = attachmentsExpanded,
-                            onDismissRequest = { attachmentsExpanded = false }
-                        ) {
-                            item.attachments.forEach { att ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = att.originalName.ifBlank { att.filename },
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    },
-                                    onClick = {
-                                        attachmentsExpanded = false
-                                        if (basePath.isNotBlank() && jobFolderName.isNotBlank()) {
-                                            val rawItemId = item.id.removePrefix("checklist:")
-                                            val attDir = java.io.File(
-                                                basePath,
-                                                "$jobFolderName/.metadata/admin/checklist_attachments/$rawItemId"
+                            },
+                            onClick = {
+                                attachmentsExpanded = false
+                                if (basePath.isNotBlank() && jobFolderName.isNotBlank()) {
+                                    val rawItemId = item.id.removePrefix("checklist:")
+                                    val attDir = java.io.File(
+                                        basePath,
+                                        "$jobFolderName/.metadata/admin/checklist_attachments/$rawItemId"
+                                    )
+                                    // Try exact filename first, then fall back to any file containing the attachment ID
+                                    // (handles legacy uploads saved with an item-ID prefix)
+                                    val file = java.io.File(attDir, att.filename).takeIf { it.exists() }
+                                        ?: attDir.listFiles()?.firstOrNull { it.name.contains(att.id) }
+                                    if (file != null && file.exists()) {
+                                        try {
+                                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                                context,
+                                                "${context.packageName}.provider",
+                                                file
                                             )
-                                            // Try exact filename first, then fall back to any file containing the attachment ID
-                                            // (handles legacy uploads saved with an item-ID prefix)
-                                            val file = java.io.File(attDir, att.filename).takeIf { it.exists() }
-                                                ?: attDir.listFiles()?.firstOrNull { it.name.contains(att.id) }
-                                            if (file != null && file.exists()) {
-                                                try {
-                                                    val uri = androidx.core.content.FileProvider.getUriForFile(
-                                                        context,
-                                                        "${context.packageName}.provider",
-                                                        file
-                                                    )
-                                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                                                        setDataAndType(uri, att.mimeType ?: "application/octet-stream")
-                                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                    }
-                                                    context.startActivity(intent)
-                                                } catch (e: Exception) {
-                                                    android.util.Log.e("KKC", "Failed to open attachment: ${file.absolutePath}", e)
-                                                }
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                                setDataAndType(uri, att.mimeType ?: "application/octet-stream")
+                                                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                             }
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("KKC", "Failed to open attachment: ${file.absolutePath}", e)
                                         }
                                     }
-                                )
+                                }
                             }
-                        }
+                        )
                     }
-                }
-                if (toggles.any { toggle -> !isToggleEnabled(toggle.controlId, inFlightUpdates) }) {
-                    Text(
-                        text = "Saving...",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
                 }
             }
         }
-    )
+        if (saving) {
+            Text(
+                text = "Saving...",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
 }
 
 /** One sheet-rip tally row (material, label, feet, rip count). Used by the list and the board. */

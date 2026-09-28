@@ -105,13 +105,6 @@ class SpecialtyKanbanBoardLogicTest {
     }
 
     @Test
-    fun detailLine_prefersMaterialThenOrderDate() {
-        assertEquals("Material: Walnut", kanbanDetailLine(resolved("a", emptyList(), material = "Walnut", orderDate = "08-24").item))
-        assertEquals("Order Date: 08-24", kanbanDetailLine(resolved("a", emptyList(), orderDate = "08-24").item))
-        assertNull(kanbanDetailLine(resolved("a", emptyList(), material = "  ").item))
-    }
-
-    @Test
     fun quantityFormat_trimsFloatNoiseAndTrailingZeros() {
         assertEquals("51.0425", formatSpecialtyQuantity(51.042500000000004))
         assertEquals("2", formatSpecialtyQuantity(2.0))
@@ -146,7 +139,9 @@ class SpecialtyKanbanBoardLogicTest {
         val toggles = checklistTogglesForItem(item, emptyMap())
         val order = SpecialtyStation.entries.toList()
         assertTrue(kanbanCardToggleState(item, "SAW", toggles, order, emptyMap()).enabled)
-        assertFalse(kanbanCardToggleState(item, "SAW", toggles, order, emptyMap(), readOnly = true).enabled)
+        val readOnly = kanbanCardToggleState(item, "SAW", toggles, order, emptyMap(), readOnly = true)
+        assertFalse(readOnly.enabled)
+        assertFalse(readOnly.saving)
     }
 
     @Test
@@ -164,7 +159,9 @@ class SpecialtyKanbanBoardLogicTest {
         assertEquals(1, ticked.completedSteps)
         assertFalse(base == ticked)
         assertFalse(state(inFlight = mapOf(controlId to true)).enabled)
+        assertTrue(state(inFlight = mapOf(controlId to true)).saving)
         assertTrue(base.enabled)
+        assertFalse(base.saving)
     }
 
     @Test

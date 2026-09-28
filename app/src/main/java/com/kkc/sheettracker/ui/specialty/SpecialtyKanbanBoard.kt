@@ -73,6 +73,8 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,6 +90,7 @@ import com.kkc.sheettracker.ui.components.KKCPillContainer
 import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
 import com.kkc.sheettracker.ui.components.KKCTabItem
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
+import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import com.kkc.sheettracker.ui.jobs.stationBarColor
 import com.kkc.sheettracker.ui.supply.rememberSupplyBoardState
@@ -142,6 +145,8 @@ internal fun kanbanStationDots(
 internal data class KanbanCardToggleState(
     val toggle: SpecialtyChecklistToggle?,
     val enabled: Boolean,
+    /** A save for any of this item's checkboxes is still running (the list's "Saving..."). */
+    val saving: Boolean,
     val completedSteps: Int,
     val totalSteps: Int,
     val dots: List<KanbanStationDot>
@@ -162,6 +167,7 @@ internal fun kanbanCardToggleState(
     return KanbanCardToggleState(
         toggle = toggle,
         enabled = !readOnly && (toggle == null || isToggleEnabled(toggle.controlId, inFlightUpdates)),
+        saving = toggles.any { !isToggleEnabled(it.controlId, inFlightUpdates) },
         completedSteps = toggles.count { it.checked }.coerceAtMost(totalSteps),
         totalSteps = totalSteps,
         dots = kanbanStationDots(resolved, columnId, toggles, stationOrder)
@@ -175,13 +181,6 @@ internal fun orderKanbanCards(
 ): List<SpecialtyResolvedItem> {
     val (done, open) = items.partition(isDone)
     return open + done
-}
-
-/** The one-line detail under the progress bar: material, else order date. */
-internal fun kanbanDetailLine(item: SpecialtyItem): String? {
-    item.material?.trim()?.takeIf { it.isNotEmpty() }?.let { return "Material: $it" }
-    item.orderDate?.trim()?.takeIf { it.isNotEmpty() }?.let { return "Order Date: $it" }
-    return null
 }
 
 internal data class SpecialtyActionRowSpec(
@@ -219,6 +218,8 @@ internal fun SpecialtyKanbanCard(
     onEdit: (SpecialtyItem) -> Unit,
     onDelete: (String) -> Unit,
     onPatchDims: (String?, Double?, String?) -> Unit,
+    basePath: String,
+    jobFolderName: String,
     modifier: Modifier = Modifier,
     readOnly: Boolean = false
 ) {
@@ -228,10 +229,6 @@ internal fun SpecialtyKanbanCard(
     val totalSteps = toggleState.totalSteps
     val completedSteps = toggleState.completedSteps
     val dots = toggleState.dots
-    val isSawStation = SpecialtyStation.SAW in item.stations
-    val showDims = item.category != SpecialtyItemCategory.TO_ORDER &&
-        (isSawStation || item.dimensions != null || item.quantity != null)
-    val detail = if (showDims) kanbanDetailLine(item.copy(material = null)) else kanbanDetailLine(item)
 
     Surface(
         shape = MaterialTheme.shapes.medium,
@@ -261,6 +258,13 @@ internal fun SpecialtyKanbanCard(
                     )
                 }
                 Spacer(Modifier.weight(1f))
+                if (item.category == SpecialtyItemCategory.TO_ORDER) {
+                    StatusChip(
+                        text = "To Order",
+                        backgroundColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
                 if (!readOnly) IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
                     Icon(
                         Icons.Filled.Delete,
@@ -290,8 +294,13 @@ internal fun SpecialtyKanbanCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     dots.forEach { dot ->
                         val dotColor = stationBarColor(dot.station.name)
+                        val stationLabel = dot.station.name.lowercase().replace('_', ' ')
+                            .replaceFirstChar { it.uppercase() }
                         Box(
                             modifier = Modifier
+                                .semantics {
+                                    contentDescription = "$stationLabel ${if (dot.done) "done" else "not done"}"
+                                }
                                 .size(10.dp)
                                 .clip(CircleShape)
                                 .background(if (dot.done) dotColor else Color.Transparent)
@@ -300,15 +309,15 @@ internal fun SpecialtyKanbanCard(
                     }
                 }
             }
-            if (detail != null) {
-                Text(
-                    text = detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            // Same fields and editors as the list row (notes, supplier, dims, attachments, ...).
+            SpecialtyItemDetails(
+                item = item,
+                onPatchDims = onPatchDims,
+                basePath = basePath,
+                jobFolderName = jobFolderName,
+                saving = toggleState.saving,
+                readOnly = readOnly
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -329,16 +338,6 @@ internal fun SpecialtyKanbanCard(
                     Spacer(Modifier.width(4.dp))
                     Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
                 }
-            }
-            if (item.category == SpecialtyItemCategory.TO_ORDER) {
-                // Same as the list: To Order items edit quantity only (dims/material pass through).
-                SpecialtyQuantitySection(
-                    item = item,
-                    onPatchQuantity = { q -> onPatchDims(item.dimensions, q, item.material) },
-                    readOnly = readOnly
-                )
-            } else if (showDims) {
-                SpecialtyDimsSection(item = item, isSawStation = isSawStation, onPatchDims = onPatchDims, readOnly = readOnly)
             }
         }
     }
@@ -470,6 +469,8 @@ internal fun SpecialtyKanbanBoard(
     onEdit: (SpecialtyItem) -> Unit,
     onDelete: (String) -> Unit,
     onPatchDims: (SpecialtyResolvedItem, String?, Double?, String?) -> Unit,
+    basePath: String,
+    jobFolderName: String,
     readOnly: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -564,6 +565,8 @@ internal fun SpecialtyKanbanBoard(
                                     onEdit = onEdit,
                                     onDelete = onDelete,
                                     onPatchDims = { d, q, m -> onPatchDims(resolved, d, q, m) },
+                                    basePath = basePath,
+                                    jobFolderName = jobFolderName,
                                     readOnly = readOnly,
                                     modifier = itemMotion.width(KANBAN_CARD_WIDTH)
                                 )
