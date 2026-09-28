@@ -1,8 +1,6 @@
 package com.kkc.sheettracker.ui.jobs
 
-import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,7 +47,6 @@ import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.hardwoods.toStatusCounts
-import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.components.kkcCardDepth
 
@@ -62,8 +59,9 @@ fun UnifiedJobCard(
     onTogglePin: () -> Unit = {},
     onEditLabels: () -> Unit = {},
     dragModifier: Modifier = Modifier,
-    // Grid view: name scrolls beside a static job number, status chips get their own line,
-    // and every variable-height section reserves space so all cards in a mode match height.
+    // Grid view: job number, status chips and pin share the top line, the name gets its own
+    // line (no marquee: it redrew the whole screen every vsync while idle), and every
+    // variable-height section reserves space so all cards in a mode match height.
     gridLayout: Boolean = false,
     reservedStationRows: Int = 0,
     /** Deeper light-mode card depth (see kkcCardDepth); grid-view cards, including pinned ones. */
@@ -71,7 +69,6 @@ fun UnifiedJobCard(
     /** False when a container draws the depth instead (the pin flight's cross-faded copies). */
     showDepth: Boolean = true
 ) {
-    val lowEnd = LocalLowEndMode.current
     val statusColors = KKCThemeColors.statusColors
 
     // For CNC/Hardwoods: used for segmented progress bar inside ProgressCard.
@@ -220,67 +217,57 @@ fun UnifiedJobCard(
         materialSegments = materialSegments,
         showExpandToggle = false,
         titleContent = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = model.jobNumber,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    ),
-                    maxLines = 1
-                )
-                if (model.jobName.isNotBlank()) {
-                    val scrollName = gridLayout && !lowEnd.animationsDisabled
-                    Text(
-                        text = "– ${model.jobName}",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = if (scrollName) TextOverflow.Clip else TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .weight(1f)
-                            .then(
-                                if (scrollName) {
-                                    Modifier.basicMarquee(
-                                        iterations = Int.MAX_VALUE,
-                                        initialDelayMillis = 1500,
-                                        repeatDelayMillis = 1500,
-                                        spacing = MarqueeSpacing(32.dp),
-                                        velocity = 24.dp
-                                    )
-                                } else {
-                                    Modifier
-                                }
-                            )
-                    )
-                } else if (gridLayout) {
-                    Spacer(Modifier.weight(1f))
-                }
-                if (gridLayout) {
-                    cardControls()
-                }
-            }
+            val jobNumberStyle = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
             if (gridLayout) {
-                Spacer(Modifier.height(4.dp))
-                // Invisible sample chip pins the row height so cards without chips keep the line.
-                Box(contentAlignment = Alignment.CenterStart) {
-                    Box(Modifier.alpha(0f)) {
-                        CountStatusChip("Done", 0, statusColors.completeBorder)
-                    }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(text = model.jobNumber, style = jobNumberStyle, maxLines = 1)
                     Row(
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .weight(1f)
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         statusChips()
+                    }
+                    cardControls()
+                }
+                // Always one line, even when blank, so every card in a mode keeps the same height.
+                Text(
+                    text = model.jobName,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    minLines = 1,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(text = model.jobNumber, style = jobNumberStyle, maxLines = 1)
+                    if (model.jobName.isNotBlank()) {
+                        Text(
+                            text = "– ${model.jobName}",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
