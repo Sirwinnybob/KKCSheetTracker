@@ -81,7 +81,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Dp
 import com.kkc.sheettracker.data.SupplyChange
 import com.kkc.sheettracker.data.SupplyNotificationItem
+import com.kkc.sheettracker.data.SupplyLiveStateStore
 import com.kkc.sheettracker.data.SupplyRepository
+import kotlinx.coroutines.flow.drop
 import com.kkc.sheettracker.data.SupplySubscriptionData
 import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.models.ALL_SUPPLY_STATUSES
@@ -405,6 +407,15 @@ fun SupplyDashboardScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    // Another tablet or the Hours Tracker admin changed supply data: reload quietly from the
+    // live store (in-memory while connected).
+    LaunchedEffect(active) {
+        if (!active) return@LaunchedEffect
+        SupplyLiveStateStore.shared.version.drop(1).collectLatest {
+            loadData(showLoading = false)
+            reloadUpdates()
+        }
     }
     LaunchedEffect(items, subscriptionData) {
         // Skip the run keyed on the initial empty list; the loaded items trigger it again anyway.

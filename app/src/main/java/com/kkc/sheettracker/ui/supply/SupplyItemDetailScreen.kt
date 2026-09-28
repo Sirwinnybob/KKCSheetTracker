@@ -44,7 +44,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.kkc.sheettracker.data.SupplyLiveStateStore
 import com.kkc.sheettracker.data.SupplyRepository
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.SupplyBarcodeStore
 import com.kkc.sheettracker.data.ScanMode
@@ -122,9 +125,9 @@ fun SupplyItemDetailScreen(
     var showStatusSheet by remember { mutableStateOf(false) }
     var showLabelsDropdown by remember { mutableStateOf(false) }
 
-    fun loadData() {
+    fun loadData(showLoading: Boolean = true) {
         coroutineScope.launch {
-            isLoading = true
+            if (showLoading) isLoading = true
             errorMessage = null
             try {
                 val loadedItem = withContext(Dispatchers.IO) { repository.getItem(itemId) }
@@ -147,6 +150,9 @@ fun SupplyItemDetailScreen(
     }
 
     LaunchedEffect(itemId) { loadData() }
+    LaunchedEffect(itemId) {
+        SupplyLiveStateStore.shared.version.drop(1).collectLatest { loadData(showLoading = false) }
+    }
 
     // Refresh when returning from edit screen
     DisposableEffect(lifecycleOwner) {

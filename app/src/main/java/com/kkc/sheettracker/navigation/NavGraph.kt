@@ -97,6 +97,7 @@ import com.kkc.sheettracker.data.SheetRipProgressStore
 import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.SafetyRepository
 import com.kkc.sheettracker.data.SafetySubscriptionManager
+import com.kkc.sheettracker.data.SupplyLiveStateStore
 import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.SpecialtyRepository
 import com.kkc.sheettracker.data.SpecialtyScanCoordinator
@@ -901,11 +902,12 @@ private fun MultiBackStackNavigation(
 
     androidx.compose.runtime.LaunchedEffect(watcherRefreshEpoch, basePath) {
         if (watcherRefreshEpoch <= 0) return@LaunchedEffect
-        // TODO(supply-scan, decided 2026-09-23): this reads every supply item + comments on EVERY
-        // watcher refresh, on any screen, and shows up as bursts of ~10-18% of one core on the idle
-        // coroutine pool. It only exists to keep the Supply nav badge / dashboard widget count fresh.
-        // Owner is designing a cheaper way to keep that count current; left as-is until then.
-        supplySubscriptionManager.scanForUpdates()
+        // Supply badge freshness: while the supply live socket is connected, SupplySubscriptionManager
+        // rescans from in-memory state on every push (spec 2026-09-28-supply-live-websocket-design).
+        // This full .supply file scan only runs as the fallback when the socket is down.
+        if (!SupplyLiveStateStore.shared.liveConnected) {
+            supplySubscriptionManager.scanForUpdates()
+        }
         when (workMode) {
             WorkMode.CNC -> {
                 scanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)
@@ -2766,11 +2768,12 @@ private fun LegacySingleStackNavigation(
 
     androidx.compose.runtime.LaunchedEffect(watcherRefreshEpoch, basePath) {
         if (watcherRefreshEpoch <= 0) return@LaunchedEffect
-        // TODO(supply-scan, decided 2026-09-23): this reads every supply item + comments on EVERY
-        // watcher refresh, on any screen, and shows up as bursts of ~10-18% of one core on the idle
-        // coroutine pool. It only exists to keep the Supply nav badge / dashboard widget count fresh.
-        // Owner is designing a cheaper way to keep that count current; left as-is until then.
-        supplySubscriptionManager.scanForUpdates()
+        // Supply badge freshness: while the supply live socket is connected, SupplySubscriptionManager
+        // rescans from in-memory state on every push (spec 2026-09-28-supply-live-websocket-design).
+        // This full .supply file scan only runs as the fallback when the socket is down.
+        if (!SupplyLiveStateStore.shared.liveConnected) {
+            supplySubscriptionManager.scanForUpdates()
+        }
         when (workMode) {
             WorkMode.CNC -> {
                 scanCoordinator.refresh(RefreshReason.WATCHER_CHANGE, force = true)

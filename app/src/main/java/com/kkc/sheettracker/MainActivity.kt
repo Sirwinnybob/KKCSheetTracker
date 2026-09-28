@@ -49,6 +49,9 @@ import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
+import com.kkc.sheettracker.data.AdminSyncConfig
+import com.kkc.sheettracker.data.SupplyLiveClient
+import com.kkc.sheettracker.data.SupplyLiveStateStore
 import com.kkc.sheettracker.data.SupplyRepository
 import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.TrackerLamportClock
@@ -100,6 +103,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var syncthingSupervisor: SyncthingSupervisor
     private lateinit var clockInState: ClockInState
     private lateinit var supplySubscriptionManager: SupplySubscriptionManager
+    private var supplyLiveClient: SupplyLiveClient? = null
     private lateinit var idleActivityTracker: IdleActivityTracker
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -303,6 +307,16 @@ class MainActivity : ComponentActivity() {
         appStateStore = AppStateStore(scanCoordinator, progressStore)
         val supplyRepository = SupplyRepository(basePath)
         supplySubscriptionManager = SupplySubscriptionManager(applicationContext, supplyRepository)
+        // Read-only supply feed from Hours Tracker; SupplyRepository falls back to .supply files
+        // whenever the store is not live (spec 2026-09-28-supply-live-websocket-design).
+        supplyLiveClient = SupplyLiveClient(
+            config = AdminSyncConfig.create(applicationContext),
+            tabletId = tabletId,
+            onSupply = { SupplyLiveStateStore.shared.applyLive(it) },
+            onConnectionState = { connected ->
+                if (!connected) SupplyLiveStateStore.shared.setDisconnected()
+            }
+        )
         clockInState = ClockInState.create(this)
         if (clockInState.snapshot.isActive) {
             ClockInNotificationContract.startOrUpdateService(this)
@@ -628,6 +642,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        supplyLiveClient?.start()
         CpuSpikeMonitor.setForeground(true)
         CpuSpikeMonitor.attachWindow(window)
         refreshOnboardingStep()
@@ -649,6 +664,8 @@ class MainActivity : ComponentActivity() {
         if (::syncthingSupervisor.isInitialized) {
             syncthingSupervisor.setAppForeground(false)
         }
+        supplyLiveClient?.stop()
+        SupplyLiveStateStore.shared.setDisconnected()
         super.onStop()
     }
 
@@ -677,6 +694,7 @@ class MainActivity : ComponentActivity() {
         if (::idleActivityTracker.isInitialized) {
             idleActivityTracker.stop()
         }
+        supplyLiveClient?.stop()
         super.onDestroy()
     }
 
