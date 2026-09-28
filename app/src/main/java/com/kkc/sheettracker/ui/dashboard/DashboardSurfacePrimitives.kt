@@ -1,7 +1,6 @@
 package com.kkc.sheettracker.ui.dashboard
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.kkc.sheettracker.ui.components.kkcCardDepth
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -115,12 +115,7 @@ fun DashboardSurfaceCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(elevation = if (lowEnd.shadowsDisabled) 0.dp else 3.dp, shape = shape, clip = false)
-            .clip(shape)
-            .then(
-                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-                else Modifier
-            ),
+            .kkcCardDepth(shape, elevation = 3.dp),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(

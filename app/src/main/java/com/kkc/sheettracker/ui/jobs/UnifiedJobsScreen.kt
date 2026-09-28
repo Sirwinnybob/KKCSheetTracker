@@ -32,10 +32,7 @@ import kotlin.math.sin
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -72,6 +69,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.kkc.sheettracker.ui.components.kkcCardDepth
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -680,7 +678,9 @@ fun UnifiedJobsScreen(
                                         ),
                                         adminMode = adminMode,
                                         onTogglePin = { onTogglePin(card.folderName, true) },
-                                        onEditLabels = { editingLabelsFor = card }
+                                        onEditLabels = { editingLabelsFor = card },
+                                        // Full-width pinned row in grid view: same lifted depth as the grid cards below.
+                                        lifted = true
                                     )
                                 }
                                 item(key = "pinned_divider", span = { GridItemSpan(maxLineSpan) }) {
@@ -1110,12 +1110,17 @@ private fun PinFlightOverlay(
                 scaleX = lift
                 scaleY = lift
             }
+            // One shadow for the flying card: the two cross-faded copies below draw none, so
+            // their half-transparent shadows don't double up mid-flight.
+            .kkcCardDepth(MaterialTheme.shapes.medium, lifted = true)
     ) {
         if (standardAlpha > 0f) {
             UnifiedJobCard(
                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = standardAlpha },
                 model = card,
-                adminMode = adminMode
+                adminMode = adminMode,
+                lifted = true,
+                showDepth = false
             )
         }
         if (gridAlpha > 0f) {
@@ -1124,7 +1129,8 @@ private fun PinFlightOverlay(
                 model = card,
                 adminMode = adminMode,
                 gridLayout = true,
-                reservedStationRows = reservedStationRows
+                reservedStationRows = reservedStationRows,
+                showDepth = false
             )
         }
     }

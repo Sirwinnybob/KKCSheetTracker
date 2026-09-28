@@ -24,26 +24,21 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.ui.layout.Layout
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.derivedStateOf
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
-import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import com.kkc.sheettracker.ui.components.KKCPillContainer
 import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
 import com.kkc.sheettracker.ui.components.KKCTabItem
-import com.kkc.sheettracker.ui.components.contrastOn
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.Card
@@ -54,20 +49,15 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SecondaryScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -83,6 +73,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.kkc.sheettracker.ui.components.kkcCardDepth
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLocale
@@ -127,13 +118,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import com.kkc.sheettracker.ui.dashboard.DashboardShell
 import com.kkc.sheettracker.ui.dashboard.DashboardAccent
 import com.kkc.sheettracker.ui.dashboard.DashboardSectionHeader
-import com.kkc.sheettracker.ui.dashboard.DashboardAccentPill
 import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceCard
 import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceDefaults
-import com.kkc.sheettracker.ui.dashboard.DashboardWidgetRenderer
 import com.kkc.sheettracker.ui.dashboard.DashboardInventoryItemModel
-import com.kkc.sheettracker.ui.dashboard.DashboardWidgetModel
-import com.kkc.sheettracker.ui.dashboard.buildSupplyCategoryWidgets
 import com.kkc.sheettracker.ui.dashboard.getSoftStatusColors
 
 import androidx.compose.animation.AnimatedVisibility
@@ -2164,13 +2151,8 @@ private fun SupplyTicketCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(elevation = if (lowEnd.shadowsDisabled) 0.dp else elevation, shape = shape, clip = false)
-            .clip(shape)
+            .kkcCardDepth(shape, elevation = elevation)
             .background(cardColor)
-            .then(
-                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-                else Modifier
-            )
             .then(
                 if (onClick != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 else Modifier
@@ -2260,7 +2242,7 @@ private fun CategoryBoardColumn(
         modifier = modifier
             .fillMaxHeight()
             .wrapContentWidth()
-            .shadow(elevation = 3.dp, shape = RoundedCornerShape(8.dp), clip = false),
+            .kkcCardDepth(RoundedCornerShape(8.dp), elevation = 3.dp),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = columnBgColor)
     ) {

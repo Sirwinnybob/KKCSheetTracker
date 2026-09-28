@@ -65,7 +65,11 @@ fun UnifiedJobCard(
     // Grid view: name scrolls beside a static job number, status chips get their own line,
     // and every variable-height section reserves space so all cards in a mode match height.
     gridLayout: Boolean = false,
-    reservedStationRows: Int = 0
+    reservedStationRows: Int = 0,
+    /** Deeper light-mode card depth (see kkcCardDepth); grid-view cards, including pinned ones. */
+    lifted: Boolean = gridLayout,
+    /** False when a container draws the depth instead (the pin flight's cross-faded copies). */
+    showDepth: Boolean = true
 ) {
     val lowEnd = LocalLowEndMode.current
     val statusColors = KKCThemeColors.statusColors
@@ -197,7 +201,11 @@ fun UnifiedJobCard(
 
     ProgressCard(
         modifier = modifier
-            .kkcCardDepth(RoundedCornerShape(12.dp), lifted = gridLayout, shadowsDisabled = lowEnd.shadowsDisabled)
+            // Same corner shape as the ProgressCard inside, so the depth's edge follows the card.
+            .then(
+                if (showDepth) Modifier.kkcCardDepth(MaterialTheme.shapes.medium, lifted = lifted)
+                else Modifier.clip(MaterialTheme.shapes.medium)
+            )
             .background(MaterialTheme.colorScheme.surface),
         title = model.folderName,
         subtitle = subtitle,

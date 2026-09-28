@@ -288,7 +288,7 @@ private fun JobBoardCard(
     Card(
         shape = cardShape,
         modifier = modifier
-            .kkcCardDepth(cardShape, lifted = true, shadowsDisabled = LocalLowEndMode.current.shadowsDisabled)
+            .kkcCardDepth(cardShape, lifted = true)
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,

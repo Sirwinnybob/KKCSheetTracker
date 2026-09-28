@@ -30,7 +30,6 @@ import androidx.compose.animation.animateBounds
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowColumn
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.LookaheadScope
 import com.kkc.sheettracker.ui.supply.CategoryColumnLayout
 import com.kkc.sheettracker.ui.supply.SupplyBoardState
@@ -63,6 +62,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.kkc.sheettracker.ui.components.kkcCardDepth
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -396,7 +396,6 @@ internal fun SpecialtyKanbanColumnFrame(
     /** Emits the bucket's cards; apply [itemMotion] to each so reordering (done -> bottom) animates. */
     content: @Composable (itemMotion: Modifier) -> Unit
 ) {
-    val shadowsOff = LocalLowEndMode.current.shadowsDisabled
     // animateBounds measures the bucket twice every layout; skip it where low-end mode asks for
     // lighter loading as well as where animations are off.
     val animationsOn = !LocalLowEndMode.current.animationsDisabled && !LocalLowEndMode.current.lazyLoadingActive
@@ -404,7 +403,8 @@ internal fun SpecialtyKanbanColumnFrame(
         modifier = modifier
             .fillMaxHeight()
             .wrapContentWidth()
-            .shadow(elevation = if (shadowsOff) 0.dp else 3.dp, shape = RoundedCornerShape(8.dp), clip = false),
+            // Same depth as the Supply board's columns, including the low-end hairline edge.
+            .kkcCardDepth(RoundedCornerShape(8.dp), elevation = 3.dp),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
