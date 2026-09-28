@@ -288,4 +288,60 @@ class SpecialtyJobDetailScreenLogicTest {
             isComplete = false
         )
     }
+
+    private fun checklistItem(id: String, sawDone: Boolean) = SpecialtyResolvedItem(
+        item = SpecialtyItem(id = id, name = id, category = SpecialtyItemCategory.CUSTOM, stations = listOf(SpecialtyStation.SAW)),
+        completionByKey = mapOf("SAW" to SpecialtyCompletionState(completed = sawDone))
+    )
+
+    @Test
+    fun checklistOverride_keptWhileSaveInFlight_evenWhenOlderReloadsLand() {
+        // Tick is pending (save not returned): a reload that doesn't show it must not clear it.
+        assertFalse(shouldDropChecklistOverride(override = true, stored = false, savedAfterLoad = null, landedLoad = 7))
+    }
+
+    @Test
+    fun checklistOverride_droppedOnceStoredMatches() {
+        assertTrue(shouldDropChecklistOverride(override = true, stored = true, savedAfterLoad = null, landedLoad = 3))
+    }
+
+    @Test
+    fun checklistOverride_reloadStartedBeforeSaveReturned_doesNotDropIt() {
+        // Save returned after load 4 had started; load 4 may predate the write, so keep the tick.
+        assertFalse(shouldDropChecklistOverride(override = true, stored = false, savedAfterLoad = 4, landedLoad = 4))
+    }
+
+    @Test
+    fun checklistOverride_reloadStartedAfterSave_showsStoredValueEvenIfUnchanged() {
+        // Read-only store (archive / view-only) or a lost merge: nothing changed, but a reload
+        // that began after the save still has the last word, so the box snaps back.
+        assertTrue(shouldDropChecklistOverride(override = true, stored = false, savedAfterLoad = 4, landedLoad = 5))
+    }
+
+    @Test
+    fun storedChecklistValues_ignoreOverrides() {
+        val item = checklistItem("a", sawDone = false)
+        val stored = storedChecklistValues(listOf(item))
+        assertEquals(listOf(false), stored.values.toList())
+        assertEquals(checklistTogglesForItem(item, emptyMap()).single().controlId, stored.keys.single())
+    }
+
+    @Test
+    fun reuseUnchangedResolvedItems_keepsInstancesForEqualItems() {
+        val a = checklistItem("a", sawDone = false)
+        val b = checklistItem("b", sawDone = false)
+        val previous = listOf(a, b)
+
+        val same = reuseUnchangedResolvedItems(previous, listOf(checklistItem("a", false), checklistItem("b", false)))
+        assertTrue(same === previous)
+
+        val changed = reuseUnchangedResolvedItems(previous, listOf(checklistItem("a", false), checklistItem("b", true)))
+        assertTrue(changed[0] === a)
+        assertFalse(changed[1] === b)
+        assertTrue(changed[1].completionByKey.getValue("SAW").completed)
+
+        val fresh = listOf(checklistItem("a", false))
+        assertTrue(reuseUnchangedResolvedItems(emptyList(), fresh) === fresh)
+        assertEquals(listOf("a"), reuseUnchangedResolvedItems(previous, fresh).map { it.item.id })
+    }
 }

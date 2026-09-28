@@ -762,15 +762,21 @@ fun KKCPillActionRow(
      * A second group pushed to the right end. With it the row spans its full width, [actions] on
      * the left and these on the right; if both don't fit, the whole row scrolls sideways.
      */
-    trailingActions: List<KKCPillAction> = emptyList()
+    trailingActions: List<KKCPillAction> = emptyList(),
+    /**
+     * Span the full width even while [trailingActions] is empty. Set it when the trailing group
+     * loads in later (or may never appear), so the row's width and layout don't jump.
+     */
+    fillWidth: Boolean = false
 ) {
     if (actions.isEmpty() && trailingActions.isEmpty()) return
     val style = rememberKKCPillStyle()
     // Outer padding equals the gap between buttons so the track border reads as an even frame.
     val gap = 4.dp
-    val containerModifier = if (trailingActions.isEmpty()) modifier else modifier.fillMaxWidth()
+    val spanWidth = fillWidth || trailingActions.isNotEmpty()
+    val containerModifier = if (spanWidth) modifier.fillMaxWidth() else modifier
     KKCPillContainer(style = style, modifier = containerModifier.height(32.dp + gap * 2)) {
-        if (trailingActions.isEmpty()) {
+        if (!spanWidth) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(gap),
@@ -807,9 +813,11 @@ fun KKCPillActionRow(
                     Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                         actions.forEach { KKCPillActionButton(it, style) }
                     }
-                    Spacer(Modifier.width(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        trailingActions.forEach { KKCPillActionButton(it, style) }
+                    if (trailingActions.isNotEmpty()) {
+                        Spacer(Modifier.width(16.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                            trailingActions.forEach { KKCPillActionButton(it, style) }
+                        }
                     }
                 }
             }

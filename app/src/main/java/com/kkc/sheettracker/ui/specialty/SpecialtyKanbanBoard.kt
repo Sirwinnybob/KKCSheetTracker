@@ -4,11 +4,19 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,6 +53,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -124,6 +133,40 @@ internal fun kanbanStationDots(
         .filter { it.name != columnId }
         .map { station -> KanbanStationDot(station, kanbanColumnToggle(toggles, station.name)?.checked == true) }
 
+/**
+ * Everything a card shows about its checkboxes, computed once per board pass. It is compared by
+ * value, so a card whose toggles didn't change skips recomposition when another card is ticked
+ * (a fresh List parameter would be compared by identity and never let a card skip).
+ */
+@Immutable
+internal data class KanbanCardToggleState(
+    val toggle: SpecialtyChecklistToggle?,
+    val enabled: Boolean,
+    val completedSteps: Int,
+    val totalSteps: Int,
+    val dots: List<KanbanStationDot>
+) {
+    val done: Boolean get() = toggle?.checked == true
+}
+
+internal fun kanbanCardToggleState(
+    resolved: SpecialtyResolvedItem,
+    columnId: String,
+    toggles: List<SpecialtyChecklistToggle>,
+    stationOrder: List<SpecialtyStation>,
+    inFlightUpdates: Map<String, Boolean>
+): KanbanCardToggleState {
+    val toggle = kanbanColumnToggle(toggles, columnId)
+    val totalSteps = toggles.size.coerceAtLeast(1)
+    return KanbanCardToggleState(
+        toggle = toggle,
+        enabled = toggle == null || isToggleEnabled(toggle.controlId, inFlightUpdates),
+        completedSteps = toggles.count { it.checked }.coerceAtMost(totalSteps),
+        totalSteps = totalSteps,
+        dots = kanbanStationDots(resolved, columnId, toggles, stationOrder)
+    )
+}
+
 /** Unchecked cards keep list order on top; checked cards keep list order at the bottom. */
 internal fun orderKanbanCards(
     items: List<SpecialtyResolvedItem>,
@@ -169,9 +212,7 @@ internal fun SpecialtyKanbanCard(
     resolved: SpecialtyResolvedItem,
     columnId: String,
     columnColor: Color,
-    toggles: List<SpecialtyChecklistToggle>,
-    inFlightUpdates: Map<String, Boolean>,
-    stationOrder: List<SpecialtyStation>,
+    toggleState: KanbanCardToggleState,
     onToggle: (SpecialtyChecklistToggle, Boolean) -> Unit,
     onView: ((String) -> Unit)?,
     onEdit: (SpecialtyItem) -> Unit,
@@ -180,11 +221,11 @@ internal fun SpecialtyKanbanCard(
     modifier: Modifier = Modifier
 ) {
     val item = resolved.item
-    val toggle = kanbanColumnToggle(toggles, columnId)
-    val done = toggle?.checked == true
-    val totalSteps = toggles.size.coerceAtLeast(1)
-    val completedSteps = toggles.count { it.checked }.coerceAtMost(totalSteps)
-    val dots = kanbanStationDots(resolved, columnId, toggles, stationOrder)
+    val toggle = toggleState.toggle
+    val done = toggleState.done
+    val totalSteps = toggleState.totalSteps
+    val completedSteps = toggleState.completedSteps
+    val dots = toggleState.dots
     val isSawStation = SpecialtyStation.SAW in item.stations
     val showDims = item.category != SpecialtyItemCategory.TO_ORDER &&
         (isSawStation || item.dimensions != null || item.quantity != null)
@@ -198,14 +239,22 @@ internal fun SpecialtyKanbanCard(
             .fillMaxWidth()
             .alpha(if (done) 0.5f else 1f)
     ) {
-        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Buckets don't scroll vertically (cards spill into sub-columns instead), so a card is at
+        // most as tall as its bucket; one taller than that (e.g. the dims editor on a short
+        // landscape screen) scrolls inside itself rather than being cut off.
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (toggle != null) {
                     // Default 48dp touch target: this checkbox is the card's main action.
                     Checkbox(
                         checked = toggle.checked,
                         onCheckedChange = { next -> onToggle(toggle, next) },
-                        enabled = isToggleEnabled(toggle.controlId, inFlightUpdates),
+                        enabled = toggleState.enabled,
                         colors = CheckboxDefaults.colors(checkedColor = columnColor)
                     )
                 }
@@ -291,6 +340,9 @@ internal fun SpecialtyKanbanCard(
         }
     }
 }
+
+/** Space kept under the buckets; the same as the list layout's bottom content padding. */
+internal val KANBAN_BOTTOM_CLEARANCE = 172.dp
 
 /** Card width inside a bucket; matches the Supply board's cards. */
 internal val KANBAN_CARD_WIDTH = 300.dp
@@ -440,8 +492,14 @@ internal fun SpecialtyKanbanBoard(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                // Buckets stop above the floating nav bar + Add Item decoration (Supply uses 120dp).
-                .padding(top = 12.dp, bottom = 140.dp)
+                .padding(top = 12.dp)
+                // Buckets stop above the floating nav bar + Add Item decoration (the list's 172dp),
+                // or above the keyboard when it is taller, so a card's dims fields stay reachable.
+                .windowInsetsPadding(
+                    WindowInsets.ime
+                        .exclude(WindowInsets.systemBars)
+                        .union(WindowInsets(bottom = KANBAN_BOTTOM_CLEARANCE))
+                )
                 .onSizeChanged { board.viewportPx = it.width }
                 .horizontalScroll(board.scroll),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -472,10 +530,16 @@ internal fun SpecialtyKanbanBoard(
                         // Station columns only hold items that include this station (split items
                         // then have a toggle keyed by it); Other holds station-less, unsplit items.
                         // kanbanColumnToggle relies on that.
-                        val togglesById = column.items.associate { it.item.id to checklistTogglesForItem(it, completionOverrides) }
-                        val isDone: (SpecialtyResolvedItem) -> Boolean = { r ->
-                            kanbanColumnToggle(togglesById.getValue(r.item.id), column.id)?.checked == true
+                        val stateById = column.items.associate { resolved ->
+                            resolved.item.id to kanbanCardToggleState(
+                                resolved = resolved,
+                                columnId = column.id,
+                                toggles = checklistTogglesForItem(resolved, completionOverrides),
+                                stationOrder = stationOrder,
+                                inFlightUpdates = inFlightUpdates
+                            )
                         }
+                        val isDone: (SpecialtyResolvedItem) -> Boolean = { r -> stateById.getValue(r.item.id).done }
                         val ordered = orderKanbanCards(column.items, isDone)
                         SpecialtyKanbanColumnFrame(
                             label = column.label,
@@ -489,9 +553,7 @@ internal fun SpecialtyKanbanBoard(
                                     resolved = resolved,
                                     columnId = column.id,
                                     columnColor = color,
-                                    toggles = togglesById.getValue(resolved.item.id),
-                                    inFlightUpdates = inFlightUpdates,
-                                    stationOrder = stationOrder,
+                                    toggleState = stateById.getValue(resolved.item.id),
                                     onToggle = { toggle, next -> onToggle(resolved, toggle, next) },
                                     onView = onView,
                                     onEdit = onEdit,

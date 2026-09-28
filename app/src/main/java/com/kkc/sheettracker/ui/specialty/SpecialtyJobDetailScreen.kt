@@ -66,11 +66,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -176,17 +176,30 @@ internal fun SpecialtyJobDetailScreen(
     // getResolvedItems on a cache miss parses specialty_items.json + checklist.json + every
     // tablet's tracker sidecar file for this job -- and setCompletion() invalidates that cache on
     // every checkbox toggle, so this must not run synchronously on the main thread.
-    val resolvedItems by produceState(
-        initialValue = emptyList<SpecialtyResolvedItem>(),
-        key1 = scanState.snapshot.generation,
-        key2 = progressVersion,
-        key3 = jobFolderName
+    // Each load is numbered when it starts, so a saved checkbox can tell a reload that began after
+    // its save (and so reflects it) from one that was already running. checklistReloadRequest
+    // forces such a reload after every save, including saves that write nothing (read-only stores).
+    val checklistLoads = remember(jobFolderName) { ChecklistLoadCounter() }
+    var checklistReloadRequest by remember(jobFolderName) { mutableIntStateOf(0) }
+    val loadedChecklist by produceState(
+        LoadedChecklist(emptyList(), 0),
+        scanState.snapshot.generation,
+        progressVersion,
+        jobFolderName,
+        checklistReloadRequest
     ) {
-        value = withContext(Dispatchers.IO) {
-            specialtyStateStore.getResolvedItems(jobFolderName)
-                .filter { isItemRelevantToMode(it, SpecialtySurfaceMode.SPECIALTY) }
+        val loadSeq = ++checklistLoads.started
+        val previous = value.items
+        val items = withContext(Dispatchers.IO) {
+            reuseUnchangedResolvedItems(
+                previous = previous,
+                fresh = specialtyStateStore.getResolvedItems(jobFolderName)
+                    .filter { isItemRelevantToMode(it, SpecialtySurfaceMode.SPECIALTY) }
+            )
         }
+        value = LoadedChecklist(items, loadSeq)
     }
+    val resolvedItems = loadedChecklist.items
 
     val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()
     val hardwoodsProgressVersion by specialtyStateStore.hardwoodsProgressVersion.collectAsState()
@@ -274,23 +287,25 @@ internal fun SpecialtyJobDetailScreen(
         }
     )
 
-    // A saved toggle keeps its optimistic override until the reloaded items actually show it:
+    // A saved toggle keeps its optimistic override until a reload shows the stored state:
     // resolvedItems re-parses on IO after the save, so dropping the override on save success made
-    // the checkbox (and, in kanban, the whole card) flip back for a moment. An override also goes
-    // once any reload newer than its save lands, so a change from another tablet still wins.
-    val latestResolvedItems by rememberUpdatedState(resolvedItems)
-    val overrideSavedAt = remember(jobFolderName) { HashMap<String, List<SpecialtyResolvedItem>>() }
-    LaunchedEffect(resolvedItems, inFlightUpdates.size) {
+    // the checkbox (and, in kanban, the whole card) flip back for a moment. The override goes once
+    // the stored value matches it, or once a reload that started after the save lands -- so a
+    // save that wrote nothing (archive / view-only) or lost to another tablet shows what's stored.
+    val overrideSavedAfterLoad = remember(jobFolderName) { HashMap<String, Int>() }
+    LaunchedEffect(loadedChecklist) {
         if (completionOverrides.isEmpty()) return@LaunchedEffect
-        val stored = resolvedItems
-            .flatMap { checklistTogglesForItem(it, emptyMap()) }
-            .associate { it.controlId to it.checked }
+        val stored = storedChecklistValues(loadedChecklist.items)
         completionOverrides.keys.toList().forEach { controlId ->
-            if (!isToggleEnabled(controlId, inFlightUpdates)) return@forEach
-            val savedAt = overrideSavedAt[controlId]
-            if (stored[controlId] == completionOverrides[controlId] || (savedAt != null && savedAt !== resolvedItems)) {
+            if (shouldDropChecklistOverride(
+                    override = completionOverrides[controlId],
+                    stored = stored[controlId],
+                    savedAfterLoad = overrideSavedAfterLoad[controlId],
+                    landedLoad = loadedChecklist.loadSeq
+                )
+            ) {
                 completionOverrides.remove(controlId)
-                overrideSavedAt.remove(controlId)
+                overrideSavedAfterLoad.remove(controlId)
             }
         }
     }
@@ -298,8 +313,9 @@ internal fun SpecialtyJobDetailScreen(
     val onToggleChecked: (SpecialtyResolvedItem, SpecialtyChecklistToggle, Boolean) -> Unit = { resolved, toggle, next ->
         val itemId = resolved.item.id
         val controlId = toggle.controlId
-        val previous = completionOverrides[controlId] ?: toggle.checked
         completionOverrides[controlId] = next
+        // Until this save returns, only a matching stored value may clear the override.
+        overrideSavedAfterLoad.remove(controlId)
         startInFlightUpdate(inFlightUpdates, controlId)
         coroutineScope.launch {
             try {
@@ -309,11 +325,15 @@ internal fun SpecialtyJobDetailScreen(
                     completionKey = toggle.completionKey,
                     completed = next
                 )
-                // Cleared by the reconcile effect above once the reload shows the saved state.
-                overrideSavedAt[controlId] = latestResolvedItems
+                // Cleared by the reconcile effect above by the reload this requests, at the latest.
+                overrideSavedAfterLoad[controlId] = checklistLoads.started
+                checklistReloadRequest++
                 toggleErrorMessage = null
             } catch (_: Exception) {
-                completionOverrides[controlId] = previous
+                // Show what is stored again; the reload also settles any earlier pending save.
+                completionOverrides.remove(controlId)
+                overrideSavedAfterLoad.remove(controlId)
+                checklistReloadRequest++
                 val message = "Failed to update checklist item. Please retry."
                 toggleErrorMessage = message
                 snackbarHostState.showSnackbar(message)
@@ -414,6 +434,7 @@ internal fun SpecialtyJobDetailScreen(
                 KKCPillActionRow(
                     actions = actionRow.leading,
                     trailingActions = actionRow.trailing,
+                    fillWidth = true,
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
                 )
                 // Same inline save-failure text the list shows (in addition to the snackbar).
@@ -489,6 +510,7 @@ internal fun SpecialtyJobDetailScreen(
                 KKCPillActionRow(
                     actions = actionRow.leading,
                     trailingActions = actionRow.trailing,
+                    fillWidth = true,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
             }
@@ -1400,6 +1422,49 @@ private fun checklistControlId(itemId: String, completionKey: String): String {
     return "$itemId::$completionKey"
 }
 
+/** Counts checklist loads as they start; see [LoadedChecklist.loadSeq]. */
+internal class ChecklistLoadCounter {
+    var started: Int = 0
+}
+
+/** One landed checklist load. [loadSeq] is the load's start order, so every landing is distinct. */
+internal data class LoadedChecklist(
+    val items: List<SpecialtyResolvedItem>,
+    val loadSeq: Int
+)
+
+/**
+ * [fresh] with every item that equals its [previous] counterpart swapped for that previous
+ * instance (and [previous] itself when nothing changed), so an unchanged reload does not hand
+ * new instances to every row and kanban card and force them all to recompose.
+ */
+internal fun reuseUnchangedResolvedItems(
+    previous: List<SpecialtyResolvedItem>,
+    fresh: List<SpecialtyResolvedItem>
+): List<SpecialtyResolvedItem> {
+    if (previous.isEmpty()) return fresh
+    val previousById = previous.associateBy { it.item.id }
+    val merged = fresh.map { item -> previousById[item.item.id]?.takeIf { it == item } ?: item }
+    val unchanged = merged.size == previous.size && merged.indices.all { merged[it] === previous[it] }
+    return if (unchanged) previous else merged
+}
+
+/** The stored (override-free) checked state of every checklist control in [items]. */
+internal fun storedChecklistValues(items: List<SpecialtyResolvedItem>): Map<String, Boolean> =
+    items.flatMap { checklistTogglesForItem(it, emptyMap()) }.associate { it.controlId to it.checked }
+
+/**
+ * Whether an optimistic checkbox override can go: the stored value already matches it, or its
+ * save has returned ([savedAfterLoad] = loads started by then) and a load started after that has
+ * landed, so the stored value reflects the save -- or shows that it wrote nothing or lost.
+ */
+internal fun shouldDropChecklistOverride(
+    override: Boolean?,
+    stored: Boolean?,
+    savedAfterLoad: Int?,
+    landedLoad: Int
+): Boolean = override == stored || (savedAfterLoad != null && landedLoad > savedAfterLoad)
+
 internal fun startInFlightUpdate(inFlightUpdates: MutableMap<String, Boolean>, controlId: String) {
     inFlightUpdates[controlId] = true
 }
@@ -1480,11 +1545,14 @@ internal fun SpecialtyDimsSection(
  * Quantity for display and edit fields: at most 4 decimals, trailing zeros dropped. Stored values
  * carry float noise (e.g. 51.042500000000004) that otherwise showed up verbatim.
  */
-internal fun formatSpecialtyQuantity(quantity: Double): String =
-    java.math.BigDecimal(quantity)
+internal fun formatSpecialtyQuantity(quantity: Double): String {
+    // BigDecimal(Double) throws on NaN/Infinity, which lenient JSON and the Qty field can produce.
+    if (!quantity.isFinite()) return quantity.toString()
+    return java.math.BigDecimal(quantity)
         .setScale(4, java.math.RoundingMode.HALF_UP)
         .stripTrailingZeros()
         .toPlainString()
+}
 
 @Composable
 internal fun SpecialtyQuantitySection(

@@ -45,6 +45,11 @@ class SpecialtyProgressStore(
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val writeMutexByJob = ConcurrentHashMap<String, Mutex>()
     private val resolvedCacheByJob = ConcurrentHashMap<String, List<SpecialtyResolvedItem>>()
+    // Bumped on every invalidation. A load only caches its result if no invalidation happened
+    // while it was parsing; otherwise a load that read the files before a write would put the
+    // pre-write items back into the cache right after the write cleared it.
+    private val cacheEpochByJob = ConcurrentHashMap<String, Long>()
+    @Volatile private var cacheEpochAll = 0L
     private val _progressVersion = MutableStateFlow(0L)
     val progressVersion: StateFlow<Long> = _progressVersion.asStateFlow()
 
@@ -67,6 +72,8 @@ class SpecialtyProgressStore(
 
     fun loadResolvedItems(jobFolderName: String): List<SpecialtyResolvedItem> {
         resolvedCacheByJob[jobFolderName]?.let { cached -> return cached }
+        val epochAtStart = cacheEpochByJob[jobFolderName] ?: 0L
+        val epochAllAtStart = cacheEpochAll
         val items = loadSpecialtyItems(jobFolderName)
         // Reuse the items we just loaded — loadMergedCompletionByItem otherwise re-runs the
         // full multi-file specialty parse (specialty_items + checklist + tablet_items +
@@ -82,7 +89,13 @@ class SpecialtyProgressStore(
                 isComplete = isItemComplete(item, completionByKey)
             )
         }
-        resolvedCacheByJob[jobFolderName] = resolved
+        // compute() is atomic per key, and invalidateJobCache bumps the epoch inside its own
+        // compute() on the same key, so the check and the put cannot straddle an invalidation.
+        resolvedCacheByJob.compute(jobFolderName) { _, current ->
+            val unchanged = (cacheEpochByJob[jobFolderName] ?: 0L) == epochAtStart &&
+                cacheEpochAll == epochAllAtStart
+            if (unchanged) resolved else current
+        }
         return resolved
     }
 
@@ -240,19 +253,27 @@ class SpecialtyProgressStore(
     }
 
     fun invalidateJobCache(jobFolderName: String) {
-        resolvedCacheByJob.remove(jobFolderName)
+        evictJobCache(jobFolderName)
         bumpProgressVersion()
     }
 
     fun invalidateJobCaches(jobFolderNames: Collection<String>) {
         if (jobFolderNames.isEmpty()) return
-        jobFolderNames.forEach { resolvedCacheByJob.remove(it) }
+        jobFolderNames.forEach { evictJobCache(it) }
         bumpProgressVersion()
     }
 
     fun invalidateAllCaches() {
+        cacheEpochAll++
         resolvedCacheByJob.clear()
         bumpProgressVersion()
+    }
+
+    private fun evictJobCache(jobFolderName: String) {
+        resolvedCacheByJob.compute(jobFolderName) { _, _ ->
+            cacheEpochByJob.merge(jobFolderName, 1L, Long::plus)
+            null
+        }
     }
 
     fun invalidateFromTrackerFile(trackerFile: File): Boolean {

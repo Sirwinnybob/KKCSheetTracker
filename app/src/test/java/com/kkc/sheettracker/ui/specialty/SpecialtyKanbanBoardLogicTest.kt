@@ -10,7 +10,9 @@ import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.ui.components.KKCPillAction
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpecialtyKanbanBoardLogicTest {
@@ -116,6 +118,31 @@ class SpecialtyKanbanBoardLogicTest {
         assertEquals("0.5", formatSpecialtyQuantity(0.5))
         assertEquals("1.2346", formatSpecialtyQuantity(1.23456))
         assertEquals("120", formatSpecialtyQuantity(120.0))
+    }
+
+    @Test
+    fun quantityFormat_nonFiniteDoesNotThrow() {
+        assertEquals("NaN", formatSpecialtyQuantity(Double.NaN))
+        assertEquals("Infinity", formatSpecialtyQuantity(Double.POSITIVE_INFINITY))
+        assertEquals("-Infinity", formatSpecialtyQuantity(Double.NEGATIVE_INFINITY))
+    }
+
+    @Test
+    fun cardToggleState_equalWhenNothingChanged_differsForTickAndInFlight() {
+        val item = resolved("a", listOf(SpecialtyStation.SAW, SpecialtyStation.ASSEMBLY))
+        val order = SpecialtyStation.entries.toList()
+        fun state(overrides: Map<String, Boolean> = emptyMap(), inFlight: Map<String, Boolean> = emptyMap()) =
+            kanbanCardToggleState(item, "SAW", checklistTogglesForItem(item, overrides), order, inFlight)
+
+        val base = state()
+        assertEquals(base, state())
+        val controlId = base.toggle!!.controlId
+        val ticked = state(overrides = mapOf(controlId to true))
+        assertTrue(ticked.done)
+        assertEquals(1, ticked.completedSteps)
+        assertFalse(base == ticked)
+        assertFalse(state(inFlight = mapOf(controlId to true)).enabled)
+        assertTrue(base.enabled)
     }
 
     @Test
