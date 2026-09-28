@@ -9,7 +9,6 @@ import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
-import com.kkc.sheettracker.ui.components.KKCPillAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -182,15 +181,6 @@ class SpecialtyKanbanBoardLogicTest {
         assertTrue(state(inFlight = mapOf(controlId to true)).saving)
         assertTrue(base.enabled)
         assertFalse(base.saving)
-    }
-
-    @Test
-    fun actionRow_specialtyActionsLeft_referenceActionsRight() {
-        val specialty = listOf(KKCPillAction("Door Panels", {}), KKCPillAction("Split View", {}))
-        val reference = listOf(KKCPillAction("Assembly", {}), KKCPillAction("Delivery", {}))
-        val spec = specialtyActionRow(specialty, reference)
-        assertEquals(listOf("Door Panels", "Split View"), spec.leading.map { it.label })
-        assertEquals(listOf("Assembly", "Delivery"), spec.trailing.map { it.label })
     }
 
     @Test

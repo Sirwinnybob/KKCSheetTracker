@@ -112,7 +112,6 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.SpecialtyViewerDefaults
 import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.completionKeysForItem
-import com.kkc.sheettracker.data.resolveSheetRipTallyState
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
@@ -211,16 +210,23 @@ internal fun SpecialtyJobDetailScreen(
 
     val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()
     val hardwoodsProgressVersion by specialtyStateStore.hardwoodsProgressVersion.collectAsState()
-    val sheetRipItems = remember(scanState.snapshot.basePath, jobFolderName) {
-        specialtySheetRipItems(loadAdminBoardStock(File(scanState.snapshot.basePath), jobFolderName))
+    // Both read files (the done states parse every tablet's tracker on a cache miss), and
+    // hardwoodsProgressVersion bumps on any job's hardwoods sync, so they load on IO.
+    val sheetRipItems by produceState(emptyList<AdminBoardStockItem>(), scanState.snapshot.basePath, jobFolderName) {
+        value = withContext(Dispatchers.IO) {
+            specialtySheetRipItems(loadAdminBoardStock(File(scanState.snapshot.basePath), jobFolderName))
+        }
     }
-    val sheetRipDone = remember(
-        scanState.snapshot.basePath,
+    val sheetRipDoneStates by produceState(
+        emptyMap<String, Boolean>(),
+        sheetRipItems,
         jobFolderName,
         sheetRipDoneVersion,
         hardwoodsProgressVersion
     ) {
-        specialtyStateStore.loadSheetRipDone(jobFolderName)
+        value = withContext(Dispatchers.IO) {
+            specialtyStateStore.loadSheetRipDoneStates(jobFolderName, sheetRipItems, ::specialtySheetRipTarget)
+        }
     }
     // Molding preview — same pattern as HardwoodsWorkspaceScreen
     val moldingLibraryRepository = remember(scanState.snapshot.basePath) {
@@ -285,21 +291,25 @@ internal fun SpecialtyJobDetailScreen(
         navBarDeco.specialtyDecoration = if (readOnly) null else specialtyDecoration
     }
 
-    val actionRow = specialtyActionRow(
-        specialtyActions = buildList {
+    // Specialty actions on the left of the action row, reference-document pills on the right.
+    // Remembered so the row (a SubcomposeLayout) isn't handed new lists on every recomposition.
+    val specialtyActions = remember(availability.hasClosetRods, onOpenDoorPanels, onOpenSawRipList, onOpenClosetRods, onOpenSplitView) {
+        buildList {
             add(KKCPillAction("Door Panels", onOpenDoorPanels))
             add(KKCPillAction("Rip List", onOpenSawRipList))
             if (availability.hasClosetRods) add(KKCPillAction("Closet Rods", onOpenClosetRods))
             add(KKCPillAction("Split View", onOpenSplitView))
-        },
-        referenceActions = buildList {
+        }
+    }
+    val referenceActions = remember(availability, onOpenReferenceDocument, onOpenThreeD) {
+        buildList {
             if (availability.hasAssemblySheet) add(KKCPillAction("Assembly", { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }))
             if (availability.hasPlansElevations) add(KKCPillAction("Plans & Elevations", { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }))
             if (availability.hasDeliverySheet) add(KKCPillAction("Delivery", { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }))
             if (availability.hasPullsSheet) add(KKCPillAction("Pulls", { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }))
             if (availability.hasThreeDAssets) add(KKCPillAction("3D", onOpenThreeD))
         }
-    )
+    }
 
     // A saved toggle keeps its optimistic override until a reload shows the stored state:
     // resolvedItems re-parses on IO after the save, so dropping the override on save success made
@@ -371,16 +381,8 @@ internal fun SpecialtyJobDetailScreen(
         editingItem = item
         showAddSheet = true
     }
-    val sheetRipTarget: (AdminBoardStockItem) -> Int = { item ->
-        Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
-    }
-    val sheetRipIsDone: (AdminBoardStockItem) -> Boolean = { item ->
-        resolveSheetRipTallyState(
-            specialtyStateStore.getSheetRipStoredDoneCount(jobFolderName, item),
-            sheetRipDone[item.id] == true,
-            sheetRipTarget(item)
-        ).isComplete
-    }
+    val sheetRipTarget: (AdminBoardStockItem) -> Int = ::specialtySheetRipTarget
+    val sheetRipIsDone: (AdminBoardStockItem) -> Boolean = { item -> sheetRipDoneStates[item.id] == true }
     val onSetSheetRipDone: (AdminBoardStockItem, Boolean) -> Unit = rip@{ item, completed ->
         if (readOnly) return@rip
         coroutineScope.launch {
@@ -453,8 +455,8 @@ internal fun SpecialtyJobDetailScreen(
                 )
                 // Same inset/height as the station pill row below it, so both bars line up full-width.
                 KKCPillActionRow(
-                    actions = actionRow.leading,
-                    trailingActions = actionRow.trailing,
+                    actions = specialtyActions,
+                    trailingActions = referenceActions,
                     fillWidth = true,
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
                 )
@@ -527,8 +529,8 @@ internal fun SpecialtyJobDetailScreen(
 
             item(key = "actions") {
                 KKCPillActionRow(
-                    actions = actionRow.leading,
-                    trailingActions = actionRow.trailing,
+                    actions = specialtyActions,
+                    trailingActions = referenceActions,
                     fillWidth = true,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
@@ -1270,6 +1272,10 @@ internal fun specialtySheetRipLazyRowEntries(
     )
 }
 
+/** How many rips a sheet-rip row needs: its feet over the rip length, rounded up. */
+internal fun specialtySheetRipTarget(item: AdminBoardStockItem): Int =
+    Math.ceil((item.feet ?: 0.0) / item.ripLength).toInt().coerceAtLeast(0)
+
 internal fun specialtySheetRipItems(
     items: List<AdminBoardStockItem>
 ): List<AdminBoardStockItem> = items.filter {
@@ -1368,11 +1374,21 @@ internal fun orderSpecialtyStations(
     stationOrder: List<SpecialtyStation>
 ): List<SpecialtyStation> {
     if (stations.isEmpty()) return emptyList()
-    val effectiveOrder = specialtyDetailStationOrder(stationOrder)
-    val orderIndex = effectiveOrder.withIndex().associate { (index, station) -> station to index }
+    return orderSpecialtyStations(stations, specialtyStationRank(stationOrder))
+}
+
+/** Each station's position in the effective station order, for [orderSpecialtyStations]. */
+internal fun specialtyStationRank(stationOrder: List<SpecialtyStation>): Map<SpecialtyStation, Int> =
+    specialtyDetailStationOrder(stationOrder).withIndex().associate { (index, station) -> station to index }
+
+internal fun orderSpecialtyStations(
+    stations: List<SpecialtyStation>,
+    stationRank: Map<SpecialtyStation, Int>
+): List<SpecialtyStation> {
+    if (stations.isEmpty()) return emptyList()
     return stations
         .distinct()
-        .sortedBy { orderIndex[it] ?: Int.MAX_VALUE }
+        .sortedBy { stationRank[it] ?: Int.MAX_VALUE }
 }
 
 private fun shortDivisionLabel(label: String): String {

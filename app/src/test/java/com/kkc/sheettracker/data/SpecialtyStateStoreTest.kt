@@ -22,6 +22,30 @@ class SpecialtyStateStoreTest {
     private val jobFolderName = "1234 - Test Job"
 
     @Test
+    fun loadSheetRipDoneStates_matchesPerItemTallyResolution() = runBlocking {
+        val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
+        val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
+        val stateStore = SpecialtyStateStore(
+            specialtyScanCoordinator = SpecialtyScanCoordinator(
+                SpecialtyRepository(baseDir = baseDir, progressStore = progressStore)
+            ),
+            specialtyProgressStore = progressStore,
+            hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local"),
+            sheetRipProgressStore = SheetRipProgressStore(baseDir = baseDir),
+            tabletItemsStore = TabletSpecialtyItemsStore(baseDir, "test-tablet"),
+            baseDir = baseDir
+        )
+        val done = AdminBoardStockItem("sheet-a", "Maple", "Crown", 18.0, mode = "sheet")
+        val open = AdminBoardStockItem("sheet-b", "Oak", "Base", 12.0, mode = "sheet")
+        stateStore.setSheetRipCompletion(jobFolderName, done, target = 2, completed = true)
+
+        val states = stateStore.loadSheetRipDoneStates(jobFolderName, listOf(done, open)) { 2 }
+
+        assertEquals(mapOf("sheet-a" to true, "sheet-b" to false), states)
+        assertEquals(emptyMap<String, Boolean>(), stateStore.loadSheetRipDoneStates(jobFolderName, emptyList()) { 2 })
+    }
+
+    @Test
     fun setSheetRipCompletion_syncsCanonicalTallyAndBooleanProjection() = runBlocking {
         val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
         val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")

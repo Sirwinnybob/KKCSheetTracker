@@ -52,6 +52,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.IntState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -59,7 +60,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,10 +67,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -84,7 +84,6 @@ import com.kkc.sheettracker.data.models.SpecialtyItem
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
-import com.kkc.sheettracker.ui.components.KKCPillAction
 import com.kkc.sheettracker.ui.components.KKCPillContainer
 import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
 import com.kkc.sheettracker.ui.components.KKCTabItem
@@ -131,8 +130,16 @@ internal fun kanbanStationDots(
     columnId: String,
     toggles: List<SpecialtyChecklistToggle>,
     stationOrder: List<SpecialtyStation>
+): List<KanbanStationDot> = kanbanStationDots(resolved, columnId, toggles, specialtyStationRank(stationOrder))
+
+/** [kanbanStationDots] with the station ranking precomputed once per board pass. */
+internal fun kanbanStationDots(
+    resolved: SpecialtyResolvedItem,
+    columnId: String,
+    toggles: List<SpecialtyChecklistToggle>,
+    stationRank: Map<SpecialtyStation, Int>
 ): List<KanbanStationDot> =
-    orderSpecialtyStations(resolved.item.stations, stationOrder)
+    orderSpecialtyStations(resolved.item.stations, stationRank)
         .filter { it.name != columnId }
         .map { station -> KanbanStationDot(station, kanbanColumnToggle(toggles, station.name)?.checked == true) }
 
@@ -161,6 +168,16 @@ internal fun kanbanCardToggleState(
     stationOrder: List<SpecialtyStation>,
     inFlightUpdates: Map<String, Boolean>,
     readOnly: Boolean = false
+): KanbanCardToggleState =
+    kanbanCardToggleState(resolved, columnId, toggles, specialtyStationRank(stationOrder), inFlightUpdates, readOnly)
+
+internal fun kanbanCardToggleState(
+    resolved: SpecialtyResolvedItem,
+    columnId: String,
+    toggles: List<SpecialtyChecklistToggle>,
+    stationRank: Map<SpecialtyStation, Int>,
+    inFlightUpdates: Map<String, Boolean>,
+    readOnly: Boolean = false
 ): KanbanCardToggleState {
     val toggle = kanbanColumnToggle(toggles, columnId)
     val totalSteps = toggles.size.coerceAtLeast(1)
@@ -170,7 +187,7 @@ internal fun kanbanCardToggleState(
         saving = toggles.any { !isToggleEnabled(it.controlId, inFlightUpdates) },
         completedSteps = toggles.count { it.checked }.coerceAtMost(totalSteps),
         totalSteps = totalSteps,
-        dots = kanbanStationDots(resolved, columnId, toggles, stationOrder)
+        dots = kanbanStationDots(resolved, columnId, toggles, stationRank)
     )
 }
 
@@ -196,17 +213,6 @@ internal fun <T> orderKanbanCards(
     val (done, open) = items.partition(isDone)
     return open + done
 }
-
-internal data class SpecialtyActionRowSpec(
-    val leading: List<KKCPillAction>,
-    val trailing: List<KKCPillAction>
-)
-
-/** Specialty actions grouped on the left, reference-document pills grouped on the right. */
-internal fun specialtyActionRow(
-    specialtyActions: List<KKCPillAction>,
-    referenceActions: List<KKCPillAction>
-): SpecialtyActionRowSpec = SpecialtyActionRowSpec(leading = specialtyActions, trailing = referenceActions)
 
 /** Header colors for the two non-station columns. */
 internal val KANBAN_SHEET_RIPS_COLOR = Color(0xFF475569)
@@ -391,7 +397,9 @@ internal fun SpecialtyKanbanColumnFrame(
     content: @Composable (itemMotion: Modifier) -> Unit
 ) {
     val shadowsOff = LocalLowEndMode.current.shadowsDisabled
-    val animationsOn = !LocalLowEndMode.current.animationsDisabled
+    // animateBounds measures the bucket twice every layout; skip it where low-end mode asks for
+    // lighter loading as well as where animations are off.
+    val animationsOn = !LocalLowEndMode.current.animationsDisabled && !LocalLowEndMode.current.lazyLoadingActive
     Card(
         modifier = modifier
             .fillMaxHeight()
@@ -441,6 +449,13 @@ internal fun SpecialtyKanbanColumnFrame(
             }
         )
     }
+}
+
+/** Composes [content] once the board's staggered build has reached column [index]. */
+@Composable
+private fun StaggeredColumnSlot(index: Int, builtColumns: IntState, content: @Composable () -> Unit) {
+    val built by remember(index, builtColumns) { derivedStateOf { builtColumns.intValue > index } }
+    if (built) content()
 }
 
 /**
@@ -502,14 +517,16 @@ internal fun SpecialtyKanbanBoard(
     val board = rememberSupplyBoardState()
     val scope = rememberCoroutineScope()
     val animationsOn = !LocalLowEndMode.current.animationsDisabled
-    val density = LocalDensity.current
     LaunchedEffect(columns.map { it.id }) { board.updateKeys(columns.map { it.id }) }
+    val stationRank = remember(stationOrder) { specialtyStationRank(stationOrder) }
 
-    var builtColumns by remember { mutableIntStateOf(3) }
+    // Columns are built a few up front, then one per frame. Each column reads the count through
+    // its own derived state, so a new column recomposes only that column's slot, not the board.
+    val builtColumns = remember { mutableIntStateOf(3) }
     LaunchedEffect(columns.size) {
-        while (builtColumns < columns.size) {
+        while (builtColumns.intValue < columns.size) {
             withFrameNanos { }
-            builtColumns++
+            builtColumns.intValue++
         }
     }
 
@@ -536,8 +553,8 @@ internal fun SpecialtyKanbanBoard(
         ) {
             // 4dp + 12dp spacing = 16dp inset, matching SupplyBoardState's edge.
             Spacer(Modifier.width(4.dp))
-            columns.take(builtColumns).forEach { column ->
-                key(column.id) {
+            columns.forEachIndexed { index, column ->
+                key(column.id) { StaggeredColumnSlot(index, builtColumns) {
                     val placed = Modifier.onPlaced { coords ->
                         board.columns[column.id] = coords.positionInParent().x.roundToInt() to coords.size.width
                     }
@@ -566,7 +583,7 @@ internal fun SpecialtyKanbanBoard(
                                 resolved = resolved,
                                 columnId = column.id,
                                 toggles = checklistTogglesForItem(resolved, completionOverrides),
-                                stationOrder = stationOrder,
+                                stationRank = stationRank,
                                 inFlightUpdates = inFlightUpdates,
                                 readOnly = readOnly
                             )
@@ -599,10 +616,15 @@ internal fun SpecialtyKanbanBoard(
                             } }
                         }
                     }
-                }
+                } }
             }
-            // Room to scroll the last columns up to the left edge so they can become active.
-            Spacer(Modifier.width(with(density) { (board.viewportPx * 0.6f).toDp() }))
+            // Room to scroll the last columns up to the left edge so they can become active. The
+            // width is read during layout, so a viewport size change doesn't recompose the board.
+            Spacer(
+                Modifier.layout { _, _ ->
+                    layout((board.viewportPx * 0.6f).roundToInt(), 0) {}
+                }
+            )
         }
     }
 }
