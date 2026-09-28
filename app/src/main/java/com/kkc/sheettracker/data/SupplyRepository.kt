@@ -59,21 +59,7 @@ class SupplyRepository(private val basePath: String) {
 
     private fun StoredSupplyItem.resolve(): SupplyItem = resolveWith(resolveStatus(id))
 
-    private fun StoredSupplyItem.resolveWith(s: SupplyStatusRecord): SupplyItem {
-        val skuVal = fields["sku"]?.trim()?.takeIf { it.isNotBlank() }
-        val resolvedBarcodes = if (skuVal != null) {
-            (barcodes + skuVal).distinct()
-        } else {
-            barcodes
-        }
-        return SupplyItem(
-            id = id, categoryId = categoryId, name = name,
-            status = s.status, statusBy = s.by, statusAt = s.at,
-            notes = notes, fields = fields, customFields = customFields,
-            attachmentIds = attachmentIds, barcodes = resolvedBarcodes,
-            createdAt = createdAt, updatedAt = updatedAt
-        )
-    }
+    private fun StoredSupplyItem.resolveWith(s: SupplyStatusRecord): SupplyItem = resolveStoredItem(this, s)
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -270,5 +256,22 @@ class SupplyRepository(private val basePath: String) {
         // Latest-wins by parsed instant, with the raw string as a stable tiebreak.
         internal val SUPPLY_STATUS_RECENCY: Comparator<SupplyStatusRecord> =
             compareBy({ parseInstantOrMin(it.at) }, { it.at })
+
+        /** Stored item + resolved status -> UI item. SKU is folded into barcodes (shared with the live overlay). */
+        internal fun resolveStoredItem(stored: StoredSupplyItem, s: SupplyStatusRecord): SupplyItem {
+            val skuVal = stored.fields["sku"]?.trim()?.takeIf { it.isNotBlank() }
+            val resolvedBarcodes = if (skuVal != null) {
+                (stored.barcodes + skuVal).distinct()
+            } else {
+                stored.barcodes
+            }
+            return SupplyItem(
+                id = stored.id, categoryId = stored.categoryId, name = stored.name,
+                status = s.status, statusBy = s.by, statusAt = s.at,
+                notes = stored.notes, fields = stored.fields, customFields = stored.customFields,
+                attachmentIds = stored.attachmentIds, barcodes = resolvedBarcodes,
+                createdAt = stored.createdAt, updatedAt = stored.updatedAt
+            )
+        }
     }
 }
