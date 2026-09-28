@@ -18,6 +18,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.yield
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
 
 class SpecialtyJobDetailScreenLogicTest {
 @Test
@@ -127,23 +130,47 @@ class SpecialtyJobDetailScreenLogicTest {
     }
 
     @Test
-    fun inFlightUpdates_concurrentToggles_remainDisabledUntilEachWriteCompletes() {
-        val inFlight = mutableMapOf<String, Boolean>()
-        val cncControl = "custom-2::CNC"
-        val sawControl = "custom-2::SAW"
+    fun checklistOverrides_concurrentSaves_stayUntilALaterLoadSettlesThem() = runBlocking {
+        val overrides = ChecklistOverrides()
+        val gateA = CompletableDeferred<Unit>()
+        val gateB = CompletableDeferred<Unit>()
+        val saveA = overrides.toggle(this, "a", true, write = { gateA.await() })
+        overrides.toggle(this, "b", true, write = { gateB.await() })
+        yield()
+        assertFalse(isToggleEnabled("a", overrides.inFlight))
+        assertFalse(isToggleEnabled("b", overrides.inFlight))
 
-        startInFlightUpdate(inFlight, cncControl)
-        startInFlightUpdate(inFlight, sawControl)
-        assertFalse(isToggleEnabled(cncControl, inFlight))
-        assertFalse(isToggleEnabled(sawControl, inFlight))
+        val loadBeforeSaveReturned = overrides.startLoad()
+        gateA.complete(Unit)
+        saveA.join()
+        assertTrue(isToggleEnabled("a", overrides.inFlight))
+        assertFalse(isToggleEnabled("b", overrides.inFlight))
+        assertEquals(1, overrides.reloadRequest)
 
-        finishInFlightUpdate(inFlight, cncControl)
-        assertTrue(isToggleEnabled(cncControl, inFlight))
-        assertFalse(isToggleEnabled(sawControl, inFlight))
+        // A load that started before a's save returned can't clear it, even if it shows false.
+        overrides.reconcile(loadBeforeSaveReturned, mapOf("a" to false, "b" to false))
+        assertEquals(true, overrides.values["a"])
 
-        finishInFlightUpdate(inFlight, sawControl)
-        assertTrue(isToggleEnabled(cncControl, inFlight))
-        assertTrue(isToggleEnabled(sawControl, inFlight))
+        // One that started after it can (the save wrote nothing, or lost); b is still saving.
+        overrides.reconcile(overrides.startLoad(), mapOf("a" to false, "b" to false))
+        assertNull(overrides.values["a"])
+        assertEquals(true, overrides.values["b"])
+
+        gateB.complete(Unit)
+        yield()
+        overrides.reconcile(overrides.startLoad(), mapOf("b" to true))
+        assertTrue(overrides.values.isEmpty())
+    }
+
+    @Test
+    fun checklistOverrides_failedSaveShowsStoredValueAgain() = runBlocking {
+        val overrides = ChecklistOverrides()
+        var errors = 0
+        overrides.toggle(this, "a", true, write = { error("disk full") }, onError = { errors++ }).join()
+        assertNull(overrides.values["a"])
+        assertTrue(isToggleEnabled("a", overrides.inFlight))
+        assertEquals(1, errors)
+        assertEquals(1, overrides.reloadRequest)
     }
 
     @Test

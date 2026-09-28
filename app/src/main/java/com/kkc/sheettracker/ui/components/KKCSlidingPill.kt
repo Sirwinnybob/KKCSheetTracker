@@ -13,7 +13,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -28,6 +27,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,9 +42,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -61,9 +59,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
@@ -73,8 +76,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
 import com.kkc.sheettracker.ui.theme.KKCStatusColors
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.KKCThemePalette
@@ -747,21 +748,16 @@ data class KKCPillAction(
  * A row of action buttons (open a PDF, print, ...) styled like the sliding control but with every
  * button showing the pill — nothing slides because none of them is "selected". Same theme rules as
  * the sliders: primary-colored track and secondary-colored pills on two-color themes.
+ *
+ * With [trailingActions] (or [fillWidth]) the row spans its full width: [actions] on the left,
+ * [trailingActions] pinned to the right. Otherwise it is only as wide as its pills. Either way, if
+ * the pills don't fit the row scrolls sideways, and its edges fade while more pills are off-screen.
  */
-/** True when a group divider belongs right after the pill at [index]. Never after the last pill. */
-internal fun pillActionRowDividerAfter(index: Int, dividerAfterIndex: Int?, count: Int): Boolean =
-    dividerAfterIndex != null && index == dividerAfterIndex && index < count - 1
-
 @Composable
 fun KKCPillActionRow(
     actions: List<KKCPillAction>,
     modifier: Modifier = Modifier,
-    /** Draws a padded vertical divider after the pill at this index (splits two groups). */
-    dividerAfterIndex: Int? = null,
-    /**
-     * A second group pushed to the right end. With it the row spans its full width, [actions] on
-     * the left and these on the right; if both don't fit, the whole row scrolls sideways.
-     */
+    /** A second group pushed to the right end; see the row's description. */
     trailingActions: List<KKCPillAction> = emptyList(),
     /**
      * Span the full width even while [trailingActions] is empty. Set it when the trailing group
@@ -775,55 +771,64 @@ fun KKCPillActionRow(
     val gap = 4.dp
     val spanWidth = fillWidth || trailingActions.isNotEmpty()
     val containerModifier = if (spanWidth) modifier.fillMaxWidth() else modifier
+    val scroll = rememberScrollState()
     KKCPillContainer(style = style, modifier = containerModifier.height(32.dp + gap * 2)) {
-        if (!spanWidth) {
+        // The container (a Surface) passes its width down as the Row's minimum width, and
+        // horizontalScroll keeps that minimum, so SpaceBetween pins the two groups to the ends of
+        // a full-width row; wider content scrolls instead.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier
+                .scrollEdgeFade(scroll, fade = 24.dp)
+                .horizontalScroll(scroll)
+                .padding(gap)
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(gap),
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .padding(gap)
+                horizontalArrangement = Arrangement.spacedBy(gap)
             ) {
-                actions.forEachIndexed { index, action ->
-                    KKCPillActionButton(action, style)
-                    if (pillActionRowDividerAfter(index, dividerAfterIndex, actions.size)) {
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .width(1.dp)
-                                .height(20.dp)
-                                .background(style.selectedText.copy(alpha = 0.35f))
-                        )
-                    }
-                }
+                actions.forEach { KKCPillActionButton(it, style) }
             }
-        } else {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                // At least as wide as the track, so SpaceBetween pins the groups to both ends;
-                // wider content (narrow screens, many pills) scrolls instead.
-                val trackWidth = maxWidth
+            if (trailingActions.isNotEmpty()) {
+                Spacer(Modifier.width(16.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .widthIn(min = trackWidth)
-                        .padding(gap)
+                    horizontalArrangement = Arrangement.spacedBy(gap)
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        actions.forEach { KKCPillActionButton(it, style) }
-                    }
-                    if (trailingActions.isNotEmpty()) {
-                        Spacer(Modifier.width(16.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                            trailingActions.forEach { KKCPillActionButton(it, style) }
-                        }
-                    }
+                    trailingActions.forEach { KKCPillActionButton(it, style) }
                 }
             }
         }
     }
 }
+
+/**
+ * Fades a horizontally scrolling row's edges while there is more content past them, so pills
+ * scrolled off-screen are hinted at. Read in the draw phase, so scrolling only redraws.
+ */
+private fun Modifier.scrollEdgeFade(scroll: ScrollState, fade: Dp): Modifier =
+    graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val width = fade.toPx().coerceAtMost(size.width / 2f)
+            if (scroll.canScrollBackward) {
+                drawRect(
+                    brush = Brush.horizontalGradient(listOf(Color.Black, Color.Transparent), startX = 0f, endX = width),
+                    topLeft = Offset.Zero,
+                    size = Size(width, size.height),
+                    blendMode = BlendMode.DstOut
+                )
+            }
+            if (scroll.canScrollForward) {
+                drawRect(
+                    brush = Brush.horizontalGradient(listOf(Color.Transparent, Color.Black), startX = size.width - width, endX = size.width),
+                    topLeft = Offset(size.width - width, 0f),
+                    size = Size(width, size.height),
+                    blendMode = BlendMode.DstOut
+                )
+            }
+        }
 
 @Composable
 private fun KKCPillActionButton(action: KKCPillAction, style: KKCPillStyle) {

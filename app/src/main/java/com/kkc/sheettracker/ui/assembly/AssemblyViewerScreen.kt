@@ -4,7 +4,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.kkc.sheettracker.ui.components.kkcPillIndicator
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
-import android.content.res.Configuration
 import com.kkc.sheettracker.logging.AppLog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,35 +14,27 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Checkbox
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
@@ -51,7 +42,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
 import com.kkc.sheettracker.ui.components.KKCTabItem
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
@@ -73,7 +63,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -81,13 +70,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.mutableStateOf
@@ -100,11 +86,9 @@ import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -129,16 +113,13 @@ import com.kkc.sheettracker.data.models.JobPdfCatalog
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.ScanStatus
-import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.ui.components.AdaptiveSplitLayout
 import com.kkc.sheettracker.ui.components.SplitFullscreen
 import com.kkc.sheettracker.ui.components.headerBackground
-import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.ImmersiveDialogDecor
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
 import com.kkc.sheettracker.ui.components.StatusChip
-import com.kkc.sheettracker.ui.theme.KKCSpacing
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -1636,18 +1617,16 @@ private fun ChecklistPane(
     onJumpToCabinet: (String) -> Unit
 ) {
     val scanState by specialtyStateStore.scanState.collectAsState()
-    val progressVersion by specialtyStateStore.progressVersion.collectAsState()
-    // See SpecialtyJobDetailScreen for why this must not run synchronously on the main thread.
-    val resolvedItems by produceState(
-        initialValue = emptyList<SpecialtyResolvedItem>(),
-        key1 = scanState.snapshot.generation,
-        key2 = progressVersion,
-        key3 = jobFolderName
-    ) {
-        value = withContext(Dispatchers.IO) { specialtyStateStore.getResolvedItems(jobFolderName) }
-    }
-    val completionOverrides = remember(jobFolderName) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
-    val inFlight = remember(jobFolderName) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    // Ticks are keyed by item here; same optimistic handling as the detail screens.
+    val checklist = com.kkc.sheettracker.ui.specialty.rememberChecklistOverrides(jobFolderName)
+    val resolvedItems = com.kkc.sheettracker.ui.specialty.rememberLoadedChecklist(
+        specialtyStateStore = specialtyStateStore,
+        jobFolderName = jobFolderName,
+        overrides = checklist,
+        storedValues = { items -> items.associate { it.item.id to it.isComplete } }
+    ).items
+    val completionOverrides = checklist.values
+    val inFlight = checklist.inFlight
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
@@ -1696,23 +1675,18 @@ private fun ChecklistPane(
                             checked = checked,
                             enabled = enabled,
                             onCheckedChange = { next ->
-                                val previous = completionOverrides[item.id] ?: checked
-                                completionOverrides[item.id] = next
-                                inFlight[item.id] = true
-                                coroutineScope.launch {
-                                    try {
+                                checklist.toggle(
+                                    scope = coroutineScope,
+                                    key = item.id,
+                                    next = next,
+                                    write = {
                                         specialtyStateStore.setItemCompletion(
                                             jobFolderName = jobFolderName,
                                             itemId = item.id,
                                             completed = next
                                         )
-                                        completionOverrides.remove(item.id)
-                                    } catch (_: Exception) {
-                                        completionOverrides[item.id] = previous
-                                    } finally {
-                                        inFlight.remove(item.id)
                                     }
-                                }
+                                )
                             }
                         )
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {

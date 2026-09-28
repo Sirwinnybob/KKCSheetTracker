@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
@@ -25,13 +24,10 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -50,9 +46,6 @@ import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.requiresStationSplit
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 enum class SpecialtySurfaceMode {
     CNC,
@@ -131,6 +124,12 @@ internal fun compactCompletionKeyForMode(
         ?.name
 }
 
+/** A compact row's stored checked state: its mode's completion key if it has one, else the whole item. */
+internal fun compactStoredChecked(resolved: SpecialtyResolvedItem, mode: SpecialtySurfaceMode): Boolean {
+    val completionKey = compactCompletionKeyForMode(resolved.item, mode)
+    return if (completionKey != null) resolved.completionByKey[completionKey]?.completed == true else resolved.isComplete
+}
+
 @Composable
 fun CompactSpecialtySection(
     jobFolderName: String,
@@ -139,23 +138,22 @@ fun CompactSpecialtySection(
     modifier: Modifier = Modifier,
     onJumpToCabinet: ((String) -> Unit)? = null
 ) {
+    // Ticks are keyed by item here (one checkbox per row); same optimistic handling as the
+    // detail screens (see ChecklistOverrides).
     val scanState by specialtyStateStore.scanState.collectAsState()
-    val progressVersion by specialtyStateStore.progressVersion.collectAsState()
-    // See SpecialtyJobDetailScreen for why this must not run synchronously on the main thread.
-    val resolvedItems by produceState(
-        initialValue = emptyList<SpecialtyResolvedItem>(),
-        key1 = scanState.snapshot.generation,
-        key2 = progressVersion,
-        key3 = jobFolderName
-    ) {
-        value = withContext(Dispatchers.IO) { specialtyStateStore.getResolvedItems(jobFolderName) }
-    }
+    val checklist = rememberChecklistOverrides(jobFolderName)
+    val resolvedItems = rememberLoadedChecklist(
+        specialtyStateStore = specialtyStateStore,
+        jobFolderName = jobFolderName,
+        overrides = checklist,
+        storedValues = { items -> items.associate { it.item.id to compactStoredChecked(it, mode) } }
+    ).items
     val rowModels = remember(resolvedItems, mode) {
         buildSpecialtySectionRows(resolvedItems, mode)
     }
 
-    val completionOverrides = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
-    val inFlight = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
+    val completionOverrides = checklist.values
+    val inFlight = checklist.inFlight
     var errorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
     val completedCount = rowModels.count { row ->
         completionOverrides[row.resolved.item.id] ?: row.resolved.isComplete
@@ -231,11 +229,7 @@ fun CompactSpecialtySection(
                     val item = rowModel.resolved.item
                     val itemId = item.id
                     val completionKey = compactCompletionKeyForMode(item, mode)
-                    val checked = completionOverrides[itemId] ?: if (completionKey != null) {
-                        rowModel.resolved.completionByKey[completionKey]?.completed == true
-                    } else {
-                        rowModel.resolved.isComplete
-                    }
+                    val checked = completionOverrides[itemId] ?: compactStoredChecked(rowModel.resolved, mode)
                     // Multi-station CUSTOM items with more than one key relevant to this mode
                     // have no single unambiguous key to toggle from a compact checkbox — disable
                     // it rather than writing (and silently completing) every station's key.
@@ -264,26 +258,21 @@ fun CompactSpecialtySection(
                             ),
                             onCheckedChange = onChange@{ next ->
                                 val key = completionKey ?: return@onChange
-                                val previous = completionOverrides[itemId] ?: checked
-                                completionOverrides[itemId] = next
-                                inFlight[itemId] = true
-                                coroutineScope.launch {
-                                    try {
+                                checklist.toggle(
+                                    scope = coroutineScope,
+                                    key = itemId,
+                                    next = next,
+                                    write = {
                                         specialtyStateStore.setItemCompletionKey(
                                             jobFolderName = jobFolderName,
                                             itemId = itemId,
                                             completionKey = key,
                                             completed = next
                                         )
-                                        completionOverrides.remove(itemId)
-                                        errorMessage = null
-                                    } catch (_: Exception) {
-                                        completionOverrides[itemId] = previous
-                                        errorMessage = "Specialty update failed. Retry."
-                                    } finally {
-                                        inFlight.remove(itemId)
-                                    }
-                                }
+                                    },
+                                    onSaved = { errorMessage = null },
+                                    onError = { errorMessage = "Specialty update failed. Retry." }
+                                )
                             }
                         )
                         Column(

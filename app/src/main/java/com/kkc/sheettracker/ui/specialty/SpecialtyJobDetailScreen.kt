@@ -19,9 +19,6 @@ import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +33,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ViewList
@@ -59,14 +55,10 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -80,7 +72,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
-import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -95,7 +86,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.BorderStroke
@@ -165,13 +155,13 @@ internal fun SpecialtyJobDetailScreen(
     onBack: () -> Unit
 ) {
     val scanState by specialtyStateStore.scanState.collectAsState()
-    val progressVersion by specialtyStateStore.progressVersion.collectAsState()
     val viewerDefaults by specialtyViewerDefaultsStore.defaults.collectAsState(initial = SpecialtyViewerDefaults())
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val completionOverrides = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
-    val inFlightUpdates = remember(jobFolderName) { mutableStateMapOf<String, Boolean>() }
+    val checklist = rememberChecklistOverrides(jobFolderName)
+    val completionOverrides = checklist.values
+    val inFlightUpdates = checklist.inFlight
     var toggleErrorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var showAddSheet by remember(jobFolderName) { mutableStateOf(false) }
     var showPrintDialog by remember { mutableStateOf(false) }
@@ -180,32 +170,12 @@ internal fun SpecialtyJobDetailScreen(
     var editingItem by remember(jobFolderName) { mutableStateOf<com.kkc.sheettracker.data.models.SpecialtyItem?>(null) }
     var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var expandedSectionIds by remember(jobFolderName) { mutableStateOf<Set<String>?>(null) }
-    // getResolvedItems on a cache miss parses specialty_items.json + checklist.json + every
-    // tablet's tracker sidecar file for this job -- and setCompletion() invalidates that cache on
-    // every checkbox toggle, so this must not run synchronously on the main thread.
-    // Each load is numbered when it starts, so a saved checkbox can tell a reload that began after
-    // its save (and so reflects it) from one that was already running. checklistReloadRequest
-    // forces such a reload after every save, including saves that write nothing (read-only stores).
-    val checklistLoads = remember(jobFolderName) { ChecklistLoadCounter() }
-    var checklistReloadRequest by remember(jobFolderName) { mutableIntStateOf(0) }
-    val loadedChecklist by produceState(
-        LoadedChecklist(emptyList(), 0),
-        scanState.snapshot.generation,
-        progressVersion,
-        jobFolderName,
-        checklistReloadRequest
-    ) {
-        val loadSeq = ++checklistLoads.started
-        val previous = value.items
-        val items = withContext(Dispatchers.IO) {
-            reuseUnchangedResolvedItems(
-                previous = previous,
-                fresh = specialtyStateStore.getResolvedItems(jobFolderName)
-                    .filter { isItemRelevantToMode(it, SpecialtySurfaceMode.SPECIALTY) }
-            )
-        }
-        value = LoadedChecklist(items, loadSeq)
-    }
+    val loadedChecklist = rememberLoadedChecklist(
+        specialtyStateStore = specialtyStateStore,
+        jobFolderName = jobFolderName,
+        overrides = checklist,
+        filter = { isItemRelevantToMode(it, SpecialtySurfaceMode.SPECIALTY) }
+    )
     val resolvedItems = loadedChecklist.items
 
     val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()
@@ -311,67 +281,35 @@ internal fun SpecialtyJobDetailScreen(
         }
     }
 
-    // A saved toggle keeps its optimistic override until a reload shows the stored state:
-    // resolvedItems re-parses on IO after the save, so dropping the override on save success made
-    // the checkbox (and, in kanban, the whole card) flip back for a moment. The override goes once
-    // the stored value matches it, or once a reload that started after the save lands -- so a
-    // save that wrote nothing (archive / view-only) or lost to another tablet shows what's stored.
-    val overrideSavedAfterLoad = remember(jobFolderName) { HashMap<String, Int>() }
-    LaunchedEffect(loadedChecklist) {
-        if (completionOverrides.isEmpty()) return@LaunchedEffect
-        val stored = storedChecklistValues(loadedChecklist.items)
-        completionOverrides.keys.toList().forEach { controlId ->
-            if (shouldDropChecklistOverride(
-                    override = completionOverrides[controlId],
-                    stored = stored[controlId],
-                    savedAfterLoad = overrideSavedAfterLoad[controlId],
-                    landedLoad = loadedChecklist.loadSeq
-                )
-            ) {
-                completionOverrides.remove(controlId)
-                overrideSavedAfterLoad.remove(controlId)
-            }
-        }
-    }
-
     val onToggleChecked: (SpecialtyResolvedItem, SpecialtyChecklistToggle, Boolean) -> Unit = toggle@{ resolved, toggle, next ->
         if (readOnly) return@toggle
-        val itemId = resolved.item.id
-        val controlId = toggle.controlId
-        completionOverrides[controlId] = next
-        // Until this save returns, only a matching stored value may clear the override.
-        overrideSavedAfterLoad.remove(controlId)
-        startInFlightUpdate(inFlightUpdates, controlId)
-        coroutineScope.launch {
-            try {
+        checklist.toggle(
+            scope = coroutineScope,
+            key = toggle.controlId,
+            next = next,
+            write = {
                 specialtyStateStore.setItemCompletionKey(
                     jobFolderName = jobFolderName,
-                    itemId = itemId,
+                    itemId = resolved.item.id,
                     completionKey = toggle.completionKey,
                     completed = next
                 )
-                // Cleared by the reconcile effect above by the reload this requests, at the latest.
-                overrideSavedAfterLoad[controlId] = checklistLoads.started
-                checklistReloadRequest++
-                toggleErrorMessage = null
-            } catch (_: Exception) {
-                // Show what is stored again; the reload also settles any earlier pending save.
-                completionOverrides.remove(controlId)
-                overrideSavedAfterLoad.remove(controlId)
-                checklistReloadRequest++
+            },
+            onSaved = { toggleErrorMessage = null },
+            onError = {
                 val message = "Failed to update checklist item. Please retry."
                 toggleErrorMessage = message
                 snackbarHostState.showSnackbar(message)
-            } finally {
-                finishInFlightUpdate(inFlightUpdates, controlId)
             }
-        }
+        )
     }
     val onPatchItemDims: (SpecialtyResolvedItem, String?, Double?, String?) -> Unit = patch@{ resolved, dims, qty, mat ->
         if (readOnly) return@patch
         coroutineScope.launch {
             try {
                 specialtyStateStore.patchSpecialtyItemFields(jobFolderName, resolved.item.id, dims, qty, mat)
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
                 snackbarHostState.showSnackbar("Failed to save dimensions.")
             }
@@ -1497,57 +1435,6 @@ internal fun isChecklistItemComplete(
 
 private fun checklistControlId(itemId: String, completionKey: String): String {
     return "$itemId::$completionKey"
-}
-
-/** Counts checklist loads as they start; see [LoadedChecklist.loadSeq]. */
-internal class ChecklistLoadCounter {
-    var started: Int = 0
-}
-
-/** One landed checklist load. [loadSeq] is the load's start order, so every landing is distinct. */
-internal data class LoadedChecklist(
-    val items: List<SpecialtyResolvedItem>,
-    val loadSeq: Int
-)
-
-/**
- * [fresh] with every item that equals its [previous] counterpart swapped for that previous
- * instance (and [previous] itself when nothing changed), so an unchanged reload does not hand
- * new instances to every row and kanban card and force them all to recompose.
- */
-internal fun reuseUnchangedResolvedItems(
-    previous: List<SpecialtyResolvedItem>,
-    fresh: List<SpecialtyResolvedItem>
-): List<SpecialtyResolvedItem> {
-    if (previous.isEmpty()) return fresh
-    val previousById = previous.associateBy { it.item.id }
-    val merged = fresh.map { item -> previousById[item.item.id]?.takeIf { it == item } ?: item }
-    val unchanged = merged.size == previous.size && merged.indices.all { merged[it] === previous[it] }
-    return if (unchanged) previous else merged
-}
-
-/** The stored (override-free) checked state of every checklist control in [items]. */
-internal fun storedChecklistValues(items: List<SpecialtyResolvedItem>): Map<String, Boolean> =
-    items.flatMap { checklistTogglesForItem(it, emptyMap()) }.associate { it.controlId to it.checked }
-
-/**
- * Whether an optimistic checkbox override can go: the stored value already matches it, or its
- * save has returned ([savedAfterLoad] = loads started by then) and a load started after that has
- * landed, so the stored value reflects the save -- or shows that it wrote nothing or lost.
- */
-internal fun shouldDropChecklistOverride(
-    override: Boolean?,
-    stored: Boolean?,
-    savedAfterLoad: Int?,
-    landedLoad: Int
-): Boolean = override == stored || (savedAfterLoad != null && landedLoad > savedAfterLoad)
-
-internal fun startInFlightUpdate(inFlightUpdates: MutableMap<String, Boolean>, controlId: String) {
-    inFlightUpdates[controlId] = true
-}
-
-internal fun finishInFlightUpdate(inFlightUpdates: MutableMap<String, Boolean>, controlId: String) {
-    inFlightUpdates.remove(controlId)
 }
 
 internal fun isToggleEnabled(controlId: String, inFlightUpdates: Map<String, Boolean>): Boolean {
