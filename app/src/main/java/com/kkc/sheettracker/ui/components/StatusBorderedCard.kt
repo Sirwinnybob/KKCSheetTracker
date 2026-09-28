@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -72,16 +73,23 @@ fun StatusBorderedCard(
         Modifier
     }
 
+    // Where low-end mode turns shadows off, cards get a hairline edge instead (as kkcCardDepth does).
+    val shadowsDisabled = LocalLowEndMode.current.shadowsDisabled
     Card(
         modifier = modifier
             .fillMaxWidth()
             .then(clickableModifier),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = tonalElevation + 2.dp,
-            pressedElevation = tonalElevation + 4.dp
-        )
+        elevation = if (shadowsDisabled) {
+            CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
+        } else {
+            CardDefaults.cardElevation(
+                defaultElevation = tonalElevation + 2.dp,
+                pressedElevation = tonalElevation + 4.dp
+            )
+        },
+        border = if (shadowsDisabled) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
             if (statusCardColors.topGradientColor != null) {
