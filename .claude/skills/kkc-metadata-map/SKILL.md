@@ -142,7 +142,7 @@ Cabinet Vision (external CAD database, not one of the five programs above) is th
 
 Important caveat: Hours Tracker normally does not own `<job>\.metadata\cache_static.json` or `<job>\.metadata\cache_index.json`. It only reads those files unless emergency legacy writes are enabled with `HOURS_TRACKER_ENABLE_LEGACY_CACHE_WRITES=1`.
 
-Second caveat: if a Cabinet Vision molding profile is renamed or removed, Ready Jobs Watcher deletes its obsolete `.xml` (`moldings_sync.py:186-193`); dimensions saved under that `moldingId` in `molding_dimensions.json` are not deleted, just orphaned until re-linked to a live profile.
+Second caveat: if a Cabinet Vision molding profile is renamed or removed, `cv-molding-sync` deletes its obsolete `.xml` (`cv_molding_sync.py`, `apply_rows` prune loop); dimensions saved under that `moldingId` in `molding_dimensions.json` are not deleted, just orphaned until re-linked to a live profile.
 
 ## Cross-System Contract Invariants
 
