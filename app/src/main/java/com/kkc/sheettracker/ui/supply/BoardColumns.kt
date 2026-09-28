@@ -30,7 +30,9 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.components.ScrollShadowBleed
 import com.kkc.sheettracker.ui.components.kkcCardDepth
+import com.kkc.sheettracker.ui.components.scrollShadowBleed
 import kotlin.math.roundToInt
 
 /** Card width inside a board column (the Supply board and the specialty kanban board). */
@@ -70,7 +72,9 @@ internal fun BoardColumnsRow(
         modifier = modifier
             .onSizeChanged { board.viewportPx = it.width }
             .then(scrollModifier)
-            .horizontalScroll(board.scroll),
+            .scrollShadowBleed()
+            .horizontalScroll(board.scroll)
+            .padding(horizontal = ScrollShadowBleed),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // 4dp + 12dp spacing = 16dp edge inset, matching SupplyBoardState's edge; kept as a

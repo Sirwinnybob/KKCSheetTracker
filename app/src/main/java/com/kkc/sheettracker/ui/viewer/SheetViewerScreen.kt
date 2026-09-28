@@ -130,6 +130,8 @@ import com.kkc.sheettracker.ui.components.SheetStatusBadge
 import com.kkc.sheettracker.ui.components.SortColumn
 import com.kkc.sheettracker.ui.components.SortDirection
 import com.kkc.sheettracker.ui.components.animateEntrance
+import com.kkc.sheettracker.ui.components.ScrollShadowBleed
+import com.kkc.sheettracker.ui.components.scrollShadowBleed
 import com.kkc.sheettracker.ui.components.VerticalSplitLayout
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.markup.DrawingTool
@@ -1426,7 +1428,9 @@ fun SheetViewerScreen(
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .horizontalScroll(rememberScrollState()),
+                                    .scrollShadowBleed()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = ScrollShadowBleed),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1435,7 +1439,7 @@ fun SheetViewerScreen(
                                     color = MaterialTheme.colorScheme.surface,
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
                                     shadowElevation = 2.dp,
-                                    modifier = Modifier.height(40.dp)
+                                    modifier = Modifier.height(36.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxHeight(),

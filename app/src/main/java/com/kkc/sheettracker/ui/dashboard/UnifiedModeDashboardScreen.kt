@@ -15,6 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.kkc.sheettracker.ui.components.bounceClick
+import com.kkc.sheettracker.ui.components.ScrollShadowBleed
+import com.kkc.sheettracker.ui.components.scrollShadowBleed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -357,7 +359,10 @@ private fun CncRecentMaterialsSection(
             when {
                 !hasLoadedOnce -> {
                     Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        modifier = Modifier
+                            .scrollShadowBleed()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = ScrollShadowBleed),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         CncRecentMaterialCard(item = null, thumbnail = null, onClick = {})
@@ -371,7 +376,10 @@ private fun CncRecentMaterialsSection(
                 }
                 else -> {
                     Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        modifier = Modifier
+                            .scrollShadowBleed()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = ScrollShadowBleed),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items.forEach { item ->
@@ -431,7 +439,10 @@ private fun TaggedMaterialSection(
             )
         }
         Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            modifier = Modifier
+                .scrollShadowBleed()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = ScrollShadowBleed),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (!hasLoadedOnce) {

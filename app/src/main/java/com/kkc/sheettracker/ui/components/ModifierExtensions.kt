@@ -19,6 +19,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -82,4 +86,25 @@ fun Modifier.animateEntrance(
     this
         .alpha(alpha)
         .offset(y = offsetY)
+}
+
+/** Horizontal room [scrollShadowBleed] adds so child shadows aren't clipped at a scroll edge. */
+val ScrollShadowBleed = 4.dp
+
+/**
+ * `horizontalScroll` / `LazyRow` clip along their scroll axis, cutting off the shadow of any
+ * child at the viewport's left or right edge. Apply this BEFORE the scroll modifier: it widens
+ * the viewport by [bleed] on each side without changing this node's size or position. Pair it
+ * with `padding(horizontal = bleed)` after `horizontalScroll`, or
+ * `contentPadding = PaddingValues(horizontal = bleed)` on a `LazyRow`, so content stays put.
+ */
+fun Modifier.scrollShadowBleed(bleed: Dp = ScrollShadowBleed): Modifier = layout { measurable, constraints ->
+    val extra = bleed.roundToPx() * 2
+    val widened = constraints.copy(
+        minWidth = constraints.minWidth + extra,
+        maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth + extra else Constraints.Infinity
+    )
+    val placeable = measurable.measure(widened)
+    val width = constraints.constrainWidth(placeable.width - extra)
+    layout(width, placeable.height) { placeable.place(-extra / 2, 0) }
 }
