@@ -243,4 +243,38 @@ class SupplySubscriptionManagerTest {
             assertEquals("Repository failed", t.message)
         }
     }
+
+    @Test
+    fun `live push updates the notification count without any supply files`() = runBlocking {
+        val emptyBase = tempFolder.newFolder("liveBase")   // no .supply directory at all
+        val liveStore = SupplyLiveStateStore()
+        val liveManager = SupplySubscriptionManager(context, SupplyRepository(emptyBase.absolutePath, liveStore), liveStore)
+        liveManager.initDeferred.await()
+        liveManager.toggleItemSubscription("i1")
+        assertEquals(0, liveManager.notificationCount.value)
+
+        liveStore.applyLive(
+            SupplyLiveSnapshot(
+                revision = 1L,
+                categories = listOf(SupplyCategory("cat1", "Hardware", 0)),
+                schema = emptyList(),
+                items = mapOf(
+                    "i1" to SupplyItem(
+                        id = "i1", categoryId = "cat1", name = "Screws", status = "IN STOCK", statusBy = "",
+                        statusAt = "", notes = null, fields = emptyMap(), customFields = emptyMap(),
+                        attachmentIds = emptyList(), barcodes = emptyList(),
+                        createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z"
+                    )
+                ),
+                comments = emptyMap()
+            )
+        )
+
+        val deadline = System.currentTimeMillis() + 3_000L
+        while (liveManager.notificationCount.value != 1 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20L)
+        }
+        assertEquals(1, liveManager.notificationCount.value)
+        liveManager.close()
+    }
 }
