@@ -71,15 +71,25 @@ Polls every 2 seconds (`run_until(stop_event)`, same shape as `DeliveryScheduleL
   `categories.json`, `schema.json`, `items/*.json`, `status/*.json` and `comments/*/*.json`
   under `supply_store.supply_data_dir()`. Entries where `is_sync_conflict(name)` is true are
   excluded. Directory entries that vanish between listing and `stat` are skipped.
-- **Build:** when the signature differs from the last committed one, build the document using the
-  existing `supply_store` loaders (`get_categories`, `get_schema`, `get_items`,
-  `get_comments`) — the injected `load_document` callable, so tests can substitute a loader.
+- **Build:** when the signature differs from the last committed one, call the injected
+  `build_document` callable (production: `routes/supply_live_document.build_supply_document`).
+  The builder is **read-only**; it does not use the `supply_store` loaders, because
+  `get_items()` calls `ensure_dirs()` (creates directories, initializes `schema.json` and
+  `barcodes.json`) and `read_json()` writes `.corrupt` backups and raises on one bad file. The
+  builder reuses `supply_store` path helpers and `DEFAULT_SCHEMA`, `routes.utils.parse_instant`,
+  `is_sync_conflict` and `validate_filename`; mirrors `get_status` latest-wins resolution and
+  SKU barcode injection; skips unreadable item/status/comment files (as the tablet does); and
+  raises `SupplyDocumentError` only when `categories.json` or `schema.json` exists but is
+  unreadable or not a list.
+- **Settle check:** the signature is recomputed after the build; if it changed, nothing is
+  published and the next poll retries.
+- **Vanished tree:** after a good document has been published, a missing `.supply` directory is
+  treated as unavailable (warning, last good document retained), never as an empty catalog.
 - **Commit rule:** the new signature is committed only after the build and `on_document`
   (`service.replace`) both succeed. A torn or unreadable file is retried on the next poll, and the
   service keeps serving its last good document.
 - `poll_once(initial=True)` always builds. A missing `.supply` directory on initial hydration is
-  the legitimate empty state (empty lists/maps). After a good document has been published, a
-  missing or unreadable tree is logged as a warning and the last good document is retained.
+  the legitimate empty state (empty lists/maps, default schema).
 
 ### Document shape
 
@@ -99,12 +109,12 @@ Polls every 2 seconds (`run_until(stop_event)`, same shape as `DeliveryScheduleL
 }
 ```
 
-- `status`/`statusBy`/`statusAt` come from `supply_store.get_status`, which already resolves
-  latest-wins by parsed instant and excludes conflict copies, matching the tablet's
-  `SUPPLY_STATUS_RECENCY` rule. Missing status resolves to `IN STOCK` with blank `by`/`at`, the
+- `status`/`statusBy`/`statusAt` use the same rule as `supply_store.get_status`: latest-wins
+  by parsed instant, conflict copies excluded, matching the tablet's `SUPPLY_STATUS_RECENCY`
+  rule. Missing status resolves to `IN STOCK` with blank `by`/`at`, the
   same default as the tablet.
-- `barcodes` include the SKU-injected barcode (`_inject_sku_barcode`), matching the tablet's
-  `resolveWith` behaviour.
+- `barcodes` include the SKU barcode (same rule as `_inject_sku_barcode`, tolerant of a
+  missing or non-object `fields`), matching the tablet's `resolveWith` behaviour.
 - `comments` contains an entry only for items that have at least one comment.
 - Field names match the tablet's Gson models (verified 2026-09-28): item keys are the stored
   `items/<id>.json` keys both programs already share, plus `status`/`statusBy`/`statusAt`;
@@ -117,8 +127,8 @@ Polls every 2 seconds (`run_until(stop_event)`, same shape as `DeliveryScheduleL
   - `supply_store.get_status` ignores status records with no `at`; the tablet ranks them as
     `Instant.MIN`. The two only disagree when every record for an item lacks `at`. The live
     document follows the server rule; this is accepted.
-  - `get_status` calls `validate_filename(item_id)`, which raises on an unsafe id. The document
-    builder skips such an item (logs a warning) instead of failing the whole build.
+  - The builder calls `validate_filename(item_id)`, which raises on an unsafe id, and skips such
+    an item (logs a warning) instead of failing the whole build.
   - Gson skips Kotlin defaults for these models, so absent JSON keys become `null`. The tablet
     parser normalizes null `fields`/`customFields` to empty maps, null `attachmentIds`/`barcodes`
     to empty lists, and null strings to `""` (except `notes`) before exposing items.
@@ -196,7 +206,11 @@ API:
 - `recordStatus`, `recordCommentAdded`, `recordCommentDeleted`, `recordItemUpserted`,
   `recordItemDeleted`, `recordCategoryCreated` — called by `SupplyRepository` after a successful
   file write, whether or not the socket is live (so a write made just before connecting is still
-  protected).
+  protected). `recordCommentDeleted` drops any pending add of the same comment, and
+  `recordItemDeleted` drops every pending entry for that item, so a local create-then-delete is
+  never resurrected by a leftover overlay entry.
+- `setDisconnected()` is idempotent: it bumps `version` only on a real live-to-disconnected
+  transition, so repeated reconnect failures do not trigger repeated fallback scans.
 
 Overlay satisfaction rules (an entry is removed when live state shows):
 
