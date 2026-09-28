@@ -7,8 +7,9 @@ description: >-
   safety concern reports/status/comments, .time_cards, timeclock API fields,
   production_order.json, delivery_schedule.json, update-feed metadata, admin
   metadata, molding/moulding profile, dimension-override, or frame-style tag
-  files, or deciding whether KKCSheetTracker, Ready Jobs Watcher, Hours Tracker,
-  timeclock-hub, or updater-agent owns a file.
+  files, PGM Mix Service definitions/API, or deciding whether KKCSheetTracker,
+  Ready Jobs Watcher, Hours Tracker, timeclock-hub, updater-agent, the CNC
+  PGM Mix Service, or cv-molding-sync owns a file.
 metadata:
   sync:
     version: 3
@@ -24,11 +25,14 @@ Use this skill to answer: "Which system owns this metadata file, where is the so
 > `C:\Scripts\Hours Tracker\METADATA_AUDIT.md`. When this map and the code disagree, trust the code,
 > fix the code, then update BOTH this skill and that audit doc (rules are in the audit's §1.4).
 
-> **Mirror sync:** the six per-repo `.claude`/`.agents` copies of this skill (Hours Tracker,
-> Ready Jobs Watcher, KKCSheetTracker) are kept byte-identical to this file automatically by
-> `sync-kkc-metadata-map.ps1`, triggered on every edit here via a PostToolUse hook in the global
-> Claude Code settings. Edit only this canonical copy — the mirrors are overwritten and
-> auto-committed, so manual edits to a mirror will be silently replaced.
+> **Mirror sync:** canonical file is `C:\Users\chadc\.sync-skills\skills\kkc-metadata-map\SKILL.md`;
+> `C:\Users\chadc\.claude\skills\kkc-metadata-map` is a junction to that folder, so editing either
+> path edits the same file. The six per-repo `.claude`/`.agents` copies of this skill (Hours Tracker,
+> Ready Jobs Watcher, KKCSheetTracker) and the global Codex copy (`~\.codex\skills\kkc-metadata-map`)
+> are kept byte-identical to it automatically by `C:\Users\chadc\.sync-skills\sync-kkc-metadata-map.ps1`,
+> triggered on every edit via a PostToolUse hook in the global Claude Code settings. Edit only
+> the canonical copy — the mirrors are overwritten (repo mirrors auto-committed), so manual edits to a
+> mirror, including the Codex copy, will be silently replaced.
 
 ## System Boundaries
 
@@ -39,12 +43,25 @@ Use this skill to answer: "Which system owns this metadata file, where is the so
 | Hours Tracker | Manages digital hours/admin metadata and some global Ready Jobs admin files; **as of 2026-08-18, its ported worker (`ready_jobs_worker_core`) is the live production system for every row below labeled "Ready Jobs Watcher"** (see note below) | `C:\Scripts\Hours Tracker` |
 | timeclock-hub | RTC-1000 punch clock REST hub and SQLite source of truth for punch-clock timeclock | `C:\Scripts\timeclock-hub` |
 | updater-agent | Android helper for installs/silent update behavior | `C:\Scripts\KKCSheetTracker\updater-agent` |
+| CNC PGM Mix Service | CNC-side REST service that orders existing `.pgm` files into compiled `.mix` files through WINXISO; it does **not** write Ready Jobs metadata or alter the source `.pgm` files | `C:\Scripts\PGM_BCR_Loader\docs\PGM_MIX_SERVICE_AGENT_GUIDE.md`; deployed on CNC at `C:\Scripts\PGM_MixService` |
+| cv-molding-sync | Scheduled script on the Cabinet Vision PC; sole writer of `.metadata\moldings\*.xml` from CV's local SQL Server | `C:\Scripts\cv-molding-sync` |
 
 Shared Ready Jobs usually appears on the PC as `Y:\Ready Jobs` and on the Hours Tracker Docker server as `/mnt/KKC/Syncthing/KKC Jobs/Ready Jobs`.
 
 Cabinet Vision (external CAD database, not one of the five programs above) is the source of truth for the profile geometry that the molding sync pulls from — see the moldings row below. **As of 2026-09-28 the molding sync is `C:\Scripts\cv-molding-sync\cv_molding_sync.py`**, a standalone script on the Cabinet Vision PC (CV's SQL Server `.\CV24`/`CVData` exists only there), run every 15 min by Task Scheduler task `KKC CV Molding Sync`. It is NOT part of Hours Tracker's ported worker: moldings sync was explicitly descoped from the port, and nothing wrote `.metadata\moldings` from 2026-08-18 until 2026-09-28.
 
 > **RJW replaced by Hours Tracker's ported worker (as of 2026-08-18):** `backend/ready_jobs_worker_core` (Hours Tracker repo) is a from-scratch port of Ready Jobs Watcher, cut over to production on 2026-08-18 and now THE live writer for every row in the Ownership Map below labeled "Ready Jobs Watcher" — deployment gates, cache_static/cache_index, CNC/hardwoods consolidation, cabinet_sheet_index, dark-mode PDFs, 3D GLB conversion, sync-conflict resolution, duplicate-folder guard, job rename/reparse, deployment-gate timers, hidden-gate bootstrap, and construction-method (Face-Frame/Frameless) auto-detection. Verified via a shadow-write soak test against a full real-tree copy (byte-exact `cache_static.json`/`cache_index.json` match on 15/16 live jobs, clean cold boot on 3455 real files) before cutover. Runs as its own container/process (`python -m ready_jobs_worker_core`, NOT the `main_v2.py` web app — that process refuses to run a real writer in-process by design), sharing the web GUI's `/data` state dir and the real `/jobs` mount. The real Ready Jobs Watcher Windows process is DEPRECATED — treat it as stopped/not the writer by default. **An agent cannot verify this independently** (the worker runs on the user's own server, outside agent reach) — default to "the ported worker is live," and only investigate/work on the deprecated old RJW if the user explicitly says so. Old RJW rows/paths/code-entry-points are kept throughout this map (not deleted) purely as reference in case old logic ever needs porting over. The worker's own operational log is new local state — see `worker.log` in Local State below.
+
+## CNC PGM Mix Service: Agent Routing
+
+Use this service when a CNC/tablet workflow needs to create, inspect, reorder, or regenerate a **`.mix` sequence** from existing PGM files. It is not a Ready Jobs metadata publisher and it does not generate replacement `.pgm` source files.
+
+- **Agent API reference and examples:** `C:\Scripts\PGM_BCR_Loader\docs\PGM_MIX_SERVICE_AGENT_GUIDE.md`.
+- **Deployed service folder on the CNC:** `C:\Scripts\PGM_MixService` (network: `\\192.168.20.4\cnc\Scripts\PGM_MixService`).
+- **Runtime endpoint:** `http://<cnc-ip>:8477`; first check `GET /status`. The service is unauthenticated on the CNC LAN—do not expose it beyond that network.
+- **State ownership:** `definitions.json` owns service-created mix definitions and their ordered PGM filename lists; the compiled `.mix` lives beside the PGM files. `config.json` owns paths/limits; `logs\service.log` is the primary diagnostic log.
+- **Safe reorder pattern:** send the complete desired remaining order with `PUT /mixes/{name}`, or create a new named mix with `POST /mixes`. Prefer a new descriptive name when preserving the prior cut order matters.
+- **Do not confuse a `.mix` with a `.pgm`:** ordering/regeneration recompiles a new `.mix`; source PGM files remain untouched. WINXISO's transient `.xxl` and generated sibling `.bmp` preview files are service cleanup artifacts, not tablet metadata.
 
 ## Ownership Map
 
@@ -80,6 +97,8 @@ Cabinet Vision (external CAD database, not one of the five programs above) is th
 | `Y:\Ready Jobs\.metadata\themes\active_theme.json`, `themes\*.json`, `themes\graphics\*.svg` | **external theme tool** (NOT Hours Tracker backend); KKCSheetTracker reads | Global tablet theme/graphics. HT backend has zero refs to these (audit SK-03) |
 | `Y:\Ready Jobs\.metadata\timeclock_messages.json` | **external message tool** (NOT Hours Tracker backend); KKCSheetTracker reads | Global shop/tablet timeclock messages. HT backend has zero refs (audit SK-03) |
 | `Y:\Ready Jobs\.metadata\sync_conflicts\<id>\manifest.json` | Ready Jobs Watcher | Root/global Syncthing conflict archive manifest |
+| `C:\Scripts\PGM_MixService\definitions.json` | CNC PGM Mix Service | Persistent API-created mix definitions and ordered PGM filename lists; inspect `GET /mixes` or this file before changing/recompiling a mix |
+| `C:\Scripts\PGM_MixService\config.json`, `logs\service.log`, `logs\error.log` | CNC PGM Mix Service | Check `GET /status`, then service log; `config.json` must point at the CNC root and the installed `WINXISO.EXE` |
 | `Y:\Ready Jobs\production_order.json` | Hours Tracker/admin workflow; Ready Jobs Watcher reads it | Check Hours Tracker admin state, then cache refresh into jobs |
 | `Y:\Ready Jobs\production_order_request.<tabletId>.json` | KKCSheetTracker tablet writes; Hours Tracker consumes | Per-tablet lineup request; malformed input may be quarantined, but transient I/O/lock/write failure must leave it for retry |
 | `Y:\Ready Jobs\job_board.json` | Hours Tracker/admin workflow | Check Hours Tracker admin UI/backend first |
