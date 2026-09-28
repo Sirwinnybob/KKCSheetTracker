@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.components
 
+import androidx.compose.ui.graphics.Color
 import com.kkc.sheettracker.ui.theme.KKCThemeHeaderContentScale
 import com.kkc.sheettracker.ui.theme.KKCThemeHeaderTokens
 import org.junit.Assert.assertEquals
@@ -41,5 +42,20 @@ class KKCBrandedTitleTest {
     @Test
     fun blankBadgeLogoPathTreatedAsAbsent() {
         assertEquals(BrandedTitleKind.TEXT, resolveBrandedTitleKind(header(badgeText = "CHIEFS", badgeLogoPath = "  ")))
+    }
+
+    @Test
+    fun defaultLogoIsBlackOnLightHeader() {
+        assertEquals(Color.Black, defaultLogoTint(Color(0xFFF5F7FA)))
+    }
+
+    @Test
+    fun defaultLogoIsWhiteOnDarkHeader() {
+        assertEquals(Color.White, defaultLogoTint(Color(0xFF1A1C1E)))
+    }
+
+    @Test
+    fun defaultLogoIsWhiteOnSaturatedDarkHeader() {
+        assertEquals(Color.White, defaultLogoTint(Color(0xFF0B3D91)))
     }
 }

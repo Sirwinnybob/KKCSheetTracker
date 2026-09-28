@@ -125,19 +125,6 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
 
-private fun sanitizeModeTitle(modeName: String): String {
-    val clean = modeName.lowercase().removePrefix("jobs_").removePrefix("jobs")
-    return when (clean) {
-        "cnc" -> "CNC"
-        "hardwoods" -> "Hardwoods"
-        "assembly" -> "Assembly"
-        "specialty" -> "Specialty"
-        else -> clean.split("_").joinToString(" ") { word ->
-            word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-        }
-    }
-}
-
 /**
  * Pinning copies a card: the grid original keeps its schedule spot, the pinned copy fades in above
  * the grid, and every other grid item (headers, dividers, cards) springs to its new position.
@@ -437,7 +424,7 @@ fun UnifiedJobsScreen(
         topBar = {
             KKCTopAppBar(
                 title = {
-                    KKCBrandedTitle(modeSuffix = sanitizeModeTitle(spec.modeName))
+                    KKCBrandedTitle()
                 },
                 actions = {
                     if (restoreActionVisible(adminEnabled = adminMode)) {

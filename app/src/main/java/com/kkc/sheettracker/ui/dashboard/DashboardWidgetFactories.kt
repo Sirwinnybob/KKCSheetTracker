@@ -403,7 +403,7 @@ fun DashboardShell(
             KKCTopAppBar(
                 title = {
                     if (!subtitle.isNullOrBlank()) {
-                        KKCBrandedTitle(modeSuffix = subtitle)
+                        KKCBrandedTitle()
                     } else {
                         Text(title, style = MaterialTheme.typography.titleMedium)
                     }
