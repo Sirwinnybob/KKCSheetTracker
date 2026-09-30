@@ -1,6 +1,5 @@
 package com.kkc.sheettracker.ui.markup
 
-import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -47,6 +45,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.PdfInkStroke
@@ -165,7 +165,6 @@ fun RowScope.PdfMarkupToolbar(
     }
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun PdfMarkupOverlay(
     viewportState: PdfViewportState,
@@ -197,11 +196,12 @@ fun PdfMarkupOverlay(
 ) {
     val currentPoints = remember { mutableStateListOf<Float>() }
     var isDrawing by remember { mutableStateOf(false) }
-    var isHandlingGesture by remember { mutableStateOf(false) }
     var gestureTool by remember { mutableStateOf(DrawingTool.PEN) }
     val committedPathCache = remember { NormalizedStrokePathCache() }
     // Last valid transform of the gesture in progress; plain holder, only read by the handler.
     val gestureTransformMemory = remember { MarkupGestureTransformMemory() }
+    // Which pointer is marking the page; plain holder, only read by the handler.
+    val pointerTracker = remember { MarkupPointerTracker() }
 
     fun currentTransform(): PdfPageTransform? {
         val aspect = pageAspectRatio ?: return null
@@ -219,166 +219,174 @@ fun PdfMarkupOverlay(
         )
     }
 
-    Canvas(
-        modifier = modifier
-            .pointerInteropFilter { motionEvent ->
-                if (!inputEnabled) {
-                    onStylusButtonEraserChanged(false)
-                    return@pointerInteropFilter false
-                }
-                val pointerIndex = findRelevantMotionEventPointerIndex(motionEvent)
-                val isStylusButtonPressed =
-                    (motionEvent.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0 ||
-                    (motionEvent.buttonState and MotionEvent.BUTTON_STYLUS_SECONDARY) != 0 ||
-                    (motionEvent.buttonState and MotionEvent.BUTTON_SECONDARY) != 0
-                val toolType = motionEvent.getToolType(pointerIndex)
-                val isEraserTool = toolType == MotionEvent.TOOL_TYPE_ERASER
-                val shouldUseTemporaryEraser = when (motionEvent.actionMasked) {
-                    MotionEvent.ACTION_UP,
-                    MotionEvent.ACTION_CANCEL -> false
-                    else -> isStylusButtonPressed || isEraserTool
-                }
-                onStylusButtonEraserChanged(shouldUseTemporaryEraser)
-                val isStylusTool =
-                    toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
-                val isGestureEnd = motionEvent.actionMasked == MotionEvent.ACTION_UP ||
-                    motionEvent.actionMasked == MotionEvent.ACTION_CANCEL
-                // A continuous-mode page can leave view mid-stroke (e.g. a programmatic scroll),
-                // making its rect null: finish the gesture on the transform it last had.
-                val transform = resolveMarkupGestureTransform(
-                    current = currentTransform(),
-                    gestureTransform = gestureTransformMemory.transform,
-                    gestureInProgress = isHandlingGesture
+    fun endGesture() {
+        pointerTracker.reset()
+        isDrawing = false
+        currentPoints.clear()
+        gestureTransformMemory.transform = null
+    }
+
+    // Compose pointer input rather than pointerInteropFilter: the interop filter gates the whole
+    // MotionEvent stream on its first ACTION_DOWN, so refusing a resting palm's down made it drop
+    // the pen's ACTION_POINTER_DOWN too, and the first pen stroke after a palm never inked. Here
+    // each event is judged per pointer: a finger with finger drawing off is left alone (unconsumed)
+    // for the viewer to scroll and zoom with, and a pen starts a stroke whenever it lands.
+    fun handlePointerEvent(event: PointerEvent) {
+        if (!inputEnabled) {
+            onStylusButtonEraserChanged(false)
+            if (pointerTracker.isTracking) endGesture()
+            return
+        }
+        val gestureInProgress = pointerTracker.isTracking
+        val action = pointerTracker.next(
+            pointers = event.changes.map { change ->
+                MarkupPointer(
+                    id = change.id.value,
+                    isStylus = change.type == PointerType.Stylus || change.type == PointerType.Eraser,
+                    pressed = change.pressed,
+                    previousPressed = change.previousPressed
                 )
-                if (transform == null) {
-                    if (!isGestureEnd) return@pointerInteropFilter false
-                    // No transform at all: still close out any gesture so state never goes stale.
-                    val handled = isHandlingGesture
-                    isHandlingGesture = false
-                    isDrawing = false
-                    currentPoints.clear()
-                    gestureTransformMemory.transform = null
-                    return@pointerInteropFilter handled
+            },
+            allowFingerDrawing = allowFingerDrawing
+        )
+        val actionId = when (action) {
+            is MarkupPointerAction.Start -> action.id
+            is MarkupPointerAction.Continue -> action.id
+            is MarkupPointerAction.Finish -> action.id
+            MarkupPointerAction.None, MarkupPointerAction.Abandon -> null
+        }
+        val change = actionId?.let { id -> event.changes.firstOrNull { it.id.value == id } }
+
+        // Side button or pen-eraser end: the pen erases while it's held (also while hovering, so
+        // the toolbar shows it). Judged on the marking pointer, else any pen in the event.
+        val buttonPointer = change
+            ?: event.changes.firstOrNull { it.type == PointerType.Stylus || it.type == PointerType.Eraser }
+            ?: event.changes.firstOrNull()
+        val allLifted = event.type == PointerEventType.Release && event.changes.none { it.pressed }
+        val shouldUseTemporaryEraser = buttonPointer != null && !allLifted && (
+            isStylusEraserButtonState(event.motionEvent?.buttonState ?: 0) ||
+                buttonPointer.type == PointerType.Eraser
+            )
+        onStylusButtonEraserChanged(shouldUseTemporaryEraser)
+
+        if (action == MarkupPointerAction.Abandon) {
+            endGesture()
+            return
+        }
+        if (change == null) return
+        // A continuous-mode page can leave view mid-stroke (e.g. a programmatic scroll),
+        // making its rect null: finish the gesture on the transform it last had.
+        val transform = resolveMarkupGestureTransform(
+            current = currentTransform(),
+            gestureTransform = gestureTransformMemory.transform,
+            gestureInProgress = gestureInProgress && action !is MarkupPointerAction.Start
+        )
+        if (transform == null) {
+            // No transform at all: close out any gesture so state never goes stale.
+            endGesture()
+            return
+        }
+        change.consume()
+
+        fun eraseAt(position: Offset) {
+            val toDelete = activeStrokes
+                .mapNotNull { stroke ->
+                    val d = distanceToViewStroke(
+                        px = position.x,
+                        py = position.y,
+                        points = stroke.points,
+                        transform = transform
+                    )
+                    if (d < ERASER_HIT_RADIUS_PX * eraserRadiusScale) stroke to d else null
                 }
-                if (isGestureEnd) {
-                    gestureTransformMemory.transform = null
-                } else if (isHandlingGesture || motionEvent.actionMasked == MotionEvent.ACTION_DOWN) {
-                    gestureTransformMemory.transform = transform
-                }
+                .minByOrNull { it.second }
+                ?.first
+            if (toDelete != null) onStrokeErased(toDelete.id)
+        }
+
+        fun appendPoint(position: Offset) {
+            val next = transform.viewToNormalizedPage(position.x, position.y)
+            if (currentPoints.size < 2) {
+                currentPoints.add(next.first)
+                currentPoints.add(next.second)
+                return
+            }
+            val lx = currentPoints[currentPoints.size - 2]
+            val ly = currentPoints[currentPoints.size - 1]
+            if (shouldAppendStrokePoint(lx, ly, next.first, next.second)) {
+                currentPoints.add(next.first)
+                currentPoints.add(next.second)
+            }
+        }
+
+        when (action) {
+            is MarkupPointerAction.Start -> {
+                gestureTransformMemory.transform = transform
                 val effectiveTool = if (activeTool == DrawingTool.ERASER || shouldUseTemporaryEraser) {
                     DrawingTool.ERASER
                 } else {
                     activeTool
                 }
-                // A finger marks the page (draw or erase) only with finger drawing on; otherwise
-                // it's refused here so the parent viewer can scroll and zoom with it.
-                val canHandleInput = isStylusTool || allowFingerDrawing
-
-                fun eraseAt(viewX: Float, viewY: Float) {
-                    val toDelete = activeStrokes
-                        .mapNotNull { stroke ->
-                            val d = distanceToViewStroke(
-                                px = viewX,
-                                py = viewY,
-                                points = stroke.points,
-                                transform = transform
-                            )
-                            if (d < ERASER_HIT_RADIUS_PX * eraserRadiusScale) stroke to d else null
-                        }
-                        .minByOrNull { it.second }
-                        ?.first
-                    if (toDelete != null) onStrokeErased(toDelete.id)
-                }
-
-                fun appendPoint(viewX: Float, viewY: Float) {
-                    val next = transform.viewToNormalizedPage(viewX, viewY)
-                    if (currentPoints.size < 2) {
-                        currentPoints.add(next.first)
-                        currentPoints.add(next.second)
-                        return
-                    }
-                    val lx = currentPoints[currentPoints.size - 2]
-                    val ly = currentPoints[currentPoints.size - 1]
-                    if (shouldAppendStrokePoint(lx, ly, next.first, next.second)) {
-                        currentPoints.add(next.first)
-                        currentPoints.add(next.second)
-                    }
-                }
-
-                when (motionEvent.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        if (!canHandleInput) return@pointerInteropFilter false
-                        isHandlingGesture = true
-                        gestureTool = effectiveTool
-                        if (effectiveTool == DrawingTool.ERASER) {
-                            eraseAt(motionEvent.getX(pointerIndex), motionEvent.getY(pointerIndex))
-                            isDrawing = false
-                            currentPoints.clear()
-                        } else {
-                            isDrawing = true
-                            currentPoints.clear()
-                            appendPoint(motionEvent.getX(pointerIndex), motionEvent.getY(pointerIndex))
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        if (!isHandlingGesture) return@pointerInteropFilter false
-                        if (gestureTool == DrawingTool.ERASER) {
-                            for (historyIndex in 0 until motionEvent.historySize) {
-                                eraseAt(
-                                    motionEvent.getHistoricalX(pointerIndex, historyIndex),
-                                    motionEvent.getHistoricalY(pointerIndex, historyIndex)
-                                )
-                            }
-                            eraseAt(motionEvent.getX(pointerIndex), motionEvent.getY(pointerIndex))
-                        } else if (isDrawing) {
-                            for (historyIndex in 0 until motionEvent.historySize) {
-                                appendPoint(
-                                    motionEvent.getHistoricalX(pointerIndex, historyIndex),
-                                    motionEvent.getHistoricalY(pointerIndex, historyIndex)
-                                )
-                            }
-                            appendPoint(motionEvent.getX(pointerIndex), motionEvent.getY(pointerIndex))
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        if (!isHandlingGesture) return@pointerInteropFilter false
-                        if (gestureTool != DrawingTool.ERASER && isDrawing) {
-                            appendPoint(motionEvent.getX(pointerIndex), motionEvent.getY(pointerIndex))
-                            val finalizedPoints = finalizeStrokePoints(
-                                points = currentPoints,
-                                activeThickness = activeThickness,
-                                canvasWidth = transform.pageWidth,
-                                canvasHeight = transform.pageHeight
-                            )
-                            if (finalizedPoints.size >= 4) {
-                                onStrokeAdded(
-                                    PdfInkStroke(
-                                        id = UUID.randomUUID().toString(),
-                                        color = activeColor.toArgb(),
-                                        lineWidth = activeThickness,
-                                        isHighlighter = gestureTool == DrawingTool.HIGHLIGHTER,
-                                        points = finalizedPoints
-                                    )
-                                )
-                            }
-                        }
-                        isHandlingGesture = false
-                        isDrawing = false
-                        currentPoints.clear()
-                        true
-                    }
-                    MotionEvent.ACTION_CANCEL -> {
-                        val handled = isHandlingGesture
-                        isHandlingGesture = false
-                        isDrawing = false
-                        currentPoints.clear()
-                        handled
-                    }
-                    else -> isHandlingGesture
+                gestureTool = effectiveTool
+                currentPoints.clear()
+                if (effectiveTool == DrawingTool.ERASER) {
+                    isDrawing = false
+                    eraseAt(change.position)
+                } else {
+                    isDrawing = true
+                    appendPoint(change.position)
                 }
             }
+            is MarkupPointerAction.Continue -> {
+                gestureTransformMemory.transform = transform
+                if (change.historical.isEmpty() && change.previousPosition == change.position) return
+                if (gestureTool == DrawingTool.ERASER) {
+                    change.historical.forEach { eraseAt(it.position) }
+                    eraseAt(change.position)
+                } else if (isDrawing) {
+                    change.historical.forEach { appendPoint(it.position) }
+                    appendPoint(change.position)
+                }
+            }
+            is MarkupPointerAction.Finish -> {
+                if (gestureTool != DrawingTool.ERASER && isDrawing) {
+                    appendPoint(change.position)
+                    val finalizedPoints = finalizeStrokePoints(
+                        points = currentPoints,
+                        activeThickness = activeThickness,
+                        canvasWidth = transform.pageWidth,
+                        canvasHeight = transform.pageHeight
+                    )
+                    if (finalizedPoints.size >= 4) {
+                        onStrokeAdded(
+                            PdfInkStroke(
+                                id = UUID.randomUUID().toString(),
+                                color = activeColor.toArgb(),
+                                lineWidth = activeThickness,
+                                isHighlighter = gestureTool == DrawingTool.HIGHLIGHTER,
+                                points = finalizedPoints
+                            )
+                        )
+                    }
+                }
+                endGesture()
+            }
+            MarkupPointerAction.None, MarkupPointerAction.Abandon -> Unit
+        }
+    }
+
+    Canvas(
+        modifier = modifier
+            .then(
+                MarkupPointerInputElement(
+                    onEvent = { handlePointerEvent(it) },
+                    // Compose-level cancel (the old ACTION_CANCEL): drop the stroke, never commit.
+                    onCancel = {
+                        onStylusButtonEraserChanged(false)
+                        endGesture()
+                    }
+                )
+            )
     ) {
         val transform = currentTransform() ?: return@Canvas
 
@@ -444,6 +452,41 @@ fun PdfMarkupOverlay(
             )
         }
     }
+}
+
+/**
+ * Raw pointer input for [PdfMarkupOverlay], handled in the Main pass. Shares input with siblings,
+ * like the pointerInteropFilter it replaced: in paged viewers the overlay is a sibling drawn above
+ * the zoomable page, which must keep receiving fingers to scroll and zoom.
+ */
+private class MarkupPointerInputElement(
+    val onEvent: (PointerEvent) -> Unit,
+    val onCancel: () -> Unit
+) : ModifierNodeElement<MarkupPointerInputNode>() {
+    override fun create() = MarkupPointerInputNode(onEvent, onCancel)
+
+    override fun update(node: MarkupPointerInputNode) {
+        node.onEvent = onEvent
+        node.onCancel = onCancel
+    }
+
+    override fun equals(other: Any?): Boolean =
+        other is MarkupPointerInputElement && other.onEvent === onEvent && other.onCancel === onCancel
+
+    override fun hashCode(): Int = 31 * System.identityHashCode(onEvent) + System.identityHashCode(onCancel)
+}
+
+private class MarkupPointerInputNode(
+    var onEvent: (PointerEvent) -> Unit,
+    var onCancel: () -> Unit
+) : Modifier.Node(), PointerInputModifierNode {
+    override fun onPointerEvent(pointerEvent: PointerEvent, pass: PointerEventPass, bounds: IntSize) {
+        if (pass == PointerEventPass.Main) onEvent(pointerEvent)
+    }
+
+    override fun onCancelPointerInput() = onCancel()
+
+    override fun sharePointerInputWithSiblings(): Boolean = true
 }
 
 /**

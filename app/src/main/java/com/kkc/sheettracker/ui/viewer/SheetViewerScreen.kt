@@ -126,6 +126,7 @@ import com.kkc.sheettracker.ui.components.LocalIdlePhase
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarCncDecoration
 import com.kkc.sheettracker.ui.components.PdfViewportState
+import com.kkc.sheettracker.ui.components.isStylusPointerType
 import com.kkc.sheettracker.ui.components.ResizeHandle
 import com.kkc.sheettracker.ui.components.SheetStatusBadge
 import com.kkc.sheettracker.ui.components.SortColumn
@@ -2797,6 +2798,10 @@ private fun MarkupPdfPageView(
                     }
                     do {
                         val event = awaitPointerEvent()
+                        // Pen landing on a resting palm while inking: the stroke belongs to the
+                        // markup overlay. Stop panning so the page doesn't move under it;
+                        // awaitEachGesture then waits for every pointer to lift.
+                        if (inputEnabled && event.changes.any { it.pressed && isStylusPointerType(it.type) }) break
                         val zoomChange = event.calculateZoom()
                         val panChange = event.calculatePan()
                         val centroid = event.calculateCentroid(useCurrent = true)

@@ -1217,13 +1217,11 @@ internal fun ContinuousReferencePdfPane(
                             try {
                                 do {
                                     val event = awaitPointerEvent()
-                                    // A pen landing mid-gesture: if a palm is already down on this
-                                    // page, its overlay refused the palm's ACTION_DOWN and won't see
-                                    // a pen on the same page until every pointer lifts — but a pen
-                                    // landing on a DIFFERENT page's overlay gets its own ACTION_DOWN
-                                    // and draws immediately. Breaking here, before this event's
-                                    // changes are consumed, is what lets that stroke through instead
-                                    // of being cancelled by our own pan/zoom consume() below.
+                                    // A pen landing mid-gesture (usually on a resting palm): the
+                                    // overlay under the pen starts its stroke on this very event,
+                                    // whichever page the palm is on. Breaking here, before this
+                                    // event's changes are consumed, keeps the palm + pen from
+                                    // scrolling or zooming the list under that stroke.
                                     if (currentMarkupEnabled && event.changes.any { it.pressed && isStylusPointerType(it.type) }) {
                                         stylusTookOver = true
                                         break

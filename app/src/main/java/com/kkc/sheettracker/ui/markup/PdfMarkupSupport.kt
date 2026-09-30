@@ -149,6 +149,89 @@ internal fun findRelevantPointerIndex(
     return safeActionIndex
 }
 
+/** Whether a MotionEvent buttonState holds a pen side button, which turns the pen into an eraser. */
+fun isStylusEraserButtonState(buttonState: Int): Boolean =
+    buttonState and (
+        MotionEvent.BUTTON_STYLUS_PRIMARY or
+            MotionEvent.BUTTON_STYLUS_SECONDARY or
+            MotionEvent.BUTTON_SECONDARY
+        ) != 0
+
+/** One pointer of a markup pointer event, reduced to what [MarkupPointerTracker] decides on. */
+internal data class MarkupPointer(
+    val id: Long,
+    val isStylus: Boolean,
+    val pressed: Boolean,
+    val previousPressed: Boolean
+)
+
+internal sealed interface MarkupPointerAction {
+    /** Nothing for the overlay: no eligible pointer, or a pointer it isn't tracking. */
+    data object None : MarkupPointerAction
+    /** Begin a fresh stroke (or eraser pass) with [id], discarding any stroke in progress. */
+    data class Start(val id: Long) : MarkupPointerAction
+    /** The tracked pointer is still down. */
+    data class Continue(val id: Long) : MarkupPointerAction
+    /** The tracked pointer lifted: commit the stroke. */
+    data class Finish(val id: Long) : MarkupPointerAction
+    /** The tracked pointer vanished from the stream without lifting: drop the stroke. */
+    data object Abandon : MarkupPointerAction
+}
+
+/**
+ * Which pointer the markup overlay is drawing with, tracked per pointer id rather than per
+ * MotionEvent stream. Other pointers never gate the stroke: a resting palm (a finger pointer with
+ * finger drawing off) is simply ignored, and a pen landing after it still starts a stroke. A pen
+ * landing while a finger is drawing takes the stroke over, since that finger is most likely the
+ * palm the pen hand rests on.
+ */
+internal class MarkupPointerTracker {
+    var activeId: Long? = null
+        private set
+    private var activeIsStylus = false
+
+    val isTracking: Boolean
+        get() = activeId != null
+
+    fun reset() {
+        activeId = null
+        activeIsStylus = false
+    }
+
+    fun next(pointers: List<MarkupPointer>, allowFingerDrawing: Boolean): MarkupPointerAction {
+        val newDowns = pointers.filter { it.pressed && !it.previousPressed }
+        val trackedId = activeId
+        if (trackedId != null) {
+            if (!activeIsStylus) {
+                val pen = newDowns.firstOrNull { it.isStylus }
+                if (pen != null) return start(pen)
+            }
+            val tracked = pointers.firstOrNull { it.id == trackedId }
+            return when {
+                tracked == null -> {
+                    reset()
+                    MarkupPointerAction.Abandon
+                }
+                tracked.pressed -> MarkupPointerAction.Continue(trackedId)
+                else -> {
+                    reset()
+                    MarkupPointerAction.Finish(trackedId)
+                }
+            }
+        }
+        val candidate = newDowns.firstOrNull { it.isStylus }
+            ?: newDowns.firstOrNull { allowFingerDrawing }
+            ?: return MarkupPointerAction.None
+        return start(candidate)
+    }
+
+    private fun start(pointer: MarkupPointer): MarkupPointerAction {
+        activeId = pointer.id
+        activeIsStylus = pointer.isStylus
+        return MarkupPointerAction.Start(pointer.id)
+    }
+}
+
 data class PdfPageTransform(
     val viewWidth: Float,
     val viewHeight: Float,
