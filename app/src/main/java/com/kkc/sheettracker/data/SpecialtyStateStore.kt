@@ -101,6 +101,25 @@ class SpecialtyStateStore(
         return hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)[key]
     }
 
+    /**
+     * Whether each of [items] is done, by id. Reads the legacy done file and the hardwoods tally
+     * map once for all rips (getSheetRipStoredDoneCount copies the whole map per call). Parses
+     * tracker files on a cache miss, so call it off the main thread.
+     */
+    fun loadSheetRipDoneStates(
+        jobFolderName: String,
+        items: List<AdminBoardStockItem>,
+        target: (AdminBoardStockItem) -> Int
+    ): Map<String, Boolean> {
+        if (items.isEmpty()) return emptyMap()
+        val legacyDone = sheetRipProgressStore.loadDone(jobFolderName)
+        val tallies = hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)
+        return items.associate { item ->
+            val key = hardwoodsProgressStore.makeAdminBoardStockTallyKey(item.material, item.id)
+            item.id to resolveSheetRipTallyState(tallies[key], legacyDone[item.id] == true, target(item)).isComplete
+        }
+    }
+
     suspend fun setSheetRipCompletion(
         jobFolderName: String,
         item: AdminBoardStockItem,

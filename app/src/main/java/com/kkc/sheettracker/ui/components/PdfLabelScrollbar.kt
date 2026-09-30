@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.kkcFrostedBaseColor
+import com.kkc.sheettracker.ui.theme.readableDarkPrimary
 import com.kkc.sheettracker.ui.viewer.NavigatorRowModel
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
@@ -254,16 +255,21 @@ internal fun PdfLabelScrollbar(
     // are a faint primary (track), the progress-fill line is the secondary color and the sliding
     // pill is the primary color; single-color themes keep the neutral rail with a primary
     // fill and pill.
-    val scrollbarPalette = LocalKKCThemeTokens.current.palette(LocalKKCIsDarkTheme.current)
-    val secondaryAccent = scrollbarPalette.secondary
+    // In dark mode the raw palette colors are often deep brand colors (navy primary, black
+    // secondary) that vanish on the dark surface, so use the lifted readable variants there.
+    val scrollbarDark = LocalKKCIsDarkTheme.current
+    val scrollbarPalette = LocalKKCThemeTokens.current.palette(scrollbarDark)
+    val secondaryAccent = scrollbarPalette.secondary?.let {
+        if (scrollbarDark) readableDarkPrimary(it, scrollbarPalette.surface) else it
+    }
     val progressBase = secondaryAccent ?: MaterialTheme.colorScheme.primary
     val pillBase = MaterialTheme.colorScheme.primary
     val railColor = if (secondaryAccent != null) {
-        scrollbarPalette.primary.copy(alpha = 0.28f)
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
     } else {
         MaterialTheme.colorScheme.outlineVariant
     }
-    val tickBaseColor = if (secondaryAccent != null) scrollbarPalette.primary else MaterialTheme.colorScheme.outlineVariant
+    val tickBaseColor = if (secondaryAccent != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
     val progressGradient = Brush.verticalGradient(
         listOf(
             lerp(progressBase, Color.White, 0.35f),

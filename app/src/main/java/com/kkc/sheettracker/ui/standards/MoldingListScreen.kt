@@ -1,5 +1,11 @@
 package com.kkc.sheettracker.ui.standards
 
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.ui.graphics.compositeOver
+import com.kkc.sheettracker.ui.theme.kkcZebraTint
+import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
+import com.kkc.sheettracker.ui.components.KKCPillOption
+import com.kkc.sheettracker.ui.components.KKCSlidingPillRow
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -214,50 +220,16 @@ fun MoldingListScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                            shadowElevation = 2.dp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(42.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                library.categories.forEachIndexed { index, category ->
-                                    if (index > 0) {
-                                        Box(
-                                            modifier = Modifier
-                                                .width(1.dp)
-                                                .fillMaxHeight()
-                                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-                                        )
-                                    }
-                                    val isSelected = category == selectedCategory
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxHeight()
-                                            .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                                            .clickable { selectedCategory = category }
-                                            .padding(horizontal = 12.dp)
-                                    ) {
-                                        Text(
-                                            text = category,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                            color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        KKCSlidingPillRow(
+                            options = library.categories.map { category ->
+                                KKCPillOption(
+                                    label = category,
+                                    isSelected = category == selectedCategory,
+                                    onClick = { selectedCategory = category }
+                                )
+                            },
+                            fillWidth = true
+                        )
                     }
                 }
 
@@ -280,6 +252,7 @@ fun MoldingListScreen(
                         MoldingLibraryScreenLogic.crownFrameGroups(visible).forEach { (group, groupItems) ->
                             item(span = { GridItemSpan(maxLineSpan) }, key = "header-${group.name}") {
                                 FrameStyleSectionHeader(
+                                    modifier = Modifier.animateItem(),
                                     group = group,
                                     count = groupItems.size,
                                     collapsed = group in collapsedFrameGroups,
@@ -292,8 +265,13 @@ fun MoldingListScreen(
                                 )
                             }
                             if (group !in collapsedFrameGroups) {
-                                items(groupItems, key = { it.id }) { item ->
+                                itemsIndexed(groupItems, key = { _, it -> it.id }) { index, item ->
                                     MoldingCard(
+                                        // Cards fade in/out as the section opens/closes and the rest
+                                        // of the grid glides into place.
+                                        modifier = Modifier.animateItem(),
+                                        // Two cards per row, so stripe by row rather than by card.
+                                        zebraIndex = index / 2,
                                         item = item,
                                         repository = repository,
                                         svgImageLoader = svgImageLoader,
@@ -308,8 +286,10 @@ fun MoldingListScreen(
                             }
                         }
                     } else {
-                        items(visible, key = { it.id }) { item ->
+                        itemsIndexed(visible, key = { _, it -> it.id }) { index, item ->
                             MoldingCard(
+                                modifier = Modifier.animateItem(),
+                                zebraIndex = index / 2,
                                 item = item,
                                 repository = repository,
                                 svgImageLoader = svgImageLoader,
@@ -365,6 +345,8 @@ fun MoldingListScreen(
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun MoldingCard(
+    modifier: Modifier = Modifier,
+    zebraIndex: Int = 0,
     item: MoldingLibraryItem,
     repository: MoldingLibraryRepository,
     svgImageLoader: ImageLoader,
@@ -393,10 +375,10 @@ private fun MoldingCard(
 
     Surface(
         shape = cardShape,
-        color = MaterialTheme.colorScheme.surface,
+        color = kkcZebraTint(zebraIndex).compositeOver(MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, borderColor),
         shadowElevation = 2.dp,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
@@ -466,18 +448,26 @@ private fun MoldingCard(
 
 @Composable
 private fun FrameStyleSectionHeader(
+    modifier: Modifier = Modifier,
     group: FrameStyleGroup,
     count: Int,
     collapsed: Boolean,
     onToggle: () -> Unit
 ) {
     val rotation by animateFloatAsState(targetValue = if (collapsed) -90f else 0f, label = "chevron")
+    // Themed like the sliders: two-color themes get a primary-color bar with a secondary-color
+    // count pill; single-color themes keep the neutral bar with a primary-tinted count pill.
+    val pillStyle = rememberKKCPillStyle()
+    val filled = pillStyle.filledContainer
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        color = if (filled) pillStyle.container else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(
+            1.dp,
+            if (filled) pillStyle.containerBorder else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+        ),
         shadowElevation = 2.dp,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clickable { onToggle() }
@@ -496,26 +486,26 @@ private fun FrameStyleSectionHeader(
                 Icon(
                     Icons.Filled.KeyboardArrowDown,
                     contentDescription = if (collapsed) "Expand ${group.label}" else "Collapse ${group.label}",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = if (filled) pillStyle.unselectedText else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.rotate(rotation)
                 )
                 Text(
                     text = group.label,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (filled) pillStyle.unselectedText else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
+                color = pillStyle.fillColor,
                 modifier = Modifier.padding(start = 8.dp)
             ) {
                 Text(
                     text = "$count",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    color = pillStyle.selectedText,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                 )
             }

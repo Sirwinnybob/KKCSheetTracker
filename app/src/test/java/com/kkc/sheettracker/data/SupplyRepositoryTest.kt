@@ -6,6 +6,9 @@ import com.kkc.sheettracker.data.models.SupplyCategory
 import com.kkc.sheettracker.data.models.SupplyComment
 import com.kkc.sheettracker.data.models.SupplyStatusRecord
 import com.kkc.sheettracker.data.models.StoredSupplyItem
+import com.kkc.sheettracker.data.models.SupplyItem
+import com.kkc.sheettracker.data.models.SupplySchemaField
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -302,6 +305,142 @@ class SupplyRepositoryTest {
         val result = SupplyRepository(basePath).updateItemBarcodes("missing-item", listOf("X"))
 
         assertEquals(null, result)
+    }
+
+    private fun liveItem(id: String = "i1", name: String = "Live Screws", statusAt: String = "2026-01-01T00:00:00Z") = SupplyItem(
+        id = id, categoryId = "c1", name = name, status = "IN STOCK", statusBy = "", statusAt = statusAt,
+        notes = null, fields = emptyMap(), customFields = emptyMap(), attachmentIds = emptyList(),
+        barcodes = emptyList(), createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z"
+    )
+
+    private fun liveStoreWith(vararg items: SupplyItem, comments: Map<String, List<SupplyComment>> = emptyMap()): SupplyLiveStateStore =
+        SupplyLiveStateStore().apply {
+            applyLive(
+                SupplyLiveSnapshot(
+                    revision = 1L,
+                    categories = listOf(SupplyCategory("c1", "Live Hardware", 0)),
+                    schema = listOf(SupplySchemaField("f1", "sku", "SKU", "text", true)),
+                    items = items.associateBy { it.id },
+                    comments = comments
+                )
+            )
+        }
+
+    @Test
+    fun readsComeFromLiveStoreWhileConnected() {
+        val basePath = createTempBasePath()   // no .supply files at all
+        val store = liveStoreWith(liveItem(), comments = mapOf("i1" to listOf(SupplyComment("k1", "Sam", "hi", "2026-01-01T00:00:00Z"))))
+        val repository = SupplyRepository(basePath, store)
+
+        assertEquals(listOf("Live Screws"), repository.getItems().map { it.name })
+        assertEquals("Live Screws", repository.getItem("i1")?.name)
+        assertEquals(listOf("hi"), repository.getComments("i1").map { it.text })
+        assertEquals(listOf("Live Hardware"), repository.getCategories().map { it.name })
+        assertEquals(listOf("sku"), repository.getSchema().map { it.key })
+    }
+
+    @Test
+    fun readsFallBackToFilesWhenNotLive() {
+        val basePath = createTempBasePath()
+        val itemsDir = File(basePath, ".supply/items").apply { mkdirs() }
+        val stored = StoredSupplyItem(
+            id = "i1", categoryId = "c1", name = "File Screws", notes = null,
+            createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z"
+        )
+        File(itemsDir, "i1.json").writeText(gson.toJson(stored))
+        val store = liveStoreWith(liveItem())
+        store.setDisconnected()
+
+        val repository = SupplyRepository(basePath, store)
+
+        assertEquals(listOf("File Screws"), repository.getItems().map { it.name })
+    }
+
+    @Test
+    fun ownStatusWriteIsVisibleImmediatelyWhileLive() {
+        val basePath = createTempBasePath()
+        val store = liveStoreWith(liveItem(statusAt = "2026-01-01T00:00:00Z"))
+        val repository = SupplyRepository(basePath, store)
+
+        repository.setStatus("i1", "OUT", "Sam", "tab1")
+
+        assertEquals("OUT", repository.getItem("i1")?.status)
+        assertTrue(File(basePath, ".supply/status/i1.tab1.json").exists())
+    }
+
+    @Test
+    fun ownCommentIsVisibleImmediatelyWhileLive() {
+        val basePath = createTempBasePath()
+        val store = liveStoreWith(liveItem())
+        val repository = SupplyRepository(basePath, store)
+
+        val comment = repository.addComment("i1", "Sam", "restocked", "tab1")
+
+        assertEquals(listOf(comment.id), repository.getComments("i1").map { it.id })
+    }
+
+    @Test
+    fun ownItemEditIsVisibleImmediatelyWhileLive() {
+        val basePath = createTempBasePath()
+        val itemsDir = File(basePath, ".supply/items").apply { mkdirs() }
+        val stored = StoredSupplyItem(
+            id = "i1", categoryId = "c1", name = "Live Screws", notes = null,
+            createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z"
+        )
+        File(itemsDir, "i1.json").writeText(gson.toJson(stored))
+        val store = liveStoreWith(liveItem())
+        val repository = SupplyRepository(basePath, store)
+
+        repository.updateItem("i1", "Wood Screws", "c1", null, emptyMap())
+
+        assertEquals("Wood Screws", repository.getItem("i1")?.name)
+    }
+
+    private fun writeNullFieldsItem(basePath: String) {
+        val itemsDir = File(basePath, ".supply/items").apply { mkdirs() }
+        File(itemsDir, "i1.json").writeText(
+            """{"id":"i1","categoryId":"c1","name":"x","notes":null,"fields":null,"customFields":null,"attachmentIds":null,"barcodes":null}"""
+        )
+    }
+
+    @Test
+    fun itemFileWithNullCollectionsResolvesFromFiles() {
+        val basePath = createTempBasePath()
+        writeNullFieldsItem(basePath)
+
+        val item = SupplyRepository(basePath, SupplyLiveStateStore()).getItem("i1")
+
+        assertNotNull(item)
+        assertTrue(item!!.fields.isEmpty())
+        assertTrue(item.barcodes.isEmpty())
+        assertEquals("", item.updatedAt)
+    }
+
+    @Test
+    fun ownWriteToItemWithNullCollectionsResolvesThroughLiveOverlay() {
+        val basePath = createTempBasePath()
+        writeNullFieldsItem(basePath)
+        val store = liveStoreWith(liveItem())
+        val repository = SupplyRepository(basePath, store)
+
+        repository.updateItemBarcodes("i1", listOf("B1"))
+
+        assertEquals(listOf("B1"), repository.getItem("i1")?.barcodes)
+    }
+
+    @Test
+    fun ownDeleteHidesItemWhileLive() {
+        val basePath = createTempBasePath()
+        val itemsDir = File(basePath, ".supply/items").apply { mkdirs() }
+        File(itemsDir, "i1.json").writeText(
+            gson.toJson(StoredSupplyItem(id = "i1", categoryId = "c1", name = "x", notes = null))
+        )
+        val store = liveStoreWith(liveItem())
+        val repository = SupplyRepository(basePath, store)
+
+        repository.deleteItem("i1")
+
+        assertNull(repository.getItem("i1"))
     }
 
     private fun createTempBasePath(): String {

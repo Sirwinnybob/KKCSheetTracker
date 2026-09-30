@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 
@@ -58,4 +59,21 @@ fun kkcFrostedBaseColor(): Color {
     } else {
         MaterialTheme.colorScheme.surface
     }
+}
+
+/**
+ * Legible content color for text/icons sitting on a frosted surface tinted by [kkcFrostedBaseColor].
+ * Outside bold mode the surface is the neutral `colorScheme.surface`, so `onSurface` is correct.
+ * In bold mode the glass is tinted with the theme glow (often a mid-luminance brand color) and
+ * `onSurface`/`onSurfaceVariant`/`primary` can all land near the tint, so pick black or white
+ * from the glow composited over the app background at the frosted alpha — what the eye actually sees.
+ */
+@Composable
+fun kkcFrostedContentColor(): Color {
+    val tokens = LocalKKCThemeTokens.current
+    if (!tokens.boldMode) return MaterialTheme.colorScheme.onSurface
+    val alpha = tokens.frosted.backgroundAlpha.coerceIn(0.5f, 0.95f)
+    val effective = kkcFrostedBaseColor().copy(alpha = alpha).compositeOver(MaterialTheme.colorScheme.background)
+    // 0.179 is where black and white give equal WCAG contrast; above it black wins.
+    return if (effective.luminance() > 0.179f) Color.Black else Color.White
 }

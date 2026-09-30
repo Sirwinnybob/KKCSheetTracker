@@ -151,7 +151,10 @@ class SpecialtyScanCoordinatorTest {
         tracker.setLastModified(tracker.lastModified() + 2_000L)
 
         coordinator.refresh(RefreshReason.WATCHER_CHANGE, force = false)
-        waitUntilReady { coordinator.state.value.status }
+        // refresh() runs on a background coroutine and the status is still READY from the first
+        // scan, so waiting for READY can return before this scan has read the changed sidecar
+        // (it did under a loaded full test run). Wait for the count itself instead.
+        waitUntil { coordinator.state.value.snapshot.jobs.singleOrNull()?.completedItems == 1 }
 
         assertEquals(1, coordinator.state.value.snapshot.jobs.single().completedItems)
     }

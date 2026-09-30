@@ -73,7 +73,7 @@ class ArchiveSession private constructor(
          * baseDir must be that parent directory for both to work correctly.
           * @param folderName the restored job folder's exact name under [cacheJobParentDir] (e.g.
           * `ArchiveCacheResult.Success.jobDir.name`, or the `folderName` already threaded through
-          * the Task 7 nav route `archive/job/{archiveJobId}/{folderName}/{contentVersion}`). Must
+          * the nav route `archive/job/{archiveJobId}/{folderName}/{contentVersion}/{workMode}`). Must
           * be passed explicitly rather than re-derived by listing [cacheJobParentDir]'s children.
           * Directory listing order is not guaranteed, and unrelated cache children must never be
           * mistaken for the restored job folder and silently point every store at empty content.

@@ -221,6 +221,72 @@ class ManageCodeOrchestratorTest {
         assertEquals(null, buildExternalDeleteAction("100 - Alpha", "19mm", snapshot, "manual.mix"))
     }
 
+    @Test
+    fun `edits only on a material with an active mix needs no mix target`() {
+        val selections = mapOf("R1.pgm" to ManageCodeRowSelection(secondPass = true))
+        val result = planMaterialSubmission(
+            rows = rows, selections = selections, locked = emptySet(),
+            catalog = catalog(listOf(active("19mmMix", "R1.pgm"))), materialName = "19mm",
+            selectedTarget = null, automaticTarget = null,
+        )
+        val ready = result as MaterialSubmission.Ready
+        assertEquals(null, ready.plan)
+        assertEquals(emptyList<String>(), ready.change.programs)
+        assertEquals(listOf("R1.pgm"), ready.change.editRows.map { it.name })
+
+        val actions = buildManageCodeActions("100 - Alpha", "19mm", ready.plan, ready.change, "req")
+        assertEquals(listOf(ManageCodeOperationAction.PGM_EDITS), actions.map { it.kind })
+    }
+
+    @Test
+    fun `mix plus second pass on a fresh material queues create then edits`() {
+        val selections = mapOf(
+            "R1.pgm" to ManageCodeRowSelection(mix = true, secondPass = true),
+            "R2Z.pgm" to ManageCodeRowSelection(mix = true),
+            "R3.pgm" to ManageCodeRowSelection(mix = true),
+        )
+        val result = planMaterialSubmission(
+            rows = rows, selections = selections, locked = emptySet(),
+            catalog = catalog(emptyList()), materialName = "19mm",
+            selectedTarget = null, automaticTarget = MixGenerationTarget.FirstDefault,
+        ) as MaterialSubmission.Ready
+
+        val actions = buildManageCodeActions("100 - Alpha", "19mm", result.plan, result.change, "req")
+        assertEquals(
+            listOf(ManageCodeOperationAction.CATALOG_CREATE, ManageCodeOperationAction.PGM_EDITS),
+            actions.map { it.kind },
+        )
+    }
+
+    @Test
+    fun `mix checked on existing-mix material without a chosen target needs a target`() {
+        val selections = mapOf("R1.pgm" to ManageCodeRowSelection(mix = true))
+        val result = planMaterialSubmission(
+            rows = rows, selections = selections, locked = emptySet(),
+            catalog = catalog(listOf(active("19mmMix", "R1.pgm"))), materialName = "19mm",
+            selectedTarget = null, automaticTarget = null,
+        )
+        assertEquals(MaterialSubmission.NeedsTarget, result)
+    }
+
+    @Test
+    fun `stale chosen target reports stale`() {
+        val selections = mapOf("R1.pgm" to ManageCodeRowSelection(mix = true))
+        val result = planMaterialSubmission(
+            rows = rows, selections = selections, locked = emptySet(),
+            catalog = catalog(listOf(active("19mmMix", "R1.pgm"))), materialName = "19mm",
+            selectedTarget = MixGenerationTarget.ReplaceActive("19mmMix", expectedRevision = 6L, programsBaseline = listOf("R1.pgm")),
+            automaticTarget = null,
+        )
+        assertEquals(MaterialSubmission.StaleTarget, result)
+    }
+
+    @Test
+    fun `nextAdditionalMixName skips taken names`() {
+        val taken = catalog(listOf(active("19mmMix"), active("19mmMix 2")))
+        assertEquals("19mmMix 3", nextAdditionalMixName("19mm", taken))
+    }
+
     private fun catalog(entries: List<MixCatalogEntry>) = MixCatalogSnapshot(
         job = "100 - Alpha",
         material = "19mm",

@@ -7,6 +7,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -637,6 +638,20 @@ class ArchiveCacheManagerTest {
         manager.pruneExpiredEntries(nowMs = System.currentTimeMillis() + 25L * 60 * 60 * 1000)
 
         assertNull(manager.getCachedEntry("100 - Alpha"))
+    }
+
+    @Test
+    fun `clearAll removes a freshly cached entry regardless of age`() = runBlocking {
+        val zipBytes = buildTestZip(mapOf("cover.pdf" to "pdf-bytes".toByteArray()))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(zipBytes)).setResponseCode(200))
+        val cacheRoot = Files.createTempDirectory("archive-cache-test").toFile()
+        val manager = ArchiveCacheManager(cacheRoot, server.url("/").toString())
+        manager.downloadAndExtract(archiveJobId = "100 - Alpha", folderName = "100 - Alpha", contentVersion = "v1")
+
+        manager.clearAll()
+
+        assertNull(manager.getCachedEntry("100 - Alpha"))
+        assertFalse(File(cacheRoot, "100 - Alpha").exists())
     }
 
     @Test

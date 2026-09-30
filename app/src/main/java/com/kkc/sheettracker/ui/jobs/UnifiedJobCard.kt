@@ -1,17 +1,17 @@
 package com.kkc.sheettracker.ui.jobs
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,8 +47,8 @@ import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.hardwoods.toStatusCounts
-import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
+import com.kkc.sheettracker.ui.components.kkcCardDepth
 
 @Composable
 fun UnifiedJobCard(
@@ -59,9 +58,17 @@ fun UnifiedJobCard(
     sortByName: Boolean = false,
     onTogglePin: () -> Unit = {},
     onEditLabels: () -> Unit = {},
-    dragModifier: Modifier = Modifier
+    dragModifier: Modifier = Modifier,
+    // Grid view: job number, status chips and pin share the top line, the name gets its own
+    // line (no marquee: it redrew the whole screen every vsync while idle), and every
+    // variable-height section reserves space so all cards in a mode match height.
+    gridLayout: Boolean = false,
+    reservedStationRows: Int = 0,
+    /** Deeper light-mode card depth (see kkcCardDepth); grid-view cards, including pinned ones. */
+    lifted: Boolean = gridLayout,
+    /** False when a container draws the depth instead (the pin flight's cross-faded copies). */
+    showDepth: Boolean = true
 ) {
-    val lowEnd = LocalLowEndMode.current
     val statusColors = KKCThemeColors.statusColors
 
     // For CNC/Hardwoods: used for segmented progress bar inside ProgressCard.
@@ -128,13 +135,73 @@ fun UnifiedJobCard(
             model.progressStyle is ProgressStyle.Specialty
     val segmentedCounts = if (hidePrimary) null else statusCounts
 
+    val statusChips: @Composable RowScope.() -> Unit = {
+        model.labels.forEach { label ->
+            StatusChip(
+                text = label.name,
+                backgroundColor = parseJobLabelColor(label.colorHex),
+                contentColor = Color.White
+            )
+        }
+
+        if (sortByName) {
+            val pos = model.lineupPosition
+            if (pos != null) {
+                StatusChip(
+                    text = "#$pos",
+                    backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+
+        if (model.badges.contains(JobBadge.HIDDEN_IN_PRODUCTION)) {
+            StatusChip(
+                text = "Hidden in Production",
+                backgroundColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
+
+        // Count chips only for CNC and Hardwoods — Assembly/Specialty use inline bars
+        if (statusCounts != null && (model.progressStyle is ProgressStyle.Cnc || model.progressStyle is ProgressStyle.Hardwoods)) {
+            CountStatusChip(
+                label = "Done",
+                count = statusCounts.complete,
+                color = statusColors.completeBorder,
+                forceFilled = statusCounts.total > 0 && statusCounts.complete >= statusCounts.total
+            )
+            if (statusCounts.bad > 0) {
+                CountStatusChip("Bad", statusCounts.bad, statusColors.bad)
+            }
+            if (statusCounts.skipped > 0) {
+                CountStatusChip("Skip", statusCounts.skipped, statusColors.skipBorder)
+            }
+            if (model.progressStyle is ProgressStyle.Cnc && statusCounts.reNested > 0) {
+                CountStatusChip("Renested", statusCounts.reNested, statusColors.completeBg)
+            }
+        }
+    }
+
+    val cardControls: @Composable RowScope.() -> Unit = {
+        PinButton(isPinned = model.isPinned, onClick = onTogglePin)
+
+        if (adminMode) {
+            IconButton(onClick = onEditLabels) {
+                Icon(Icons.Filled.Sell, contentDescription = "Edit Labels")
+            }
+            IconButton(modifier = dragModifier, onClick = {}) {
+                Icon(Icons.Filled.DragHandle, contentDescription = "Reorder")
+            }
+        }
+    }
+
     ProgressCard(
         modifier = modifier
-            .shadow(if (lowEnd.shadowsDisabled) 0.dp else 4.dp, RoundedCornerShape(12.dp), clip = false)
-            .clip(RoundedCornerShape(12.dp))
+            // Same corner shape as the ProgressCard inside, so the depth's edge follows the card.
             .then(
-                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                else Modifier
+                if (showDepth) Modifier.kkcCardDepth(MaterialTheme.shapes.medium, lifted = lifted)
+                else Modifier.clip(MaterialTheme.shapes.medium)
             )
             .background(MaterialTheme.colorScheme.surface),
         title = model.folderName,
@@ -150,89 +217,65 @@ fun UnifiedJobCard(
         materialSegments = materialSegments,
         showExpandToggle = false,
         titleContent = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
+            val jobNumberStyle = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            if (gridLayout) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(text = model.jobNumber, style = jobNumberStyle, maxLines = 1)
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        statusChips()
+                    }
+                    cardControls()
+                }
+                // Always one line, even when blank, so every card in a mode keeps the same height.
                 Text(
-                    text = model.jobNumber,
+                    text = model.jobName,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
                     ),
-                    maxLines = 1
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    minLines = 1,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                if (model.jobName.isNotBlank()) {
-                    Text(
-                        text = "– ${model.jobName}",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(text = model.jobNumber, style = jobNumberStyle, maxLines = 1)
+                    if (model.jobName.isNotBlank()) {
+                        Text(
+                            text = "– ${model.jobName}",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         },
-        headerActions = {
-            model.labels.forEach { label ->
-                StatusChip(
-                    text = label.name,
-                    backgroundColor = parseJobLabelColor(label.colorHex),
-                    contentColor = Color.White
-                )
-            }
-
-            if (sortByName) {
-                val pos = model.lineupPosition
-                if (pos != null) {
-                    StatusChip(
-                        text = "#$pos",
-                        backgroundColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-
-            if (model.badges.contains(JobBadge.HIDDEN_IN_PRODUCTION)) {
-                StatusChip(
-                    text = "Hidden in Production",
-                    backgroundColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                )
-            }
-
-            // Count chips only for CNC and Hardwoods — Assembly/Specialty use inline bars
-            if (statusCounts != null && (model.progressStyle is ProgressStyle.Cnc || model.progressStyle is ProgressStyle.Hardwoods)) {
-                CountStatusChip(
-                    label = "Done",
-                    count = statusCounts.complete,
-                    color = statusColors.completeBorder,
-                    forceFilled = statusCounts.total > 0 && statusCounts.complete >= statusCounts.total
-                )
-                if (statusCounts.bad > 0) {
-                    CountStatusChip("Bad", statusCounts.bad, statusColors.bad)
-                }
-                if (statusCounts.skipped > 0) {
-                    CountStatusChip("Skip", statusCounts.skipped, statusColors.skipBorder)
-                }
-                if (model.progressStyle is ProgressStyle.Cnc && statusCounts.reNested > 0) {
-                    CountStatusChip("Renested", statusCounts.reNested, statusColors.completeBg)
-                }
-            }
-
-            PinButton(isPinned = model.isPinned, onClick = onTogglePin)
-
-            if (adminMode) {
-                IconButton(onClick = onEditLabels) {
-                    Icon(Icons.Filled.Sell, contentDescription = "Edit Labels")
-                }
-                IconButton(modifier = dragModifier, onClick = {}) {
-                    Icon(Icons.Filled.DragHandle, contentDescription = "Reorder")
-                }
+        headerActions = if (gridLayout) null else {
+            {
+                statusChips()
+                cardControls()
             }
         },
         inlineContent = {
@@ -256,16 +299,24 @@ fun UnifiedJobCard(
             if (model.progressStyle is ProgressStyle.Specialty) {
                 val p = model.progressStyle
                 Spacer(Modifier.height(4.dp))
-                when {
-                    p.stationProgress.isNotEmpty() -> StationProgressBars(p.stationProgress)
-                    p.totalItems > 0 -> {
-                        val frac = p.fraction.coerceIn(0f, 1f)
-                        LinearProgressIndicator(
-                            progress = { frac },
-                            modifier = Modifier.fillMaxWidth().height(8.dp),
-                            color = Color(0xFF7C3AED),
-                            trackColor = Color(0xFF7C3AED).copy(alpha = 0.20f)
-                        )
+                Box {
+                    // Invisible placeholder rows keep grid cards as tall as the job with the most stations.
+                    if (gridLayout && reservedStationRows > 0) {
+                        Box(Modifier.alpha(0f)) {
+                            StationProgressBars(List(reservedStationRows) { StationProgress(station = "SAW", completed = 0, total = 0) })
+                        }
+                    }
+                    when {
+                        p.stationProgress.isNotEmpty() -> StationProgressBars(p.stationProgress)
+                        p.totalItems > 0 -> {
+                            val frac = p.fraction.coerceIn(0f, 1f)
+                            LinearProgressIndicator(
+                                progress = { frac },
+                                modifier = Modifier.fillMaxWidth().height(8.dp),
+                                color = Color(0xFF7C3AED),
+                                trackColor = Color(0xFF7C3AED).copy(alpha = 0.20f)
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -290,13 +341,6 @@ fun UnifiedJobCard(
                             selected = false,
                             onClick = { model.onViewCoverSheetClick?.invoke() },
                             label = { Text("Delivery") }
-                        )
-                    }
-                    if (model.onView3DClick != null || model.badges.contains(JobBadge.HAS_3D_ASSETS)) {
-                        FilterChip(
-                            selected = false,
-                            onClick = { model.onView3DClick?.invoke() },
-                            label = { Text("3D") }
                         )
                     }
                 }
@@ -460,7 +504,7 @@ private fun stationDisplayName(station: String): String = when (station.uppercas
     else -> station
 }
 
-private fun stationBarColor(station: String): Color = when (station.uppercase()) {
+internal fun stationBarColor(station: String): Color = when (station.uppercase()) {
     "SAW" -> Color(0xFFD97706)
     "ASSEMBLY", "ASSM" -> Color(0xFF2563EB)
     "HARDWOODS", "HW" -> Color(0xFF16A34A)

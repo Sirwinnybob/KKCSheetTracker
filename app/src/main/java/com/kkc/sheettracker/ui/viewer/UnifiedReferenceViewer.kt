@@ -7,6 +7,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.kkc.sheettracker.logging.AppLog
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,9 +24,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.compositeOver
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -862,7 +865,10 @@ fun UnifiedReferenceViewer(
                         continuousEdgeOverscrollFraction = fraction.takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f
                     }
                 )
-                if (showHeaderRow || showNavigationButtons) {
+                // Screens that don't host their own pencil rely on this one; paged mode draws it
+                // inside ReferencePdfPane, so continuous mode needs it here to be able to ink.
+                val showContinuousMarkupToggle = onToggleMarkupEnabled != null && showMarkupToggleButton
+                if (showHeaderRow || showNavigationButtons || showContinuousMarkupToggle) {
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
@@ -885,6 +891,21 @@ fun UnifiedReferenceViewer(
                                 enabled = effectiveTotalPages > 0
                             ) {
                                 Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list")
+                            }
+                        }
+                        if (showContinuousMarkupToggle && onToggleMarkupEnabled != null) {
+                            IconButton(
+                                onClick = onToggleMarkupEnabled,
+                                modifier = Modifier.background(
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                                    shape = CircleShape
+                                )
+                            ) {
+                                Icon(
+                                    Icons.Default.Create,
+                                    contentDescription = if (markupEnabled) "Disable drawing" else "Enable drawing",
+                                    tint = if (markupEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }

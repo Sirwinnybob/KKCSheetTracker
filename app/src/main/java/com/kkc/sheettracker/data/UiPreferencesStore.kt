@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.kkc.sheettracker.data.models.SupplyCategory
 
 /**
  * Persists lightweight UI preferences (e.g. board vs list view per screen)
@@ -17,6 +18,36 @@ class UiPreferencesStore(context: Context) {
 
     fun setBoardView(screen: String, value: Boolean) =
         prefs.edit().putBoolean("board_view_$screen", value).apply()
+
+    /** When board view is on, show delivery-sheet thumbnails instead of job cards. */
+    fun getBoardThumbnails(screen: String): Boolean =
+        prefs.getBoolean("board_thumbnails_$screen", false)
+
+    fun setBoardThumbnails(screen: String, value: Boolean) =
+        prefs.edit().putBoolean("board_thumbnails_$screen", value).apply()
+
+    /**
+     * Experimental kanban layout for specialty job screens. One choice for every job on this
+     * tablet (not per job); may move to Settings if the layout is kept.
+     */
+    fun getSpecialtyKanbanLayout(): Boolean =
+        prefs.getBoolean("specialty_kanban_layout", false)
+
+    fun setSpecialtyKanbanLayout(enabled: Boolean) =
+        prefs.edit().putBoolean("specialty_kanban_layout", enabled).apply()
+
+    /**
+     * Calls [onChange] with the new value whenever the specialty kanban layout setting changes, so
+     * every open specialty screen (e.g. one kept on another tab's back stack) follows a toggle.
+     * Returns the function that stops observing.
+     */
+    fun observeSpecialtyKanbanLayout(onChange: (Boolean) -> Unit): () -> Unit {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { changed, key ->
+            if (key == "specialty_kanban_layout") onChange(changed.getBoolean(key, false))
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     /**
      * Admin mode is a simple, non-security hide/show gate unlocked by a plain-text
@@ -37,6 +68,38 @@ class UiPreferencesStore(context: Context) {
 
     fun setSupplyTabOrder(order: List<String>) {
         prefs.edit().putString("supply_tab_order", order.joinToString(",")).apply()
+    }
+
+    /**
+     * Last-known supply categories. They rarely change, so the Supply screen paints its full tab
+     * bar from this on open and refreshes it after the real load; items then stream in.
+     */
+    fun getSupplyCategoriesCache(): List<SupplyCategory> {
+        val raw = prefs.getString("supply_categories_cache", null) ?: return emptyList()
+        return runCatching {
+            val array = org.json.JSONArray(raw)
+            List(array.length()) { index ->
+                val obj = array.getJSONObject(index)
+                SupplyCategory(
+                    id = obj.getString("id"),
+                    name = obj.getString("name"),
+                    position = obj.optInt("position", index)
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun setSupplyCategoriesCache(categories: List<SupplyCategory>) {
+        val array = org.json.JSONArray()
+        categories.forEach { category ->
+            array.put(
+                org.json.JSONObject()
+                    .put("id", category.id)
+                    .put("name", category.name)
+                    .put("position", category.position)
+            )
+        }
+        prefs.edit().putString("supply_categories_cache", array.toString()).apply()
     }
 
     fun isSafetySubscriber(): Boolean =

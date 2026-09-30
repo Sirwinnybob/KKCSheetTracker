@@ -139,7 +139,9 @@ internal object MixCatalogJson {
     fun JsonObject.longValue(name: String): Long? {
         val value = get(name) ?: return null
         if (!value.isJsonPrimitive || !value.asJsonPrimitive.isNumber) return null
-        return value.asString.toLongOrNull()?.takeIf { it > 0L }
+        // Operation results arrive as Any? and Gson decodes every number as Double, so an
+        // integral revision re-serializes as "2.933316141E9". Accept it only if it is exact.
+        return runCatching { value.asBigDecimal.longValueExact() }.getOrNull()?.takeIf { it > 0L }
     }
 
     private fun JsonObject.objectValue(name: String): JsonObject? =

@@ -6,78 +6,74 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class HardwoodsWorkspaceDoorPanelsFilterTest {
-    @Test
-    fun enabledDoorPanelsFilter_withUnitTypeMetadata_filtersToSheetRows() {
-        val rows = listOf(
-            HardwoodCutlistRow(rowId = "ROW-1", material = "Maple"),
-            HardwoodCutlistRow(rowId = "ROW-2", material = "Birch")
-        )
-        val rawJson = """
+    private val rows = listOf(
+        HardwoodCutlistRow(rowId = "ROW-1", material = "Maple"),
+        HardwoodCutlistRow(rowId = "ROW-2", material = "Birch")
+    )
+
+    private val sheetMetadataJson = """
+        {
+          "documents": [
             {
-              "documents": [
-                {
-                  "docType": "DOOR_CUT_LIST",
-                  "rows": [
-                    {"rowId":"row-1","unitType":"SHEETS"},
-                    {"rowId":"row-2","unitType":"FRAME"}
-                  ]
-                }
+              "docType": "DOOR_CUT_LIST",
+              "rows": [
+                {"rowId":"row-1","unitType":"SHEETS"},
+                {"rowId":"row-2","unitType":"FRAME"}
               ]
             }
-        """.trimIndent()
+          ]
+        }
+    """.trimIndent()
 
-        val filtered = applyDoorPanelsSheetFilter(
+    @Test
+    fun plywoodFilter_withUnitTypeMetadata_filtersToSheetRows() {
+        val filtered = applyDoorCutMaterialFilter(
             rows = rows,
             selectedDocType = HardwoodDocType.DOOR_CUT_LIST,
-            enabled = true,
-            rawCutlistIndexJson = rawJson
+            filter = DoorCutMaterialFilter.Plywood,
+            rawCutlistIndexJson = sheetMetadataJson
         )
 
         assertEquals(listOf("ROW-1"), filtered.map { it.rowId })
     }
 
     @Test
-    fun enabledDoorPanelsFilter_withoutUnitTypeMetadata_fallsBackToAllRows() {
-        val rows = listOf(
-            HardwoodCutlistRow(rowId = "ROW-1", material = "Maple"),
-            HardwoodCutlistRow(rowId = "ROW-2", material = "Birch")
-        )
-        val rawJson = """{"documents":[{"docType":"DOOR_CUT_LIST"}]}"""
-
-        val filtered = applyDoorPanelsSheetFilter(
+    fun hardwoodFilter_withUnitTypeMetadata_excludesSheetRows() {
+        val filtered = applyDoorCutMaterialFilter(
             rows = rows,
             selectedDocType = HardwoodDocType.DOOR_CUT_LIST,
-            enabled = true,
-            rawCutlistIndexJson = rawJson
+            filter = DoorCutMaterialFilter.Hardwood,
+            rawCutlistIndexJson = sheetMetadataJson
         )
 
-        assertEquals(rows, filtered)
+        assertEquals(listOf("ROW-2"), filtered.map { it.rowId })
     }
 
     @Test
-    fun disabledDoorPanelsFilter_returnsOriginalRows() {
-        val rows = listOf(
-            HardwoodCutlistRow(rowId = "ROW-1", material = "Maple"),
-            HardwoodCutlistRow(rowId = "ROW-2", material = "Birch")
-        )
-        val rawJson = """
-            {
-              "documents": [
-                {
-                  "docType": "DOOR_CUT_LIST",
-                  "rows": [{"rowId":"row-1","unitType":"SHEETS"}]
-                }
-              ]
-            }
-        """.trimIndent()
+    fun eitherFilter_withoutUnitTypeMetadata_fallsBackToAllRows() {
+        val rawJson = """{"documents":[{"docType":"DOOR_CUT_LIST"}]}"""
 
-        val filtered = applyDoorPanelsSheetFilter(
-            rows = rows,
-            selectedDocType = HardwoodDocType.DOOR_CUT_LIST,
-            enabled = false,
-            rawCutlistIndexJson = rawJson
-        )
+        DoorCutMaterialFilter.entries.forEach { filter ->
+            val filtered = applyDoorCutMaterialFilter(
+                rows = rows,
+                selectedDocType = HardwoodDocType.DOOR_CUT_LIST,
+                filter = filter,
+                rawCutlistIndexJson = rawJson
+            )
+            assertEquals(rows, filtered)
+        }
+    }
 
-        assertEquals(rows, filtered)
+    @Test
+    fun otherDocTypes_ignoreFilter() {
+        DoorCutMaterialFilter.entries.forEach { filter ->
+            val filtered = applyDoorCutMaterialFilter(
+                rows = rows,
+                selectedDocType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+                filter = filter,
+                rawCutlistIndexJson = sheetMetadataJson
+            )
+            assertEquals(rows, filtered)
+        }
     }
 }

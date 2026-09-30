@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.detail
 
+import androidx.compose.material.icons.filled.Build
 import com.kkc.sheettracker.ui.components.KKCPillAction
 import com.kkc.sheettracker.ui.components.KKCPillActionRow
 import android.util.Log
@@ -600,6 +601,7 @@ fun JobDetailScreen(
                             }))
                         }
                         add(KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print))
+                        add(KKCPillAction("Manage code", { onOpenManageCode() }, Icons.Default.Build))
                     }
                     KKCPillActionRow(actions = referenceActions)
                 }
@@ -623,74 +625,12 @@ fun JobDetailScreen(
                         ).isNotEmpty()
                     }
                     if (hasSpecialty) {
-                        var specialtyHeightPx by remember { mutableIntStateOf(0) }
-                        val density = LocalDensity.current
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(com.kkc.sheettracker.ui.theme.KKCSpacing.s),
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            CompactSpecialtySection(
-                                jobFolderName = jobFolderName,
-                                specialtyStateStore = specialtyStateStore,
-                                mode = SpecialtySurfaceMode.CNC,
-                                modifier = Modifier
-                                    .weight(0.75f)
-                                    .onSizeChanged { specialtyHeightPx = it.height }
-                            )
-                            Surface(
-                                onClick = { onOpenManageCode() },
-                                modifier = Modifier
-                                    .weight(0.25f)
-                                    .then(
-                                        if (specialtyHeightPx > 0) {
-                                            Modifier.height(with(density) { specialtyHeightPx.toDp() })
-                                        } else {
-                                            Modifier
-                                        }
-                                    ),
-                                shape = MaterialTheme.shapes.large,
-                                tonalElevation = 3.dp,
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = com.kkc.sheettracker.ui.theme.KKCSpacing.s),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "Manage code",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        Surface(
-                            onClick = { onOpenManageCode() },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.large,
-                            tonalElevation = 3.dp,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = com.kkc.sheettracker.ui.theme.KKCSpacing.cardPaddingSmall, vertical = com.kkc.sheettracker.ui.theme.KKCSpacing.xl),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "Manage code",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
+                        CompactSpecialtySection(
+                            jobFolderName = jobFolderName,
+                            specialtyStateStore = specialtyStateStore,
+                            mode = SpecialtySurfaceMode.CNC,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
 

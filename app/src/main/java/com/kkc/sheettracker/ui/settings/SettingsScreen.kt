@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.kkc.sheettracker.ui.components.kkcCardDepth
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -60,6 +61,8 @@ fun SettingsScreen(
     onWorkModeChanged: (WorkMode) -> Unit,
     onFlexibleModeChanged: (Boolean) -> Unit,
     onReinstallLatest: () -> Unit,
+    /** Re-scans for app updates; run each time Settings opens. */
+    onCheckForUpdates: () -> Unit = {},
     onTabletIdChanged: (String) -> Unit,
     onBasePathChanged: (String) -> Unit,
     syncthingApiKey: String,
@@ -99,7 +102,11 @@ fun SettingsScreen(
     var employeeNameDirty by remember { mutableStateOf(false) }
     var employeeNameSaved by remember { mutableStateOf(false) }
     var employeeDropdownExpanded by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { EmployeeDirectory.refresh(File(basePath)) }
+    // Checks that run each time Settings opens.
+    LaunchedEffect(Unit) {
+        EmployeeDirectory.refresh(File(basePath))
+        onCheckForUpdates()
+    }
     val employeeRecords by EmployeeDirectory.recordsFlow.collectAsState()
     val allEmployees = remember(employeeRecords) {
         employeeRecords.map { Triple(it.pin, it.name, it.displayName) }
@@ -1117,12 +1124,7 @@ private fun SettingsCard(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(if (lowEnd.shadowsDisabled) 0.dp else 2.dp, RoundedCornerShape(12.dp), clip = false)
-            .clip(RoundedCornerShape(12.dp))
-            .then(
-                if (lowEnd.shadowsDisabled) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                else Modifier
-            ),
+            .kkcCardDepth(RoundedCornerShape(12.dp), elevation = 2.dp),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp

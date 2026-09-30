@@ -390,7 +390,7 @@ private fun DeliveryScheduleGrid(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .let { if (needsScroll) it.horizontalScroll(rememberScrollStateCompat()) else it },
+                .let { if (needsScroll) it.scrollShadowBleed().horizontalScroll(rememberScrollStateCompat()).padding(horizontal = ScrollShadowBleed) else it },
             horizontalArrangement = Arrangement.spacedBy(KKCSpacing.l)
         ) {
             DELIVERY_DAYS.forEachIndexed { dayIdx, day ->

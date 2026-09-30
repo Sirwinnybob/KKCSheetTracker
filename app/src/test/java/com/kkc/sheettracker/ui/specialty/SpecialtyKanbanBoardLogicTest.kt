@@ -1,0 +1,169 @@
+package com.kkc.sheettracker.ui.specialty
+
+import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_OTHER
+import com.kkc.sheettracker.data.SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS
+import com.kkc.sheettracker.data.SpecialtyProgressStore
+import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.data.models.SpecialtyCompletionState
+import com.kkc.sheettracker.data.models.SpecialtyItem
+import com.kkc.sheettracker.data.models.SpecialtyItemCategory
+import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
+import com.kkc.sheettracker.data.models.SpecialtyStation
+import com.kkc.sheettracker.ui.theme.contrastRatio
+import androidx.compose.ui.graphics.Color
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class SpecialtyKanbanBoardLogicTest {
+
+    private fun resolved(
+        id: String,
+        stations: List<SpecialtyStation>,
+        done: Map<String, Boolean> = emptyMap(),
+        category: SpecialtyItemCategory = SpecialtyItemCategory.CUSTOM,
+        material: String? = null,
+        orderDate: String? = null
+    ) = SpecialtyResolvedItem(
+        item = SpecialtyItem(
+            id = id, name = id, category = category, stations = stations,
+            material = material, orderDate = orderDate
+        ),
+        completionByKey = done.mapValues { SpecialtyCompletionState(completed = it.value) }
+    )
+
+    @Test
+    fun columns_sheetRipsFirst_stationsInOrder_otherLast() {
+        val saw = resolved("a", listOf(SpecialtyStation.SAW))
+        val asm = resolved("b", listOf(SpecialtyStation.ASSEMBLY))
+        val none = resolved("c", emptyList())
+        val order = listOf(SpecialtyStation.ASSEMBLY, SpecialtyStation.SAW)
+        val sections = buildSpecialtyDetailSections(listOf(saw, asm, none), order)
+
+        val columns = buildSpecialtyKanbanColumns(sections, hasSheetRips = true)
+
+        assertEquals(
+            listOf(SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS, "ASSEMBLY", "SAW", SPECIALTY_VIEWER_SECTION_ID_OTHER),
+            columns.map { it.id }
+        )
+        assertEquals(listOf("Sheet Rips", "Assembly", "Saw", "Other"), columns.map { it.label })
+    }
+
+    @Test
+    fun columns_skipSheetRipsWhenNone_andEmptyStations() {
+        val saw = resolved("a", listOf(SpecialtyStation.SAW))
+        val sections = buildSpecialtyDetailSections(listOf(saw), SpecialtyStation.entries.toList())
+        val columns = buildSpecialtyKanbanColumns(sections, hasSheetRips = false)
+        assertEquals(listOf("SAW"), columns.map { it.id })
+    }
+
+    @Test
+    fun columnToggle_picksStationKeyForSplitItems() {
+        val item = resolved(
+            "split", listOf(SpecialtyStation.SAW, SpecialtyStation.ASSEMBLY),
+            done = mapOf("SAW" to true, "ASSEMBLY" to false)
+        )
+        val toggles = checklistTogglesForItem(item, emptyMap())
+        assertEquals("SAW", kanbanColumnToggle(toggles, "SAW")!!.completionKey)
+        assertEquals("ASSEMBLY", kanbanColumnToggle(toggles, "ASSEMBLY")!!.completionKey)
+    }
+
+    @Test
+    fun columnToggle_usesSingleItemKeyForUnsplitItems() {
+        val item = resolved(
+            "order", listOf(SpecialtyStation.CNC, SpecialtyStation.SAW),
+            category = SpecialtyItemCategory.TO_ORDER
+        )
+        val toggles = checklistTogglesForItem(item, emptyMap())
+        assertEquals(SpecialtyProgressStore.ITEM_COMPLETION_KEY, kanbanColumnToggle(toggles, "SAW")!!.completionKey)
+        assertNull(kanbanColumnToggle(emptyList(), "SAW"))
+    }
+
+    @Test
+    fun stationDots_excludeCurrentColumn_inStationOrder_withDoneState() {
+        val item = resolved(
+            "split", listOf(SpecialtyStation.SAW, SpecialtyStation.CNC, SpecialtyStation.ASSEMBLY),
+            done = mapOf("SAW" to true, "CNC" to true, "ASSEMBLY" to false)
+        )
+        val toggles = checklistTogglesForItem(item, emptyMap())
+        val dots = kanbanStationDots(item, "ASSEMBLY", toggles, SpecialtyStation.entries.toList())
+        assertEquals(
+            listOf(SpecialtyStation.CNC to true, SpecialtyStation.SAW to true),
+            dots.map { it.station to it.done }
+        )
+    }
+
+    @Test
+    fun cardOrder_doneDropsToBottom_bothGroupsKeepOrder() {
+        val a = resolved("a", listOf(SpecialtyStation.SAW))
+        val b = resolved("b", listOf(SpecialtyStation.SAW))
+        val c = resolved("c", listOf(SpecialtyStation.SAW))
+        val d = resolved("d", listOf(SpecialtyStation.SAW))
+        val doneIds = setOf("a", "c")
+        val ordered = orderKanbanCards(listOf(a, b, c, d)) { it.item.id in doneIds }
+        assertEquals(listOf("b", "d", "a", "c"), ordered.map { it.item.id })
+    }
+
+    @Test
+    fun cardStatus_followsCompletedSteps() {
+        assertEquals(SheetStatus.NOT_STARTED, kanbanCardStatus(0, 2))
+        assertEquals(SheetStatus.IN_PROGRESS, kanbanCardStatus(1, 2))
+        assertEquals(SheetStatus.COMPLETE, kanbanCardStatus(2, 2))
+    }
+
+    @Test
+    fun checkboxLabel_namesItemAndStation() {
+        assertEquals("Pantry done at Saw", kanbanCheckboxLabel("Pantry", "SAW"))
+        assertEquals("Pantry done at Edge bander", kanbanCheckboxLabel("Pantry", "EDGE_BANDER"))
+        assertEquals("Pantry done", kanbanCheckboxLabel("Pantry", SPECIALTY_VIEWER_SECTION_ID_OTHER))
+    }
+
+    @Test
+    fun orderCards_worksForSheetRipsToo() {
+        assertEquals(listOf("b", "a"), orderKanbanCards(listOf("a", "b")) { it == "a" })
+    }
+
+    @Test
+    fun cardToggleState_readOnlyDisablesCheckbox() {
+        val item = resolved("a", listOf(SpecialtyStation.SAW))
+        val toggles = checklistTogglesForItem(item, emptyMap())
+        val order = SpecialtyStation.entries.toList()
+        assertTrue(kanbanCardToggleState(item, "SAW", toggles, order, emptyMap()).enabled)
+        val readOnly = kanbanCardToggleState(item, "SAW", toggles, order, emptyMap(), readOnly = true)
+        assertFalse(readOnly.enabled)
+        assertFalse(readOnly.saving)
+    }
+
+    @Test
+    fun cardToggleState_equalWhenNothingChanged_differsForTickAndInFlight() {
+        val item = resolved("a", listOf(SpecialtyStation.SAW, SpecialtyStation.ASSEMBLY))
+        val order = SpecialtyStation.entries.toList()
+        fun state(overrides: Map<String, Boolean> = emptyMap(), inFlight: Map<String, Boolean> = emptyMap()) =
+            kanbanCardToggleState(item, "SAW", checklistTogglesForItem(item, overrides), order, inFlight)
+
+        val base = state()
+        assertEquals(base, state())
+        val controlId = base.toggle!!.controlId
+        val ticked = state(overrides = mapOf(controlId to true))
+        assertTrue(ticked.done)
+        assertEquals(1, ticked.completedSteps)
+        assertFalse(base == ticked)
+        assertFalse(state(inFlight = mapOf(controlId to true)).enabled)
+        assertTrue(state(inFlight = mapOf(controlId to true)).saving)
+        assertTrue(base.enabled)
+        assertFalse(base.saving)
+    }
+
+    @Test
+    fun headerColor_keepsWhiteTextReadableForEveryStation() {
+        val ids = SpecialtyStation.entries.map { it.name } +
+            listOf(SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS, SPECIALTY_VIEWER_SECTION_ID_OTHER)
+        ids.forEach { id ->
+            val bg = kanbanHeaderColor(kanbanColumnColor(id))
+            val ratio = contrastRatio(Color.White, bg)
+            assertTrue("$id header contrast $ratio", ratio >= 4.5f)
+        }
+    }
+}

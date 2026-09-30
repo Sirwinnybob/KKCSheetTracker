@@ -547,6 +547,22 @@ class ArchiveCacheManager(
         }
     }
 
+    /**
+     * Deletes every cached job, regardless of age. Same entry filter and per-entry
+     * `promotionLock` as [pruneExpiredEntries], so it can't delete an entry mid-promotion.
+     */
+    suspend fun clearAll() {
+        val entries = cacheRoot.listFiles { file ->
+            file.isDirectory &&
+                !file.name.endsWith(SCRATCH_SUFFIX_INCOMPLETE) &&
+                !file.name.endsWith(SCRATCH_SUFFIX_STAGING) &&
+                !file.name.endsWith(SCRATCH_SUFFIX_BACKUP)
+        } ?: return
+        for (dir in entries) {
+            promotionLock(dir.absolutePath).withLock { dir.deleteRecursively() }
+        }
+    }
+
     fun removeCachedEntry(archiveJobId: String) {
         File(cacheRoot, archiveJobId).deleteRecursively()
     }

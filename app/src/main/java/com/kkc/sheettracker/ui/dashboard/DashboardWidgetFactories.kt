@@ -64,7 +64,6 @@ import com.kkc.sheettracker.data.models.SpecialtyJobCard
 import com.kkc.sheettracker.ui.components.KKCBrandedTitle
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.MarkdownText
-import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.headerBackground
@@ -387,8 +386,9 @@ fun DashboardShell(
     title: String,
     subtitle: String? = null,
     loading: Boolean,
+    /** False hides the full-width progress bar while loading. */
+    showLoadingBar: Boolean = true,
     errorMessage: String? = null,
-    onRefresh: (() -> Unit)? = null,
     emptyMessage: String? = null,
     hasContent: Boolean = true,
     scrollable: Boolean = true,
@@ -401,15 +401,12 @@ fun DashboardShell(
             KKCTopAppBar(
                 title = {
                     if (!subtitle.isNullOrBlank()) {
-                        KKCBrandedTitle(modeSuffix = subtitle)
+                        KKCBrandedTitle()
                     } else {
                         Text(title, style = MaterialTheme.typography.titleMedium)
                     }
                 },
                 actions = {
-                    if (onRefresh != null) {
-                        RefreshIconButton(loading = loading, onClick = onRefresh)
-                    }
                     topBarActions()
                     TopBarClock()
                 },
@@ -456,7 +453,7 @@ fun DashboardShell(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (loading) {
+                if (loading && showLoadingBar) {
                     LinearProgressIndicator(modifier = androidx.compose.ui.Modifier.fillMaxWidth())
                 }
                 if (!errorMessage.isNullOrBlank()) {

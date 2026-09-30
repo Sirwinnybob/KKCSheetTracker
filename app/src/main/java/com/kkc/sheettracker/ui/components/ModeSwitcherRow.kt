@@ -6,13 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.navigation.WorkMode
-
-private fun WorkMode.shortLabel(): String = when (this) {
-    WorkMode.CNC -> "CNC"
-    WorkMode.HARDWOODS -> "HW"
-    WorkMode.ASSEMBLY -> "ASM"
-    WorkMode.SPECIALTY -> "SPC"
-}
+import com.kkc.sheettracker.navigation.shortLabel
 
 /**
  * Compact sliding-pill switcher for a TopAppBar `actions` slot, letting the operator switch which
@@ -37,5 +31,9 @@ fun ModeSwitcherRow(
             )
         }
     }
-    KKCSlidingPillRow(options = options, modifier = modifier.padding(end = 4.dp), persistKey = persistKey)
+    KKCSlidingPillRow(
+        options = options,
+        modifier = modifier.kkcTopBarItem("mode-switcher").padding(end = 4.dp),
+        persistKey = persistKey
+    )
 }

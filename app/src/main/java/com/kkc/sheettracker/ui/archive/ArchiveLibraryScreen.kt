@@ -1,7 +1,6 @@
 package com.kkc.sheettracker.ui.archive
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -41,12 +45,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.ui.theme.contentColorFor
+import com.kkc.sheettracker.ui.theme.kkcZebraHighlight
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
+import com.kkc.sheettracker.navigation.WorkMode
+import com.kkc.sheettracker.navigation.shortLabel
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.ArchiveAdminClient
@@ -56,8 +65,17 @@ import com.kkc.sheettracker.data.ArchiveDownloadProgress
 import com.kkc.sheettracker.data.ArchiveLibraryClient
 import com.kkc.sheettracker.data.ArchiveLibraryStore
 import com.kkc.sheettracker.data.models.ArchiveJobEntry
+import com.kkc.sheettracker.ui.components.KKCPillAction
+import com.kkc.sheettracker.ui.components.KKCPillActionRow
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
+import com.kkc.sheettracker.ui.components.TopBarClock
+import com.kkc.sheettracker.ui.components.rememberKKCQuietPillStyle
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -79,7 +97,8 @@ import java.io.File
 fun ArchiveLibraryScreen(
     tabletId: String,
     isDebugBuild: Boolean,
-    onOpenArchiveJob: (archiveJobId: String, folderName: String, contentVersion: String) -> Unit,
+    onOpenArchiveJob: (archiveJobId: String, folderName: String, contentVersion: String, workMode: WorkMode) -> Unit,
+    onBack: () -> Unit,
     active: Boolean = true,
 ) {
     val context = LocalContext.current
@@ -159,6 +178,9 @@ fun ArchiveLibraryScreen(
     var downloadingArchiveJobId by remember { mutableStateOf<String?>(null) }
     var downloadProgress by remember { mutableStateOf<ArchiveDownloadProgress?>(null) }
     var downloadError by remember { mutableStateOf<String?>(null) }
+    // Survives leaving for the job detail screen and coming back (rememberSaveable, tied to this
+    // nav-backstack entry), so the row the operator just opened is still highlighted on return.
+    var lastOpenedArchiveJobId by rememberSaveable { mutableStateOf<String?>(null) }
 
     fun clearDownloadState(completedArchiveJobId: String) {
         if (shouldClearArchiveDownload(downloadingArchiveJobId, completedArchiveJobId)) {
@@ -167,7 +189,7 @@ fun ArchiveLibraryScreen(
         }
     }
 
-    fun openArchive(entry: ArchiveJobEntry) {
+    fun openArchive(entry: ArchiveJobEntry, mode: WorkMode) {
         // Guards against a fast double-tap starting two concurrent downloads for the same
         // entry: rememberCoroutineScope()'s launch runs synchronously up to its first suspend
         // point (adminSyncConfig.getServerUrl() below), so by the time a second onClick dispatch
@@ -198,7 +220,8 @@ fun ArchiveLibraryScreen(
                 if (cached != null && cached.contentVersion == entry.contentVersion) {
                     manager.touchLastAccess(entry.archiveJobId)
                     downloadError = null
-                    onOpenArchiveJob(entry.archiveJobId, cached.folderName, entry.contentVersion)
+                    lastOpenedArchiveJobId = entry.archiveJobId
+                    onOpenArchiveJob(entry.archiveJobId, cached.folderName, entry.contentVersion, mode)
                     return@launch
                 }
                 when (val result = manager.downloadAndExtract(
@@ -213,7 +236,8 @@ fun ArchiveLibraryScreen(
                 )) {
                     is ArchiveCacheResult.Success -> {
                         downloadError = null
-                        onOpenArchiveJob(entry.archiveJobId, entry.folderName, entry.contentVersion)
+                        lastOpenedArchiveJobId = entry.archiveJobId
+                        onOpenArchiveJob(entry.archiveJobId, entry.folderName, entry.contentVersion, mode)
                     }
                     is ArchiveCacheResult.Failure -> {
                         downloadError = result.reason
@@ -234,14 +258,31 @@ fun ArchiveLibraryScreen(
     val filteredEntries = remember(entries, query.text) {
         filterArchiveEntries(entries, query.text)
     }
+    val listState = rememberLazyListState()
 
-    Scaffold { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            Text(
-                if (connected) "Archive Library" else "Archive Library (disconnected)",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(16.dp),
+    Scaffold(
+        topBar = {
+            KKCTopAppBar(
+                title = { Text(if (connected) "Archive Library" else "Archive Library (disconnected)") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (entries.isNotEmpty()) {
+                        Text(
+                            archiveJobCountLabel(filteredEntries.size, entries.size),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TopBarClock()
+                },
             )
+        },
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             downloadError?.let {
                 Text(
                     "Download failed: $it",
@@ -270,6 +311,7 @@ fun ArchiveLibraryScreen(
                     }
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
                             start = 16.dp,
@@ -290,7 +332,8 @@ fun ArchiveLibraryScreen(
                                 tabletId = tabletId,
                                 adminSyncConfig = adminSyncConfig,
                                 index = index,
-                                onOpen = { openArchive(entry) },
+                                recentlyOpened = entry.archiveJobId == lastOpenedArchiveJobId,
+                                onOpen = { mode -> openArchive(entry, mode) },
                             )
                         }
                     }
@@ -299,6 +342,17 @@ fun ArchiveLibraryScreen(
         }
     }
 }
+
+internal fun archiveJobCountLabel(shown: Int, total: Int): String = when {
+    shown == total -> if (total == 1) "1 job" else "$total jobs"
+    else -> "$shown of $total jobs"
+}
+
+private val ARCHIVED_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
+
+/** Ready Jobs stamps `archivedAt` as UTC ISO-8601; show the shop-local calendar date. Unparseable values pass through. */
+internal fun formatArchivedAt(archivedAt: String, zone: ZoneId = ZoneId.systemDefault()): String =
+    runCatching { Instant.parse(archivedAt).atZone(zone).format(ARCHIVED_DATE_FORMAT) }.getOrDefault(archivedAt)
 
 /** Applies the same case-insensitive job lookup fields as the live Jobs screen. */
 fun filterArchiveEntries(entries: List<ArchiveJobEntry>, query: String): List<ArchiveJobEntry> {
@@ -338,6 +392,12 @@ internal fun shouldClearArchiveDownload(
 
 internal fun canRestoreArchivedJob(opening: Boolean): Boolean = !opening
 
+/** Row text/controls are scaled 25% up from stock Material sizes -- shop tablets are tapped at
+ * arm's length and the stock sizes made mis-taps common. */
+private const val ARCHIVE_ROW_SCALE = 1.25f
+
+private fun TextStyle.scaledUp(): TextStyle = copy(fontSize = fontSize * ARCHIVE_ROW_SCALE)
+
 @Composable
 private fun ArchiveJobRow(
     entry: ArchiveJobEntry,
@@ -347,109 +407,123 @@ private fun ArchiveJobRow(
     tabletId: String,
     adminSyncConfig: AdminSyncConfig,
     index: Int,
-    onOpen: () -> Unit,
+    recentlyOpened: Boolean,
+    onOpen: (WorkMode) -> Unit,
 ) {
-    val background = kkcZebraTint(index).compositeOver(MaterialTheme.colorScheme.surface)
+    // The job the operator just opened gets its zebra color at full strength (instead of the
+    // faint tint every other row gets) so it's easy to spot again after coming back from it.
+    val background = if (recentlyOpened) {
+        kkcZebraHighlight(index)
+    } else {
+        kkcZebraTint(index).compositeOver(MaterialTheme.colorScheme.surface)
+    }
+    val rowContentColor = if (recentlyOpened) contentColorFor(background) else null
 
     Surface(
         shape = MaterialTheme.shapes.small,
         color = background,
+        contentColor = rowContentColor ?: MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
         shadowElevation = 2.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 5.dp)
             .semantics {
                 contentDescription = if (opening) {
                     "Opening archived job ${entry.jobNumber}, ${entry.jobName}"
                 } else {
-                    "Open archived job ${entry.jobNumber}, ${entry.jobName}"
+                    "Archived job ${entry.jobNumber}, ${entry.jobName}"
                 }
-            }
-            .clickable(enabled = !opening, onClick = onOpen),
+            },
     ) {
+        val secondaryTextColor = rowContentColor?.copy(alpha = 0.75f) ?: MaterialTheme.colorScheme.onSurfaceVariant
+        // Text stacks on the left; the pills are centered against the whole card, not one line of it.
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 15.dp, vertical = 13.dp),
         ) {
-            Text(
-                text = entry.jobNumber,
-                modifier = Modifier.width(72.dp),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = entry.jobName,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "Archived ${entry.archivedAt}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (opening) {
-                    val totalBytes = downloadProgress?.totalBytes?.takeIf { it > 0L }
-                    if (totalBytes != null) {
-                        val fraction = (downloadProgress.bytesRead.toFloat() / totalBytes.toFloat())
-                            .coerceIn(0f, 1f)
-                        val percentage = (fraction * 100).toInt()
-                        LinearProgressIndicator(
-                            progress = { fraction },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 6.dp)
-                                .height(6.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                        )
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.Top) {
                         Text(
-                            "Downloading $percentage%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = entry.jobNumber,
+                            style = MaterialTheme.typography.titleSmall.scaledUp(),
+                            color = rowContentColor ?: MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
                         )
-                    } else {
+                        Spacer(Modifier.width(12.dp))
                         Text(
-                            "Downloading…",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = entry.jobName,
+                            style = MaterialTheme.typography.titleSmall.scaledUp(),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Text(
+                        text = "Archived ${formatArchivedAt(entry.archivedAt)}",
+                        style = MaterialTheme.typography.bodySmall.scaledUp(),
+                        color = secondaryTextColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                    if (opening) {
+                        val totalBytes = downloadProgress?.totalBytes?.takeIf { it > 0L }
+                        if (totalBytes != null) {
+                            val fraction = (downloadProgress.bytesRead.toFloat() / totalBytes.toFloat())
+                                .coerceIn(0f, 1f)
+                            val percentage = (fraction * 100).toInt()
+                            LinearProgressIndicator(
+                                progress = { fraction },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                                    .height(8.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                            )
+                            Text(
+                                "Downloading $percentage%",
+                                style = MaterialTheme.typography.labelSmall.scaledUp(),
+                                color = secondaryTextColor,
+                            )
+                        } else {
+                            Text(
+                                "Downloading…",
+                                style = MaterialTheme.typography.labelSmall.scaledUp(),
+                                color = secondaryTextColor,
+                            )
+                        }
+                    }
+                    if (showRestore) {
+                        RestoreButton(
+                            entry = entry,
+                            tabletId = tabletId,
+                            adminSyncConfig = adminSyncConfig,
+                            enabled = canRestoreArchivedJob(opening),
                         )
                     }
                 }
-                if (showRestore) {
-                    RestoreButton(
-                        entry = entry,
-                        tabletId = tabletId,
-                        adminSyncConfig = adminSyncConfig,
-                        enabled = canRestoreArchivedJob(opening),
-                    )
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            if (opening) {
-                if (downloadProgress?.totalBytes?.takeIf { it > 0L } == null) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(15.dp))
+                if (opening) {
+                    if (downloadProgress?.totalBytes?.takeIf { it > 0L } == null) {
+                        CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                    } else {
+                        Text(
+                            "Opening…",
+                            style = MaterialTheme.typography.labelSmall.scaledUp(),
+                            color = rowContentColor ?: MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 } else {
-                    Text(
-                        "Opening…",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
+                    KKCPillActionRow(
+                        actions = WorkMode.entries.filter { it != WorkMode.ASSEMBLY }.map { mode ->
+                            KKCPillAction(label = mode.shortLabel(), onClick = { onOpen(mode) })
+                        },
+                        style = rememberKKCQuietPillStyle(),
                     )
                 }
-            } else {
-                Text(
-                    "Open",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
         }
     }
 }

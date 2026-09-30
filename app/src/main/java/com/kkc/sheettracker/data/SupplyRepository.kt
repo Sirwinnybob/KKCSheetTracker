@@ -6,7 +6,12 @@ import com.kkc.sheettracker.data.models.*
 import java.io.File
 import java.util.UUID
 
-class SupplyRepository(private val basePath: String) {
+class SupplyRepository(
+    private val basePath: String,
+    // Live read model (spec 2026-09-28-supply-live-websocket-design). When view() is null
+    // (socket down, never connected) every read below uses the .supply files as before.
+    private val liveStore: SupplyLiveStateStore = SupplyLiveStateStore.shared
+) {
 
     private val supplyDir get() = File(basePath, ".supply")
     private val itemsDir  get() = File(supplyDir, "items")
@@ -35,6 +40,9 @@ class SupplyRepository(private val basePath: String) {
         return runCatching { gson.fromJson(file.readText(), object : TypeToken<T>() {}.type) as T }.getOrNull()
     }
 
+    private fun readStoredItem(file: File): StoredSupplyItem? =
+        readJson<StoredSupplyItem>(file)?.let { normalizeStoredItem(it) }
+
     // ── Status resolution ─────────────────────────────────────────────────────
 
     private fun resolveStatus(itemId: String): SupplyStatusRecord {
@@ -59,29 +67,19 @@ class SupplyRepository(private val basePath: String) {
 
     private fun StoredSupplyItem.resolve(): SupplyItem = resolveWith(resolveStatus(id))
 
-    private fun StoredSupplyItem.resolveWith(s: SupplyStatusRecord): SupplyItem {
-        val skuVal = fields["sku"]?.trim()?.takeIf { it.isNotBlank() }
-        val resolvedBarcodes = if (skuVal != null) {
-            (barcodes + skuVal).distinct()
-        } else {
-            barcodes
-        }
-        return SupplyItem(
-            id = id, categoryId = categoryId, name = name,
-            status = s.status, statusBy = s.by, statusAt = s.at,
-            notes = notes, fields = fields, customFields = customFields,
-            attachmentIds = attachmentIds, barcodes = resolvedBarcodes,
-            createdAt = createdAt, updatedAt = updatedAt
-        )
-    }
+    private fun StoredSupplyItem.resolveWith(s: SupplyStatusRecord): SupplyItem = resolveStoredItem(this, s)
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    fun getCategories(): List<SupplyCategory> =
-        readJson<List<SupplyCategory>>(File(supplyDir, "categories.json")) ?: emptyList()
+    fun getCategories(): List<SupplyCategory> {
+        liveStore.view()?.let { return it.categories }
+        return readJson<List<SupplyCategory>>(File(supplyDir, "categories.json")) ?: emptyList()
+    }
 
-    fun getSchema(): List<SupplySchemaField> =
-        readJson<List<SupplySchemaField>>(File(supplyDir, "schema.json")) ?: emptyList()
+    fun getSchema(): List<SupplySchemaField> {
+        liveStore.view()?.let { return it.schema }
+        return readJson<List<SupplySchemaField>>(File(supplyDir, "schema.json")) ?: emptyList()
+    }
 
     // Schema for rendering item fields. Falls back to the builtin defaults when
     // schema.json is missing/empty (e.g. not yet synced to this tablet), so the
@@ -90,22 +88,26 @@ class SupplyRepository(private val basePath: String) {
         getSchema().ifEmpty { DEFAULT_SUPPLY_SCHEMA }
 
     fun getItems(): List<SupplyItem> {
+        liveStore.view()?.let { return it.items }
         if (!itemsDir.exists()) return emptyList()
         // List the status directory once and reuse it across all items, instead of
         // re-listing it inside resolve()/resolveStatus() for every item.
         val statusFiles = statusDir.listFiles()?.toList().orEmpty()
         return itemsDir.listFiles { f -> f.extension == "json" && !f.name.contains(".sync-conflict-") }
             ?.mapNotNull { file ->
-                val stored = readJson<StoredSupplyItem>(file) ?: return@mapNotNull null
+                val stored = readStoredItem(file) ?: return@mapNotNull null
                 stored.resolveWith(resolveStatusFrom(stored.id, statusFiles))
             }
             ?: emptyList()
     }
 
-    fun getItem(itemId: String): SupplyItem? =
-        readJson<StoredSupplyItem>(File(itemsDir, "$itemId.json"))?.resolve()
+    fun getItem(itemId: String): SupplyItem? {
+        liveStore.view()?.let { return it.item(itemId) }
+        return readStoredItem(File(itemsDir, "$itemId.json"))?.resolve()
+    }
 
     fun getComments(itemId: String): List<SupplyComment> {
+        liveStore.view()?.let { return it.comments(itemId) }
         val dir = File(commentsDir, itemId)
         if (!dir.exists()) return emptyList()
         return dir.listFiles { f -> f.extension == "json" && !f.name.contains(".sync-conflict-") }
@@ -121,10 +123,12 @@ class SupplyRepository(private val basePath: String) {
     fun setStatus(itemId: String, status: String, by: String, tabletId: String) {
         statusDir.mkdirs()
         val file = File(statusDir, "$itemId.$tabletId.json")
+        val record = SupplyStatusRecord(status, by, java.time.Instant.now().toString())
         // AUD-10: atomic write so a concurrent reader (getItems(), a peer tablet via Syncthing,
         // or the Hours backend) never observes a truncated status file and falls back to
         // "IN STOCK".
-        atomicWriteFile(file, gson.toJson(SupplyStatusRecord(status, by, java.time.Instant.now().toString())))
+        atomicWriteFile(file, gson.toJson(record))
+        liveStore.recordStatus(itemId, record)
     }
 
     fun addComment(itemId: String, author: String, text: String, tabletId: String): SupplyComment {
@@ -134,6 +138,7 @@ class SupplyRepository(private val basePath: String) {
         val comment = SupplyComment(id, author, text, java.time.Instant.now().toString())
         // AUD-10: atomic write so a concurrent reader never sees a partial comment file.
         atomicWriteFile(File(dir, "$id.json"), gson.toJson(comment))
+        liveStore.recordCommentAdded(itemId, comment)
         return comment
     }
 
@@ -149,6 +154,7 @@ class SupplyRepository(private val basePath: String) {
             val cat = SupplyCategory(UUID.randomUUID().toString(), name.trim(), existing.size)
             val updated = existing + cat
             atomicWriteFile(File(supplyDir, "categories.json"), gson.toJson(updated))
+            liveStore.recordCategoryCreated(cat)
             return cat
         }
     }
@@ -173,6 +179,7 @@ class SupplyRepository(private val basePath: String) {
         // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
         // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
         atomicWriteFile(File(itemsDir, "$id.json"), gson.toJson(stored))
+        liveStore.recordItemUpserted(stored)
         if (status != "IN STOCK") {
             setStatus(id, status, "", tabletId)
         }
@@ -188,7 +195,7 @@ class SupplyRepository(private val basePath: String) {
         customFields: Map<String, String>? = null
     ): SupplyItem? {
         val file = File(itemsDir, "$itemId.json")
-        val existing = readJson<StoredSupplyItem>(file) ?: return null
+        val existing = readStoredItem(file) ?: return null
         val updated = existing.copy(
             name = name, categoryId = categoryId,
             notes = notes?.takeIf { it.isNotBlank() },
@@ -200,12 +207,13 @@ class SupplyRepository(private val basePath: String) {
         // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
         // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
         atomicWriteFile(file, gson.toJson(updated))
+        liveStore.recordItemUpserted(updated)
         return updated.resolve()
     }
 
     fun addAttachment(itemId: String, attachment: SupplyAttachment, sourceFile: File): SupplyItem? {
         val itemFile = File(itemsDir, "$itemId.json")
-        val existing = readJson<StoredSupplyItem>(itemFile) ?: return null
+        val existing = readStoredItem(itemFile) ?: return null
         val destDir = File(supplyDir, "attachments/$itemId")
         destDir.mkdirs()
         sourceFile.copyTo(File(destDir, attachment.storedName), overwrite = true)
@@ -219,12 +227,13 @@ class SupplyRepository(private val basePath: String) {
         // the attachment binary copy just above is plain (overwrite = true) — that is tracked
         // separately as L-04 and intentionally out of scope for H-07.
         atomicWriteFile(itemFile, gson.toJson(updated))
+        liveStore.recordItemUpserted(updated)
         return updated.resolve()
     }
 
     fun updateItemBarcodes(itemId: String, barcodes: List<String>): SupplyItem? {
         val file = File(itemsDir, "$itemId.json")
-        val existing = readJson<StoredSupplyItem>(file) ?: return null
+        val existing = readStoredItem(file) ?: return null
         val updated = existing.copy(
             barcodes = barcodes,
             updatedAt = java.time.Instant.now().toString()
@@ -233,6 +242,7 @@ class SupplyRepository(private val basePath: String) {
         // Hours Tracker backend (atomic+locked). Atomic write here prevents a concurrent reader
         // (backend, peer tablet, or this app's own getItems()) from observing a torn file.
         atomicWriteFile(file, gson.toJson(updated))
+        liveStore.recordItemUpserted(updated)
         return updated.resolve()
     }
 
@@ -250,12 +260,15 @@ class SupplyRepository(private val basePath: String) {
         if (commentDir.exists()) {
             commentDir.deleteRecursively()
         }
+        if (deletedItem) liveStore.recordItemDeleted(itemId)
         return deletedItem
     }
 
     fun deleteComment(itemId: String, commentId: String): Boolean {
         val file = File(File(commentsDir, itemId), "$commentId.json")
-        return if (file.exists()) file.delete() else false
+        val deleted = if (file.exists()) file.delete() else false
+        if (deleted) liveStore.recordCommentDeleted(itemId, commentId)
+        return deleted
     }
 
     companion object {
@@ -270,5 +283,45 @@ class SupplyRepository(private val basePath: String) {
         // Latest-wins by parsed instant, with the raw string as a stable tiebreak.
         internal val SUPPLY_STATUS_RECENCY: Comparator<SupplyStatusRecord> =
             compareBy({ parseInstantOrMin(it.at) }, { it.at })
+
+        private fun <T> nullable(value: T): T? = value
+
+        /**
+         * The no-arg constructor makes Gson apply defaults for ABSENT keys, but an explicit JSON
+         * `null` (e.g. `"fields": null` from an admin PATCH) still lands as null in these non-null
+         * properties and NPEs in copy()/resolve. Normalize once after reading; null id = unusable.
+         */
+        internal fun normalizeStoredItem(stored: StoredSupplyItem): StoredSupplyItem? {
+            val id = nullable(stored.id) ?: return null
+            return StoredSupplyItem(
+                id = id,
+                categoryId = nullable(stored.categoryId) ?: "",
+                name = nullable(stored.name) ?: "",
+                notes = stored.notes,
+                fields = nullable(stored.fields) ?: emptyMap(),
+                customFields = nullable(stored.customFields) ?: emptyMap(),
+                attachmentIds = nullable(stored.attachmentIds) ?: emptyList(),
+                barcodes = nullable(stored.barcodes) ?: emptyList(),
+                createdAt = nullable(stored.createdAt) ?: "",
+                updatedAt = nullable(stored.updatedAt) ?: ""
+            )
+        }
+
+        /** Stored item + resolved status -> UI item. SKU is folded into barcodes (shared with the live overlay). */
+        internal fun resolveStoredItem(stored: StoredSupplyItem, s: SupplyStatusRecord): SupplyItem {
+            val skuVal = stored.fields["sku"]?.trim()?.takeIf { it.isNotBlank() }
+            val resolvedBarcodes = if (skuVal != null) {
+                (stored.barcodes + skuVal).distinct()
+            } else {
+                stored.barcodes
+            }
+            return SupplyItem(
+                id = stored.id, categoryId = stored.categoryId, name = stored.name,
+                status = s.status, statusBy = s.by, statusAt = s.at,
+                notes = stored.notes, fields = stored.fields, customFields = stored.customFields,
+                attachmentIds = stored.attachmentIds, barcodes = resolvedBarcodes,
+                createdAt = stored.createdAt, updatedAt = stored.updatedAt
+            )
+        }
     }
 }

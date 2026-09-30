@@ -2,13 +2,18 @@
 name: kkc-metadata-map
 description: >-
   Use when tracing KKC Ready Jobs metadata ownership or parity, stale tablet
-  job data, missing jobs, CNC or hardwood tracker streams, Syncthing
-  conflicts, tablet request sidecars, supply schema/status/comments,
-  safety concern reports/status/comments, .time_cards, timeclock API fields,
-  production_order.json, delivery_schedule.json, update-feed metadata, admin
-  metadata, molding/moulding profile, dimension-override, or frame-style tag
-  files, or deciding whether KKCSheetTracker, Ready Jobs Watcher, Hours Tracker,
-  timeclock-hub, or updater-agent owns a file.
+  job data, missing or archived jobs, CNC or hardwood tracker streams
+  (ndjson events), Syncthing conflicts, tablet request sidecars, Hours
+  Tracker live WebSockets or admin-sync, the ported Ready Jobs worker
+  (ready_jobs_worker_core, worker.log, job_errors.json), supply
+  schema/status/comments/barcodes, safety concern reports/status/comments,
+  .time_cards, timeclock API fields, production_order.json,
+  delivery_schedule.json, update-feed metadata, admin metadata,
+  molding/moulding profile, dimension-override, or frame-style tag files,
+  PGM Mix Service definitions/operations/API, or deciding whether
+  KKCSheetTracker, Hours Tracker (web app or worker), Ready Jobs Watcher,
+  timeclock-hub, updater-agent, PGM Sorting, the CNC PGM Mix Service, or
+  cv-molding-sync owns a file.
 metadata:
   sync:
     version: 3
@@ -23,253 +28,300 @@ Use this skill to answer: "Which system owns this metadata file, where is the so
 > (with write-safety analysis and an open-issue register) lives at
 > `C:\Scripts\Hours Tracker\METADATA_AUDIT.md`. When this map and the code disagree, trust the code,
 > fix the code, then update BOTH this skill and that audit doc (rules are in the audit's §1.4).
+> Last full verification of every row against code HEAD + live `Y:\Ready Jobs`: 2026-09-30
+> (audit SK-09..SK-16).
 
-> **Mirror sync:** the six per-repo `.claude`/`.agents` copies of this skill (Hours Tracker,
-> Ready Jobs Watcher, KKCSheetTracker) are kept byte-identical to this file automatically by
-> `sync-kkc-metadata-map.ps1`, triggered on every edit here via a PostToolUse hook in the global
-> Claude Code settings. Edit only this canonical copy — the mirrors are overwritten and
-> auto-committed, so manual edits to a mirror will be silently replaced.
+> **Mirror sync:** canonical file is `C:\Users\chadc\.sync-skills\skills\kkc-metadata-map\SKILL.md`;
+> `C:\Users\chadc\.claude\skills\kkc-metadata-map` is a junction to that folder, so editing either
+> path edits the same file. The six per-repo `.claude`/`.agents` copies of this skill (Hours Tracker,
+> Ready Jobs Watcher, KKCSheetTracker) and the global Codex copy (`~\.codex\skills\kkc-metadata-map`)
+> are kept byte-identical to it automatically by `C:\Users\chadc\.sync-skills\sync-kkc-metadata-map.ps1`,
+> triggered on every edit via a PostToolUse hook in the global Claude Code settings. Only `SKILL.md`
+> is mirrored (each mirror's `agents\` subfolder is not). Edit only the canonical copy — the mirrors
+> are overwritten (repo mirrors auto-committed), so manual edits to a mirror will be silently replaced.
+
+**Abbreviations used below:** **HT** = `C:\Scripts\Hours Tracker\backend\` (web app `main_v2.py` + `routes\`). **W** = HT's ported Ready Jobs worker, `C:\Scripts\Hours Tracker\backend\ready_jobs_worker_core\` (`adapters\` is under it). **RJW** = deprecated Ready Jobs Watcher. **KST** = KKCSheetTracker `app\src\main\java\com\kkc\sheettracker\`.
 
 ## System Boundaries
 
 | System | Role | First Path |
 |---|---|---|
-| KKCSheetTracker Android | Reads shared Ready Jobs metadata, writes tablet progress/actions, crash reports, local app state | `C:\Scripts\KKCSheetTracker` |
-| Ready Jobs Watcher | **DEPRECATED as of 2026-08-18** — cut over to Hours Tracker's ported worker in production (see note below). Not removed from this map: rows/paths/code entry points below are kept as reference in case old RJW logic ever needs porting over. Only relevant again if the user explicitly says they're working on the old RJW. | `C:\Scripts\Ready Jobs Watcher` |
-| Hours Tracker | Manages digital hours/admin metadata and some global Ready Jobs admin files; **as of 2026-08-18, its ported worker (`ready_jobs_worker_core`) is the live production system for every row below labeled "Ready Jobs Watcher"** (see note below) | `C:\Scripts\Hours Tracker` |
-| timeclock-hub | RTC-1000 punch clock REST hub and SQLite source of truth for punch-clock timeclock | `C:\Scripts\timeclock-hub` |
+| KKCSheetTracker Android | Reads shared Ready Jobs metadata, writes tablet progress (ndjson event streams), requests, markup, crash/perf reports, local app state | `C:\Scripts\KKCSheetTracker` |
+| Hours Tracker web app | Digital hours/admin metadata, global Ready Jobs admin files, operator API for gates/archive, live WebSockets | `C:\Scripts\Hours Tracker` (`backend\main_v2.py`, `backend\routes\`) |
+| Hours Tracker worker (W) | **Live writer since the 2026-08-18/19 cutover** for every Ready-Jobs-publishing row below (gates, caches, trackers, cutlists, cabinet index, dark mode, GLB, sync conflicts, archive moves) | `C:\Scripts\Hours Tracker\backend\ready_jobs_worker_core`; container `hourtracker-worker` |
+| Hours Tracker Android app | Digital timecard tablets (`com.example.timecard`); **separate git repo**, gitignored by HT, so `git grep` from the HT root never sees it | `C:\Scripts\Hours Tracker\AndroidApp` |
+| Ready Jobs Watcher | **DEPRECATED** — reference only (kept so old logic can be ported). Only relevant if the user explicitly says they're working on old RJW | `C:\Scripts\Ready Jobs Watcher` |
+| timeclock-hub | RTC-1000 punch clock REST hub and SQLite source of truth for punch-clock timeclock; pushes the employee roster to HT | `C:\Scripts\timeclock-hub` |
 | updater-agent | Android helper for installs/silent update behavior | `C:\Scripts\KKCSheetTracker\updater-agent` |
+| PGM Sorting | PDF splitter (CNC page/part sidecars, part-graphic zips) and run-folder remake processor (writes into CNC tracker streams) | `C:\Scripts\PGM_Sorting` (`split_pdfs_gui_v3.py`, `process_run_folders_v2.py`) |
+| CNC PGM Mix Service | CNC-side REST service that orders existing `.pgm` files into compiled `.mix` files through WINXISO; does **not** write Ready Jobs metadata | `C:\Scripts\PGM_BCR_Loader\docs\PGM_MIX_SERVICE_AGENT_GUIDE.md`; deployed on CNC at `C:\Scripts\PGM_MixService` |
+| cv-molding-sync | Scheduled script on the Cabinet Vision PC; sole writer of `.metadata\moldings\*.xml` from CV's local SQL Server | `C:\Scripts\cv-molding-sync` |
 
-Shared Ready Jobs usually appears on the PC as `Y:\Ready Jobs` and on the Hours Tracker Docker server as `/mnt/KKC/Syncthing/KKC Jobs/Ready Jobs`.
+Shared Ready Jobs appears on the PC as `Y:\Ready Jobs`, on the HT Docker server as `/mnt/KKC/Syncthing/KKC Jobs/Ready Jobs` (mounted `/jobs`), and to cv-molding-sync as `\\192.168.1.15\KKC Jobs\Ready Jobs`. Archived jobs live in `/mnt/KKC/Syncthing/KKC Jobs/ARCHIVE_Ready Jobs` (`ARCHIVE_READY_JOBS_PATH`, mounted `/archive-jobs`).
 
-Cabinet Vision (external CAD database, not one of the five programs above) is the source of truth for the profile geometry that Ready Jobs Watcher's molding sync pulls from — see the moldings row below.
+Cabinet Vision (external CAD database, not one of the systems above) is the source of truth for molding profile geometry. **As of 2026-09-28 the molding sync is `C:\Scripts\cv-molding-sync\cv_molding_sync.py`** on the CV PC (CV's SQL Server `.\CV24`/`CVData` exists only there), run every 15 min and at logon by Task Scheduler task `KKC CV Molding Sync`. It is NOT part of W: moldings sync was descoped from the port, and nothing wrote `.metadata\moldings` from 2026-08-18 until 2026-09-28. Fail-safe: exit codes 0/1/2; an unreachable share aborts first; zero rows or a CV error writes/deletes nothing.
 
-> **RJW replaced by Hours Tracker's ported worker (as of 2026-08-18):** `backend/ready_jobs_worker_core` (Hours Tracker repo) is a from-scratch port of Ready Jobs Watcher, cut over to production on 2026-08-18 and now THE live writer for every row in the Ownership Map below labeled "Ready Jobs Watcher" — deployment gates, cache_static/cache_index, CNC/hardwoods consolidation, cabinet_sheet_index, moldings sync, dark-mode PDFs, 3D GLB conversion, sync-conflict resolution, duplicate-folder guard, job rename/reparse, deployment-gate timers, hidden-gate bootstrap, and construction-method (Face-Frame/Frameless) auto-detection. Verified via a shadow-write soak test against a full real-tree copy (byte-exact `cache_static.json`/`cache_index.json` match on 15/16 live jobs, clean cold boot on 3455 real files) before cutover. Runs as its own container/process (`python -m ready_jobs_worker_core`, NOT the `main_v2.py` web app — that process refuses to run a real writer in-process by design), sharing the web GUI's `/data` state dir and the real `/jobs` mount. The real Ready Jobs Watcher Windows process is DEPRECATED — treat it as stopped/not the writer by default. **An agent cannot verify this independently** (the worker runs on the user's own server, outside agent reach) — default to "the ported worker is live," and only investigate/work on the deprecated old RJW if the user explicitly says so. Old RJW rows/paths/code-entry-points are kept throughout this map (not deleted) purely as reference in case old logic ever needs porting over. The worker's own operational log is new local state — see `worker.log` in Local State below.
+> **RJW → W cutover:** W (`backend\ready_jobs_worker_core`) is a from-scratch port of RJW, merged 2026-08-18 (`d35f635e`) and cut over in production via `ops\docker-compose.production-cutover.yml` (first committed 2026-08-19) after a shadow-write soak (full 4.4 GB real-tree cold boot, 0 errors; 15/16 jobs byte-exact `cache_static`/`cache_index`). It is THE live writer for gates, cache_static/cache_index, CNC/hardwoods consolidation, cabinet index, dark-mode PDFs, 3D GLB, sync-conflict resolution, duplicate-folder guard, rename/reparse, gate timers, hidden-gate bootstrap, construction-mode detection, remake/misc bad-parts candidates, bad-parts monitor, CNC orphan cleanup, file-prefix rename, and the Ready Jobs archive/restore mover. It runs as its own container (`hourtracker-worker`, `python -m ready_jobs_worker_core`; healthcheck `ready_jobs_worker_core.healthcheck`; `stop_grace_period: 60s`), sharing the web app's `/data` state dir and `/jobs` mount. Real writes need `READY_JOBS_WORKER_ENABLED=1`, `READY_JOBS_DRY_RUN=false`, `HOURS_TRACKER_SHARED_READ_ONLY=0`. The web container (`hourtracker`, host port 47821 → 5002) refuses to run a real writer in-process (`main_v2.py` `_start_ready_jobs_worker_once`); it serves the operator API and relays worker data to WebSockets via relay files in the state dir. **An agent cannot verify the live server state** — default to "W is live"; only work on old RJW if the user explicitly says so. Old RJW rows/paths are kept as reference.
+
+## Hours Tracker Live/API Channels (not files)
+
+| Channel | Server | Tablet side | Notes |
+|---|---|---|---|
+| WS `/api/supply/live` | `routes\supply_live.py`; `SupplyLiveMonitor` (`W\adapters\supply_live_monitor.py`, started in-process by `main_v2.py`) polls `.supply` every 2 s; `routes\supply_live_document.py` builds a read-only model | `SupplyLiveClient` → `SupplyLiveStateStore` | Tablet `.supply` writes are unchanged (files + Syncthing); own writes show via a 2-minute local overlay. Socket down → tablet reads files. Stale on one tablet: logcat `SupplyLiveClient`; everywhere: HT logs "Supply document build failed" / "Supply tree unavailable" |
+| WS `/api/ready-jobs-worker/live-index` | `routes\ready_jobs_worker_live_index.py` (relay `live_index_relay.json` from W) | `LiveIndexClient` | Live `cache_index` progress for the tablet job list |
+| WS `/api/delivery-schedule/live`, `/api/hidden-materials/live` | `routes\delivery_schedule_live.py`, `routes\hidden_materials_live.py` (W `adapters\*_live_service.py`) | tablet live clients | Stale schedule / hidden materials on one tablet: check the socket before the files |
+| WS `/api/ready-jobs-archive/library/live` | archive library relay (`archive_library_relay.json`) | `ArchiveLibraryClient` | Archived-job library |
+| WS `/api/ready-jobs-worker/live`, `/bad-parts-live` | `routes\ready_jobs_worker_live.py`, `ready_jobs_worker_bad_parts_live.py` | web UI only | — |
+| `POST /api/admin-sync/{production-order,job-board-edits,delivery-schedule,hardwoods-hidden-materials}` | `main_v2.py` | tablet tries these first (DataStore `admin_sync_config`), falls back to request sidecar files | Direct-write fast path for the request files in the Ownership Map |
+| `/api/ready-jobs-worker/{status,logs?tail=N,jobs}`, `POST .../jobs/{folder}/{release,hide,show,mode,detected-mode,rename,reparse,schedule-deploy,remind-later,...}` | `routes\ready_jobs_worker_{status,jobs,operations}.py` | web UI (replaces RJW GUI's per-job dialog) | Mutations need `READY_JOBS_MUTATIONS_ENABLED=1`; each is queued/logged in `hours.db` table `ready_jobs_operations` |
+| `POST /api/ready-jobs-archive/{archive,restore}/{folder}` (+ `collision-preview`) | `routes\ready_jobs_archive_lifecycle.py` → `ready_jobs_operations` queue → W `adapters\archive_lifecycle.py`, `archive_scheduling.py` | `ArchiveAdminClient`; 24 h cache `cacheDir/archive-cache/<id>` | Moves job folder to/from the archive root and removes/restores it in `production_order.json`, `job_board.json`, `delivery_schedule.json` |
+
+## CNC PGM Mix Service: Agent Routing
+
+Use this service when a CNC/tablet workflow needs to create, inspect, reorder, or regenerate a **`.mix` sequence** from existing PGM files. It is not a Ready Jobs metadata publisher and does not generate replacement `.pgm` source files. The tablet uses it via `KST data\mixservice\MixServiceClient.kt` (session state DataStore `mix_operation_sessions`).
+
+- **Agent API reference and examples:** `C:\Scripts\PGM_BCR_Loader\docs\PGM_MIX_SERVICE_AGENT_GUIDE.md`.
+- **Deployed service on the CNC:** `C:\Scripts\PGM_MixService` (network: `\\192.168.20.4\cnc\Scripts\PGM_MixService`), Windows service `PGMMixService` under NSSM (`--no-tray`; `deploy\install_service.ps1`, remote start/stop scripts).
+- **Runtime endpoint:** `http://<cnc-ip>:8477`; first check `GET /status`. Unauthenticated on the CNC LAN — do not expose it beyond that network.
+- **Mutations are async (since 2026-09-09):** `POST /mixes`, `PUT /mixes/{name}` and the revision-safe `POST /jobs/{job}/materials/{material}/mixes` / `.../{name}/replace` return **202 + an operation**; poll `GET /operations/{id}` (or `GET /jobs/{job}/operations`) before assuming the `.mix` exists.
+- **State ownership:** `definitions.json` owns mix definitions and ordered PGM lists; `operations.json` persists operation history; `config.json` owns paths/limits; `work\` is scratch. Logs: `logs\service.log` (primary), NSSM `logs\service-stdout.log`/`service-stderr.log`. There is **no** `error.log` (the guide is wrong on that).
+- **PGM files:** the service itself never writes PGMs. The opt-in second-pass API (`POST /jobs/{job}/materials/{material}/pgm-edits`, `second_pass_enabled` default **False**) has `2nd Pass Only.exe` mutate them, and mix changes sync `.pgm_edit_history.json` sidecars (writer `C:\Scripts\G_Code_2nd_Pass\pgm_edit_history.py`). `tools\backfill_active_pgm_history.py` reads `Y:\Ready Jobs\production_order.json` read-only.
+- **Safe reorder pattern:** send the complete desired remaining order, or create a new named mix; prefer a new descriptive name when the prior cut order matters. WINXISO's transient `.xxl` and sibling `.bmp` previews are service cleanup artifacts, not tablet metadata.
 
 ## Ownership Map
 
 | Metadata / Path Pattern | Owner | First Debug Check |
 |---|---|---|
-| `Y:\Ready Jobs\<job>\.metadata\deployment_gate.json` | Ready Jobs Watcher | Inspect `deployed`, `parseReady`, `hiddenFromProduction`, then `ready_jobs_watcher.log` |
-| `Y:\Ready Jobs\<job>\.metadata\cache_static.json` | Ready Jobs Watcher | Check mtime/content, then `metadata_cache.py` and watcher logs |
-| `Y:\Ready Jobs\<job>\.metadata\cache_index.json` | Ready Jobs Watcher | Lightweight index (~2 KB vs ~300 KB cache_static.json). Written alongside cache_static.json on every cache write. Contains `jobInfo` + `progressSummary` (per-material CNC: done/bad/skipped/renested; hardwoods: done/bad/skipped per docType). `totalSheets` counts only pages with tracker actions (not metadata pageCount). `renested` = skip actions where consolidated `reNested: true`. Tablet reads this for jobs list screen progress bars; falls back to cache_static.json if missing. Check mtime matches cache_static.json, then `metadata_cache.py:generate_cache_index` |
-| `Y:\Ready Jobs\<job>\CNC\.metadata\<pdf-stem>.json` | PGM Sorting PDF splitter | This is the canonical CNC page/part/OCR sidecar. Check the splitter output/logs first; Ready Jobs Watcher consumes and indexes it but does not author it. Tagged-v1 sidecars intentionally omit legacy OCR boxes because the structured page/part metadata is authoritative |
-| `Y:\Ready Jobs\<job>\CNC\.metadata\remake_bad_parts_candidates.json` | Ready Jobs Watcher | Check CNC scan log and scheduled cache refresh entries |
-| `Y:\Ready Jobs\<job>\CNC\.tracker\<tablet>.json` | KKCSheetTracker tablets | **LIVE channel** for CNC actions (carries `bad_part_submitted` alert marker and `reNested` flag on skip actions, `ProgressStore.kt:818`). RJW consolidates then DELETES these files — `bad_part_submitted` loss on consolidation was fixed (audit C-01, `_merge_cnc_actions` re-emits both `bad_part` and `bad_part_submitted` with original timestamps before deletion). `reNested: true` on a skip action means the sheet was re-exported into a REMAKE PDF; preserved through consolidation |
-| `Y:\Ready Jobs\<job>\CNC\.tracker\events\**\*.ndjson` | (designed for tablets) Ready Jobs Watcher reads | **DORMANT** as of 2026-07-09 — RJW's `tracker_action_stream.py` reader exists but the tablet writes NO ndjson (grep-confirmed). Legacy `<tablet>.json` above is the real channel |
-| `Y:\Ready Jobs\<job>\CNC\.tracker\consolidated.json` | Ready Jobs Watcher | Merged tracker actions containing `reNested` boolean on skip actions. Check tracker action stream/reconcile logs |
-| `Y:\Ready Jobs\<job>\CNC\.tracker\watcher_refresh_watcher.json` | Ready Jobs Watcher | Refresh heartbeat; not source-of-truth progress |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_index.json` | Ready Jobs Watcher | Compare against hardwood source files and watcher logs |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_revisions.json` | Ready Jobs Watcher | Check revision state before blaming tablet UI |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_job_mismatch.json` | Ready Jobs Watcher | Self-healing per-job flag from `hardwoods_cutlist_indexer.py` (added 2026-07-24): the printed job number on a hardwoods cutlist PDF's page 1 didn't match its containing folder (e.g. a name-swapped export). Written fresh on every index rebuild with only the *currently* mismatched doc types; the mismatched doc's rows are excluded from `cutlist_index.json` for that pass (sibling doc types still index normally). File is deleted (not written as `{"mismatches": []}`) once every mismatch clears, so "no file" and "no problem" stay the same thing — no separate acknowledge/dismiss state to get stuck. Not folded into `cache_static.json` or any other published cache; check this file directly, then the GUI's Jobs-tab badge, before assuming a missing/wrong hardwood row is a parser bug |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\board_stock_manual.json` | **writer external/unconfirmed** (manual/admin); RJW + tablet READ-ONLY | Manual board-stock input folded into `cache_static.json`; no writer found in the 3 audited programs (audit SK-05) |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\<tablet>.json` | KKCSheetTracker tablets | Hardwood completion/progress state |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\events\**\*.ndjson` | (designed for tablets) Ready Jobs Watcher reads | **DORMANT** — no tablet producer as of 2026-07-09; live channel is `<tablet>.json` (audit SK-01) |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\<tablet>.markup.json` | KKCSheetTracker tablets | Hardwood ink/PDF markup state |
+| `Y:\Ready Jobs\<job>\.metadata\deployment_gate.json` | W (`adapters\deployment_gate_write.py`, bootstrap `deployment_gate_bootstrap.py`, timers `auto_release.py`) **and** HT operator API (release/hide/show/mode/rename/reparse/schedule-deploy via `routes\ready_jobs_worker_jobs.py`; office "sent to floor" uses the same release). Tablet reads (`DeploymentGate.kt`) | Schema is frozen (Android reads it). Visibility = `deployed` (`W\gate_contract.py`); released jobs normally stay `parseReady:false` (W sets it true only on re-parse). HT `hide` DOES set `hiddenFromProduction=true`, and release tablet builds hide those jobs. Cross-host lock `.deployment_gate.lock`. Check fields, then `job_errors.json`/`worker.log`, then the `ready_jobs_operations` row |
+| `Y:\Ready Jobs\<job>\.metadata\cache_static.json` | W (`adapters\cache_publish.py`, skip-if-unchanged; `publish_jobs.py`, `job_read.py`) | HT web app only reads (legacy writer gated off, `HOURS_TRACKER_ENABLE_LEGACY_CACHE_WRITES=1`). Re-parse deletes it. Check mtime/content, then `job_errors.json`/`worker.log`. W debounces ~180 s plus a ~300 s sweep |
+| `Y:\Ready Jobs\<job>\.metadata\cache_index.json` | W (`adapters\cache_index_publish.py`; payload `cache_index_payload.py`: `compute_cnc_progress`, `compute_hardwood_progress`, `build_cache_index`) | Small list index (a few KB vs MBs for cache_static), written separately with skip-if-unchanged, so its mtime need not match cache_static. `progressSummary`: per-material CNC done/bad/skipped/renested; hardwoods per docType incl. `*Pieces`, **excluding hidden hardwood materials** (reads both `hidden_materials` files). `totalSheets` = trackable metadata pages (excludes `hiddenInApp`/`trackingExcluded`/`isPartListContinuation`; falls back to physical `pageCount`). `jobInfo` adds `isMisc`, `hasDeliverySheet`, `has3DAssets`, `lineupPosition`. Tablet list reads it (and live via `/live-index`); **no cache_static fallback** — a gated-in job without an index goes to the `needsDeep` list (`FileBackedUnifiedMetadataEngine.listJobsFromCacheIndex`) |
+| `Y:\Ready Jobs\<job>\CNC\.metadata\<pdf-stem>.json` | PGM Sorting PDF splitter (`split_pdfs_gui_v3.py`) | Canonical CNC page/part/OCR sidecar; W/RJW consume but do not author it. Tagged-v1 sidecars intentionally omit legacy OCR boxes. W deletes orphan sidecars/thumbs with no matching PDF after a 30-min grace (`adapters\cnc_orphan_cleanup.py`). Per page: `thumbnailPath`, `diagramPath` (since 2026-09-30: lossless gray PNG of the sheet image, same pixels as the PDF's), `ocrBoxes` in `ocrImageWidth` x `ocrImageHeight` pixels. Since 2026-09-30 the splitter embeds the sheet image as gray PNG at CV source size (~2450 wide) and OCR boxes are 1:1; older jobs embed a 2x-upscaled ~5100-wide JPEG with 2x boxes. Tablet maps boxes by bitmap width / `ocrImageWidth` (`SheetViewerScreen.kt` `loadCncSidecarDiagram`) |
+| `Y:\Ready Jobs\<job>\CNC\.metadata\parts\<stem>.zip`, `parts\*` | PGM Sorting splitter | Part-graphic archive; same owner as the sidecar |
+| `Y:\Ready Jobs\<job>\CNC\.metadata\remake_bad_parts_candidates.json` | W (`adapters\remake_candidates_publish.py`) | Read by PGM Sorting (`split_pdfs_gui_v3.py`); HT specialty skips it; tablet ignores it. Check `worker.log` |
+| `Y:\Ready Jobs\<job>\CNC\.metadata\misc_bad_parts_candidates.json` | W (`adapters\misc_candidates_publish.py`, added 2026-09-02) | Misc-job remake candidates. Tablet builds without the fix treat a change to this file as making `cache_static.json` stale (the stale-check skip list only names `remake_bad_parts_candidates.json`) |
+| `Y:\Ready Jobs\<job>\CNC\.tracker\events\<writerId>.ndjson` | **LIVE channel.** KST tablets append (`ProgressStore.kt`, since `633c182e` 2026-07-09); PGM Sorting appends `desktop-remake-processor.ndjson` (`unbad_part`, `process_run_folders_v2.py`); W reads (`adapters\tracker_action_reader.py`) | Append-only per writer. Ordered by `(timestamp, lamport, eventId)`. W never rotates/deletes these (compaction was not ported; streams grow). `reNested: true` on a skip = sheet re-exported into a REMAKE PDF |
+| `Y:\Ready Jobs\<job>\CNC\.tracker\<tablet>.json` | **Legacy** — tablets no longer write it (read-only union input, `ProgressStore.kt`); PGM Sorting still writes `desktop_remake_processor.json` | W folds any present into `consolidated.json` then deletes them. A missing `<tablet>.json` on a current tablet is expected, not a bug |
+| `Y:\Ready Jobs\<job>\CNC\.tracker\consolidated.json` | W (`adapters\tracker_consolidated_publish.py`; merge `cnc_tracker_merge.merge_cnc_actions`), under `.tracker\.consolidate.lock` | Merged actions incl. `reNested`; C-01 fix holds (re-emits `bad_part` + `bad_part_submitted` with original timestamps). Check `worker.log` |
+| `Y:\Ready Jobs\<job>\CNC\.tracker\watcher_refresh_watcher.json` | W (`adapters\refresh_signal_publish.py`) | Change signal (`source`/`reason`/`jobFolderName`/`updatedAt`) after a publish — not a heartbeat, not progress |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_index.json`, `cutlist_revisions.json` | W (`adapters\hardwoods_cutlist_publish.py`, transactional with journal `.cutlist_publication_transaction.json`) | Compare against hardwood source PDFs, then `worker.log` / `worker_status.json` `hardwoodsPublicationOutcomes` |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_job_mismatch.json` | W (`hardwoods_cutlist_publish.py`) | Printed job number on a cutlist PDF's page 1 ≠ folder; mismatched doc's rows excluded from the index for that pass. Deleted once every mismatch clears. Operator overrides live in `cutlist_job_mismatch_overrides.json` (below). Badge is in the HT web UI |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\cutlist_job_mismatch_overrides.json` | HT API → W `adapters\cutlist_job_mismatch_store.py` | Operator "accept anyway" ledger for mismatches |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\blank_hardwoods_documents.json` | HT API / W (`adapters\hardwoods_blank_document_store.py`) | Dismissible warnings for genuinely blank required docs (W publishes with a warning instead of aborting) |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\board_stock_manual.json` | **writer external/unconfirmed**; W, HT, tablet READ-ONLY | Manual board-stock input folded into `cache_static.json` (audit SK-05) |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\events\<tabletId>.ndjson` | **LIVE channel.** KST tablets (`HardwoodsProgressStore.kt`, atomic rewrite, since `6a282e54` 2026-07-10); W reads | Legacy `<tablet>.json` is folded into ndjson and deleted by the tablet. `batch-sync-worker.ndjson` in jobs 106/592/644d/669 is NOT tablet progress — it came from the old KST unit test `BatchSyncTest` writing to the live share (test removed on main `d9fbd52c`, 2026-09-30; files not yet cleaned) |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\<tablet>.markup.json` | KKCSheetTracker tablets (`HardwoodsProgressStore.saveTabletMarkup`, from `HardwoodsWorkspaceScreen`) | Hardwood ink markup; never action input. **Fixed 2026-09-30** (Hours Tracker `a620f8f1`): `W\adapters\tracker_device_file_cleanup.py` `_is_legacy_device_file_name` whitelists `<tabletId>.json`, so W's consolidation no longer deletes markup; W's legacy action reader and hardwoods cutlist read set also skip it. RJW's blacklist still deletes it. Live share had 0 on 2026-09-29, so markup saved before the W fix deployed is gone |
 | `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\.board_stock_*_<tablet>.json` | KKCSheetTracker tablets | Hardwood board-stock migration markers |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\watcher_refresh_watcher.json` | Ready Jobs Watcher | Hardwood refresh heartbeat |
-| `Y:\Ready Jobs\<job>\.metadata\hardwoods\hidden_materials.json` | Hours Tracker/admin workflow (backend `routes/hidden_materials_store.py`); KKCSheetTracker tablets (Hardwoods mode) read-only | Per-job hide/unhide override (`hides`/`unhides` lists) for Hardwoods-mode cutlist materials. The job's own `unhides` always wins over a global or job-level hide -- check this file before the global list when a material won't stay hidden/unhidden for one specific job |
-| `Y:\Ready Jobs\<job>\.metadata\specialty\hidden_materials.json` | Hours Tracker/admin workflow (backend `routes/hidden_materials_store.py`); KKCSheetTracker tablets (Specialty mode) read-only | Per-job hide/unhide override for Specialty-mode cutlist materials -- fully independent of the Hardwoods sibling above, same `(docType, material)` key space but never shares entries. NOT the same subtree as `.metadata\admin\specialty_items.json`/`.tracker` below (that's a separate, older Hours-Tracker-owned custom-specialty-item domain; `.metadata\specialty\` is Android-tablet-owned hidden-materials state only) |
-| `Y:\Ready Jobs\<job>\.metadata\cabinet_sheet_index.json` | Ready Jobs Watcher | Check `cabinet_sheet_indexer.py` and root PDF mtimes |
-| `Y:\Ready Jobs\.metadata\moldings\{Crown,Scribe,Base}\<profileId>.xml` | Ready Jobs Watcher (pulls from Cabinet Vision `Profile`/`Shape` tables, deletes obsolete profile files); Hours Tracker reads only | HT's molding library page caches parsed geometry by (mtime, size); check `moldings_sync.py` (skips rewrite when bytes match, not time-based), then Cabinet Vision DB connectivity (audit SK-06) |
-| `Y:\Ready Jobs\.metadata\moldings_cache\{Crown,...}\<profileId>.svg`, `<profileId>_dim.svg`, `library.json`, `usage_index.json` | Hours Tracker (`molding_cache_publish.py`), published for KKCSheetTracker to read directly (no HTTP call) | Deliberately a SIBLING of `moldings\`, not a child — nesting it inside would make it show up as a bogus CV category. This is the ONLY bridge from HT's own molding sidecar stores to the tablet: `library.json`'s `moldings[].frameStyle` field and each `_dim.svg`'s baked-in lines are how `molding_frame_style.json` and `molding_dimensions.json` actually reach KKCSheetTracker, even though those sidecar files themselves never leave HT's `DATA_DIR`. Full rebuild via `publish_library_cache()` on every `PUT .../dimensions` or `PUT .../frame-style`, plus a 5-minute reconciliation sweep; stale cache after a tag/dimension edit means check the sweep/publish call, not Ready Jobs Watcher (audit SK-07) |
-| `Y:\Ready Jobs\<job>\.metadata\pdf_markup\.tracker\<tablet>.markup.json` | KKCSheetTracker tablets | Root/reference PDF markup |
-| `Y:\Ready Jobs\<job>\.metadata\pdf_markup\.tracker\<tablet>.json` | KKCSheetTracker tablets | Legacy PDF markup fallback |
-| `Y:\Ready Jobs\.metadata\crashes\*.json` | KKCSheetTracker Android | Read latest crash JSON, then match app version and route/screen |
-| `Y:\Ready Jobs\.metadata\material_mappings.json` | **writer external/unconfirmed**; Hours Tracker + KKCSheetTracker READ-ONLY | Shared material mapping for door-panel/specialty automation. HT backend only reads (`specialty_store.py:31`); no writer among the 3 audited programs (audit SK-04) |
-| `Y:\Ready Jobs\.metadata\themes\active_theme.json`, `themes\*.json`, `themes\graphics\*.svg` | **external theme tool** (NOT Hours Tracker backend); KKCSheetTracker reads | Global tablet theme/graphics. HT backend has zero refs to these (audit SK-03) |
-| `Y:\Ready Jobs\.metadata\timeclock_messages.json` | **external message tool** (NOT Hours Tracker backend); KKCSheetTracker reads | Global shop/tablet timeclock messages. HT backend has zero refs (audit SK-03) |
-| `Y:\Ready Jobs\.metadata\sync_conflicts\<id>\manifest.json` | Ready Jobs Watcher | Root/global Syncthing conflict archive manifest |
-| `Y:\Ready Jobs\production_order.json` | Hours Tracker/admin workflow; Ready Jobs Watcher reads it | Check Hours Tracker admin state, then cache refresh into jobs |
-| `Y:\Ready Jobs\production_order_request.<tabletId>.json` | KKCSheetTracker tablet writes; Hours Tracker consumes | Per-tablet lineup request; malformed input may be quarantined, but transient I/O/lock/write failure must leave it for retry |
-| `Y:\Ready Jobs\job_board.json` | Hours Tracker/admin workflow | Check Hours Tracker admin UI/backend first |
-| `Y:\Ready Jobs\job_board_request.<tabletId>.json` | KKCSheetTracker tablet writes; Hours Tracker consumes | Per-tablet board request; apply oldest-first and preserve on transient failure |
-| `Y:\Ready Jobs\.metadata\delivery_schedule.json` | Hours Tracker/admin workflow | Check Hours Tracker backend/admin paths |
-| `Y:\Ready Jobs\delivery_schedule_request.<tabletId>.json` | KKCSheetTracker tablet writes; Hours Tracker consumes | Request lives at Ready Jobs root, while master lives under `.metadata`; preserve on transient failure |
-| `Y:\Ready Jobs\.metadata\hardwoods\hidden_materials_global.json` | Hours Tracker/admin workflow (backend `routes/hidden_materials_store.py`); KKCSheetTracker tablets (Hardwoods mode) read-only | Global auto-hide list, applies to every job going forward, for Hardwoods-mode cutlist materials. Check the WebSocket live connection state and the sidecar-request poller before assuming a stale hide/unhide |
-| `Y:\Ready Jobs\.metadata\specialty\hidden_materials_global.json` | Hours Tracker/admin workflow (backend `routes/hidden_materials_store.py`); KKCSheetTracker tablets (Specialty mode) read-only | Global auto-hide list for Specialty-mode cutlist materials -- fully independent of the Hardwoods sibling above, never shares entries even for the same `(docType, material)` pair |
-| `Y:\Ready Jobs\.metadata\{hardwoods,specialty}\hidden_materials_request.<tabletId>.json` (global scope) and `Y:\Ready Jobs\<job>\.metadata\{hardwoods,specialty}\hidden_materials_request.<tabletId>.json` (job scope) | KKCSheetTracker tablet writes; Hours Tracker backend consumes | Durable per-tablet hide/unhide request sidecar, placed beside whichever master file (global or that job's mode dir) the action targets. Same invariant as `production_order_request`/`job_board_request`: malformed payloads are quarantined/consumed, transient I/O/lock/write failures must leave the file in place for retry |
-| `Y:\Ready Jobs\.supply\categories.json` | Hours Tracker/admin workflow; tablets can read/write status | Supply category list/order |
-| `Y:\Ready Jobs\.supply\schema.json` | Hours Tracker/admin workflow | Custom supply field schema |
-| `Y:\Ready Jobs\.supply\items\<itemId>.json` | Hours Tracker/admin workflow; tablets can create/update | Supply item record |
-| `Y:\Ready Jobs\.supply\status\<itemId>.<device>.json` | KKCSheetTracker tablets and Hours Tracker admin | Per-device supply item status |
-| `Y:\Ready Jobs\.supply\comments\<itemId>\<commentId>.json` | KKCSheetTracker tablets and Hours Tracker admin | Supply item comments |
-| `Y:\Ready Jobs\.supply\attachments\<itemId>\*` | Hours Tracker/admin workflow | Supply item uploaded attachments |
-| `Y:\Ready Jobs\.safety\concerns\<id>.json` | KKCSheetTracker tablets (writer, `SafetyRepository.kt`) and Hours Tracker admin (writer via `POST /api/safety/concerns`) | Safety concern report; both writers use the same shared base path, `safety_store.get_safety_dir()` |
-| `Y:\Ready Jobs\.safety\status\<id>.<tabletId\|server>.json` | KKCSheetTracker tablets and Hours Tracker admin | Latest-status-wins per concern (`OPEN`/`ACKNOWLEDGED`/`IN PROGRESS`/`RESOLVED`); resolved by max `at` across all `<id>.*.json` files |
-| `Y:\Ready Jobs\.safety\comments\<id>\<commentId>.json` | KKCSheetTracker tablets and Hours Tracker admin | Safety concern comment thread |
-| `Y:\Ready Jobs\.safety\attachments\*` | KKCSheetTracker tablets and Hours Tracker admin | Safety concern uploaded photos |
-| `Y:\Ready Jobs\<job>\.metadata\admin\rip_items.json` | Hours Tracker/admin workflow | Check Hours Tracker admin state before Android |
-| `Y:\Ready Jobs\<job>\.metadata\admin\checklist.json` | Hours Tracker/admin workflow; consumes tablet patch sidecars at read time | `admin_store.get_checklist` merges `checklist_patch.<tablet>.json` sidecars into this file and DELETES them — but only OUTSIDE a read-only context. A read inside `read_only_context()` (e.g. the handoff `checklist` source / `GET /api/handoff/sources`) merges in memory and leaves the sidecars intact (`admin_store.py:127,150,164`). Check HT admin state |
-| `Y:\Ready Jobs\<job>\.metadata\admin\checklist_patch.<tablet>.json` | KKCSheetTracker tablets (writer); Hours Tracker admin read CONSUMES | Tablet-authored checklist completion overlay (H-04 write-contention fix). The admin GET path folds it into `checklist.json` and unlinks it; read-only handoff discovery must NOT consume it — that gating lives in `admin_store._apply_checklist_patches` / `get_checklist` |
-| `Y:\Ready Jobs\<job>\.metadata\admin\rule_applications.json` | Hours Tracker/admin workflow | Check Hours Tracker admin rule code |
-| `Y:\Ready Jobs\<job>\.metadata\admin\board_stock.json` | Hours Tracker/admin workflow | Check Hours Tracker board stock/admin paths |
-| `Y:\Ready Jobs\<job>\.metadata\admin\specialty_items.json` | Hours Tracker/admin workflow; KKCSheetTracker may patch item fields | Check admin state and tablet specialty progress writes |
-| `Y:\Ready Jobs\<job>\.metadata\admin\.tracker\<tablet>.json` | KKCSheetTracker tablets | Specialty item/station completion state |
-| `Y:\Ready Jobs\<job>\.metadata\admin\tablet_items_<tablet>.json` | KKCSheetTracker tablets | Tablet-created specialty items |
-| `Y:\Ready Jobs\<job>\.metadata\admin\sheet_rip_done.json` | **KKCSheetTracker tablets (writer); Hours Tracker READ-ONLY** | Manual sheet-rip completion state. HT only reads (`board_stock_store.py:232`); tablet is sole writer but shares one filename (lost-update risk, audit H-04/SK-02) |
-| `Y:\Ready Jobs\<job>\.metadata\admin\checklist_attachments\<itemId>\*` | Hours Tracker/admin workflow; KKCSheetTracker reads | Uploaded checklist attachments |
-| `Y:\Ready Jobs\<job>\.metadata\admin\specialty_attachments\<itemId>\*` | Hours Tracker/admin workflow; KKCSheetTracker reads | Uploaded specialty attachments |
-| `Y:\Ready Jobs\<job>\.metadata\sync_conflicts\<id>\manifest.json` | Ready Jobs Watcher | Per-job Syncthing conflict archive manifest |
-| `Y:\Ready Jobs\.time_cards\employees.json` | Hours Tracker | Check employee source and backend sync |
-| `Y:\Ready Jobs\.time_cards\<Employee>\<YYYY-MM-DD>.json` | Hours Tracker Android/backend | Check weekly JSON first; SQLite is reporting cache |
-| `Y:\Ready Jobs\.time_cards\<Employee>\<YYYY-MM-DD>.json.lock` | Hours Tracker Android/backend | Fresh tablet timecard active-write lease |
-| `Y:\Ready Jobs\.time_cards\<Employee>\profile.json` | Hours Tracker Android primary; server reads/limited writes | Player profile, coins, stats, avatar, shop history |
-| `Y:\Ready Jobs\.time_cards\<Employee>\profile.json.lock` | Hours Tracker Android/backend | Active profile/session lease |
-| `Y:\Ready Jobs\.time_cards\<Employee>\granted_badges.json` | Hours Tracker backend; Android reads | Server-granted badges/XP |
-| `Y:\Ready Jobs\.time_cards\<Employee>\activity_events.json` | Hours Tracker Android/backend | Badge/streak/shop activity feed |
-| `Y:\Ready Jobs\.time_cards\<Employee>\alerts.json` | Hours Tracker backend | Server-authored employee alerts |
-| `Y:\Ready Jobs\.time_cards\<Employee>\acknowledgements.json` | Hours Tracker Android | Tablet-authored alert acknowledgements |
-| `Y:\Ready Jobs\.time_cards\<Employee>\avatar_pending.jpg` | Hours Tracker backend | Uploaded avatar staged for tablet adoption |
-| `Y:\Ready Jobs\.time_cards\badges_config.json` | Hours Tracker backend; Android reads | Central badge definitions |
-| `Y:\Ready Jobs\.time_cards\custom_badges.json` | Hours Tracker backend legacy migration | Legacy custom badge source migrated into `badges_config.json` |
-| `Y:\Ready Jobs\.time_cards\.badge_images\*` | Hours Tracker backend; Android reads | Uploaded badge artwork |
-| `Y:\Ready Jobs\.time_cards\challenges.json` | Hours Tracker backend; Android reads | Weekly challenge catalog |
-| `Y:\Ready Jobs\.time_cards\pending_edits.json` | Hours Tracker | Check locks if edits are queued but not applied |
-| `Y:\Ready Jobs\.time_cards\loaded_cards.json` | Hours Tracker | Check export/double-count state |
-| `Y:\Ready Jobs\.time_cards\.locks\{shop,timecards,alerts,badges,employees}.lock` | Hours Tracker backend | Multi-server admin edit locks |
-| `Y:\Ready Jobs\.time_cards\*.json.tmp`, per-employee `*.json.tmp` | Hours Tracker backend | Transient atomic-write temp files |
-| `Y:\TimeCardUpdater\version.json` and `TimeCardTracker.exe` | Hours Tracker updater publishing | Use only for Hours Tracker PC app, not KKCSheetTracker |
-| `Y:\Ready Jobs\.Updates\*.apk`, `Y:\Ready Jobs\Updates\*.apk` | KKCSheetTracker legacy updater | Release/manual APK update folders |
-| `Y:\Ready Jobs\.Testing_Updates\*.apk` | KKCSheetTracker and Hours Tracker Android testing updates | Debug/testing APK update folder; verify package name |
-| `Y:\Ready Jobs\.appupdates\device_policy.json` | updater-agent and KKCSheetTracker fallback updater | Silent-update policy |
-| `Y:\Ready Jobs\.appupdates\apps\manifest.json` | update publishing workflow; updater-agent reads | Update feed with package/version/apk/hash/channel |
-| `Y:\Ready Jobs\.appupdates\apps\<packageName>\<apkFile>.apk` | update publishing workflow; updater-agent installs | Actual APK artifact |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker\watcher_refresh_watcher.json` | W (`hardwoods_cutlist_publish.py`) | Change signal after cutlist publish |
+| `Y:\Ready Jobs\<job>\.metadata\hardwoods\hidden_materials.json` | HT (`routes\hidden_materials_store.py`); tablets (Hardwoods mode) read-only; W reads for cache_index | Per-job `hides`/`unhides`; the job's `unhides` always wins over a global or job hide |
+| `Y:\Ready Jobs\<job>\.metadata\specialty\hidden_materials.json` | HT (same store, specialty mode subdir); tablets (Specialty mode) read-only | Independent of the Hardwoods sibling (same key space, never shares entries). Not the same subtree as `.metadata\admin\` specialty items |
+| `Y:\Ready Jobs\<job>\.metadata\cabinet_sheet_index.json` | W (`adapters\cabinet_reference_publish.py`, parser `cabinet_reference_parser.py`) | Re-parse deletes it. Check root PDF mtimes, then `worker.log` |
+| `Y:\Ready Jobs\<job>\.metadata\duplicate_suspect.json` | W (`adapters\duplicate_job_guard.py`) | Duplicate-folder guard marker; cleared via HT `DELETE .../duplicate-suspect` |
+| `Y:\Ready Jobs\<job>\.metadata\sync_conflicts\<id>\manifest.json` (and `manifest-N.json`) | W (`adapters\sync_conflict_resolver.py`) | Per-job Syncthing conflict archive; same at root `Y:\Ready Jobs\.metadata\sync_conflicts\`. Orphan `manifest-N.json.<pid>.<hex>.tmp` files are leftovers |
+| `Y:\Ready Jobs\.metadata\moldings\{Crown,Scribe,Base}\<profileId>.xml` | `cv-molding-sync` on the CV PC; HT reads only | Check `C:\Scripts\cv-molding-sync\cv_molding_sync.log` (one line per run), then `Get-ScheduledTaskInfo "KKC CV Molding Sync"`, then CV DB. Byte-compatible with RJW's output; skips rewrite when bytes match; prunes profiles that disappear or move category (audit SK-06, SK-08) |
+| `Y:\Ready Jobs\.metadata\moldings_cache\{Crown,...}\<profileId>.svg`, `<profileId>_dim.svg`, `library.json`, `usage_index.json` | HT (`routes\molding_cache_publish.py`); tablet reads directly | SIBLING of `moldings\`, not a child (else it would appear as a CV category). The only bridge from HT's molding sidecars to the tablet: `library.json` carries `frameStyle` and `hidden` (from `molding_hidden.json`); `_dim.svg` bakes in dimensions. Rebuilt by `publish_library_cache()` on dimension/frame-style/hidden edits plus a 5-minute sweep; `usage_index.json` by `publish_usage_index()` (audit SK-07) |
+| `Y:\Ready Jobs\<job>\.metadata\pdf_markup\.tracker\<tablet>.markup.json` | KKCSheetTracker tablets (`PdfMarkupStore.kt`) | Root/reference PDF markup |
+| `Y:\Ready Jobs\<job>\.metadata\pdf_markup\.tracker\<tablet>.json` | Legacy — tablet only reads it as a fallback | Old PDF markup |
+| `Y:\Ready Jobs\.metadata\crashes\<ts>_<tabletId>_crash.json` | KKCSheetTracker (`crash\CrashReportStore.kt`) | Root, not per-job. Match app version and route/screen |
+| `Y:\Ready Jobs\.metadata\cpu_spikes\<ts>_<tabletId>_cpuspike.json` | KKCSheetTracker (`perf\CpuSpikeLogStore.kt`, added 2026-09-17) | Performance counterpart of `crashes\` |
+| `Y:\Ready Jobs\.metadata\material_mappings.json` | **writer external/unconfirmed**; HT + tablet READ-ONLY | Door-panel/specialty mapping. A stray `material_mappings.json.lock` on Y suggests an unknown locking writer; PGM Sorting has a same-named LOCAL file (audit SK-04) |
+| `Y:\Ready Jobs\.metadata\themes\active_theme.json`, `themes\*.json`, `themes\graphics\*.svg` | `kkc-theme-generator` skill → `C:\Scripts\KKCSheetTracker\themes\generated\*.json`, copied to the share **by hand**; tablet reads (`KKCThemeRepository.kt`) | Not HT-owned. Schema includes `category`, `boldMode`, `secondary`, `header.badgeText`/`badgeLogoPath` |
+| `Y:\Ready Jobs\.metadata\timeclock_messages.json` | **external message tool** (no writer in any repo); tablet reads | Global shop/tablet timeclock messages (audit SK-03) |
+| `C:\Scripts\PGM_MixService\definitions.json`, `operations.json` | CNC PGM Mix Service | Mix definitions + async operation history; inspect `GET /mixes`, `GET /operations/{id}` before recompiling |
+| `C:\Scripts\PGM_MixService\config.json`, `logs\service.log`, `logs\service-{stdout,stderr}.log` | CNC PGM Mix Service | `GET /status`, then `service.log`; `config.json` must point at the CNC root and `WINXISO.EXE` |
+| `Y:\Ready Jobs\production_order.json` | HT admin **and** W (archive removal/rollback `adapters\archive_lifecycle.py`, `archive_scheduling.py`; rename `job_rename.py`); W reads via `adapters\lineup_read.py` | Check HT admin state, then worker lineup refresh / archive operations |
+| `Y:\Ready Jobs\production_order_request.<tabletId>.json` | KST tablet writes (after `/api/admin-sync` fails); HT consumes (`main_v2._apply_production_order_requests`) | Per-tablet; malformed → quarantined as `<name>.rejected`; transient failure must leave it for retry |
+| `Y:\Ready Jobs\job_board.json` | HT admin (`routes\board.py`, `board` lock) **and** W archive/rename | Check HT admin UI/backend, then archive operations |
+| `Y:\Ready Jobs\job_board_request.<tabletId>.json` | KST tablet writes; HT consumes (`_apply_job_board_edit_requests`) | Oldest-first; preserve on transient failure |
+| `Y:\Ready Jobs\.metadata\delivery_schedule.json` | HT (`main_v2.py`, `routes\delivery.py`) **and** W archive removal; live WS `/api/delivery-schedule/live` | Check HT backend/admin, then the socket |
+| `Y:\Ready Jobs\delivery_schedule_request.<tabletId>.json` | KST tablet writes; HT consumes (`_apply_delivery_schedule_request`) | Request at root; master under `.metadata`; preserve on transient failure |
+| `Y:\Ready Jobs\.metadata\{hardwoods,specialty}\hidden_materials_global.json` | HT (`routes\hidden_materials_store.py`); tablets read-only; W reads (hardwoods) for cache_index | Global auto-hide lists per mode, never shared between modes. Check the live socket and the request poller before assuming a stale hide/unhide |
+| `...\{hardwoods,specialty}\hidden_materials_request.<tabletId>.json` (global under `Y:\Ready Jobs\.metadata\`, job scope under `<job>\.metadata\`) | KST tablet writes; HT consumes (`main_v2.py` poller) | Durable per-tablet sidecar beside the targeted master; quarantine malformed, retry transient |
+| `Y:\Ready Jobs\.supply\categories.json` | HT **and** tablets (tablets append categories, whole-list read-modify-write, audit H-07) | Supply category list/order |
+| `Y:\Ready Jobs\.supply\schema.json` | HT; tablets read-only | Custom supply field schema |
+| `Y:\Ready Jobs\.supply\items\<itemId>.json` | HT and tablets (create/update/**delete**) | Supply item record |
+| `Y:\Ready Jobs\.supply\status\<itemId>.<tabletId>.json`, `<itemId>.admin.<hostname>.json` | Tablets and HT (per-writer names) | Latest parsed instant wins; conflict copies ignored |
+| `Y:\Ready Jobs\.supply\comments\<itemId>\<commentId>.json` | Tablets and HT (per-UUID) | Supply item comments |
+| `Y:\Ready Jobs\.supply\attachments\<itemId>\*` | HT **and** tablets (binary copy) | Supply item attachments |
+| `Y:\Ready Jobs\.supply\barcodes.json` | HT (`supply_store.link_barcode`/`unlink_barcode`) **and** tablets (`SupplyBarcodeStore.kt`) | Whole-map read-modify-write, same risk class as H-07 |
+| `Y:\Ready Jobs\.safety\concerns\<id>.json` | Tablets (`SafetyRepository.kt`) and HT (`POST /api/safety/concerns`) | Both use `safety_store.get_safety_dir()` → `get_base_path()` |
+| `Y:\Ready Jobs\.safety\status\<id>.<tabletId\|server>.json` | Tablets and HT | Latest `at` wins across `<id>.*.json` (legacy `<id>.json` accepted; falls back to `updatedAt`/`createdAt`) |
+| `Y:\Ready Jobs\.safety\comments\<id>\<commentId>.json`, `.safety\attachments\*` | Tablets and HT | Comment thread / photos |
+| `Y:\Ready Jobs\.safety\safety_meetings\*.pdf`, `.safety\*.pdf` | Manual (SDS book, plans); tablet reads (`SafetyDocumentsScreenLogic.kt`) | Reference PDFs, not concerns |
+| `Y:\Ready Jobs\<job>\.metadata\admin\rip_items.json` | HT (`routes\admin_store.py`) | Check HT admin state before Android |
+| `Y:\Ready Jobs\<job>\.metadata\admin\checklist.json` | HT; consumes tablet `checklist_patch` sidecars at read time | `admin_store.get_checklist` merges `checklist_patch.<tablet>.json` and DELETES them — except inside `read_only_context()` (handoff `checklist` source / `GET /api/handoff/sources`), which merges in memory only (`admin_store.py:128,152,167`) |
+| `Y:\Ready Jobs\<job>\.metadata\admin\checklist_patch.<tablet>.json` | Tablets write; HT admin GET CONSUMES | Tablet **item-field edit** overlay (text, cabinetNumbers, supplier, modelNumber, orderDate, trackingNumber, orderUrl, notes, qty, material, dims; H-04 fix). Completion itself goes to `admin\.tracker\<tablet>.json` |
+| `Y:\Ready Jobs\<job>\.metadata\admin\specialty_items.json` | HT only (tablet edits arrive via the sidecar below; HT also stores `deletedTabletItemIds` here) | Check admin state, then pending `specialty_patch` sidecars |
+| `Y:\Ready Jobs\<job>\.metadata\admin\specialty_patch.<tablet>.json` | Tablets write (`SpecialtyProgressStore.kt`); HT merges + DELETES (`specialty_store._apply_specialty_patches`) | Same consume-on-read hazard as `checklist_patch` |
+| `Y:\Ready Jobs\<job>\.metadata\admin\deleted_specialty_items.json` | HT (`specialty_store.py`) | Deleted-item ledger |
+| `Y:\Ready Jobs\<job>\.metadata\admin\rule_applications.json` | HT | Check HT admin rule code |
+| `Y:\Ready Jobs\<job>\.metadata\admin\board_stock.json` | HT (`board_stock_store.py`); tablet + W read | Board stock/admin |
+| `Y:\Ready Jobs\<job>\.metadata\admin\.tracker\<device>.json` | Tablets **and** HT (`.tracker\Admin.json`) | Specialty item/station completion state |
+| `Y:\Ready Jobs\<job>\.metadata\admin\tablet_items_<tablet>.json` | Tablets (HT rewrites on delete, audit M-02b) | Tablet-created specialty items |
+| `Y:\Ready Jobs\<job>\.metadata\admin\sheet_rip_done.json` | **Tablets (writer); HT READ-ONLY** (`board_stock_store.py:271-287`) | Shared filename, lost-update risk (H-04/SK-02) |
+| `Y:\Ready Jobs\<job>\.metadata\admin\checklist_attachments\<itemId>\*` | HT; tablet reads | Checklist attachments |
+| `Y:\Ready Jobs\<job>\.metadata\admin\specialty_attachments\<itemId>\*` | HT (`routes\admin.py`); tablet reads | Tablet builds without `resolveSpecialtyAttachmentFile` (fix `ff0610ca`, not on main as of 2026-09-30) look only in `checklist_attachments` and cannot open these |
+| `Y:\Ready Jobs\.time_cards\employees.json` | HT (only writer), fed by timeclock-hub roster push (`POST /api/employees/sync`) and HT pull | Fields include `displayName`, `rtcId`, `addedBy`, `timeclockInactive`; tablet reads `displayName`. Logs prefixed `timeclock-hub sync:`. Pre-PIN backups `employees.*.pre-pin-migration.json`, `employees.json.bak-*` |
+| `Y:\Ready Jobs\.time_cards\<PIN>\...` | — | Employee folders are keyed by **PIN** (migration 2026-09-22, `HT\scripts\migrate_employee_directories_to_pin.py`); leftover name folders still exist. Rows below use `<PIN>` |
+| `...\.time_cards\<PIN>\<YYYY-MM-DD>.json` (+ `.json.lock` lease `ts,deviceId`, 5-min expiry) | HT Android/backend | Weekly JSON is truth; `hours.db` is reporting cache |
+| `...\.time_cards\<PIN>\profile.json` (+ `.lock`) | HT Android primary; backend reads/limited writes (avatar, merge) | Profile, coins, stats, avatar, shop history |
+| `...\.time_cards\<PIN>\granted_badges.json`, `alerts.json` | HT backend; Android reads | Server-granted badges/XP; server alerts |
+| `...\.time_cards\<PIN>\activity_events.json` | HT Android/backend | Badge/streak/shop activity feed |
+| `...\.time_cards\<PIN>\acknowledgements.json` | HT Android | Alert acknowledgements |
+| `...\.time_cards\<PIN>\notes\<id>.json` (recipient's folder), `remote_acks\<id>.json` (sender's folder), legacy `notes.json` | HT Android writes into OTHER employees' folders | Cross-employee notes/acks |
+| `...\.time_cards\<PIN>\avatar_pending.jpg` → `.avatar.jpg` | Backend stages; Android copies to `.avatar.jpg` and truncates the pending file | Avatar adoption |
+| `...\.time_cards\<PIN>\backups\<week>.json`, `backups\merged_from_*` | Android / HT merge | Per-employee backups |
+| `Y:\Ready Jobs\.time_cards\badges_config.json`, `.badge_images\*`, `challenges.json` | HT backend; Android reads | Badge definitions/art, weekly challenges (`custom_badges.json` = legacy migration source) |
+| `Y:\Ready Jobs\.time_cards\shop_catalog.json`, `shop_images\` | HT backend; Android reads | Shop catalog |
+| `Y:\Ready Jobs\.time_cards\limited_purchases\<claimId>.json` | Android writes; HT processes | Limited-item claims |
+| `Y:\Ready Jobs\.time_cards\pending_edits.json`, `loaded_cards.json`, `pending_deletions.json` | HT | Queued edits / export double-count state / deletions |
+| `Y:\Ready Jobs\.time_cards\.archive\<PIN>_<Name>_<stamp>\` | HT (`employee_archive_store.py`, from hub sync) | Archived employees |
+| `Y:\Ready Jobs\.time_cards\.locks\{shop,timecards,alerts,badges,employees,board,challenges,delivery,handoff,sync_conflicts}.lock` | HT (`lock_manager.py`) | Multi-server admin edit locks |
+| `.time_cards` temp files: `.<name>.<rand>.tmp` (HT backend), `*.json.tmp` / `<date>.tmp` (HT Android) | HT backend / Android | Transient. Root 1-byte `*.json.lock` files are pre-fix leftovers (locks now live in the OS temp dir) |
+| `.time_cards\timeclock_sync_state.json`, `.metadata\cache_static.json`, `CNC\`, `.badges.json`, `.json` | **No writer at any repo HEAD** — orphans | Ignore / candidates for cleanup |
+| `Y:\TimeCardUpdater\version.json`, `TimeCardTracker.exe` | HT updater publishing (manual copy) | HT PC app only, not KKCSheetTracker |
+| `Y:\Ready Jobs\.Updates\*.apk`, `.Testing_Updates\*.apk` | `KKCSheetTracker\deploy_update.ps1` copies release APKs; KST and HT Android updaters read | Verify package name. `Y:\Ready Jobs\Updates` does not exist |
+| `Y:\Ready Jobs\.appupdates\device_policy.json` | Writer manual/unconfirmed; **updater-agent only** reads | Silent-update policy |
+| `Y:\Ready Jobs\.appupdates\apps\manifest.json`, `apps\<packageName>\<apk>` | `KKCSheetTracker\deploy_update.ps1` (tmp + Move-Item); updater-agent reads/installs | Update feed with package/version/apk/hash/channel |
 | `Y:\Ready Jobs\.appupdates\<tabletId>\install-log.ndjson` | updater-agent | Per-tablet install audit log |
-| `Y:\Ready Jobs\.appupdates\<tabletId>\updater-fallback-required.json` | updater-agent writes; KKCSheetTracker reads | Signal to use legacy update prompt |
-| `Y:\Ready Jobs\.appupdates\migration_complete.json` | KKCSheetTracker | Migration completion marker |
+| `Y:\Ready Jobs\.appupdates\<tabletId>\updater-fallback-required.json` | updater-agent writes; **no reader** (KST fallback popups removed 2026-09-22, `d11e463f`) | Informational only |
+| `Y:\Ready Jobs\.appupdates\migration_complete.json`, `migration_summary.json`, `<tabletId>\signals.ndjson` | KST `tools-migration` CLI (`MigrationCli.kt`); the app only reads `migration_complete.json` as its view-only gate | Migration markers. `tablet_id.txt`, `desktop-remake-processor\`, `unknown-tablet\` have no known writer |
 
-Important caveat: Hours Tracker normally does not own `<job>\.metadata\cache_static.json` or `<job>\.metadata\cache_index.json`. It only reads those files unless emergency legacy writes are enabled with `HOURS_TRACKER_ENABLE_LEGACY_CACHE_WRITES=1`.
+Caveat: the HT **web app** never writes `cache_static.json`/`cache_index.json` unless emergency legacy writes are enabled (`HOURS_TRACKER_ENABLE_LEGACY_CACHE_WRITES=1`); HT's **worker** (W) is their normal writer.
 
-Second caveat: if a Cabinet Vision molding profile is renamed or removed, Ready Jobs Watcher deletes its obsolete `.xml` (`moldings_sync.py:186-193`); dimensions saved under that `moldingId` in `molding_dimensions.json` are not deleted, just orphaned until re-linked to a live profile.
+Second caveat: `moldingId` includes the category (`"Crown:105"`). When a CV profile is removed or moves category, `cv-molding-sync` deletes the old `.xml`; dimensions saved under the old `moldingId` in `molding_dimensions.json` are orphaned, not deleted.
 
 ## Cross-System Contract Invariants
 
-- Every metadata reader that globs shared files must exclude `.sync-conflict-*`, including NDJSON tracker streams and supply items, statuses, and comments. Do not assume a conflict filter in one loader protects sibling loaders.
-- CNC and hardwood event ordering is `(timestamp, lamport, eventId, stable tie-breakers)` everywhere. Keep Android replay, watcher consolidation, and `consolidated.json` consistent.
-- A compactor must not unlink a live per-tablet event stream after only an mtime/size check. That has a stat-to-unlink race. Use rotation/acknowledgement or an equivalent protocol that cannot delete a late append.
-- Tablet request sidecars are per-tablet and consumed oldest-first. Distinguish malformed payloads from operational failures: quarantine/consume invalid input; retry transient I/O, lock, or master-write failures without deleting the request.
-- Supply schema field `id` and `key` values must be nonblank and unique. Built-in definitions must stay canonical across Hours Tracker and Android. Supply per-writer status/comment JSON must be atomic, and latest-status resolution must ignore conflict copies and compare parsed instants.
-- timeclock-hub SQLite is the punch source of truth. Punch duration rounds up to 15 minutes; sessions under 7 minutes are deleted silently; hub timezone is `America/Los_Angeles`.
-- In the hub database, `employees.display_name` is the numeric RTC display ID and `nickname` is the RTC human label. In API responses, `display_name` is the effective human RTC name. Android must not discard it as though it were the numeric database field.
-- Updater policy/manifest data is privileged input. Require a non-empty signer allowlist for every managed package, reject duplicate/blank package entries, and prove resolved APK paths remain under `.appupdates\apps\<packageName>`.
+- Every metadata reader that globs shared files must exclude `.sync-conflict-*` (all three programs do since H-03, 2026-07-09; W also archives them via `scan_and_resolve_sync_conflicts`). The risk is a NEW glob that forgets the filter.
+- CNC and hardwood event ordering is `(timestamp, lamport, eventId, stable tie-breakers)` everywhere (tablet `TrackerEventLog.kt`, W `tracker_action_reader.py`). The merge functions re-sort by timestamp only, which is safe only because Python's sort is stable — keep it that way.
+- A compactor must not unlink a live per-writer event stream after only an mtime/size check. W never deletes `.ndjson`; its legacy `<tablet>.json` deletion still uses a re-stat mtime/size check (accepted race, audit M-10). Any cleanup of a tracker dir must whitelist `<tabletId>.json` and never touch `*.markup.json` or other sidecars.
+- Tablet request sidecars are per-tablet and consumed oldest-first. Quarantine malformed payloads (`<name>.rejected`); retry transient I/O, lock, or master-write failures without deleting the request.
+- Supply schema field `id`/`key` values must be nonblank and unique; built-in definitions identical across HT and Android. Per-writer status/comment JSON must be atomic; latest-status resolution ignores conflict copies and compares parsed instants.
+- timeclock-hub SQLite is the punch source of truth. Punch duration rounds up to 15 minutes; sessions under 7 minutes are deleted (logged; a live punch-out already pushed to the RTC is first kept as a 0-hour record and removed next sync). Hub timezone `America/Los_Angeles`.
+- In the hub DB, `employees.display_name` is the numeric RTC display ID and `nickname` is the human label. In API responses `display_name` is the effective human name (`''` when it equals the real name; duplicate-diagnostics payloads return the raw DB ID under the same key).
+- Updater policy/manifest data is privileged input: non-empty signer allowlist per managed package, reject duplicate/blank package entries, resolved APK paths must stay under `.appupdates\apps\<packageName>`.
+- Nothing but a tablet (or an explicitly approved tool) may write tablet-owned progress into live `Y:\Ready Jobs`. Tests must never target the live share.
 
 ## Local State
 
 | Path / State | Owner | First Debug Check |
 |---|---|---|
-| `C:\Scripts\Ready Jobs Watcher\config.json`, `.backup` | Ready Jobs Watcher | Root path, debounce, snapshot, queue, Assimp settings |
-| `C:\Scripts\Ready Jobs Watcher\pending_queue.json`, `.backup`, `.save_backup`, `.tmp` | Ready Jobs Watcher | Restart-resumable delayed PDF/folder work |
-| `C:\Scripts\Ready Jobs Watcher\tracker_bad_parts_state.json` | Ready Jobs Watcher | Active/seen/ack bad-part alert state |
-| `C:\Scripts\Ready Jobs Watcher\metadata_snapshots\<job>\<date>\<stamp-reason>\manifest.json` | Ready Jobs Watcher | Snapshot inventory of per-job/global metadata |
-| `C:\Scripts\Ready Jobs Watcher\*.log` | Ready Jobs Watcher | Main diagnostics; include `ready_jobs_watcher.log`, `cnc_scan.log`, `backup.log` |
-| `C:\Scripts\Ready Jobs Watcher\bad_parts_blacklist.json`, `permanently_ignored_blacklist.json` | Ready Jobs Watcher legacy bad-parts flow | Legacy PDF-highlight suppression |
-| `C:\Scripts\Hours Tracker\config.json`, `%APPDATA%\TimeCardTracker\config.json` | Hours Tracker | Local paths for update share, Excel export, timecards, DB |
-| `C:\Scripts\Hours Tracker\backend\hours.db`, `%APPDATA%\TimeCardTracker\hours.db`, Docker `/data/hours.db` | Hours Tracker | SQLite reporting/read cache; JSON remains source of truth |
-| `hours.db-wal`, `hours.db-shm` | SQLite | WAL sidecars for the Hours Tracker reporting DB |
-| `C:\Scripts\Hours Tracker\backend\weekly_backup_log.json`, `%DATA_DIR%\weekly_backup_log.json` | Hours Tracker | Last weekly Excel backup/export run |
-| `C:\Scripts\Hours Tracker\backend\results\*.json`, `dist\results\*.json` | Hours Tracker | Import/export/report result payloads served by backend |
-| `C:\Scripts\Hours Tracker\backend\employee_mapping.json` | Hours Tracker | Alias/canonical employee mapping for imports/admin |
-| `C:\Scripts\Hours Tracker\backend\checklist_rules.json`, `%DATA_DIR%\checklist_rules.json` | Hours Tracker | Global checklist automation rules |
-| `C:\Scripts\Hours Tracker\backend\board_stock_materials.json`, `%DATA_DIR%\board_stock_materials.json` | Hours Tracker | Remembered board-stock material names |
-| `C:\Scripts\Hours Tracker\backend\molding_dimensions.json`, `%DATA_DIR%\molding_dimensions.json` | Hours Tracker | User-assigned molding dimension overrides (segment/overall/manual), keyed by `moldingId` (e.g. `"Crown:105"`); lives outside `Y:\Ready Jobs`, never touched by Ready Jobs Watcher (audit SK-06) |
-| `C:\Scripts\Hours Tracker\backend\molding_frame_style.json`, `%DATA_DIR%\molding_frame_style.json` | Hours Tracker | Crown-only Face Frame/Frameless tag, keyed by `moldingId`; same HT-local sidecar pattern as `molding_dimensions.json` above, but unlike dimensions this DOES flow into the published tablet cache — see the `moldings_cache` Ownership Map row (audit SK-07) |
-| `%DATA_DIR%/ready-jobs-worker/worker_status.json` (Docker: `/data/ready-jobs-worker/worker_status.json`) | Hours Tracker (`ready_jobs_worker_core`) | Per-cycle heartbeat: `lastSweep.jobsProcessed/jobsErrored/jobsArchived`, hardwoods publication outcomes, DAE/GLB counts. Read by `GET /api/ready-jobs-worker/status`; stale after ~2x the sweep interval (default 300s) |
-| `%DATA_DIR%/ready-jobs-worker/job_errors.json` | Hours Tracker (`ready_jobs_worker_core`) | Real per-job error TEXT (not just a count), keyed by folder name; wholesale-overwritten each sweep cycle, not accumulated — a job absent this cycle means it's currently clean, not that it never errored |
-| `%DATA_DIR%/ready-jobs-worker/worker.log` (+ `.1`, `.2`) | Hours Tracker (`ready_jobs_worker_core`) | Rotating (2MB x2) operational log, one INFO line per sweep + one ERROR line per failed job; added 2026-08-18 after the worker ran silent through the whole shadow soak test. Read by `GET /api/ready-jobs-worker/logs?tail=N`; only written by the standalone worker process (`main()` in `service_runner.py`), not by anything calling `run_service()`/`_sweep_and_prune()` directly (e.g. tests, or the in-process dry-run worker inside `main_v2.py`) |
-| `%DATA_DIR%/ready-jobs-worker/bad_parts_state.json` | Hours Tracker (`ready_jobs_worker_core`) | Bad-parts alert scan state for the worker's own `BadPartsMonitor`; separate from any legacy RJW bad-parts state file |
-| `%DATA_DIR%/ready-jobs-worker/last_pdf_open.txt` | Hours Tracker (`ready_jobs_worker_core`) | Crash-diagnosis breadcrumb (added after a 2026-08-17 exit-139 native crash with zero Python traceback) — last PDF path opened before a hard crash |
-| `C:\Scripts\timeclock-hub\data\timeclock.db` | timeclock-hub | SQLite source of truth for RTC punch-clock employees/punches |
-| `C:\Scripts\timeclock-hub\data\timeclock.db.backup_*` | timeclock-hub cleanup/admin workflow | Backup before duplicate/local punch cleanup |
-| `C:\Scripts\timeclock-hub\downloaded-timeclock.db` | timeclock-hub admin/debug workflow | Local copy from `/api/db/download` |
-| `C:\Scripts\timeclock-hub\.env` | timeclock-hub deployment config | RTC URL/user/pass, poll interval, hub IP/port/admin token; do not paste secrets |
-| `C:\Scripts\timeclock-hub\docker-compose.yml` | timeclock-hub deployment | Port `8765`, volume `./data:/app/data`, `TZ=America/Los_Angeles` |
-| Docker logs for `timeclock-hub` | timeclock-hub runtime | Employee sync, punch sync, migrations, RTC failures |
+| `READY_JOBS_*` env vars in `ops\docker-compose.production-cutover.yml` (`READY_JOBS_STATE_DIR`, `READY_JOBS_DRY_RUN`, `READY_JOBS_MUTATIONS_ENABLED`, `READY_JOBS_WORKER_ENABLED`, `READY_JOBS_METADATA_CACHE_DEBOUNCE_SECONDS`, ...; parsed by `W\adapters\env_config.py`) | W / HT web | Live replacement for RJW `config.json` |
+| `$READY_JOBS_STATE_DIR` (prod `/data/ready-jobs-worker`; local `run_ready_jobs_worker.bat` uses `backend\ready_jobs_worker_core\_state`; required, legacy fallback `READY_JOBS_WORKER_STATE_DIR`) | W | Holds the files below |
+| `worker_status.json` | W | Per-cycle heartbeat: `lastSweep.jobsProcessed/jobsErrored/jobsArchived`, `hardwoodsPublicationOutcomes`, `modeTemplateMismatchJobs`, `daeGlb*`. `GET /api/ready-jobs-worker/status` reports `not_started`/`stale`/`job_errors`/`running`; stale after `max(600, 2*interval+60)` s |
+| `job_errors.json` | W | Per-job error TEXT keyed by folder; overwritten wholesale each sweep (absent = clean this cycle) |
+| `worker.log` (+ `.1`, `.2`) | W | Rotating 2 MB x2; one INFO per sweep + one ERROR per failed job. Written by BOTH the standalone worker and main_v2's in-process dry-run worker (`configure_worker_logging`), except when the state dir is blocked (dry-run/shared-read-only with state dir inside the Ready Jobs root) or in tests. `GET /api/ready-jobs-worker/logs?tail=N` |
+| `bad_parts_state.json` | W | Worker `BadPartsMonitor` state (successor of RJW `tracker_bad_parts_state.json`) |
+| `live_index_relay.json`, `archive_library_relay.json` | W → HT web | Worker-to-web relay behind the live WebSockets |
+| `last_pdf_open.txt` breadcrumb (path = `READY_JOBS_PDF_OPEN_BREADCRUMB_PATH`, **off by default**) | W | Last PDF opened before a native crash with no traceback |
+| Metadata snapshots under `READY_JOBS_METADATA_SNAPSHOT_ARCHIVE_DIR` (+ `.archive.lock`; off when unset) | W | Successor of RJW `metadata_snapshots\` |
+| `%DATA_DIR%\rename_history.json` | W (`adapters\rename_history.py`) | Job rename history (successor of RJW's) |
+| `hours.db` table `ready_jobs_operations` | HT web | Queue + history of every gate/archive/rename operation — source of truth for "who released/hid/archived this job" |
+| `%APPDATA%\TimeCardTracker\TimeCardTracker\hours.db` (platformdirs doubles the name; `backend\hours.db` only if `db_path` points there), Docker `/data/hours.db` (+ `-wal`, `-shm`) | HT | Reporting cache for digital hours (JSON is truth) AND the Ready Jobs operations queue |
+| `C:\Scripts\Hours Tracker\config.json`, `%APPDATA%\TimeCardTracker\config.json` | HT | Local paths; in Docker (`DOCKER=1`) config comes from env only |
+| `backend\weekly_backup_log.json`, `results\*.json` (frozen: `<exe dir>\results`), `employee_mapping.json` | HT | Backup log, import/export results, alias mapping |
+| `backend\` or `%DATA_DIR%\` `checklist_rules.json`, `board_stock_materials.json`, `crown_library.json` + `crown_profiles\`, `handoff_{config,rules,pdfme_templates}.json` | HT | Global admin stores |
+| `backend\` or `%DATA_DIR%\` `molding_dimensions.json` | HT | Dimension overrides keyed by `moldingId`; never leaves `DATA_DIR` (reaches tablets only baked into `_dim.svg`) (audit SK-06) |
+| `backend\` or `%DATA_DIR%\` `molding_frame_style.json`, `molding_hidden.json` | HT | Crown Face Frame/Frameless tag and hidden flag; both DO reach tablets via `moldings_cache\library.json` (audit SK-07) |
+| `C:\Scripts\cv-molding-sync\config.json` (gitignored; CV DB creds + `root_dir`), `cv_molding_sync.log`, task `KKC CV Molding Sync` | cv-molding-sync (CV PC) | Runs only while the user is logged on (interactive logon type) |
+| `C:\Scripts\timeclock-hub\data\timeclock.db` | timeclock-hub | Punch source of truth ON THE HUB HOST; the PC copy may be stale |
+| `timeclock.db.backup_*` (from `cleanup_local_db.py`), `downloaded-timeclock.db` (from `/api/db/download`; tracked in git) | timeclock-hub admin | Backups/debug copies |
+| `C:\Scripts\timeclock-hub\.env` | timeclock-hub | RTC URL/user/pass, poll interval, hub IP/port, `HUB_ADMIN_TOKEN` (also gates roster push), `HOURS_TRACKER_URL`; never paste secrets |
+| `C:\Scripts\timeclock-hub\docker-compose.yml`; Docker logs | timeclock-hub | Port 8765, `./data:/app/data`, `TZ=America/Los_Angeles`; logs only on the hub host |
+| RJW reference only: `config.json`, `pending_queue.json`, `tracker_bad_parts_state.json`, `metadata_snapshots\`, `rename_history.json`, `polling_snapshot.json`, `ready_jobs_watcher.lock`, `*.log` (`ready_jobs_watcher`, `cnc_scan`, `backup`, `bad_parts`, `send_notification`), `bad_parts_blacklist.json`, `permanently_ignored_blacklist.json` | RJW (deprecated) | Frozen; not live evidence |
 
 ## Android Local State
 
 | State | Owner | Purpose |
 |---|---|---|
-| `SharedPreferences/kkc_tracker` | KKCSheetTracker | Base path, tablet ID, work mode, theme/UI flags, crash context |
+| `SharedPreferences/kkc_tracker` | KKCSheetTracker | `base_path`, `tablet_id`, `work_mode`, `admin_mode`, `board_view_*`, `supply_tab_order`, `supply_categories_cache`, crash context |
+| `SharedPreferences/kkc_ui_prefs` | KKCSheetTracker | Viewer/edge/resume UI state |
 | `SharedPreferences/kkc_clock_in` | KKCSheetTracker | Job clock-in overlay state |
-| `SharedPreferences/UpdateManagerPrefs` | KKCSheetTracker legacy updater | Custom update path and skipped versions |
-| DataStore `syncthing_settings` | KKCSheetTracker | Syncthing API/key settings |
-| DataStore `timeclock_config` | KKCSheetTracker | Manual/cached timeclock hub URL; default manual IP may be `192.168.1.15` |
-| DataStore `timeclock_background` | KKCSheetTracker | Timeclock background type/color/media path |
-| DataStore `pinned_jobs` | KKCSheetTracker | Tablet pinned jobs |
-| DataStore `assembly_viewer_defaults` | KKCSheetTracker | Assembly viewer defaults |
-| DataStore `specialty_viewer_defaults` | KKCSheetTracker | Specialty viewer defaults |
+| `SharedPreferences/UpdateManagerPrefs` | KKCSheetTracker legacy updater | `custom_update_path` only (no skipped-versions key) |
+| DataStores `syncthing_settings`, `timeclock_config` (`server_ip` default `192.168.1.15`, `cached_server_url`, `hub_device_token` → `X-Hub-Token`), `timeclock_background`, `pinned_jobs`, `assembly_viewer_defaults`, `specialty_viewer_defaults` | KKCSheetTracker | Settings/defaults |
+| DataStores `admin_sync_config`, `hidden_materials_visibility`, `mix_operation_sessions`, `screensaver_settings`, `scanner_settings` | KKCSheetTracker | Admin-sync endpoint, hidden-material visibility, Mix Service sessions, idle/scanner settings |
+| `filesDir\state\tracker_lamport.txt` | KKCSheetTracker (`TrackerEventLog.kt`) | Persisted Lamport counter for event ordering |
 | `filesDir\state\drafts\<job>\<tablet>.json` | KKCSheetTracker | Local bad-part drafts |
-| `filesDir\state\ocr\<job>\<pdf>\<fingerprint>\p<page>.json` | KKCSheetTracker | OCR box cache |
-| `filesDir\crash_reports\pending\*.json` | KKCSheetTracker | Pending crash fallback before shared path is available |
-| `filesDir\timeclock_bg\*` | KKCSheetTracker | Copied timeclock background media |
-| `filesDir\supply_subscriptions.json` | KKCSheetTracker | Local supply subscriptions |
-| `SharedPreferences/kkc_tracker`, key `updater_tablet_id` | updater-agent | Stable tablet ID for `.appupdates\<tabletId>` files |
-| WorkManager unique work `kkc_updater_periodic` | updater-agent | Periodic silent update worker state; inspect through logs/WorkManager |
+| `filesDir\state\mix_catalog\` | KKCSheetTracker | Mix catalog cache |
+| `filesDir\crash_reports\pending\*.json`, `filesDir\cpu_spike_logs\pending\` | KKCSheetTracker | Pending crash / CPU-spike reports before the share is reachable |
+| `filesDir\timeclock_bg\*`, `filesDir\supply_subscriptions.json` | KKCSheetTracker | Timeclock background media; supply subscriptions |
+| `cacheDir\archive-cache\<archiveJobId>\` (+ `.state`), `cacheDir\supply_temp\` | KKCSheetTracker | Archived-job 24 h cache; supply temp files |
+| updater-agent's own `SharedPreferences/kkc_tracker`, key `updater_tablet_id` | updater-agent (`com.kkc.updateragent`) | Same file NAME as the app's prefs, different package, no shared data |
+| WorkManager unique work `kkc_updater_periodic` | updater-agent | Periodic silent update worker |
+| (removed) `filesDir\state\ocr\...` | — | Tablet OCR cache removed 2026-08-17 (`e62a2966`) |
 
 ## Generated Or Cache Artifacts
 
 | Path Pattern | Owner | How To Treat It |
 |---|---|---|
-| `Y:\Ready Jobs\<job>\DARK MODE\*.pdf` | Ready Jobs Watcher | Generated dark-mode copies; not source PDFs |
-| `Y:\Ready Jobs\<job>\3D\<room>\3d_medium.glb` | Ready Jobs Watcher | Generated Android 3D viewer asset from `3d.dae` |
-| `Y:\Ready Jobs\<job>\CNC\.metadata\.thumbs\*`, `.fullimages\*`, `.fullImages\*` | Metadata/PDF render cache | Inspect for missing previews; do not treat as source metadata |
-| `Y:\Ready Jobs\.metadata\.thumbs\*`, `.fullimages\*`, `.fullImages\*` | Hours Tracker/PDF render cache | Inspect for admin preview issues only |
-| `Y:\Ready Jobs\<job>\**\*.tmp`, `*.ocr.tmp`, `.tmp_assimp_*` | Atomic writers/converters | Usually transient; investigate only if stuck/stale |
-| `Y:\Ready Jobs\<job>\CNC\.tracker\watcher_refresh.json`, `watcher_refresh_splitter.json` | Legacy/historical refresh markers | Caveat only; current watcher signal is `watcher_refresh_watcher.json` |
+| `Y:\Ready Jobs\<job>\DARK MODE\*.pdf` | W (`adapters\dark_mode_publish.py`) | Generated copies; re-parse regenerates |
+| `Y:\Ready Jobs\<job>\3D\<room>\3d_medium.glb` | W (`adapters\dae_glb_publish.py`) from `3d.dae` | Android 3D asset; counts `daeGlb*` in `worker_status.json` |
+| `Y:\Ready Jobs\<job>\CNC\.metadata\.thumbs\*`, `.fullimages\*` | PGM Sorting splitter writes `.thumbs\<stem>_pNNN.png` (TOC thumbnail) and, since 2026-09-30, `.thumbs\<stem>_pNNN.diagram.png` (full-size gray sheet diagram the tablet viewer loads before falling back to the PDF image); both match the `_p*.png` globs the splitter stages/cleans and W prunes as orphans | Missing previews/diagrams only; not source metadata |
+| `Y:\Ready Jobs\<job>\.metadata\.thumbs\*`, `.fullimages\*` | HT (`routes\pdf.py`) renders root-PDF page images | Per-job, not global |
+| `Y:\Ready Jobs\<job>\**\*.tmp`, `*.ocr.tmp`, `.tmp_assimp_*`, root `production_order.json.*.tmp` | Atomic writers/converters | Transient; July-dated root leftovers are safe to clean |
+| `Y:\Ready Jobs\<job>\CNC\.tracker\watcher_refresh.json`, `watcher_refresh_splitter.json` | Legacy markers (no writer) | Current signal is `watcher_refresh_watcher.json` |
 
 ## Symptom Routing
 
 | Symptom | Start Here |
 |---|---|
-| Tablet does not show a job | `deployment_gate.json`, then `cache_static.json`, then Ready Jobs Watcher logs |
-| Jobs list progress bars stale/empty (before tapping job) | `cache_index.json` (lightweight, read by tablet for list screen). Falls back to `cache_static.json` if missing |
-| Job appears but material counts/pages are wrong | `cache_static.json`, CNC sidecars, `cnc_scan.log` |
-| CNC sidecar missing or legacy OCR boxes absent | Start with the PGM Sorting PDF splitter. Ready Jobs Watcher consumes/indexes the sidecar; it is not the sidecar owner. Tagged-v1 OCR omission is intentional |
-| CNC progress/bad parts stale | `CNC\.tracker\*.json`, `events\*.ndjson`, `consolidated.json` |
-| CNC skipped/re-nested status wrong (skip vs re-nested confusion) | `consolidated.json` — check `reNested` field on skip actions. `cache_index.json` `progressSummary.cnc.renested` counts these. `cache_static.json` `cncJob.materials[].metadata` sidecar has `remakeLabel`. If `reNested` missing from consolidated, check tablet `ProgressStore.kt` skip action write |
-| Hardwoods rows/revisions wrong | `.metadata\hardwoods\cutlist_index.json`, `cutlist_revisions.json` |
-| Hardwoods row missing/excluded entirely for one doc type, siblings fine | `.metadata\hardwoods\cutlist_job_mismatch.json` (printed job number on that PDF's page 1 didn't match the folder) — check this before assuming a parser bug |
-| Cutlist rip width looks swapped with length | Confirm PDF is a readable "3.0" template (title line contains `3.0`) — as of 2026-07-28 RJW's `build_board_stock_rows` always treats the printed Width column as authoritative and never swaps by numeric size (`e79a88a`); a wrong-looking width means the source PDF/OCR data itself, not RJW's aggregation |
-| Assembly/cabinet view wrong | `.metadata\cabinet_sheet_index.json` |
-| Molding profile geometry missing/wrong | `.metadata\moldings\<category>\<profileId>.xml`, `moldings_sync.py`, Cabinet Vision `Profile`/`Shape` tables |
-| Molding dimension lines/annotations missing or reset | `molding_dimensions.json`, `molding_dimensions_store.py` |
-| Crown Face Frame/Frameless tag not showing/grouping right on tablet | `molding_frame_style.json`, `PUT /api/moldings/{id}/frame-style`, confirm `publish_library_cache()` ran, then `moldings_cache\library.json`'s `frameStyle` field |
-| Specialty/admin items wrong | Hours Tracker admin files, then KKCSheetTracker specialty repository |
-| PDF markup missing | `.metadata\pdf_markup\.tracker\<tablet>.markup.json`, then tablet app version |
-| Supply item/status wrong | `.supply\items`, `.supply\status`, `.supply\comments`, then Hours Tracker supply backend |
-| Safety concern submitted on tablet not showing on Hours Tracker | Confirm the file landed in `.safety\concerns` under the SAME base path the rest of Hours Tracker uses (`.metadata`, `.supply`, `job_board.json`) -- check `safety_store.get_safety_dir()` resolves via `get_base_path()`, not a separately-derived path (audit-style bug, see Common Mistakes) |
-| A material a tablet hid is still visible on another tablet | Check that mode's `hidden_materials_global.json`/`hidden_materials.json` content directly, then the hidden-materials live WebSocket connection state on the affected tablet, then the backend's sidecar-request poller logs |
-| Hiding a material in Hardwoods mode also hid it in Specialty (or vice versa) | Mode-segregation bug -- the two modes must never read/write each other's files. Check `hiddenMaterialsModeSubdir`/the route's `hiddenMaterialsMode` argument (`HardwoodsWorkspaceScreen`'s param, threaded from the route that navigated in), and the backend's `(mode, docType, material)` dedup key |
-| Production order/lineup wrong | `production_order.json`, Hours Tracker admin, then Ready Jobs Watcher cache refresh |
-| Delivery schedule wrong | `Y:\Ready Jobs\.metadata\delivery_schedule.json`, Hours Tracker |
-| Digital hours wrong | `.time_cards\<Employee>\<week>.json`, locks, `pending_edits.json` |
-| Badge/profile/shop wrong | `.time_cards\<Employee>\profile.json`, `badges_config.json`, locks |
-| Punch-clock timeclock wrong | `C:\Scripts\timeclock-hub\data\timeclock.db`, hub logs, not Hours Tracker |
-| Hub name differs between browser and tablet | Compare hub API `display_name`, Android `TimecardRepository`, then Hours Tracker profile-name precedence |
-| Install/update wrong | `.appupdates\<tabletId>\install-log.ndjson`, installed package versions, updater-agent logs |
-| App crashed | `Y:\Ready Jobs\.metadata\crashes`, then ADB `AndroidRuntime` logs |
+| Tablet does not show a job | `deployment_gate.json` (`deployed`, `hiddenFromProduction`), then `cache_index.json`, then `job_errors.json`/`worker.log`, then `ready_jobs_operations` (hidden or archived by someone?) and the archive root. Tablet filter: `DeploymentGateRules.evaluate` |
+| Job vanished / lineup entry removed | Archive flow: `ready_jobs_operations`, `ARCHIVE_Ready Jobs`, `worker_status.json` `jobsArchived` (W `archive_lifecycle.py`, `archive_scheduling.py`) |
+| Worker not sweeping / everything stale | `GET /api/ready-jobs-worker/status` (`not_started`/`stale`/`job_errors`/`running`), `docker inspect` health, `worker.log`, kill-switch env vars |
+| Worker died with no traceback | `last_pdf_open.txt` (only if its env var is set), `docker logs hourtracker-worker` |
+| Jobs list progress bars stale/empty | Live `/live-index` socket, then `cache_index.json` (no cache_static fallback). Logcat `CacheIndex` warns when the index is older than cache_static |
+| Job appears but material counts/pages are wrong | `cache_static.json`, CNC sidecars, then `worker.log`/`job_errors.json` |
+| CNC sidecar missing or legacy OCR boxes absent | PGM Sorting splitter (owner). Tagged-v1 OCR omission is intentional |
+| CNC progress/bad parts stale | `CNC\.tracker\events\*.ndjson` (live), `consolidated.json`, then `bad_parts_state.json` / `/api/ready-jobs-worker/bad-parts` |
+| CNC skipped/re-nested confusion | `consolidated.json` `reNested` on skips; `cache_index` `progressSummary.cnc.renested`; `cache_static` sidecar `remakeLabel`; tablet `ProgressStore.kt` skip write |
+| Hardwoods rows/revisions wrong | `cutlist_index.json`, `cutlist_revisions.json`, `worker_status.json` `hardwoodsPublicationOutcomes`/`modeTemplateMismatchJobs` |
+| Hardwoods doc type missing, siblings fine | `cutlist_job_mismatch.json` (+ `_overrides.json`), then `blank_hardwoods_documents.json` |
+| Hardwoods markup disappeared | RJW, or W older than 2026-09-30 (`a620f8f1`), deleting `*.markup.json` during consolidation — check which worker build runs the sweep |
+| Cutlist rip width looks swapped with length | Readable "3.0" template? Width column is authoritative, never swapped by size (W `board_stock.compute_board_stock_rows`, exact port of RJW); a wrong width means the source PDF/OCR |
+| Assembly/cabinet view wrong | `cabinet_sheet_index.json` (W `cabinet_reference_publish.py`) |
+| Molding profile geometry missing/wrong | `.metadata\moldings\<category>\<profileId>.xml`, `cv_molding_sync.log`, CV `Profile`/`Shape` |
+| Molding dimension lines missing/reset | `molding_dimensions.json`, `molding_dimensions_store.py`, then `_dim.svg` republish |
+| Crown Face Frame/Frameless tag or hidden flag wrong on tablet | `molding_frame_style.json`/`molding_hidden.json`, the PUT route, `publish_library_cache()`, then `library.json` `frameStyle`/`hidden` |
+| Specialty/admin items wrong | HT admin files + pending `checklist_patch`/`specialty_patch` sidecars, then tablet `SpecialtyRepository`/`SpecialtyProgressStore` |
+| Specialty attachment won't open on tablet | Tablet build has `resolveSpecialtyAttachmentFile`? Otherwise it looks in `checklist_attachments` |
+| PDF markup missing | `pdf_markup\.tracker\<tablet>.markup.json`, then tablet app version |
+| Supply item/status wrong | Live socket (logcat `SupplyLiveClient`, HT `routes\supply_live.py`), then `.supply\items`/`status`/`comments`/`barcodes.json` |
+| Safety concern from tablet not on HT | Same base path? `safety_store.get_safety_dir()` must use `get_base_path()` |
+| Hidden material still visible on another tablet | Mode's `hidden_materials*.json`, the `/api/hidden-materials/live` socket, then the request poller |
+| Hide in Hardwoods also hid Specialty (or vice versa) | Mode-segregation bug: `hiddenMaterialsModeSubdir`, the route's `hiddenMaterialsMode`, backend `(mode, docType, material)` key |
+| Production order/lineup wrong | `production_order.json`, HT admin, `/api/admin-sync/production-order`, then W lineup refresh and archive operations |
+| Delivery schedule wrong | `.metadata\delivery_schedule.json`, `/api/delivery-schedule/live`, HT, archive removals |
+| Digital hours wrong | `.time_cards\<PIN>\<week>.json`, locks, `pending_edits.json` |
+| Badge/profile/shop wrong | `.time_cards\<PIN>\profile.json`, `badges_config.json`, `shop_catalog.json`, locks |
+| Employee missing/renamed | `employees.json`, timeclock-hub roster push (`timeclock-hub sync:` log lines), `.time_cards\.archive\` |
+| Punch-clock timeclock wrong | timeclock-hub DB on the hub host + hub logs, not HT |
+| Hub name differs between browser and tablet | Hub API `display_name`, Android `TimecardRepository`, HT profile-name precedence |
+| Install/update wrong | `.appupdates\<tabletId>\install-log.ndjson`, versions, logcat `KKCUpdaterWorker`/`TriggerUpdateReceiver` |
+| App crashed / sluggish | `Y:\Ready Jobs\.metadata\crashes` / `cpu_spikes`, then ADB `AndroidRuntime` |
+| Mix not created/updated | Mix Service `GET /operations/{id}`, `service.log`, `definitions.json` |
 
 ## First Commands
 
-Ready Jobs Watcher:
+Hours Tracker worker (live; run on the Docker server host, not the PC):
+
+```powershell
+curl http://<server>:47821/api/ready-jobs-worker/status
+docker exec hourtracker-worker cat /data/ready-jobs-worker/worker_status.json
+docker exec hourtracker-worker cat /data/ready-jobs-worker/job_errors.json
+docker exec hourtracker-worker tail -n 200 /data/ready-jobs-worker/worker.log
+docker inspect --format '{{.State.Health.Status}}' hourtracker-worker
+docker logs hourtracker-worker --tail 200
+```
+
+Kill switch: set `READY_JOBS_WORKER_ENABLED=0`, or `docker compose -f ops/docker-compose.production-cutover.yml stop hourtracker-worker`.
+
+Ready Jobs files (PC):
 
 ```powershell
 Get-Content "Y:\Ready Jobs\<job>\.metadata\deployment_gate.json"
-Get-Item "Y:\Ready Jobs\<job>\.metadata\cache_static.json"
-Get-Item "Y:\Ready Jobs\<job>\.metadata\cache_index.json"
-Get-Content "C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher.log" -Tail 200
-Get-Content "C:\Scripts\Ready Jobs Watcher\cnc_scan.log" -Tail 200
-Get-Content "C:\Scripts\Ready Jobs Watcher\pending_queue.json"
-Get-Content "C:\Scripts\Ready Jobs Watcher\tracker_bad_parts_state.json"
-```
-
-Hours Tracker's ported worker (the live RJW replacement as of 2026-08-18 — default to this, not old RJW, unless the user says otherwise):
-
-```powershell
-docker exec hourtracker-worker cat /data/ready-jobs-worker/worker_status.json
-docker exec hourtracker-worker cat /data/ready-jobs-worker/job_errors.json
-docker logs hourtracker-worker --tail 200
+Get-Item "Y:\Ready Jobs\<job>\.metadata\cache_static.json", "Y:\Ready Jobs\<job>\.metadata\cache_index.json"
+Get-ChildItem "Y:\Ready Jobs\<job>\CNC\.tracker" -Recurse
+Get-ChildItem "Y:\Ready Jobs\<job>\.metadata\hardwoods\.tracker" -Recurse
 ```
 
 Hours Tracker:
@@ -279,7 +331,6 @@ Get-ChildItem "Y:\Ready Jobs\.time_cards"
 Get-Content "Y:\Ready Jobs\.time_cards\employees.json"
 Get-Content "Y:\Ready Jobs\.time_cards\badges_config.json"
 Get-Content "Y:\Ready Jobs\.time_cards\pending_edits.json"
-Get-Content "Y:\Ready Jobs\.time_cards\loaded_cards.json"
 Get-ChildItem "Y:\Ready Jobs\.time_cards\.locks"
 Get-ChildItem "Y:\Ready Jobs\.supply" -Recurse -Depth 2
 Get-ChildItem "Y:\Ready Jobs\.safety" -Recurse -Depth 2
@@ -290,23 +341,23 @@ KKCSheetTracker tablet:
 ```powershell
 adb devices -l
 adb shell dumpsys package com.kkc.sheettracker | Select-String "versionName|versionCode"
-adb logcat -d -v time AndroidRuntime:E KKC_CRASH_REPORTER:* KKC_APP_STATE:* KKC_NAV:* *:S
+adb logcat -d -v time AndroidRuntime:E KKC_CRASH_REPORTER:* KKC_APP_STATE:* KKC_NAV:* SupplyLiveClient:* CacheIndex:* *:S
 ```
 
 Updater-agent:
 
 ```powershell
 adb shell dumpsys package com.kkc.updateragent | Select-String "versionName|versionCode"
+adb logcat -d -v time KKCUpdaterWorker:* TriggerUpdateReceiver:* *:S
 Get-Content "Y:\Ready Jobs\.appupdates\device_policy.json"
 Get-Content "Y:\Ready Jobs\.appupdates\apps\manifest.json"
 Get-ChildItem "Y:\Ready Jobs\.appupdates" -Recurse -Filter install-log.ndjson
 ```
 
-timeclock-hub:
+timeclock-hub (on the hub host):
 
 ```powershell
 docker compose -f "C:\Scripts\timeclock-hub\docker-compose.yml" logs --tail 200
-Get-Item "C:\Scripts\timeclock-hub\data\timeclock.db"
 ```
 
 Hours Tracker Android app:
@@ -315,60 +366,73 @@ Hours Tracker Android app:
 adb shell dumpsys package com.example.timecard | Select-String "versionName|versionCode"
 ```
 
+Old RJW (reference only):
+
+```powershell
+Get-Content "C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher.log" -Tail 200
+Get-Content "C:\Scripts\Ready Jobs Watcher\cnc_scan.log" -Tail 200
+```
+
 ## Code Entry Points
 
 | Question | Read |
 |---|---|
-| How does KKCSheetTracker read job metadata? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data` |
-| How are crash files written? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\crash` |
-| How does Ready Jobs Watcher publish gates/cache? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\deployment_gate.py`, `metadata_cache.py` (cache_index progress: `_compute_cnc_progress`, `_compute_hardwood_progress`) |
-| How are CNC tracker events consolidated? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\tracker_action_stream.py` |
-| How does Android append/order CNC tracker events? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\ProgressStore.kt`, `TrackerEventLog.kt` |
-| How does Android append/order hardwood events? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\HardwoodsProgressStore.kt`, `TrackerEventLog.kt` |
-| How are cabinet/sheet indexes generated? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\cabinet_sheet_indexer.py` |
-| How does Ready Jobs Watcher publish the Cabinet Vision molding library? | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\moldings_sync.py` |
-| How does Hours Tracker store molding dimension overrides? | `C:\Scripts\Hours Tracker\backend\routes\molding_dimensions_store.py` |
-| How does Hours Tracker store the crown Face Frame/Frameless tag? | `C:\Scripts\Hours Tracker\backend\routes\molding_frame_style_store.py` |
-| How does Hours Tracker publish the tablet-facing molding cache (SVGs, `library.json`, `usage_index.json`)? | `C:\Scripts\Hours Tracker\backend\routes\molding_cache_publish.py` |
-| How does Hours Tracker sync JSON to reporting DB? | `C:\Scripts\Hours Tracker\backend\db.py` |
-| What API serves Hours Tracker admin data? | `C:\Scripts\Hours Tracker\backend\main_v2.py` |
-| How are tablet lineup/board/delivery requests consumed? | `C:\Scripts\Hours Tracker\backend\main_v2.py`: `_apply_production_order_requests`, `_apply_job_board_edit_requests`, `_apply_delivery_schedule_request` |
-| How is the supply schema and shared supply state served? | `C:\Scripts\Hours Tracker\backend\routes\supply_store.py`, `C:\Scripts\Hours Tracker\frontend\components\JobManager\supply\SupplySchemaEditor.tsx` |
-| What frontend calls Hours Tracker APIs? | `C:\Scripts\Hours Tracker\frontend\lib\api_kkc.ts` |
-| How does RTC punch clock work? | `C:\Scripts\timeclock-hub\app.py` |
-| How does Android interpret hub names/status? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\TimecardRepository.kt` |
-| How do silent Android updates work? | `C:\Scripts\KKCSheetTracker\updater-agent\src\main\java\com\kkc\updateragent\update` |
-| How does legacy Android update discovery work? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\update` |
-| How are PDF markup files written? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\PdfMarkupStore.kt` |
-| How are supply files read/written on tablet? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data\SupplyRepository.kt` |
+| How does the worker start and sweep? | `W\__main__.py` → `adapters\service_runner.py` (`main`, `run_service`, `_sweep_and_prune`, `configure_worker_logging`) → `adapters\sweep.py` `sweep_all_production_jobs` |
+| How are gates written? | `W\adapters\deployment_gate_write.py`, `gate_contract.py`, `adapters\deployment_gate_bootstrap.py`, `adapters\auto_release.py`; operator API `HT\routes\ready_jobs_worker_jobs.py` |
+| How are cache_static / cache_index built? | `W\cache_payload.py` + `adapters\cache_publish.py`; `W\cache_index_payload.py` + `adapters\cache_index_publish.py` |
+| How are CNC/hardwood tracker events read and consolidated? | `W\adapters\tracker_action_reader.py`, `cnc_tracker_merge.py`, `hardwoods_tracker_merge.py`, `adapters\tracker_consolidation.py`, `tracker_orchestration.py`, `tracker_consolidated_publish.py`, `tracker_device_file_cleanup.py` |
+| Hardwoods cutlist index / mismatch / blank docs? | `W\hardwoods_cutlist_parser.py`, `adapters\hardwoods_cutlist_publish.py`, `cutlist_job_mismatch_store.py`, `hardwoods_blank_document_store.py` |
+| Cabinet index, dark mode, GLB, rename, reparse, bad parts, remake/misc candidates, duplicate guard, archive? | `W\adapters\`: `cabinet_reference_publish.py`, `dark_mode_publish.py`, `dae_glb_publish.py`, `job_rename.py`, `job_reparse.py`, `bad_parts_detection.py`, `remake_candidates_publish.py`, `misc_candidates_publish.py`, `duplicate_job_guard.py`, `archive_lifecycle.py`, `archive_scheduling.py` |
+| How does KKCSheetTracker read job metadata? | `C:\Scripts\KKCSheetTracker\app\src\main\java\com\kkc\sheettracker\data` (list: `unified\FileBackedUnifiedMetadataEngine.kt`) |
+| How are crash / CPU-spike files written? | `KST crash\`, `KST perf\CpuSpikeLogStore.kt` |
+| How does Android append/order CNC and hardwood events? | `KST data\ProgressStore.kt`, `HardwoodsProgressStore.kt`, `TrackerEventLog.kt` |
+| How is the Cabinet Vision molding library published? | `C:\Scripts\cv-molding-sync\cv_molding_sync.py` (RJW reference: `ready_jobs_watcher\moldings_sync.py`) |
+| HT molding stores / tablet cache? | `HT\routes\molding_dimensions_store.py`, `molding_frame_style_store.py`, `molding_hidden_store.py`, `molding_library_store.py`, `molding_cache_publish.py` |
+| HT JSON → reporting DB? | `HT\db.py` |
+| Which API serves HT admin data? | `HT\routes\admin.py` and the other `routes\*` modules; `main_v2.py` is the app entry |
+| How are tablet lineup/board/delivery/hidden-material requests consumed? | `HT\main_v2.py`: `/api/admin-sync/*` routes, `_apply_production_order_requests`, `_apply_job_board_edit_requests`, `_apply_delivery_schedule_request`, hidden-materials request poller |
+| Supply schema / shared supply state / live socket? | `HT\routes\supply_store.py`, `supply_live.py`, `supply_live_document.py`, `W\adapters\supply_live_monitor.py`; `C:\Scripts\Hours Tracker\frontend\components\JobManager\supply\SupplySchemaEditor.tsx`; tablet `KST data\SupplyRepository.kt`, `SupplyLiveClient.kt`, `SupplyLiveStateStore.kt` |
+| What frontend calls HT APIs? | `C:\Scripts\Hours Tracker\frontend\lib\api_kkc.ts` |
+| How does the RTC punch clock work? | `C:\Scripts\timeclock-hub\app.py` |
+| How does Android interpret hub names/status? | `KST data\TimecardRepository.kt` |
+| Silent / legacy Android updates? | `C:\Scripts\KKCSheetTracker\updater-agent\src\main\java\com\kkc\updateragent\update`; `KST update\` |
+| PDF markup files? | `KST data\PdfMarkupStore.kt` |
+| Mix Service from the tablet? | `KST data\mixservice\MixServiceClient.kt`; server `C:\Scripts\PGM_BCR_Loader\mix_service\` |
+| Old RJW reference equivalents | `C:\Scripts\Ready Jobs Watcher\ready_jobs_watcher\`: `deployment_gate.py`, `metadata_cache.py`, `tracker_action_stream.py`, `cabinet_sheet_indexer.py`, `hardwoods_cutlist_indexer.py`, `moldings_sync.py` |
 
 ## Common Mistakes
 
 | Mistake | Correction |
 |---|---|
-| Blaming Android for a missing job before checking `deployment_gate.json` | Gate and cache are the first evidence |
-| Blaming Hours Tracker for stale `cache_static.json` | Ready Jobs Watcher owns cache publication |
-| Treating Hours Tracker and timeclock-hub as the same thing | Hours Tracker is digital timecards/admin; timeclock-hub is RTC punch clock |
-| Using Hours Tracker APK/version paths for KKCSheetTracker | Check package names: `com.example.timecard`, `com.kkc.sheettracker`, `com.kkc.updateragent` |
-| Trusting SQLite first for digital hours | `.time_cards` JSON is source of truth; SQLite is reporting/cache |
-| Trusting `.time_cards` for punch-clock data | RTC punch-clock source is `timeclock-hub\data\timeclock.db` |
-| Ignoring cache debounce | Ready Jobs Watcher may delay cache refresh for several minutes |
-| Assuming one Syncthing conflict filter covers every format | Audit every JSON and NDJSON glob independently; conflict copies must never enter active state |
-| Deleting a valid tablet request after any exception | Consume invalid payloads only; leave requests intact on transient I/O, lock, or master-write failure |
-| Sorting tracker events only by timestamp | Preserve `lamport` and `eventId` through every decoder and use the same total ordering on Android and watcher |
-| Treating API `display_name` as the numeric RTC display ID | That distinction exists only in hub storage; API `display_name` is the effective human RTC name |
-| Trusting stat/size before unlink during tracker compaction | A writer can append between stat and unlink; use rotation/ack instead |
-| Allowing empty updater signer policy because SHA-256 matches | A writable feed can replace both manifest and hash; signer allowlist and path containment are required |
+| Blaming Android for a missing job before checking `deployment_gate.json` | Gate, then cache_index, then worker errors and the operations/archive trail |
+| Treating old RJW as the writer / reading RJW logs as live evidence | W is the live writer for every former RJW row; RJW files and logs are frozen reference. Only treat RJW as active if the user explicitly says so |
+| Blaming the HT web app for stale `cache_static.json` | The HT **worker** publishes caches; the web app only reads |
+| Ignoring cache debounce | W debounces ~180 s plus a ~300 s sweep |
+| Assuming CNC/hardwood actions flow through `<tablet>.json` | Tablets write only `events\<tabletId>.ndjson` since 2026-07-09/10; `<tablet>.json` is retired legacy input. Don't "fix" a missing one |
+| Deleting or "cleaning" files in a `.tracker` dir by blacklist | Whitelist `<tabletId>.json` only; `*.markup.json` and other sidecars are tablet data |
+| Running KKCSheetTracker unit tests on a PC with `Y:` mapped from a checkout older than `d9fbd52c` | That old `BatchSyncTest` wrote `batch-sync-worker` events into live jobs; it was removed on main 2026-09-30. Tests must never target the live share |
+| Treating Hours Tracker and timeclock-hub as the same thing | HT = digital timecards/admin/worker; timeclock-hub = RTC punch clock |
+| Using HT APK/version paths for KKCSheetTracker | Package names: `com.example.timecard`, `com.kkc.sheettracker`, `com.kkc.updateragent` |
+| `git grep` from the HT root for Android timecard code | The HT Android app is a separate repo at `C:\Scripts\Hours Tracker\AndroidApp` |
+| Trusting SQLite first for digital hours | `.time_cards` JSON is truth; `hours.db` is reporting cache (but IS truth for the Ready Jobs operations queue) |
+| Trusting `.time_cards` for punch-clock data | Punch truth is the hub's `timeclock.db` |
+| Looking for `.time_cards\<Employee Name>\` | Folders are keyed by PIN since 2026-09-22 (some name folders linger) |
+| Assuming one Syncthing conflict filter covers every format | Audit every new JSON and NDJSON glob independently |
+| Deleting a valid tablet request after any exception | Quarantine invalid payloads only; retry transient failures |
+| Sorting tracker events only by timestamp | Preserve `lamport` and `eventId` through every decoder |
+| Treating API `display_name` as the numeric RTC display ID | Only hub storage has that; API `display_name` is the human name |
+| Trusting stat/size before unlink during tracker compaction | Late appends can land between stat and unlink; never delete `.ndjson` that way |
+| Allowing empty updater signer policy because SHA-256 matches | A writable feed can replace manifest and hash; signer allowlist + path containment required |
 | Searching all hidden Syncthing folders as jobs | Filter to real job folders like `<jobnum> - <name>` |
-| Treating thumbnails/fullimages as source metadata | They are render caches; debug source JSON first |
-| Assuming mDNS should always work for timeclock | Current hub may have mDNS disabled; use manual/default IP checks |
-| Assuming CNC actions flow through `events\*.ndjson` | That reader is dormant; the tablet writes legacy `<tablet>.json` only (audit SK-01) |
-| Assuming a bad-part alert was lost because RJW deletes the source file after consolidation | Fixed (audit C-01) — `_merge_cnc_actions` re-emits `bad_part_submitted` with its original timestamp into `consolidated.json` before deletion, so the alert survives |
-| Treating a `.sync-conflict-*` file as harmless | No program filters them; every metadata scan ingests them as a phantom writer (audit H-03) |
-| Assuming a "read-only" HT read never mutates | `admin_store.get_checklist` consumes+deletes tablet `checklist_patch.*.json` unless inside `read_only_context()`; any new read-only consumer (handoff sources) MUST enter that context or it steals tablet patches (audit H-04) |
-| Assuming Ready Jobs Watcher's molding library sync can overwrite Hours Tracker's saved dimensions | Different trees entirely: RJW only writes `.metadata\moldings\*.xml` geometry under `Y:\Ready Jobs`; HT's `molding_dimensions.json` lives in HT's own `DATA_DIR` and RJW never touches it (audit SK-06) |
-| Assuming an HT-local molding sidecar store never reaches the tablet because it lives outside `Y:\Ready Jobs` | Depends on the field: `publish_library_cache()` calls `molding_library_store.get_moldings()`, which merges in `frame_style_store.get_frame_style()` for Crown entries — `frameStyle` DOES flow into the published `moldings_cache\library.json`. Dimensions instead get baked into the rendered `_dim.svg` files, not exposed as a raw field. Check the actual cache-publish code path before assuming either way (audit SK-07) |
-| A new Hours Tracker store module derives its own base path (e.g. from `config.digital_timecards_path`) instead of calling the shared `routes.utils.get_base_path()` | Every other store (`board.py`, `delivery.py`, `supply_store.py`, `molding_library_store.py`, ...) resolves its subfolder as `get_base_path() / "<name>"`. A module with bespoke path logic can silently resolve to a different directory in Docker/prod even when it "looks equivalent" locally -- this exact bug hid `.safety\concerns` writes from the API (fixed 2026-07-23, `safety_store.get_safety_dir()`) |
-| Assuming `cutlist_index.json` always reflects every hardwood cutlist PDF currently in the job folder | As of 2026-07-28, RJW's readable-3.0-parser reliability work made `build_hardwoods_cutlist_index_for_job` abort the ENTIRE index write (preserving the last-known-good `cutlist_index.json`/`cutlist_revisions.json` unchanged) when a required 3.0 sibling doc (Face Frame/Nailer/Door Cut) fails strict validation -- a malformed PDF can make the whole index stale, not just its own doc type. Check RJW logs for `TemplateMismatchError`/"Hardwoods index publication aborted" before assuming the index is current. Note: Hours Tracker's port (`ready_jobs_worker_core`) fixed this specific case for a genuinely BLANK required doc (e.g. zero nailers) -- it publishes with a dismissible warning instead of aborting -- but that fix has not been backported to the real Ready Jobs Watcher codebase as of 2026-08-18, so a live-RJW site can still hit the full abort where an Hours-Tracker-worker site would not |
-| Assuming every "Ready Jobs Watcher" owner cell in this map is still the live writer | As of 2026-08-18, Hours Tracker's ported worker (`ready_jobs_worker_core`) IS the live writer for every RJW-owned row -- the real Ready Jobs Watcher Windows process is deprecated. An agent cannot independently verify this (the worker runs on the user's own server); default to treating the ported worker as live, and only treat old RJW as active if the user explicitly says they're working on it |
-| Assuming Hardwoods and Specialty each have their own cutlist Android screen | They share exactly one composable/route, `HardwoodsWorkspaceScreen` (`hardwoods/workspace/{folderName}/{docType}/{startPage}/{hiddenMaterialsMode}`), reached from both the Hardwoods menu and the Specialty menu (Door Panels/Saw Rip List/Closet Rods). Any change to that screen -- including hidden-materials filtering/UI -- must consider both entry points and both `HiddenMaterialsMode` values; there is no separate "Specialty cutlist screen" in code |
+| Treating thumbnails/fullimages as source metadata | Render caches; debug source JSON first |
+| Assuming mDNS works for timeclock | mDNS is disabled at hub HEAD; use manual/default IP |
+| Assuming a bad-part alert was lost because consolidation deletes legacy files | C-01 fix holds in W's `merge_cnc_actions` |
+| Assuming a "read-only" HT read never mutates | `get_checklist` / specialty reads consume `checklist_patch`/`specialty_patch` sidecars unless inside `read_only_context()` (audit H-04) |
+| Assuming "HT UI never sets `hiddenFromProduction`" (old RJW rule) | HT's `hide` operation sets it true; tablets hide those jobs in release builds |
+| Assuming the molding sync can overwrite HT's saved dimensions | Different trees: `cv-molding-sync` writes only `.metadata\moldings\*.xml`; `molding_dimensions.json` lives in HT's `DATA_DIR` (audit SK-06) |
+| Assuming W syncs Cabinet Vision moldings | It never did; the live writer is `C:\Scripts\cv-molding-sync` on the CV PC (audit SK-08) |
+| Assuming an HT-local molding sidecar never reaches the tablet | `frameStyle` and `hidden` flow into `moldings_cache\library.json`; dimensions are baked into `_dim.svg` (audit SK-07) |
+| A new HT store module derives its own base path | Every store resolves `get_base_path() / "<name>"` (`board.py`, `delivery.py`, `supply_store.py`, `molding_library_store.py`, `safety_store.py`); bespoke paths hid `.safety\concerns` writes once (fixed 2026-07-23) |
+| Assuming `cutlist_index.json` reflects every hardwood PDF | W publishes with a dismissible warning for a genuinely BLANK required doc (`blank_hardwoods_documents.json`); old RJW aborted the whole index on a malformed required 3.0 doc. Check `worker_status.json` `hardwoodsPublicationOutcomes` |
+| Assuming Hardwoods and Specialty have separate cutlist screens | One composable, `HardwoodsWorkspaceScreen`, reached by `hardwoods/workspace/{folderName}/{docType}/{startPage}/{hiddenMaterialsMode}` (Hardwoods + Specialty menus) AND by the archive-job route `hardwoods/workspace/{docType}/{rowId}/{hiddenMaterialsMode}` (`ArchiveJobDetailHost.kt`). Changes must cover both routes and both `HiddenMaterialsMode` values |
+| Assuming the Mix Service `PUT` finished when it returned | Mutations are async (202 + operation); poll `/operations/{id}` |

@@ -1,10 +1,6 @@
 package com.kkc.sheettracker.ui.components
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -17,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -39,37 +34,7 @@ import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import com.kkc.sheettracker.ui.theme.KKCAlpha
-
-/**
- * Refresh icon button that spins continuously while [loading] is true. The infinite animation
- * only exists while spinning — gating it inside the `if` keeps the topbar icon fully idle
- * (no per-frame recomposition) the rest of the time, since this button is on-screen constantly.
- */
-@Composable
-fun RefreshIconButton(
-    loading: Boolean,
-    onClick: () -> Unit,
-    contentDescription: String = "Refresh"
-) {
-    IconButton(onClick = onClick) {
-        if (loading) {
-            val infiniteTransition = rememberInfiniteTransition(label = "refreshSpin")
-            val rotation by infiniteTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(animation = tween(900, easing = LinearEasing)),
-                label = "refreshRotation"
-            )
-            Icon(
-                Icons.Default.Refresh,
-                contentDescription = contentDescription,
-                modifier = Modifier.rotate(rotation)
-            )
-        } else {
-            Icon(Icons.Default.Refresh, contentDescription = contentDescription)
-        }
-    }
-}
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 
 fun parseJobLabelColor(hex: String): Color = try {
     Color(android.graphics.Color.parseColor(hex))
@@ -318,7 +283,9 @@ fun SectionProgressHeader(
     onToggleExpanded: (() -> Unit)? = null,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
     isSubHeader: Boolean = false,
-    topPadding: Dp = 0.dp
+    topPadding: Dp = 0.dp,
+    // Optional section color (e.g. a station's job-list bar color): tints wash, accent, border, bar.
+    tintColor: Color? = null
 ) {
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)
@@ -331,7 +298,7 @@ fun SectionProgressHeader(
     val progressColor = if (dimmed) {
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
     } else {
-        colors.completeBorder
+        tintColor ?: colors.completeBorder
     }
     val skippedBarColor = colors.completeBorder.copy(alpha = 0.52f)
 
@@ -346,6 +313,7 @@ fun SectionProgressHeader(
         RoundedCornerShape(8.dp)
     }
     val headerBorderColor = when {
+        tintColor != null && !dimmed && !skipped -> tintColor.copy(alpha = 0.45f)
         isComplete -> colors.completeBorder.copy(alpha = 0.25f)
         isInProgress -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
         else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
@@ -354,6 +322,14 @@ fun SectionProgressHeader(
         skipped || dimmed -> listOf(
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+        )
+        // Dark surfaces swallow a faint wash, so dark mode uses a denser tint.
+        tintColor != null -> if (LocalKKCIsDarkTheme.current) listOf(
+            tintColor.copy(alpha = 0.34f),
+            tintColor.copy(alpha = 0.18f)
+        ) else listOf(
+            tintColor.copy(alpha = 0.16f),
+            tintColor.copy(alpha = 0.05f)
         )
         isComplete -> listOf(
             colors.completeBorder.copy(alpha = 0.04f),
@@ -375,6 +351,7 @@ fun SectionProgressHeader(
 
     val accentBarColors = when {
         skipped -> listOf(colors.skipBorder, colors.skipBorder.copy(alpha = 0.6f))
+        tintColor != null -> listOf(tintColor, tintColor.copy(alpha = 0.6f))
         isComplete -> listOf(colors.completeBorder.copy(alpha = 0.65f), colors.completeBorder.copy(alpha = 0.35f))
         isInProgress -> listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
         else -> listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
@@ -483,7 +460,8 @@ fun SectionProgressHeader(
                                 done = safeDone,
                                 total = safeTotal,
                                 state = if (skipped) ProgressState.SKIPPED else ProgressState.from(safeDone, safeTotal),
-                                skippedFillColor = skippedBarColor
+                                skippedFillColor = skippedBarColor,
+                                progressFillColor = tintColor.takeUnless { dimmed }
                             )
                             if (onToggleExpanded != null) {
                                 Surface(
@@ -549,7 +527,8 @@ fun SectionProgressHeader(
                                 done = safeDone,
                                 total = safeTotal,
                                 state = if (skipped) ProgressState.SKIPPED else ProgressState.from(safeDone, safeTotal),
-                                skippedFillColor = skippedBarColor
+                                skippedFillColor = skippedBarColor,
+                                progressFillColor = tintColor.takeUnless { dimmed }
                             )
                             if (onToggleExpanded != null) {
                                 Surface(

@@ -57,6 +57,38 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun cncPageMetadata_keepsSplitterDiagramPathAndOcrImageSize() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        File(baseDir, "$jobFolder/CNC/.metadata/1234 - White Melamine.json").writeText(
+            """
+            {
+              "pdfFilename": "1234 - White Melamine.pdf",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "diagramPath": ".metadata/.thumbs/1234 - White Melamine_p001.diagram.png",
+                  "ocrImageWidth": 2450,
+                  "ocrImageHeight": 1237,
+                  "parts": []
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+        val engine = FileBackedUnifiedMetadataEngine(
+            basePath = baseDir.absolutePath,
+            isDebugBuild = true,
+            pdfPageCounter = { UnifiedPdfPageCountResult(1) }
+        )
+
+        val page = engine.getCncSnapshot(jobFolder)?.job?.materials?.first()?.metadata?.pages?.first()
+
+        assertEquals(".metadata/.thumbs/1234 - White Melamine_p001.diagram.png", page?.diagramPath)
+        assertEquals(2450, page?.ocrImageWidth)
+    }
+
+    @Test
     fun loadsCncHardwoodsAndAssemblySnapshotsFromExistingFiles() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)

@@ -6,14 +6,32 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.LazyGridItemScope
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.util.lerp
+import kotlin.math.PI
+import kotlin.math.roundToInt
+import kotlin.math.sin
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +42,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -49,6 +68,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.kkc.sheettracker.ui.components.kkcCardDepth
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -84,12 +104,12 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import com.kkc.sheettracker.ui.components.JobBoardGrid
 import com.kkc.sheettracker.ui.components.JobBoardItem
 import com.kkc.sheettracker.ui.components.KKCBrandedTitle
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
-import com.kkc.sheettracker.ui.components.RefreshIconButton
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.animateEntrance
 import com.kkc.sheettracker.ui.components.mergeActiveReorder
@@ -103,18 +123,27 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
 
-private fun sanitizeModeTitle(modeName: String): String {
-    val clean = modeName.lowercase().removePrefix("jobs_").removePrefix("jobs")
-    return when (clean) {
-        "cnc" -> "CNC"
-        "hardwoods" -> "Hardwoods"
-        "assembly" -> "Assembly"
-        "specialty" -> "Specialty"
-        else -> clean.split("_").joinToString(" ") { word ->
-            word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-        }
+/**
+ * Pinning copies a card: the grid original keeps its schedule spot, the pinned copy fades in above
+ * the grid, and every other grid item (headers, dividers, cards) springs to its new position.
+ * Low-end mode (animations off) gets no item motion at all.
+ *
+ * No `animateContentSize` here: it always `clipToBounds()`, and this modifier sits before the
+ * card's `kkcCardDepth`, so it would clip the card's shadow away entirely.
+ */
+private fun LazyGridItemScope.gridItemMotion(enabled: Boolean): Modifier =
+    if (enabled) {
+        Modifier
+            .animateItem(
+                placementSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessLow,
+                    visibilityThreshold = IntOffset.VisibilityThreshold
+                )
+            )
+    } else {
+        Modifier
     }
-}
 
 internal fun shouldRunUnifiedJobsBackgroundWork(active: Boolean): Boolean = active
 
@@ -181,6 +210,7 @@ fun UnifiedJobsScreen(
         mutableStateOf(TextFieldValue(""))
     }
     var boardView by rememberSaveable { mutableStateOf(uiPrefs.getBoardView(spec.modeName.lowercase())) }
+    var boardThumbnails by rememberSaveable { mutableStateOf(uiPrefs.getBoardThumbnails(spec.modeName.lowercase())) }
     var showScheduleDialog by remember { mutableStateOf(false) }
     var showRestoreArchivedJobSheet by remember { mutableStateOf(false) }
     var selectedHistoryJob by remember { mutableStateOf<String?>(null) }
@@ -221,8 +251,10 @@ fun UnifiedJobsScreen(
     val badgeCache = remember(spec.modeName, scanGeneration) { mutableStateMapOf<String, Set<JobBadge>>() }
     var localJobEdits by remember { mutableStateOf<Map<String, LocalJobEdit>>(emptyMap()) }
 
-    val cards = remember(spec.modeName, scanGeneration, progressVersion, localJobEdits) {
-        spec.deriveJobCards().map { card ->
+    val cards = remember(spec.modeName, scanGeneration, progressVersion, localJobEdits, pinnedFolderNames) {
+        val pinnedSet = pinnedFolderNames.toSet()
+        spec.deriveJobCards().map { baseCard ->
+            val card = baseCard.copy(isPinned = baseCard.folderName in pinnedSet)
             val edit = localJobEdits[card.folderName]
             if (edit != null) {
                 val newBoardSection = edit.boardSection ?: card.boardSection
@@ -256,6 +288,10 @@ fun UnifiedJobsScreen(
     val activeCards = remember(filteredCards) { filteredCards.filter { it.boardSection == 0 } }
     val pendingCards = remember(filteredCards) { filteredCards.filter { it.boardSection == 1 } }
     val activeCardsByFolder = remember(activeCards) { activeCards.associateBy { it.folderName } }
+    // Grid cards reserve room for the job with the most Specialty stations so all cards match height.
+    val gridStationRows = remember(cards) {
+        cards.maxOfOrNull { (it.progressStyle as? ProgressStyle.Specialty)?.stationProgress?.size ?: 0 } ?: 0
+    }
 
     val activeOrder = remember(spec.modeName, scanGeneration) {
         mutableStateListOf(*activeCards.map { it.folderName }.toTypedArray())
@@ -263,6 +299,28 @@ fun UnifiedJobsScreen(
     val dragOffset = 2 + if (pinnedCards.isNotEmpty()) pinnedCards.size + 2 else 0
     val listState = rememberLazyListState()
     val lowEndMode = LocalLowEndMode.current
+
+    // Pin flight: grid card bounds (root coords) are recorded so pinning can fly a copy from the
+    // card's schedule spot up into the pinned row. Plain map, not state — read only on tap.
+    val gridCardBounds = remember { HashMap<String, Rect>() }
+    var pinFlight by remember { mutableStateOf<PinFlight?>(null) }
+    var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
+    val trackGridCardBounds: Modifier.(String) -> Modifier = { folderName ->
+        if (lowEndMode.animationsDisabled) this
+        else this.onGloballyPositioned { gridCardBounds[folderName] = it.boundsInRoot() }
+    }
+    val onGridPinToggle: (UnifiedJobUiModel) -> Unit = { card ->
+        if (!lowEndMode.animationsDisabled && !card.isPinned) {
+            gridCardBounds[card.folderName]?.let { pinFlight = PinFlight(card.folderName, from = it) }
+        }
+        onTogglePin(card.folderName, card.isPinned)
+    }
+    // Pinned slot never laid out (e.g. scrolled off-screen): drop the flight so the copy isn't stuck hidden.
+    LaunchedEffect(pinFlight?.folderName) {
+        if (pinFlight == null) return@LaunchedEffect
+        delay(500)
+        if (pinFlight?.to == null) pinFlight = null
+    }
 
     // "Jump to job" from a tapped delivery — scroll the list to the matching card and highlight
     // it. Index map mirrors the LazyColumn's exact item emission order below (pinned header +
@@ -366,7 +424,7 @@ fun UnifiedJobsScreen(
         topBar = {
             KKCTopAppBar(
                 title = {
-                    KKCBrandedTitle(modeSuffix = sanitizeModeTitle(spec.modeName))
+                    KKCBrandedTitle()
                 },
                 actions = {
                     if (restoreActionVisible(adminEnabled = adminMode)) {
@@ -381,20 +439,32 @@ fun UnifiedJobsScreen(
                             onSelect = onFlexModeSelected
                         )
                     }
-                    RefreshIconButton(
-                        loading = scanStatus == ScanStatus.LOADING,
-                        onClick = { spec.refresh(RefreshReason.USER_REFRESH, force = true) }
-                    )
+                    // Cycles List -> Grid (job cards) -> Thumbnails (delivery sheets) -> List.
+                    // The icon shows the view the next tap switches to.
                     IconButton(
                         onClick = {
-                            boardView = !boardView
-                            uiPrefs.setBoardView(spec.modeName.lowercase(), boardView)
+                            val screenKey = spec.modeName.lowercase()
+                            when {
+                                !boardView -> { boardView = true; boardThumbnails = false }
+                                !boardThumbnails -> boardThumbnails = true
+                                else -> { boardView = false; boardThumbnails = false }
+                            }
+                            uiPrefs.setBoardView(screenKey, boardView)
+                            uiPrefs.setBoardThumbnails(screenKey, boardThumbnails)
                         },
                         enabled = !adminMode
                     ) {
                         Icon(
-                            imageVector = if (boardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
-                            contentDescription = if (boardView) "List View" else "Board View"
+                            imageVector = when {
+                                !boardView -> Icons.Default.GridView
+                                !boardThumbnails -> Icons.Default.PhotoLibrary
+                                else -> Icons.AutoMirrored.Filled.ViewList
+                            },
+                            contentDescription = when {
+                                !boardView -> "Grid View"
+                                !boardThumbnails -> "Thumbnail View"
+                                else -> "List View"
+                            }
                         )
                     }
                     TopBarClock()
@@ -404,7 +474,7 @@ fun UnifiedJobsScreen(
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             AnimatedContent(
-                targetState = boardView,
+                targetState = boardView to (boardView && boardThumbnails),
                 transitionSpec = {
                     if (lowEndMode.animationsDisabled) {
                         fadeIn(snap()) togetherWith fadeOut(snap())
@@ -413,7 +483,7 @@ fun UnifiedJobsScreen(
                     }
                 },
                 label = "sort_anim"
-            ) { isBoardView ->
+            ) { (isBoardView, isThumbnailBoard) ->
                 when {
                     scanStatus == ScanStatus.LOADING && cards.isEmpty() -> {
                         Box(
@@ -470,6 +540,50 @@ fun UnifiedJobsScreen(
                             }
                         }
                     }
+                    isThumbnailBoard -> {
+                        JobBoardGrid(
+                            items = activeCards.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                            pendingItems = pendingCards.map { JobBoardItem(it.folderName, it.jobNumber, it.jobName, it.labels) },
+                            jobRepository = jobRepository,
+                            onItemClick = { boardItem ->
+                                filteredCards.find { it.folderName == boardItem.folderName }
+                                    ?.let { onJobClick(it) }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                            columns = gridCols,
+                            scanGeneration = scanGeneration,
+                            header = {
+                                item(key = "header_job_count", span = { GridItemSpan(maxLineSpan) }) {
+                                    Text(
+                                        text = if (query.text.isBlank()) {
+                                            "${filteredCards.size} jobs"
+                                        } else {
+                                            "Showing ${filteredCards.size} of ${cards.size} jobs"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                                item(key = "header_deliveries_widget", span = { GridItemSpan(maxLineSpan) }) {
+                                    DeliveryScheduleBanner(
+                                        schedule = deliveryScheduleBinding.bannerSchedule,
+                                        isAdminMode = adminMode,
+                                        onEditRequested = { showScheduleDialog = true },
+                                        showWhenEmpty = adminMode,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
+                                        onJobSelected = { folderName ->
+                                            query = TextFieldValue("")
+                                            boardView = false
+                                            pendingScrollTarget = folderName
+                                        }
+                                    )
+                                }
+                            }
+                        )
+                    }
                     isBoardView -> {
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(gridCols),
@@ -507,6 +621,59 @@ fun UnifiedJobsScreen(
                                 )
                             }
 
+                            // Pinned jobs: standard full-width copies above the grid; the originals keep their schedule spot.
+                            if (pinnedCards.isNotEmpty()) {
+                                item(key = "pinned_header", span = { GridItemSpan(maxLineSpan) }) {
+                                    Text(
+                                        "Pinned",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = gridItemMotion(enabled = !lowEndMode.animationsDisabled)
+                                            .padding(horizontal = 4.dp, vertical = 4.dp)
+                                    )
+                                }
+                                itemsIndexed(
+                                    pinnedCards,
+                                    key = { _, card -> "pinned_${card.folderName}" },
+                                    span = { _, _ -> GridItemSpan(maxLineSpan) }
+                                ) { _, card ->
+                                    val loadedBadges = badgeCache[card.folderName]
+                                    LaunchedEffect(card.folderName, scanGeneration, active) {
+                                        if (!shouldRunUnifiedJobsBackgroundWork(active)) return@LaunchedEffect
+                                        if (!badgeCache.containsKey(card.folderName)) {
+                                            badgeCache[card.folderName] = spec.resolveBadges(card.folderName)
+                                        }
+                                    }
+                                    UnifiedJobCard(
+                                        modifier = gridItemMotion(enabled = !lowEndMode.animationsDisabled)
+                                            .onGloballyPositioned { coords ->
+                                                val f = pinFlight
+                                                if (f != null && f.folderName == card.folderName && f.to == null) {
+                                                    pinFlight = f.copy(to = coords.boundsInRoot())
+                                                }
+                                            }
+                                            // Hidden while the flying copy is still on its way here.
+                                            .graphicsLayer { alpha = if (pinFlight?.folderName == card.folderName) 0f else 1f },
+                                        model = card.copy(
+                                            badges = card.badges + (loadedBadges ?: emptySet<JobBadge>()),
+                                            onCardClick = { onJobClick(card) },
+                                            onHistoryClick = { folder -> selectedHistoryJob = folder }
+                                        ),
+                                        adminMode = adminMode,
+                                        onTogglePin = { onTogglePin(card.folderName, true) },
+                                        onEditLabels = { editingLabelsFor = card },
+                                        // Full-width pinned row in grid view: same lifted depth as the grid cards below.
+                                        lifted = true
+                                    )
+                                }
+                                item(key = "pinned_divider", span = { GridItemSpan(maxLineSpan) }) {
+                                    HorizontalDivider(
+                                        modifier = gridItemMotion(enabled = !lowEndMode.animationsDisabled)
+                                            .padding(vertical = 4.dp)
+                                    )
+                                }
+                            }
+
                             itemsIndexed(activeCards, key = { _, card -> card.folderName }) { index, card ->
                                 val loadedBadges = badgeCache[card.folderName]
                                 LaunchedEffect(card.folderName, scanGeneration, active) {
@@ -516,23 +683,27 @@ fun UnifiedJobsScreen(
                                     }
                                 }
                                 UnifiedJobCard(
-                                    modifier = Modifier.animateItem(),
+                                    modifier = gridItemMotion(enabled = !lowEndMode.animationsDisabled).trackGridCardBounds(card.folderName),
                                     model = card.copy(
                                         badges = card.badges + (loadedBadges ?: emptySet<JobBadge>()),
                                         onCardClick = { onJobClick(card) },
                                         onHistoryClick = { folder -> selectedHistoryJob = folder }
                                     ),
                                     adminMode = adminMode,
-                                    onTogglePin = { onTogglePin(card.folderName, !card.isPinned) },
-                                    onEditLabels = { editingLabelsFor = card }
+                                    onTogglePin = { onGridPinToggle(card) },
+                                    onEditLabels = { editingLabelsFor = card },
+                                    gridLayout = true,
+                                    reservedStationRows = gridStationRows
                                 )
                             }
 
                             if (pendingCards.isNotEmpty()) {
-                                item(span = { GridItemSpan(maxLineSpan) }) {
-                                    SectionHeader("Pending Delivery")
+                                item(key = "pending_header", span = { GridItemSpan(maxLineSpan) }) {
+                                    Box(modifier = gridItemMotion(enabled = !lowEndMode.animationsDisabled)) {
+                                        SectionHeader("Pending Delivery")
+                                    }
                                 }
-                                itemsIndexed(pendingCards, key = { _, card -> "pending_${card.folderName}" }) { index, card ->
+                                itemsIndexed(pendingCards, key = { _, card -> card.folderName }) { index, card ->
                                     val loadedBadges = badgeCache[card.folderName]
                                     LaunchedEffect(card.folderName, scanGeneration, active) {
                                         if (!shouldRunUnifiedJobsBackgroundWork(active)) return@LaunchedEffect
@@ -541,15 +712,17 @@ fun UnifiedJobsScreen(
                                         }
                                     }
                                     UnifiedJobCard(
-                                        modifier = Modifier.animateItem(),
+                                        modifier = gridItemMotion(enabled = !lowEndMode.animationsDisabled).trackGridCardBounds(card.folderName),
                                         model = card.copy(
                                             badges = card.badges + (loadedBadges ?: emptySet<JobBadge>()),
                                             onCardClick = { onJobClick(card) },
                                             onHistoryClick = { folder -> selectedHistoryJob = folder }
                                         ),
                                         adminMode = adminMode,
-                                        onTogglePin = { onTogglePin(card.folderName, !card.isPinned) },
-                                        onEditLabels = { editingLabelsFor = card }
+                                        onTogglePin = { onGridPinToggle(card) },
+                                        onEditLabels = { editingLabelsFor = card },
+                                        gridLayout = true,
+                                        reservedStationRows = gridStationRows
                                     )
                                 }
                             }
@@ -645,7 +818,7 @@ fun UnifiedJobsScreen(
                                                 onHistoryClick = { folder -> selectedHistoryJob = folder }
                                             ),
                                             adminMode = adminMode,
-                                            onTogglePin = { onTogglePin(card.folderName, false) },
+                                            onTogglePin = { onTogglePin(card.folderName, card.isPinned) },
                                             onEditLabels = { editingLabelsFor = if (editingLabelsFor?.folderName == card.folderName) null else card },
                                             dragModifier = if (adminMode) Modifier.draggableHandle(onDragStopped = { saveActiveOrder() }) else Modifier
                                         )
@@ -674,13 +847,37 @@ fun UnifiedJobsScreen(
                                             onHistoryClick = { folder -> selectedHistoryJob = folder }
                                         ),
                                         adminMode = adminMode,
-                                        onTogglePin = { onTogglePin(card.folderName, !card.isPinned) },
+                                        onTogglePin = { onTogglePin(card.folderName, card.isPinned) },
                                         onEditLabels = { editingLabelsFor = if (editingLabelsFor?.folderName == card.folderName) null else card }
                                     )
                                 }
                             }
                         }
                     }
+                }
+            }
+
+            // Pin "copy and fly" overlay: drawn above the grid in the same coordinate space.
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .onGloballyPositioned { overlayOrigin = it.positionInRoot() }
+            ) {
+                val flight = pinFlight
+                val flightTarget = flight?.to
+                val flightCard = flight?.let { f -> cards.find { it.folderName == f.folderName } }
+                if (flight != null && flightTarget != null && flightCard != null) {
+                    PinFlightOverlay(
+                        flight = flight,
+                        target = flightTarget,
+                        origin = overlayOrigin,
+                        card = flightCard.copy(
+                            badges = flightCard.badges + (badgeCache[flightCard.folderName] ?: emptySet())
+                        ),
+                        adminMode = adminMode,
+                        reservedStationRows = gridStationRows,
+                        onFinished = { pinFlight = null }
+                    )
                 }
             }
         }
@@ -848,4 +1045,76 @@ fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
     )
+}
+
+private data class PinFlight(
+    val folderName: String,
+    val from: Rect,
+    val to: Rect? = null
+)
+
+/**
+ * Flies a copy of a pinned job card from its grid spot to its pinned slot. The box interpolates
+ * position and size, so the card grows to full width as it rises and its contents re-flow at every
+ * frame; the grid layout crossfades into the standard (full-width) layout along the way.
+ */
+@Composable
+private fun PinFlightOverlay(
+    flight: PinFlight,
+    target: Rect,
+    origin: Offset,
+    card: UnifiedJobUiModel,
+    adminMode: Boolean,
+    reservedStationRows: Int,
+    onFinished: () -> Unit
+) {
+    val progress = remember(flight.folderName) { Animatable(0f) }
+    LaunchedEffect(flight.folderName) {
+        progress.animateTo(1f, animationSpec = tween(durationMillis = 1100, easing = FastOutSlowInEasing))
+        onFinished()
+    }
+    val density = LocalDensity.current
+    val p = progress.value
+    val from = flight.from
+    val left = lerp(from.left, target.left, p) - origin.x
+    val top = lerp(from.top, target.top, p) - origin.y
+    val width = with(density) { lerp(from.width, target.width, p).toDp() }
+    val height = with(density) { lerp(from.height, target.height, p).toDp() }
+    // Grid layout fades out over the first half, standard layout fades in over the middle.
+    val gridAlpha = (1f - p / 0.5f).coerceIn(0f, 1f)
+    val standardAlpha = ((p - 0.25f) / 0.5f).coerceIn(0f, 1f)
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
+            .size(width, height)
+            .graphicsLayer {
+                // Slight lift mid-flight so it reads as a card being picked up.
+                val lift = 1f + 0.04f * sin(p * PI.toFloat())
+                scaleX = lift
+                scaleY = lift
+            }
+            // One shadow for the flying card: the two cross-faded copies below draw none, so
+            // their half-transparent shadows don't double up mid-flight.
+            .kkcCardDepth(MaterialTheme.shapes.medium, lifted = true)
+    ) {
+        if (standardAlpha > 0f) {
+            UnifiedJobCard(
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = standardAlpha },
+                model = card,
+                adminMode = adminMode,
+                lifted = true,
+                showDepth = false
+            )
+        }
+        if (gridAlpha > 0f) {
+            UnifiedJobCard(
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = gridAlpha },
+                model = card,
+                adminMode = adminMode,
+                gridLayout = true,
+                reservedStationRows = reservedStationRows,
+                showDepth = false
+            )
+        }
+    }
 }

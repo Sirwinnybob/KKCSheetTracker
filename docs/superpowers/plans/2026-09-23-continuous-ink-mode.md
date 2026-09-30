@@ -840,7 +840,7 @@ insert:
                             // waits for every pointer to lift before it starts the next gesture.
                             if (currentMarkupEnabled && isStylusPointerType(firstDown.type)) return@awaitEachGesture
 ```
-This must sit **before** `flingJob?.cancel()` and `isInteracting = true`.
+This must sit **after** `flingJob?.cancel()` (a pen touch still stops a running fling, so the page can't scroll under the stroke — changed during Task 3 review) and **before** `isInteracting = true`.
 
 (b) Change
 ```kotlin
@@ -946,13 +946,19 @@ with:
                 // NonCancellable: a stroke made just before leaving the viewer still saves.
                 scope.launch(start = CoroutineStart.UNDISPATCHED) {
                     withContext(markupSaveDispatcher + NonCancellable) {
-                        pdfMarkupStore.savePageMarkup(
-                            jobFolderName = pdfMarkupJobFolderName,
-                            pdfFilename = key.pdfFilename,
-                            page = key.page,
-                            strokes = snapshot.visibleStrokes,
-                            deletedStrokeIds = snapshot.deletedIds
-                        )
+                        // A failed write must neither crash the viewer nor leave the page
+                        // flagged "unsaved" forever (every later reload would skip it).
+                        runCatching {
+                            pdfMarkupStore.savePageMarkup(
+                                jobFolderName = pdfMarkupJobFolderName,
+                                pdfFilename = key.pdfFilename,
+                                page = key.page,
+                                strokes = snapshot.visibleStrokes,
+                                deletedStrokeIds = snapshot.deletedIds
+                            )
+                        }.onFailure { error ->
+                            AppLog.e("PdfMarkupDebug", "savePageMarkup failed pdf=${key.pdfFilename} page=${key.page}", error)
+                        }
                     }
                     onSaved() // back on the main thread
                 }
@@ -965,7 +971,7 @@ with:
 
     LaunchedEffect(pdfMarkupStore, pdfMarkupJobFolderName, markupChangeGeneration) {
         if (pdfMarkupStore == null || pdfMarkupJobFolderName.isBlank()) {
-            markupPageStates.replaceAll(emptyMap())
+            markupPageStates.clear()
             return@LaunchedEffect
         }
         // Guard first: our own save fires this reload (the observer sees the MOVED_TO), and a
@@ -1002,8 +1008,12 @@ Replace (currently ~lines 647-667):
 ```
 with:
 ```kotlin
-    val hasMarkupHistory = markupPageStates.hasUndo(currentMarkupKey)
+    // derivedStateOf: recompose only when the answer flips, not on every stroke on any page.
+    val hasMarkupHistory by remember(markupPageStates, currentMarkupKey) {
+        derivedStateOf { markupPageStates.hasUndo(currentMarkupKey) }
+    }
 ```
+(`derivedStateOf` is already imported.)
 
 - [ ] **Step 4: Update the toolbar**
 
@@ -1212,4 +1222,4 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 **Placeholder scan:** none. Task 4 step 2/3 quote the old code by region and end marker because the exact old block is 30+ lines already in the file; the replacement text is complete.
 
-**Type consistency:** `pdfMarkupPageKey(filename, page)`, `PdfMarkupPageSnapshot(strokes, deletedIds, ownStrokeIds).visibleStrokes`, `PdfMarkupPageStates(persist: (key, snapshot, onSaved) -> Unit).{strokesFor, add, erase, hasUndo, undoLast, beginReload, replaceAll(snapshots, guard?)}`, `buildPdfMarkupSnapshots(merged, ownPages)`, `shouldContinuousPaneOwnFingerGestures(markupEnabled, allowFingerDrawing, selectedTool)`, `isStylusPointerType(type)` are used with identical names and signatures in every task.
+**Type consistency:** `pdfMarkupPageKey(filename, page)`, `PdfMarkupPageSnapshot(strokes, deletedIds, ownStrokeIds).visibleStrokes`, `PdfMarkupPageStates(persist: (key, snapshot, onSaved) -> Unit).{strokesFor, add, erase, hasUndo, undoLast, beginReload, replaceAll(snapshots, guard), clear}` (guard required since the Task 1 review fix-up), `buildPdfMarkupSnapshots(merged, ownPages)`, `shouldContinuousPaneOwnFingerGestures(markupEnabled, allowFingerDrawing, selectedTool)`, `isStylusPointerType(type)` are used with identical names and signatures in every task.

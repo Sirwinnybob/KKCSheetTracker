@@ -8,6 +8,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -20,9 +22,14 @@ sealed class SupplyChange {
     data class NewAttachments(val count: Int) : SupplyChange()
 }
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 class SupplySubscriptionManager(
     private val context: Context,
-    private val repository: SupplyRepository
+    private val repository: SupplyRepository,
+    // While the supply live socket is connected, every push bumps version and the scan below
+    // runs against in-memory state; a disconnect also bumps it once, giving one fallback file
+    // scan. Spec: docs/superpowers/specs/2026-09-28-supply-live-websocket-design.md.
+    private val liveStore: SupplyLiveStateStore = SupplyLiveStateStore.shared
 ) {
     private val gson = Gson()
     private val subscriptionsFile = File(context.filesDir, FILE_NAME)
@@ -48,6 +55,21 @@ class SupplySubscriptionManager(
             } catch (t: Throwable) {
                 initDeferred.completeExceptionally(t)
             }
+        }
+        scope.launch {
+            initDeferred.join()
+            liveStore.version
+                .drop(1)
+                .debounce(LIVE_RESCAN_DEBOUNCE_MS)
+                .collect {
+                    try {
+                        scanForUpdates()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (t: Throwable) {
+                        logError("Live supply rescan failed", t)
+                    }
+                }
         }
     }
 
@@ -224,6 +246,7 @@ class SupplySubscriptionManager(
 
     companion object {
         const val FILE_NAME = "supply_subscriptions.json"
+        const val LIVE_RESCAN_DEBOUNCE_MS = 250L
     }
 }
 

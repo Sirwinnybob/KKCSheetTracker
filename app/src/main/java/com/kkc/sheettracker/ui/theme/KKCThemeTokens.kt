@@ -71,15 +71,20 @@ val LocalKKCIsDarkTheme = staticCompositionLocalOf { false }
 val BuiltInKKCThemeTokens = KKCThemeTokens(
     id = KKCThemeRepository.BUILT_IN_THEME_ID,
     name = "KKC Default",
+    // Secondary is the pale blue of the app's container chips (the scheme's secondaryContainer,
+    // e.g. the sheet-id chips in the CNC viewer). That makes the default a two-color theme like
+    // the team themes: blue track with a pale-blue pill in the sliders, blue/pale-blue zebra.
     light = KKCThemePalette(
         primary = Color(0xFF1E5FAF),
         background = Color.White,
-        surface = Color.White
+        surface = Color.White,
+        secondary = Color(0xFFD8E6F7)
     ),
     dark = KKCThemePalette(
         primary = Color(0xFF79B2FF),
         background = Color.Black,
-        surface = Color(0xFF162438)
+        surface = Color(0xFF162438),
+        secondary = Color(0xFF204668)
     ),
     lightStatus = LightStatusColors,
     darkStatus = DarkStatusColors,
