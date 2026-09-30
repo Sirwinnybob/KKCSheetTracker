@@ -2,6 +2,8 @@ package com.kkc.sheettracker.ui.viewer
 
 internal enum class SheetDiagramSource {
     SIDECAR_THUMBNAIL,
+    /** Splitter's full-size gray PNG ([com.kkc.sheettracker.data.models.PageMetadata.diagramPath]). */
+    SIDECAR_DIAGRAM,
     FULL_EMBEDDED_IMAGE
 }
 
@@ -17,6 +19,18 @@ internal fun isRenderQualitySufficient(
     cachedScale: Float,
     requiredQuality: SheetRenderQuality
 ): Boolean = cachedScale >= requiredQuality.scale
+
+/**
+ * Prewarmed (adjacent) pages load the full diagram when the splitter wrote a sidecar PNG: that is
+ * a cheap native decode, so the page shows sharp as soon as it scrolls in. Without one, full
+ * quality means a PdfBox parse per page, so prewarm keeps the small thumbnail.
+ */
+internal fun effectiveDiagramSource(quality: SheetRenderQuality, diagramPath: String?): SheetDiagramSource =
+    if (quality.diagramSource == SheetDiagramSource.SIDECAR_THUMBNAIL && !diagramPath.isNullOrBlank()) {
+        SheetDiagramSource.SIDECAR_DIAGRAM
+    } else {
+        quality.diagramSource
+    }
 
 /**
  * Longest edge a decoded sheet diagram may keep. CNC diagrams embed 5100 x ~2560 JPEGs

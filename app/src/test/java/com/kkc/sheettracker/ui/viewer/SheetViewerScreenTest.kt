@@ -60,6 +60,17 @@ class SheetViewerScreenTest {
     }
 
     @Test
+    fun effectiveDiagramSource_prewarmsFullSidecarDiagramOnlyWhenSplitterWroteOne() {
+        val path = ".metadata/.thumbs/684 - 19mm_p001.diagram.png"
+        assertEquals(SheetDiagramSource.SIDECAR_DIAGRAM, effectiveDiagramSource(SheetRenderQuality.ADJACENT, path))
+        // Older jobs: full quality would mean a PdfBox parse per prewarmed page, keep the thumbnail.
+        assertEquals(SheetDiagramSource.SIDECAR_THUMBNAIL, effectiveDiagramSource(SheetRenderQuality.ADJACENT, null))
+        assertEquals(SheetDiagramSource.SIDECAR_THUMBNAIL, effectiveDiagramSource(SheetRenderQuality.ADJACENT, " "))
+        assertEquals(SheetDiagramSource.FULL_EMBEDDED_IMAGE, effectiveDiagramSource(SheetRenderQuality.CURRENT, path))
+        assertEquals(SheetDiagramSource.FULL_EMBEDDED_IMAGE, effectiveDiagramSource(SheetRenderQuality.CURRENT, null))
+    }
+
+    @Test
     fun cachedAdjacentRender_isPromotedWhenPageBecomesCurrent() {
         assertFalse(isRenderQualitySufficient(0.5f, SheetRenderQuality.CURRENT))
         assertTrue(isRenderQualitySufficient(1f, SheetRenderQuality.CURRENT))

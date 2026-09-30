@@ -676,12 +676,29 @@ fun SheetViewerScreen(
                 }
             }
             val pageMeta = resolvePageMetadata(targetMaterial, pageNumber)
-            when (quality.diagramSource) {
-                SheetDiagramSource.SIDECAR_THUMBNAIL -> {
-                    val thumbnail = loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
-                    if (thumbnail != null) {
-                        outDiagram = resizeThumbnail(thumbnail)
-                        if (outDiagram !== thumbnail) thumbnail.recycle()
+            fun useThumbnailDiagram() {
+                val thumbnail = loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
+                if (thumbnail != null) {
+                    outDiagram = resizeThumbnail(thumbnail)
+                    if (outDiagram !== thumbnail) thumbnail.recycle()
+                }
+            }
+            when (effectiveDiagramSource(quality, pageMeta?.diagramPath)) {
+                SheetDiagramSource.SIDECAR_THUMBNAIL -> useThumbnailDiagram()
+                SheetDiagramSource.SIDECAR_DIAGRAM -> {
+                    // Same prepared-cache key as FULL_EMBEDDED_IMAGE, so the later
+                    // quality promotion for this page reuses this decode.
+                    val prepared = progressStore.getOrPrepareDiagram(
+                        key = preparedPageKey(targetMaterial, pageNumber),
+                        source = source
+                    ) {
+                        loadCncSidecarDiagram(targetPdfFile, pageMeta?.diagramPath, pageMeta?.ocrImageWidth)
+                    }
+                    if (prepared != null) {
+                        outDiagram = prepared.bitmap
+                        outDiagramScale = prepared.sourceScale
+                    } else {
+                        useThumbnailDiagram()
                     }
                 }
                 SheetDiagramSource.FULL_EMBEDDED_IMAGE -> {
