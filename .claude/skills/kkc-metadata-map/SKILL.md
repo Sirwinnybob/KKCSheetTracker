@@ -256,7 +256,7 @@ Second caveat: `moldingId` includes the category (`"Crown:105"`). When a CV prof
 |---|---|---|
 | `Y:\Ready Jobs\<job>\DARK MODE\*.pdf` | W (`adapters\dark_mode_publish.py`) | Generated copies; re-parse regenerates |
 | `Y:\Ready Jobs\<job>\3D\<room>\3d_medium.glb` | W (`adapters\dae_glb_publish.py`) from `3d.dae` | Android 3D asset; counts `daeGlb*` in `worker_status.json` |
-| `Y:\Ready Jobs\<job>\CNC\.metadata\.thumbs\*`, `.fullimages\*` | Render cache (thumb writer likely the PGM Sorting splitter, unconfirmed); W prunes orphan thumbs | Missing previews only; not source metadata |
+| `Y:\Ready Jobs\<job>\CNC\.metadata\.thumbs\*`, `.fullimages\*` | PGM Sorting splitter writes `.thumbs\<stem>_pNNN.png` (TOC thumbnail) and, since 2026-09-30, `.thumbs\<stem>_pNNN.diagram.png` (full-size gray sheet diagram the tablet viewer loads before falling back to the PDF image); both match the `_p*.png` globs the splitter stages/cleans and W prunes as orphans | Missing previews/diagrams only; not source metadata |
 | `Y:\Ready Jobs\<job>\.metadata\.thumbs\*`, `.fullimages\*` | HT (`routes\pdf.py`) renders root-PDF page images | Per-job, not global |
 | `Y:\Ready Jobs\<job>\**\*.tmp`, `*.ocr.tmp`, `.tmp_assimp_*`, root `production_order.json.*.tmp` | Atomic writers/converters | Transient; July-dated root leftovers are safe to clean |
 | `Y:\Ready Jobs\<job>\CNC\.tracker\watcher_refresh.json`, `watcher_refresh_splitter.json` | Legacy markers (no writer) | Current signal is `watcher_refresh_watcher.json` |
