@@ -754,7 +754,9 @@ internal fun ContinuousReferencePdfPane(
     // cannot directly call an arbitrary suspend function like listState.scrollBy(). Hand deltas
     // off through a channel instead and drain them sequentially on a plain coroutine, same
     // pattern Compose's own scrollable() uses internally for this exact restriction.
-    val scrollDeltaChannel = remember(listState, documentIdentity) { CoalescingMainAxisDeltaChannel() }
+    // Keyed on orientation too: the consumer effect below captures applyMainAxisScroll, which reads
+    // sharedZoom / sharedMainAxisOverscroll (both recreated per documentIdentity + orientation).
+    val scrollDeltaChannel = remember(listState, documentIdentity, orientation) { CoalescingMainAxisDeltaChannel() }
     // Channel is only needed for live-drag deltas: awaitPointerEvent runs in a
     // @RestrictsSuspension scope that cannot call arbitrary suspend fns like scrollBy().
     // Fling deltas are NOT sent through here — flingJob calls listState.scroll() directly.
@@ -825,7 +827,11 @@ internal fun ContinuousReferencePdfPane(
         }
     }
 
-    LaunchedEffect(listState) {
+    // Keyed on the guard too: it is recreated per documentIdentity (PDF/doc-type switch) while
+    // listState survives. Without the key this collector keeps the OLD guard forever, never sees
+    // the new guard go active, and echoes every animation frame back as a nav request (each
+    // View tap then advances only one page).
+    LaunchedEffect(listState, programmaticScrollGuard) {
         snapshotFlow {
             val info = listState.layoutInfo
             val visible = info.visibleItemsInfo
