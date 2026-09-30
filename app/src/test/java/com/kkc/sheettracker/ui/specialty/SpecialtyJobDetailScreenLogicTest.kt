@@ -10,6 +10,7 @@ import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.models.SpecialtyCompletionState
 import com.kkc.sheettracker.data.models.SpecialtyItem
+import com.kkc.sheettracker.data.models.SpecialtyItemAttachment
 import com.kkc.sheettracker.data.models.SpecialtyItemCategory
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
@@ -17,7 +18,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CompletableDeferred
@@ -399,5 +403,57 @@ class SpecialtyJobDetailScreenLogicTest {
         assertNull(editedSpecialtyQuantity(2.0, "abc"))
         assertNull(editedSpecialtyQuantity(null, "NaN"))
         assertNull(editedSpecialtyQuantity(null, "1e999"))
+    }
+
+    @get:Rule
+    val tmp = TemporaryFolder()
+
+    private fun adminFile(kind: String, itemId: String, name: String): File =
+        File(tmp.root, "Job 1/.metadata/admin/$kind/$itemId/$name").apply {
+            parentFile!!.mkdirs()
+            writeText("x")
+        }
+
+    @Test
+    fun resolveAttachment_specialtyItem_readsSpecialtyAttachmentsFolder() {
+        val expected = adminFile("specialty_attachments", "spec-1", "att-1.pdf")
+        adminFile("checklist_attachments", "spec-1", "att-1.pdf")
+        val att = SpecialtyItemAttachment(id = "att-1", filename = "att-1.pdf", originalName = "Drawing.pdf")
+
+        assertEquals(expected, resolveSpecialtyAttachmentFile(tmp.root.path, "Job 1", "spec-1", att))
+    }
+
+    @Test
+    fun resolveAttachment_checklistItem_readsChecklistAttachmentsFolder() {
+        val expected = adminFile("checklist_attachments", "chk-1", "att-2.png")
+        val att = SpecialtyItemAttachment(id = "att-2", filename = "att-2.png", originalName = "Photo.png")
+
+        assertEquals(expected, resolveSpecialtyAttachmentFile(tmp.root.path, "Job 1", "checklist:chk-1", att))
+    }
+
+    @Test
+    fun resolveAttachment_fallsBackToFileContainingAttachmentId() {
+        val expected = adminFile("specialty_attachments", "spec-2", "spec-2_att-3.pdf")
+        val att = SpecialtyItemAttachment(id = "att-3", filename = "att-3.pdf", originalName = "Spec.pdf")
+
+        assertEquals(expected, resolveSpecialtyAttachmentFile(tmp.root.path, "Job 1", "spec-2", att))
+    }
+
+    @Test
+    fun resolveAttachment_missingFileOrBlankId_returnsNull() {
+        adminFile("specialty_attachments", "spec-3", "other.pdf")
+
+        assertNull(
+            resolveSpecialtyAttachmentFile(
+                tmp.root.path, "Job 1", "spec-3",
+                SpecialtyItemAttachment(id = "att-4", filename = "att-4.pdf", originalName = "Gone.pdf")
+            )
+        )
+        assertNull(
+            resolveSpecialtyAttachmentFile(
+                tmp.root.path, "Job 1", "spec-3",
+                SpecialtyItemAttachment(id = "", filename = "missing.pdf", originalName = "Blank.pdf")
+            )
+        )
     }
 }
