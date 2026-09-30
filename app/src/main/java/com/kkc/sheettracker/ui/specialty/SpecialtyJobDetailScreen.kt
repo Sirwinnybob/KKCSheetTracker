@@ -117,6 +117,7 @@ import com.kkc.sheettracker.data.ArchiveLifecycleClient
 import com.kkc.sheettracker.ui.detail.ArchiveLifecycleActionSheet
 import com.kkc.sheettracker.ui.detail.archiveActionVisible
 import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.data.models.SpecialtyItemAttachment
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.StatusCounts
@@ -728,6 +729,27 @@ internal fun hasClosetRodCutList(index: HardwoodCutlistIndex?): Boolean {
         }
 }
 
+/**
+ * Finds an item's attachment where Hours Tracker stores it: checklist-backed items
+ * ("checklist:<id>") under `.metadata/admin/checklist_attachments/<id>/`, specialty items under
+ * `.metadata/admin/specialty_attachments/<id>/`. Tries the stored filename first, then any file
+ * containing the attachment ID (legacy uploads saved with an item-ID prefix).
+ */
+internal fun resolveSpecialtyAttachmentFile(
+    basePath: String,
+    jobFolderName: String,
+    itemId: String,
+    attachment: SpecialtyItemAttachment
+): File? {
+    val isChecklist = itemId.startsWith("checklist:")
+    val folder = if (isChecklist) "checklist_attachments" else "specialty_attachments"
+    val attDir = File(basePath, "$jobFolderName/.metadata/admin/$folder/${itemId.removePrefix("checklist:")}")
+    return File(attDir, attachment.filename).takeIf { attachment.filename.isNotBlank() && it.isFile }
+        ?: attachment.id.takeIf { it.isNotBlank() }?.let { attId ->
+            attDir.listFiles()?.firstOrNull { it.isFile && it.name.contains(attId) }
+        }
+}
+
 @Composable
 private fun SpecialtySectionHeader(
     label: String,
@@ -1072,16 +1094,8 @@ internal fun SpecialtyItemDetails(
                             onClick = {
                                 attachmentsExpanded = false
                                 if (basePath.isNotBlank() && jobFolderName.isNotBlank()) {
-                                    val rawItemId = item.id.removePrefix("checklist:")
-                                    val attDir = java.io.File(
-                                        basePath,
-                                        "$jobFolderName/.metadata/admin/checklist_attachments/$rawItemId"
-                                    )
-                                    // Try exact filename first, then fall back to any file containing the attachment ID
-                                    // (handles legacy uploads saved with an item-ID prefix)
-                                    val file = java.io.File(attDir, att.filename).takeIf { it.exists() }
-                                        ?: attDir.listFiles()?.firstOrNull { it.name.contains(att.id) }
-                                    if (file != null && file.exists()) {
+                                    val file = resolveSpecialtyAttachmentFile(basePath, jobFolderName, item.id, att)
+                                    if (file != null) {
                                         try {
                                             val uri = androidx.core.content.FileProvider.getUriForFile(
                                                 context,
