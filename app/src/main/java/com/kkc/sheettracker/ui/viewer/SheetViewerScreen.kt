@@ -106,6 +106,7 @@ import com.kkc.sheettracker.data.AppStateFeatureFlags
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.PdfMarkupStore
+import com.kkc.sheettracker.data.PreparedDiagram
 import com.kkc.sheettracker.data.PreparedPageKey
 import com.kkc.sheettracker.data.PreparedStateInvalidationReason
 import com.kkc.sheettracker.data.ProgressStore
@@ -184,6 +185,8 @@ private val SHEET_BITMAP_INVERSION_COLOR_MATRIX = ColorMatrix(
 private data class RenderedSheetPage(
     val pageBitmap: Bitmap?,
     val diagramBitmap: Bitmap?,
+    /** [diagramBitmap] pixels per source-image pixel (the space sidecar OCR boxes use). */
+    val diagramScale: Float = 1f,
     val renderScale: Float,
     var wasDisplayed: Boolean = false
 )
@@ -368,6 +371,7 @@ fun SheetViewerScreen(
     var visiblePages by remember { mutableStateOf<List<Int>>(emptyList()) }
     var pageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var diagramBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var diagramScale by remember { mutableFloatStateOf(1f) }
     var jobMaterials by remember { mutableStateOf<List<Material>>(emptyList()) }
     var currentMaterial by remember { mutableStateOf<Material?>(null) }
     val currentPageMetadata = remember(currentMaterial, currentPage) {
@@ -648,6 +652,7 @@ fun SheetViewerScreen(
         var renderedBitmap: Bitmap? = null
         return try {
             var outDiagram: Bitmap? = null
+            var outDiagramScale = 1f
             val pageIndex = pageNumber - 1
             ParcelFileDescriptor.open(targetPdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                 PdfRenderer(fd).use { renderer ->
@@ -681,18 +686,22 @@ fun SheetViewerScreen(
                 }
                 SheetDiagramSource.FULL_EMBEDDED_IMAGE -> {
                     val key = preparedPageKey(targetMaterial, pageNumber)
-                    outDiagram = progressStore.getOrPrepareDiagramBitmap(
+                    val prepared = progressStore.getOrPrepareDiagram(
                         key = key,
                         source = source
                     ) {
-                        extractLargestEmbeddedImage(targetPdfFile, pageIndex)
-                            ?: loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
+                        loadCncSidecarDiagram(targetPdfFile, pageMeta?.diagramPath, pageMeta?.ocrImageWidth)
+                            ?: extractLargestEmbeddedDiagram(targetPdfFile, pageIndex)
+                            ?: loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)?.let { PreparedDiagram(it) }
                     }
+                    outDiagram = prepared?.bitmap
+                    outDiagramScale = prepared?.sourceScale ?: 1f
                 }
             }
             RenderedSheetPage(
                 pageBitmap = renderedBitmap,
                 diagramBitmap = outDiagram,
+                diagramScale = outDiagramScale,
                 renderScale = quality.scale
             )
         } catch (e: Exception) {
@@ -870,6 +879,7 @@ fun SheetViewerScreen(
             touchRenderCache(currentPage)
             pageBitmap = cached.pageBitmap
             diagramBitmap = cached.diagramBitmap
+            diagramScale = cached.diagramScale
             AppLog.i(
                 SHEET_RENDER_TAG,
                 "Page $currentPage render cache hit: pageBitmap=${pageBitmap?.width}x${pageBitmap?.height}, diagram=${diagramBitmap?.width}x${diagramBitmap?.height}"
@@ -894,6 +904,7 @@ fun SheetViewerScreen(
                 rendered.wasDisplayed = true
                 pageBitmap = rendered.pageBitmap
                 diagramBitmap = rendered.diagramBitmap
+                diagramScale = rendered.diagramScale
                 cacheRenderedPage(currentPage, rendered)
                 AppLog.i(
                     SHEET_RENDER_TAG,
@@ -902,6 +913,7 @@ fun SheetViewerScreen(
             } else {
                 pageBitmap = null
                 diagramBitmap = null
+                diagramScale = 1f
             }
         }
 
@@ -1658,6 +1670,7 @@ fun SheetViewerScreen(
                                     parts = parts,
                                     selectedPartNumber = selectedPartNumber,
                                     diagramBboxes = diagramBboxes,
+                                    bboxScale = diagramScale,
                                     resetZoomTrigger = resetZoomTrigger,
                                     markupStrokes = visiblePdfMarkupStrokes,
                                     modifier = topModifier
@@ -2426,6 +2439,34 @@ private fun loadCncSidecarBitmap(
 }
 
 /**
+ * Loads the splitter's gray sheet PNG ([PageMetadata.diagramPath]). Skips PdfBox entirely (no
+ * whole-PDF parse per page turn) and decodes as RGB_565: the drawing is black/white line art,
+ * so half the bytes of ARGB_8888 lose nothing.
+ */
+private fun loadCncSidecarDiagram(
+    pdfFile: File,
+    diagramPath: String?,
+    ocrImageWidth: Int?
+): PreparedDiagram? {
+    val imageFile = resolveCncSidecarFile(pdfFile, diagramPath) ?: return null
+    if (!imageFile.isFile) return null
+    return try {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = diagramDecodeSubsampling(bounds.outWidth, bounds.outHeight)
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
+        val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath, options) ?: return null
+        PreparedDiagram(bitmap, sidecarDiagramSourceScale(bitmap.width, ocrImageWidth ?: bounds.outWidth))
+    } catch (e: Exception) {
+        Log.w(SHEET_RENDER_TAG, "Sidecar diagram decode failed path=$diagramPath", e)
+        null
+    }
+}
+
+/**
  * Load a part graphic. New splitter output bundles a material's part images
  * into one ZIP (`archiveRelPath`); the part's [graphicPath] basename is the
  * entry name inside it. When no archive is present (legacy jobs), fall back to
@@ -2469,19 +2510,67 @@ private fun resizeThumbnail(src: Bitmap, maxW: Int = 420, maxH: Int = 280): Bitm
     return Bitmap.createScaledBitmap(src, tw, th, false)
 }
 
-internal fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int): Bitmap? {
+/**
+ * Decodes [xo] no larger than [DIAGRAM_MAX_EDGE_PX] on its long edge. Plain RGB/gray JPEGs (what
+ * older splitter output embeds) go straight to BitmapFactory: native decode, inSampleSize never
+ * allocates the full-size bitmap, and RGB_565 halves memory for this black/white line art.
+ * PdfBox's own subsampled decode is not used: pdfbox-android 2.0.27 throws
+ * "y + height must be <= bitmap.height()" for these 5100 x 2562 JPEGs.
+ */
+private fun decodeEmbeddedImageForDisplay(xo: PDImageXObject): Bitmap? {
+    val subsampling = diagramDecodeSubsampling(xo.width, xo.height)
+    val plainJpeg = xo.suffix == "jpg" &&
+        xo.decode == null &&
+        xo.softMask == null &&
+        xo.mask == null &&
+        xo.colorSpace.numberOfComponents.let { it == 1 || it == 3 }
+    if (plainJpeg) {
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = subsampling
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
+        val sampled = try {
+            xo.stream.createInputStream(listOf(COSName.DCT_DECODE.name)).use { input ->
+                BitmapFactory.decodeStream(input, null, options)
+            }
+        } catch (e: Exception) {
+            Log.w(SHEET_RENDER_TAG, "Sampled JPEG decode failed size=${xo.width}x${xo.height}; decoding full size", e)
+            null
+        }
+        if (sampled != null) return sampled
+    }
+    val full = xo.image ?: return null
+    if (subsampling == 1) return full
+    val width = (full.width + subsampling - 1) / subsampling
+    val height = (full.height + subsampling - 1) / subsampling
+    val scaled = Bitmap.createScaledBitmap(full, width, height, true)
+    if (scaled !== full) full.recycle()
+    return scaled
+}
+
+internal fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int): Bitmap? =
+    extractLargestEmbeddedDiagram(pdfFile, pageIndex)?.bitmap
+
+/**
+ * Decodes the page's sheet diagram at most [DIAGRAM_MAX_EDGE_PX] on its long edge. The
+ * returned [PreparedDiagram.sourceScale] maps source-image pixel coordinates (sidecar OCR
+ * boxes) onto the decoded bitmap.
+ */
+internal fun extractLargestEmbeddedDiagram(pdfFile: java.io.File, pageIndex: Int): PreparedDiagram? {
     var doc: PDDocument? = null
     return try {
         doc = PDDocument.load(pdfFile)
         if (pageIndex !in 0 until doc.numberOfPages) return null
         val page = doc.getPage(pageIndex)
         var bestBitmap: Bitmap? = null
+        var bestScale = 1f
         var bestScore = Double.NEGATIVE_INFINITY
         var bestArea = 0L
         var bestNonWhite = 0.0
         var bestVariance = 0.0
 
         var fallbackBitmap: Bitmap? = null
+        var fallbackScale = 1f
         var fallbackArea = 0L
 
         fun walk(resources: PDResources?) {
@@ -2493,7 +2582,7 @@ internal fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int):
                         val area = xo.width.toLong() * xo.height.toLong()
                         if (xo.width <= 1 || xo.height <= 1 || area <= 1L) continue
                         val bmp = try {
-                            xo.image
+                            decodeEmbeddedImageForDisplay(xo)
                         } catch (e: Exception) {
                             Log.w(
                                 SHEET_RENDER_TAG,
@@ -2502,9 +2591,11 @@ internal fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int):
                             )
                             null
                         } ?: continue
+                        val scale = bmp.width.toFloat() / xo.width.toFloat()
                         if (area > fallbackArea) {
                             fallbackArea = area
                             fallbackBitmap = bmp
+                            fallbackScale = scale
                         }
 
                         val (nonWhiteRatio, variance) = measureImageSignal(bmp)
@@ -2517,6 +2608,7 @@ internal fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int):
                             bestNonWhite = nonWhiteRatio
                             bestVariance = variance
                             bestBitmap = bmp
+                            bestScale = scale
                         }
                     }
                     is PDFormXObject -> walk(xo.resources)
@@ -2526,11 +2618,12 @@ internal fun extractLargestEmbeddedImage(pdfFile: java.io.File, pageIndex: Int):
 
         walk(page.resources)
         val raw = bestBitmap ?: fallbackBitmap ?: return null
+        val rawScale = if (bestBitmap != null) bestScale else fallbackScale
         AppLog.i(
             SHEET_RENDER_TAG,
-            "Embedded image selected: raw=${raw.width}x${raw.height}, area=${if (bestArea > 0) bestArea else fallbackArea}, nonWhite=${"%.5f".format(bestNonWhite)}, variance=${"%.2f".format(bestVariance)}"
+            "Embedded image selected: raw=${raw.width}x${raw.height}, scale=$rawScale, area=${if (bestArea > 0) bestArea else fallbackArea}, nonWhite=${"%.5f".format(bestNonWhite)}, variance=${"%.2f".format(bestVariance)}"
         )
-        raw
+        PreparedDiagram(raw, rawScale)
     } catch (e: Exception) {
         Log.e(SHEET_RENDER_TAG, "Embedded image extraction failed for pageIndex=$pageIndex", e)
         null
@@ -2747,6 +2840,8 @@ internal fun DiagramView(
     parts: List<Part>,
     selectedPartNumber: Int?,
     diagramBboxes: Map<Int, List<Rect>>,
+    /** [bitmap] pixels per [diagramBboxes] unit (boxes are in source-image pixels). */
+    bboxScale: Float = 1f,
     resetZoomTrigger: Int,
     onTapPart: (Int) -> Unit,
     onLongPressPart: (Int) -> Unit,
@@ -2792,22 +2887,26 @@ internal fun DiagramView(
     }
 
     // Fit + Center helpers: scale = min(viewW/bitmapW, viewH/bitmapH), centered both axes.
-    // Must match Image(contentScale = Fit, alignment = Center) below.
+    // Must match Image(contentScale = Fit, alignment = Center) below. They work in bbox space
+    // (source-image pixels): the bitmap may be decoded smaller than the source.
+    val boxSpaceW = bitmap.width / bboxScale
+    val boxSpaceH = bitmap.height / bboxScale
+
     fun bitmapToView(bx: Float, by: Float): Pair<Float, Float> {
         val vw = viewSize.width.toFloat()
         val vh = viewSize.height.toFloat()
-        val scale = minOf(vw / bitmap.width, vh / bitmap.height)
-        val offsetX = (vw - bitmap.width * scale) / 2f
-        val offsetY = (vh - bitmap.height * scale) / 2f
+        val scale = minOf(vw / boxSpaceW, vh / boxSpaceH)
+        val offsetX = (vw - boxSpaceW * scale) / 2f
+        val offsetY = (vh - boxSpaceH * scale) / 2f
         return (bx * scale + offsetX) to (by * scale + offsetY)
     }
 
     fun viewToBitmap(vx: Float, vy: Float): Pair<Float, Float> {
         val vw = viewSize.width.toFloat()
         val vh = viewSize.height.toFloat()
-        val scale = minOf(vw / bitmap.width, vh / bitmap.height)
-        val offsetX = (vw - bitmap.width * scale) / 2f
-        val offsetY = (vh - bitmap.height * scale) / 2f
+        val scale = minOf(vw / boxSpaceW, vh / boxSpaceH)
+        val offsetX = (vw - boxSpaceW * scale) / 2f
+        val offsetY = (vh - boxSpaceH * scale) / 2f
         return ((vx - offsetX) / scale) to ((vy - offsetY) / scale)
     }
 
@@ -2815,7 +2914,7 @@ internal fun DiagramView(
         modifier = modifier
             .clipToBounds()
             .onSizeChanged { viewSize = it }
-            .pointerInput(diagramBboxes, viewSize, zoom, panX, panY) {
+            .pointerInput(diagramBboxes, bboxScale, viewSize, zoom, panX, panY) {
                 fun hitPart(tapX: Float, tapY: Float): Int? {
                     if (viewSize == IntSize.Zero) return null
                     val ux = (tapX - panX) / zoom

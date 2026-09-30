@@ -17,3 +17,22 @@ internal fun isRenderQualitySufficient(
     cachedScale: Float,
     requiredQuality: SheetRenderQuality
 ): Boolean = cachedScale >= requiredQuality.scale
+
+/**
+ * Longest edge a decoded sheet diagram may keep. CNC diagrams embed 5100 x ~2560 JPEGs
+ * (~52 MB as ARGB); tablet screens are ~2560 px wide, so extra pixels only cost memory.
+ */
+internal const val DIAGRAM_MAX_EDGE_PX = 2560
+
+/** Diagram pixels per OCR-box pixel for a splitter sidecar diagram; 1:1 when the OCR width is unknown. */
+internal fun sidecarDiagramSourceScale(bitmapWidth: Int, ocrImageWidth: Int?): Float =
+    if (ocrImageWidth == null || ocrImageWidth <= 0) 1f else bitmapWidth.toFloat() / ocrImageWidth
+
+/** Smallest integer decode subsampling that fits the image's long edge in [maxEdgePx]. */
+internal fun diagramDecodeSubsampling(width: Int, height: Int, maxEdgePx: Int = DIAGRAM_MAX_EDGE_PX): Int {
+    val longEdge = maxOf(width, height)
+    if (longEdge <= maxEdgePx) return 1
+    var subsampling = 2
+    while ((longEdge + subsampling - 1) / subsampling > maxEdgePx) subsampling++
+    return subsampling
+}

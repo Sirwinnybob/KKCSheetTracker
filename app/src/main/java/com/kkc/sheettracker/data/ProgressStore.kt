@@ -141,11 +141,23 @@ data class PreparedPageKey(
     val fileFingerprint: String
 )
 
+data class PreparedDiagram(
+    val bitmap: Bitmap,
+    /**
+     * Diagram pixels per source-image pixel. Sidecar OCR boxes are in source-image pixels, so a
+     * diagram decoded at reduced size carries the factor needed to map them onto [bitmap].
+     */
+    val sourceScale: Float = 1f
+)
+
 data class PreparedPageEntry(
-    val diagramBitmap: Bitmap,
+    val diagram: PreparedDiagram,
     val createdAt: Long,
     val source: String
-)
+) {
+    val diagramBitmap: Bitmap get() = diagram.bitmap
+    val byteCount: Long get() = diagram.bitmap.allocationByteCount.toLong()
+}
 
 enum class PreparedStateInvalidationReason {
     IdentityChanged,
@@ -177,7 +189,7 @@ class ProgressStore(
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val preparedPageCache = mutableMapOf<PreparedPageKey, PreparedPageEntry>()
     private val preparedPageOrder = ArrayDeque<PreparedPageKey>()
-    private val preparedPageInFlight = mutableMapOf<PreparedPageKey, CompletableDeferred<Bitmap?>>()
+    private val preparedPageInFlight = mutableMapOf<PreparedPageKey, CompletableDeferred<PreparedDiagram?>>()
     private val preparedPageLock = Any()
     private val indexLock = Any()
     private val indexOperationLock = Any()
@@ -190,8 +202,10 @@ class ProgressStore(
     @Volatile
     var onSheetStatusChangedListener: ((jobFolderName: String, pdfFilename: String, page: Int, fileFingerprint: String, isComplete: Boolean) -> Unit)? = null
 
-    private companion object {
+    internal companion object {
         private const val PREPARED_CACHE_MAX_ENTRIES = 24
+        /** Diagrams are large (~13 MB each at display size); bound the cache by bytes too. */
+        internal const val PREPARED_CACHE_MAX_BYTES = 160L * 1024 * 1024
     }
 
     init {
@@ -1144,22 +1158,22 @@ class ProgressStore(
         }
     }
 
-    suspend fun getOrPrepareDiagramBitmap(
+    suspend fun getOrPrepareDiagram(
         key: PreparedPageKey,
         source: String,
-        producer: suspend () -> Bitmap?
-    ): Bitmap? {
+        producer: suspend () -> PreparedDiagram?
+    ): PreparedDiagram? {
         getPreparedPageEntry(key)?.let { entry ->
             AppLog.d("KKC_PREPARED_STATE", "prewarm_reused key=$key source=$source")
-            return entry.diagramBitmap
+            return entry.diagram
         }
 
-        val deferred: CompletableDeferred<Bitmap?>
+        val deferred: CompletableDeferred<PreparedDiagram?>
         val isOwner: Boolean
         synchronized(preparedPageLock) {
             getPreparedPageEntry(key)?.let { entry ->
                 AppLog.d("KKC_PREPARED_STATE", "prewarm_reused key=$key source=$source")
-                return entry.diagramBitmap
+                return entry.diagram
             }
             val inFlight = preparedPageInFlight[key]
             if (inFlight != null) {
@@ -1184,7 +1198,7 @@ class ProgressStore(
                 putPreparedPageEntry(
                     key = key,
                     entry = PreparedPageEntry(
-                        diagramBitmap = produced,
+                        diagram = produced,
                         createdAt = System.currentTimeMillis(),
                         source = source
                     )
@@ -1267,9 +1281,14 @@ class ProgressStore(
             preparedPageCache[key] = entry
             preparedPageOrder.remove(key)
             preparedPageOrder.addLast(key)
-            while (preparedPageOrder.size > PREPARED_CACHE_MAX_ENTRIES) {
+            var totalBytes = preparedPageCache.values.sumOf { it.byteCount }
+            // Always keep the newest entry, even if it alone exceeds the byte budget.
+            while (
+                preparedPageOrder.size > 1 &&
+                (preparedPageOrder.size > PREPARED_CACHE_MAX_ENTRIES || totalBytes > PREPARED_CACHE_MAX_BYTES)
+            ) {
                 val stale = preparedPageOrder.removeFirst()
-                preparedPageCache.remove(stale)
+                totalBytes -= preparedPageCache.remove(stale)?.byteCount ?: 0L
                 AppLog.d(
                     "KKC_PREPARED_STATE",
                     "prewarm_invalidated_reason=${PreparedStateInvalidationReason.MemoryPressure} key=$stale"

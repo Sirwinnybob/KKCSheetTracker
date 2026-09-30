@@ -35,6 +35,31 @@ class SheetViewerScreenTest {
     }
 
     @Test
+    fun diagramDecodeSubsampling_keepsLongEdgeWithinDisplayBudget() {
+        // Field CNC diagrams are 5100 x ~2560 JPEGs (~52 MB decoded at full size).
+        assertEquals(2, diagramDecodeSubsampling(5100, 2562))
+        assertEquals(1, diagramDecodeSubsampling(DIAGRAM_MAX_EDGE_PX, 1200))
+        assertEquals(1, diagramDecodeSubsampling(1200, 800))
+        assertEquals(2, diagramDecodeSubsampling(1200, DIAGRAM_MAX_EDGE_PX + 1))
+        assertEquals(4, diagramDecodeSubsampling(DIAGRAM_MAX_EDGE_PX * 3 + 1, 100))
+    }
+
+    @Test
+    fun sidecarDiagramSourceScale_mapsOcrImagePixelsOntoDecodedBitmap() {
+        assertEquals(1f, sidecarDiagramSourceScale(bitmapWidth = 2450, ocrImageWidth = 2450), 0.0001f)
+        assertEquals(0.5f, sidecarDiagramSourceScale(bitmapWidth = 2550, ocrImageWidth = 5100), 0.0001f)
+        // No OCR yet (or a malformed width): boxes are absent or unknowable, keep 1:1.
+        assertEquals(1f, sidecarDiagramSourceScale(bitmapWidth = 2450, ocrImageWidth = null), 0.0001f)
+        assertEquals(1f, sidecarDiagramSourceScale(bitmapWidth = 2450, ocrImageWidth = 0), 0.0001f)
+    }
+
+    @Test
+    fun diagramDecodeSubsampling_toleratesDegenerateSizes() {
+        assertEquals(1, diagramDecodeSubsampling(0, 0))
+        assertEquals(1, diagramDecodeSubsampling(-5, 10))
+    }
+
+    @Test
     fun cachedAdjacentRender_isPromotedWhenPageBecomesCurrent() {
         assertFalse(isRenderQualitySufficient(0.5f, SheetRenderQuality.CURRENT))
         assertTrue(isRenderQualitySufficient(1f, SheetRenderQuality.CURRENT))

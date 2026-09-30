@@ -1681,6 +1681,7 @@ class FileBackedUnifiedMetadataEngine(
                     hiddenInApp = page.hiddenInApp,
                     partListSpansPages = page.partListSpansPages,
                     thumbnailPath = page.thumbnailPath,
+                    diagramPath = page.diagramPath,
                     parts = (gsonNullable(page.parts) ?: emptyList()).map { part ->
                         Part(
                             number = part.number,
@@ -1704,6 +1705,7 @@ class FileBackedUnifiedMetadataEngine(
                             )
                         }
                     },
+                    ocrImageWidth = page.ocrImageWidth,
                     ocrSource = page.ocrSource,
                     ocrGeneratedAt = page.ocrGeneratedAt,
                     ocrVersion = page.ocrVersion,
