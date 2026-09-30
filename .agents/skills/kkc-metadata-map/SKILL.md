@@ -276,7 +276,7 @@ Second caveat: `moldingId` includes the category (`"Crown:105"`). When a CV prof
 | CNC skipped/re-nested confusion | `consolidated.json` `reNested` on skips; `cache_index` `progressSummary.cnc.renested`; `cache_static` sidecar `remakeLabel`; tablet `ProgressStore.kt` skip write |
 | Hardwoods rows/revisions wrong | `cutlist_index.json`, `cutlist_revisions.json`, `worker_status.json` `hardwoodsPublicationOutcomes`/`modeTemplateMismatchJobs` |
 | Hardwoods doc type missing, siblings fine | `cutlist_job_mismatch.json` (+ `_overrides.json`), then `blank_hardwoods_documents.json` |
-| Hardwoods markup disappeared | W consolidation deleting `*.markup.json` (see Ownership Map hazard) |
+| Hardwoods markup disappeared | RJW, or W older than 2026-09-30 (`a620f8f1`), deleting `*.markup.json` during consolidation — check which worker build runs the sweep |
 | Cutlist rip width looks swapped with length | Readable "3.0" template? Width column is authoritative, never swapped by size (W `board_stock.compute_board_stock_rows`, exact port of RJW); a wrong width means the source PDF/OCR |
 | Assembly/cabinet view wrong | `cabinet_sheet_index.json` (W `cabinet_reference_publish.py`) |
 | Molding profile geometry missing/wrong | `.metadata\moldings\<category>\<profileId>.xml`, `cv_molding_sync.log`, CV `Profile`/`Shape` |
