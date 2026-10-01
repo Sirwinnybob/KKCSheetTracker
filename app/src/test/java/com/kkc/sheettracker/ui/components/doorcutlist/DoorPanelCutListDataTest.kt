@@ -5,8 +5,11 @@ import com.kkc.sheettracker.data.models.AssemblyVirtualCombinedIndex
 import com.kkc.sheettracker.data.models.CabinetPageDetail
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.CabinetSheetIndexDocuments
+import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.ReferenceDocumentIndex
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -124,5 +127,236 @@ class DoorPanelCutListDataTest {
         val map = buildCabinetRoomMap(index)
         assertEquals("Room #5 (CLOSET)", map["70"])
         assertEquals("Room #5 (CLOSET)", map["71"])
+    }
+
+    // ---- fixtures modelled on 669 / 684 ----
+
+    private val rooms669 = mapOf(
+        "20" to "Room #1 (KITCHEN)",
+        "23" to "Room #2 (PANTRY)",
+        "30" to "Room #3 (VANITIES)",
+        "42" to "Room #4 (UTILITY - BENCH)",
+        "63" to "Room #5 (CLOSET)",
+        "64" to "Room #5 (CLOSET)",
+    )
+
+    private fun row(
+        ordinal: Int,
+        qty: Int,
+        cabinetText: String,
+        material: String? = "3/4 2s White Oak Rift",
+        width: String = "17.125",
+        description: String = "Door Slab 1B-L",
+        cabinets: List<String> = emptyList(),
+    ) = HardwoodCutlistRow(
+        rowId = "DOOR_CUT_LIST:1:$ordinal",
+        page = 1,
+        rowOrdinal = ordinal,
+        qty = qty,
+        material = material,
+        description = description,
+        width = width,
+        length = "24.125",
+        unitType = "SHEETS",
+        cabinets = cabinets,
+        rawCabinetText = cabinetText,
+    )
+
+    private fun source669() = DoorPanelCutListSource(
+        jobFolderName = "669 - WIECHERT 3146 NW CROSSINGS",
+        rows = listOf(
+            resolveRow(row(0, 1, "20", width = "34.375"), rooms669),
+            resolveRow(row(1, 2, "20, 42"), rooms669),                       // spans KITCHEN + UTILITY
+            resolveRow(row(2, 2, "23, 30", width = "19.125"), rooms669),     // spans PANTRY + VANITIES
+            resolveRow(row(3, 2, "63, 64", material = "3/4 DOUBLE FUMED", width = "31.0675"), rooms669),
+            resolveRow(row(4, 1, "30", material = "1/4 MDF", width = "9.565"), rooms669),
+        )
+    )
+
+    // ---- resolveRow ----
+
+    @Test
+    fun `single room row keeps CV qty and cabinet text`() {
+        val r = resolveRow(row(0, 7, "9 (3), 11 (2), 13 (2)"), mapOf("9" to "R1", "11" to "R1", "13" to "R1"))
+        assertEquals(7, r.qty)
+        assertEquals("9 (3), 11 (2), 13 (2)", r.cabinetText)
+        assertEquals(listOf(RoomGroup("R1", parseCabinetText("9 (3), 11 (2), 13 (2)"), 7)), r.groups)
+    }
+
+    @Test
+    fun `multi room row splits qty by cabinet counts in room order`() {
+        val r = resolveRow(
+            row(0, 7, "16 (2), 9 (3), 11 (2)"),
+            mapOf("9" to "Room #1 (KITCHEN)", "11" to "Room #1 (KITCHEN)", "16" to "Room #2 (LAUNDRY)")
+        )
+        assertEquals(
+            listOf(
+                RoomGroup("Room #1 (KITCHEN)", listOf(CabinetCount("9", 3), CabinetCount("11", 2)), 5),
+                RoomGroup("Room #2 (LAUNDRY)", listOf(CabinetCount("16", 2)), 2),
+            ),
+            r.groups
+        )
+    }
+
+    @Test
+    fun `blank cabinet text falls back to cabinets list`() {
+        val r = resolveRow(row(0, 2, "", cabinets = listOf("20", "42")), rooms669)
+        assertEquals(listOf("Room #1 (KITCHEN)", "Room #4 (UTILITY - BENCH)"), r.groups.map { it.roomKey })
+        assertEquals("20, 42", r.cabinetText)
+    }
+
+    @Test
+    fun `row with no cabinets is unassigned with original qty`() {
+        val r = resolveRow(row(0, 3, ""), rooms669)
+        assertEquals(listOf(RoomGroup(UNASSIGNED_ROOM_KEY, emptyList(), 3)), r.groups)
+    }
+
+    @Test
+    fun `unknown cabinet maps to unassigned`() {
+        val r = resolveRow(row(0, 1, "99"), rooms669)
+        assertEquals(UNASSIGNED_ROOM_KEY, r.groups.single().roomKey)
+    }
+
+    @Test
+    fun `null material groups under UNKNOWN_MATERIAL`() {
+        val r = resolveRow(row(0, 1, "20", material = null), rooms669)
+        assertEquals(UNKNOWN_MATERIAL, r.material)
+    }
+
+    // ---- source / selection / options ----
+
+    @Test
+    fun `source exposes materials in first appearance order and sorted rooms`() {
+        val s = source669()
+        assertEquals(listOf("3/4 2s White Oak Rift", "3/4 DOUBLE FUMED", "1/4 MDF"), s.materials)
+        assertEquals(
+            listOf("Room #1 (KITCHEN)", "Room #2 (PANTRY)", "Room #3 (VANITIES)", "Room #4 (UTILITY - BENCH)", "Room #5 (CLOSET)"),
+            s.roomKeys
+        )
+    }
+
+    @Test
+    fun `default selection unchecks MDF materials and checks all rooms`() {
+        assertTrue(isDefaultUncheckedMaterial("1/4 MDF"))
+        assertTrue(isDefaultUncheckedMaterial("1/4 PG Maple mdf"))
+        assertFalse(isDefaultUncheckedMaterial("3/4 2s White Oak Rift"))
+        val sel = defaultSelection(source669())
+        assertFalse(sel.roomTags)
+        assertEquals(setOf("3/4 2s White Oak Rift", "3/4 DOUBLE FUMED"), sel.materials)
+        assertEquals(source669().roomKeys.toSet(), sel.rooms)
+    }
+
+    @Test
+    fun `material counts respect room filter and room counts respect material filter`() {
+        val s = source669()
+        val sel = defaultSelection(s).copy(rooms = s.roomKeys.toSet() - "Room #4 (UTILITY - BENCH)")
+        val mats = materialOptions(s, sel).associateBy { it.material }
+        assertEquals(1 + 1 + 2, mats.getValue("3/4 2s White Oak Rift").pieces) // UTILITY share of row 1 removed
+        assertTrue(mats.getValue("3/4 2s White Oak Rift").checked)
+        assertFalse(mats.getValue("1/4 MDF").checked)
+
+        val roomsOpt = roomOptions(s, sel).associateBy { it.key }
+        assertEquals(1, roomsOpt.getValue("Room #3 (VANITIES)").pieces) // 1 from row 2; unchecked MDF row excluded
+        assertEquals("VANITIES", roomsOpt.getValue("Room #3 (VANITIES)").displayName)
+        assertFalse(roomsOpt.getValue("Room #4 (UTILITY - BENCH)").checked)
+    }
+
+    @Test
+    fun `room filter hidden for single room job`() {
+        val single = DoorPanelCutListSource("690 - X", listOf(resolveRow(row(0, 1, "20"), rooms669)))
+        assertFalse(showRoomFilter(single))
+        assertTrue(showRoomFilter(source669()))
+    }
+
+    // ---- room colors ----
+
+    @Test
+    fun `room colors are distinct stable and unassigned is gray`() {
+        val keys = source669().roomKeys + UNASSIGNED_ROOM_KEY
+        val a = assignRoomColors(keys, "669 - WIECHERT 3146 NW CROSSINGS")
+        val b = assignRoomColors(keys.reversed(), "669 - WIECHERT 3146 NW CROSSINGS")
+        assertEquals(a, b)
+        val named = keys.filter { it != UNASSIGNED_ROOM_KEY }.map { a.getValue(it) }
+        assertEquals(named.size, named.toSet().size)
+        assertTrue(named.all { it in ROOM_PALETTE })
+        assertEquals(UNASSIGNED_ROOM_COLOR, a.getValue(UNASSIGNED_ROOM_KEY))
+    }
+
+    // ---- model ----
+
+    @Test
+    fun `room tags splits rows per room and keeps CV order`() {
+        val s = source669()
+        val m = buildCutListModel(s, defaultSelection(s).copy(roomTags = true), "1 October, 2026")
+        val oak = m.materials.first { it.material == "3/4 2s White Oak Rift" }.rows
+        assertEquals(
+            listOf(
+                Triple(1, "20", "Room #1 (KITCHEN)"),
+                Triple(1, "20", "Room #1 (KITCHEN)"),
+                Triple(1, "42", "Room #4 (UTILITY - BENCH)"),
+                Triple(1, "23", "Room #2 (PANTRY)"),
+                Triple(1, "30", "Room #3 (VANITIES)"),
+            ),
+            oak.map { Triple(it.qty, it.cabinetText, it.roomKey) }
+        )
+        assertEquals(listOf("3/4 2s White Oak Rift", "3/4 DOUBLE FUMED"), m.materials.map { it.material })
+        assertEquals("Sheet", m.materials.first().unitsLabel)
+    }
+
+    @Test
+    fun `standard mode keeps rows whole when all rooms checked`() {
+        val s = source669()
+        val m = buildCutListModel(s, defaultSelection(s), "d")
+        val oak = m.materials.first().rows
+        assertEquals(listOf(1, 2, 2), oak.map { it.qty })
+        assertEquals(listOf("20", "20, 42", "23, 30"), oak.map { it.cabinetText })
+        assertTrue(oak.all { it.roomKey == null })
+        assertTrue(m.rooms.isEmpty())
+        assertTrue(m.filteredRoomNames.isEmpty())
+    }
+
+    @Test
+    fun `standard mode trims excluded rooms share and omits fully excluded rows`() {
+        val s = source669()
+        val sel = defaultSelection(s).copy(rooms = setOf("Room #1 (KITCHEN)", "Room #2 (PANTRY)"))
+        val m = buildCutListModel(s, sel, "d")
+        assertEquals(listOf("3/4 2s White Oak Rift"), m.materials.map { it.material }) // CLOSET-only material gone
+        val oak = m.materials.single().rows
+        assertEquals(listOf(Pair(1, "20"), Pair(1, "20"), Pair(1, "23")), oak.map { it.qty to it.cabinetText })
+        assertEquals(listOf("KITCHEN", "PANTRY"), m.filteredRoomNames)
+    }
+
+    @Test
+    fun `room tags legend uses colors from all source rooms`() {
+        val s = source669()
+        val all = buildCutListModel(s, defaultSelection(s).copy(roomTags = true), "d")
+        val filtered = buildCutListModel(
+            s, defaultSelection(s).copy(roomTags = true, rooms = setOf("Room #3 (VANITIES)")), "d"
+        )
+        val vanAll = all.rooms.first { it.key == "Room #3 (VANITIES)" }.color
+        val vanFiltered = filtered.rooms.single().color
+        assertEquals(vanAll, vanFiltered)
+        assertEquals("VANITIES", filtered.rooms.single().displayName)
+    }
+
+    @Test
+    fun `canPrint false when no material or no room selected`() {
+        val s = source669()
+        assertTrue(buildCutListModel(s, defaultSelection(s), "d").canPrint)
+        assertFalse(buildCutListModel(s, defaultSelection(s).copy(materials = emptySet()), "d").canPrint)
+        assertFalse(buildCutListModel(s, defaultSelection(s).copy(rooms = emptySet()), "d").canPrint)
+        assertFalse(
+            buildCutListModel(
+                s, defaultSelection(s).copy(materials = setOf("3/4 DOUBLE FUMED"), rooms = setOf("Room #1 (KITCHEN)")), "d"
+            ).canPrint
+        )
+    }
+
+    @Test
+    fun `total pieces and job number`() {
+        val s = source669()
+        assertEquals(1 + 2 + 2 + 2, buildCutListModel(s, defaultSelection(s), "d").totalPieces)
+        assertEquals("669", cutListJobNumber("669 - WIECHERT 3146 NW CROSSINGS"))
+        assertEquals("644d", cutListJobNumber("644d - SHOWROOM"))
     }
 }
