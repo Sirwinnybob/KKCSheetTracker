@@ -269,6 +269,9 @@ fun HardwoodsJobDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showPrintDialog = true }) {
+                        Icon(Icons.Default.Print, contentDescription = "Print")
+                    }
                     if (archiveActionVisible(adminEnabled = adminEnabled, sourceIsLive = true)) {
                         TextButton(onClick = { showArchiveActionSheet = true }) {
                             Text("Archive")
@@ -338,7 +341,6 @@ fun HardwoodsJobDetailScreen(
                         onOpenThreeD()
                     }))
                 }
-                add(KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print))
             }
             KKCPillActionRow(actions = referenceActions)
 

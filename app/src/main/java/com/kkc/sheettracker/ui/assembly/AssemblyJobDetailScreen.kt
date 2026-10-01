@@ -99,7 +99,11 @@ fun AssemblyJobDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                
+                actions = {
+                    IconButton(onClick = { showPrintDialog = true }) {
+                        Icon(Icons.Default.Print, contentDescription = "Print")
+                    }
+                },
                 windowInsets = androidx.compose.foundation.layout.WindowInsets.statusBars
             )
         }
@@ -127,8 +131,7 @@ fun AssemblyJobDetailScreen(
             item(key = "actions") {
                 KKCPillActionRow(
                     actions = listOf(
-                        KKCPillAction("Split View", onOpenSplitView),
-                        KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print)
+                        KKCPillAction("Split View", onOpenSplitView)
                     )
                 )
             }

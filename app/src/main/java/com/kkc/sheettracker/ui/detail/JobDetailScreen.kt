@@ -506,6 +506,9 @@ fun JobDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showPrintDialog = true }) {
+                        Icon(Icons.Default.Print, contentDescription = "Print")
+                    }
                     IconButton(onClick = retryJob) {
                         Icon(Icons.Filled.Refresh, "Refresh job")
                     }
@@ -600,7 +603,6 @@ fun JobDetailScreen(
                                 onOpenThreeD()
                             }))
                         }
-                        add(KKCPillAction("Print", { showPrintDialog = true }, Icons.Default.Print))
                         add(KKCPillAction("Manage code", { onOpenManageCode() }, Icons.Default.Build))
                     }
                     KKCPillActionRow(actions = referenceActions)
