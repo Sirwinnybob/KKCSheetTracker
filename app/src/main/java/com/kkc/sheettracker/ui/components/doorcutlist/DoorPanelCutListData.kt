@@ -1,8 +1,14 @@
 package com.kkc.sheettracker.ui.components.doorcutlist
 
+import com.google.gson.Gson
+import com.kkc.sheettracker.data.filterDoorCutRowsToSheets
+import com.kkc.sheettracker.data.loadHardwoodsCutlistIndexRawJson
 import com.kkc.sheettracker.data.models.CabinetPageDetail
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
+import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
+import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.parseDoorCutUnitTypeMetadata
 import java.util.Locale
 
 /**
@@ -274,3 +280,38 @@ private fun outputRows(row: ResolvedCutListRow, selection: CutListSelection): Li
         else -> listOf(make(kept.sumOf { it.qty }, formatCabinets(kept.flatMap { it.cabinets }), null))
     }
 }
+
+private val cutListGson = Gson()
+
+/**
+ * Sheet-unit Door Cut List rows (same rule as the Specialty door panels screen) in CV order,
+ * resolved to rooms. Null when there is nothing printable; callers hide the section.
+ */
+fun buildDoorPanelCutListSource(
+    jobFolderName: String,
+    rawCutlistIndexJson: String?,
+    cabinetIndex: CabinetSheetIndex?,
+): DoorPanelCutListSource? {
+    if (rawCutlistIndexJson.isNullOrBlank()) return null
+    val index = runCatching { cutListGson.fromJson(rawCutlistIndexJson, HardwoodCutlistIndex::class.java) }
+        .getOrNull() ?: return null
+    val doorDoc = index.documents.orEmpty().firstOrNull { it.docType == HardwoodDocType.DOOR_CUT_LIST }
+        ?: return null
+    val unitTypes = parseDoorCutUnitTypeMetadata(rawCutlistIndexJson)
+    val sheetRows = filterDoorCutRowsToSheets(doorDoc.rows.orEmpty(), unitTypes)
+        .sortedWith(compareBy({ it.page }, { it.rowOrdinal }))
+    if (sheetRows.isEmpty()) return null
+    val cabinetRooms = buildCabinetRoomMap(cabinetIndex)
+    return DoorPanelCutListSource(jobFolderName, sheetRows.map { resolveRow(it, cabinetRooms) })
+}
+
+/** File I/O wrapper; call on Dispatchers.IO. */
+fun loadDoorPanelCutListSource(
+    basePath: String,
+    jobFolderName: String,
+    cabinetIndex: CabinetSheetIndex?,
+): DoorPanelCutListSource? = buildDoorPanelCutListSource(
+    jobFolderName = jobFolderName,
+    rawCutlistIndexJson = loadHardwoodsCutlistIndexRawJson(basePath, jobFolderName),
+    cabinetIndex = cabinetIndex,
+)

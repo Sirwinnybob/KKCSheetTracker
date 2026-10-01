@@ -359,4 +359,61 @@ class DoorPanelCutListDataTest {
         assertEquals("669", cutListJobNumber("669 - WIECHERT 3146 NW CROSSINGS"))
         assertEquals("644d", cutListJobNumber("644d - SHOWROOM"))
     }
+
+    // ---- buildDoorPanelCutListSource (JSON) ----
+
+    private fun rowJson(
+        id: String, page: Int, ordinal: Int, qty: Int, cab: String, material: String, unit: String,
+        width: String = "10.0",
+    ) = """{"rowId":"$id","page":$page,"rowOrdinal":$ordinal,"qty":$qty,"description":"Door Flat Panel 1A",""" +
+        """"width":"$width","length":"20.0","cabinets":[],"rawCabinetText":"$cab","material":"$material","unitType":"$unit"}"""
+
+    private fun cutlistJson(vararg rows: String) =
+        """{"documents":[{"docType":"DOOR_CUT_LIST","pdfFilename":"x.pdf","pageCount":2,"rows":[${rows.joinToString(",")}]}]}"""
+
+    @Test
+    fun `source keeps sheet rows only in page then ordinal order`() {
+        val json = cutlistJson(
+            rowJson("DOOR_CUT_LIST:2:0", 2, 0, 1, "20", "1/4 MDF", "SHEETS", width = "8.0"),
+            rowJson("DOOR_CUT_LIST:1:1", 1, 1, 1, "20", "1/4 MDF", "SHEETS", width = "9.0"),
+            rowJson("DOOR_CUT_LIST:1:0", 1, 0, 1, "20", "1/4 MDF", "SHEETS", width = "9.5"),
+            rowJson("DOOR_CUT_LIST:1:2", 1, 2, 2, "20 (2)", "3/4 Paint Grade Wood", "BD_FT"),
+        )
+        val source = buildDoorPanelCutListSource("684 - X", json, null)!!
+        assertEquals(listOf("9.5", "9.0", "8.0"), source.rows.map { it.width })
+        assertEquals(listOf("1/4 MDF"), source.materials)
+        assertEquals(listOf(UNASSIGNED_ROOM_KEY), source.roomKeys) // no cabinet index
+    }
+
+    @Test
+    fun `source is null when json missing corrupt or without sheet rows`() {
+        assertNull(buildDoorPanelCutListSource("x", null, null))
+        assertNull(buildDoorPanelCutListSource("x", "   ", null))
+        assertNull(buildDoorPanelCutListSource("x", "{not json", null))
+        assertNull(buildDoorPanelCutListSource("x", """{"documents":[]}""", null))
+        assertNull(
+            buildDoorPanelCutListSource(
+                "x", cutlistJson(rowJson("DOOR_CUT_LIST:1:0", 1, 0, 1, "1", "3/4 Oak", "BD_FT")), null
+            )
+        )
+        // No unitType anywhere → same rule as SpecialtyDoorPanelsScreen: hidden.
+        val noUnit = cutlistJson(rowJson("DOOR_CUT_LIST:1:0", 1, 0, 1, "1", "1/4 MDF", "SHEETS"))
+            .replace(""","unitType":"SHEETS"""", "")
+        assertNull(buildDoorPanelCutListSource("x", noUnit, null))
+    }
+
+    @Test
+    fun `source resolves rooms from cabinet index`() {
+        val json = cutlistJson(rowJson("DOOR_CUT_LIST:1:0", 1, 0, 2, "63, 64", "3/4 DOUBLE FUMED", "SHEETS"))
+        val index = CabinetSheetIndex(
+            documents = CabinetSheetIndexDocuments(
+                assembly = ReferenceDocumentIndex(
+                    virtualCombined = AssemblyVirtualCombinedIndex(pageDetails = pages(page("Room #5 (CLOSET)", "63", "64")))
+                )
+            )
+        )
+        val source = buildDoorPanelCutListSource("669 - X", json, index)!!
+        assertEquals(listOf("Room #5 (CLOSET)"), source.roomKeys)
+        assertEquals(2, source.rows.single().groups.single().qty)
+    }
 }
