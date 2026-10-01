@@ -199,6 +199,16 @@ class DoorPanelCutListDataTest {
     }
 
     @Test
+    fun `multi room row whose counts disagree with qty stays whole under unassigned`() {
+        val r = resolveRow(row(0, 4, "20, 42"), rooms669)
+        assertEquals(
+            listOf(RoomGroup(UNASSIGNED_ROOM_KEY, listOf(CabinetCount("20", 1), CabinetCount("42", 1)), 4)),
+            r.groups
+        )
+        assertEquals("20, 42", r.cabinetText)
+    }
+
+    @Test
     fun `blank cabinet text falls back to cabinets list`() {
         val r = resolveRow(row(0, 2, "", cabinets = listOf("20", "42")), rooms669)
         assertEquals(listOf("Room #1 (KITCHEN)", "Room #4 (UTILITY - BENCH)"), r.groups.map { it.roomKey })
@@ -350,6 +360,36 @@ class DoorPanelCutListDataTest {
                 s, defaultSelection(s).copy(materials = setOf("3/4 DOUBLE FUMED"), rooms = setOf("Room #1 (KITCHEN)")), "d"
             ).canPrint
         )
+    }
+
+    @Test
+    fun `option counts always equal printed pieces`() {
+        val base = source669()
+        val s = DoorPanelCutListSource(base.jobFolderName, base.rows + resolveRow(row(5, 4, "20, 42"), rooms669))
+        val allRooms = s.roomKeys.toSet()
+        val roomSelections = listOf(
+            allRooms,
+            allRooms - "Room #4 (UTILITY - BENCH)",
+            setOf("Room #1 (KITCHEN)"),
+            setOf(UNASSIGNED_ROOM_KEY),
+        )
+        for (roomTags in listOf(false, true)) {
+            for (rooms in roomSelections) {
+                val sel = CutListSelection(roomTags, s.materials.toSet(), rooms)
+                val model = buildCutListModel(s, sel, "d")
+                assertEquals(
+                    "materials roomTags=$roomTags rooms=$rooms",
+                    materialOptions(s, sel).filter { it.checked }.sumOf { it.pieces },
+                    model.totalPieces
+                )
+                if (roomTags) {
+                    roomOptions(s, sel).filter { it.checked }.forEach { opt ->
+                        val printed = model.materials.sumOf { m -> m.rows.filter { it.roomKey == opt.key }.sumOf { it.qty } }
+                        assertEquals("room ${opt.key} rooms=$rooms", opt.pieces, printed)
+                    }
+                }
+            }
+        }
     }
 
     @Test

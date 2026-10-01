@@ -97,6 +97,11 @@ data class ResolvedCutListRow(
     val groups: List<RoomGroup>,
 )
 
+/**
+ * Resolves a CV row's cabinets to rooms. A multi-room row is split by cabinet counts only when
+ * those counts add up to the row qty; otherwise the counts cannot say which room gets which
+ * pieces, so the row stays whole under Unassigned (keeping every piece and flagging the row).
+ */
 fun resolveRow(row: HardwoodCutlistRow, cabinetRooms: Map<String, String>): ResolvedCutListRow {
     // Gson can leave String/List fields null; keep the orEmpty() calls.
     val rawText = row.rawCabinetText.orEmpty()
@@ -107,9 +112,13 @@ fun resolveRow(row: HardwoodCutlistRow, cabinetRooms: Map<String, String>): Reso
     val groups = when (byRoom.size) {
         0 -> listOf(RoomGroup(UNASSIGNED_ROOM_KEY, emptyList(), row.qty))
         1 -> byRoom.entries.single().let { (room, cabs) -> listOf(RoomGroup(room, cabs, row.qty)) }
-        else -> byRoom.keys.sortedWith(roomKeyComparator).map { room ->
-            val cabs = byRoom.getValue(room)
-            RoomGroup(room, cabs, cabs.sumOf { it.count })
+        else -> {
+            val split = byRoom.keys.sortedWith(roomKeyComparator).map { room ->
+                val cabs = byRoom.getValue(room)
+                RoomGroup(room, cabs, cabs.sumOf { it.count })
+            }
+            if (split.sumOf { it.qty } == row.qty) split
+            else listOf(RoomGroup(UNASSIGNED_ROOM_KEY, counts, row.qty))
         }
     }
     return ResolvedCutListRow(
