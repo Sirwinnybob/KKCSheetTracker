@@ -63,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.kkc.sheettracker.ui.components.kkcCardDepth
+import com.kkc.sheettracker.ui.components.ScrollShadowBleed
+import com.kkc.sheettracker.ui.components.scrollShadowBleed
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLocale
@@ -598,7 +600,15 @@ fun SupplyDashboardScreen(
                     // Keep every page (Updates, Needs Attention, To Order, board) composed while
                     // on Supply so switching never rebuilds one.
                     beyondViewportPageCount = boardPageIndex,
-                    modifier = Modifier.weight(1f)
+                    // Pages fill the pager's width, and the pager clips horizontally, cutting the
+                    // side shadows of full-width section cards. Widen the viewport by the bleed and
+                    // inset pages back to their old bounds; the spacing keeps neighbor pages out of
+                    // the bleed strip.
+                    contentPadding = PaddingValues(horizontal = ScrollShadowBleed),
+                    pageSpacing = ScrollShadowBleed * 2,
+                    modifier = Modifier
+                        .weight(1f)
+                        .scrollShadowBleed()
                 ) { page ->
                     if (page == boardPageIndex) {
                         val isDark = LocalKKCIsDarkTheme.current
