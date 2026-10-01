@@ -32,6 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -135,7 +138,22 @@ fun UnifiedJobCard(
             model.progressStyle is ProgressStyle.Specialty
     val segmentedCounts = if (hidePrimary) null else statusCounts
 
-    val statusChips: @Composable RowScope.() -> Unit = {
+    // CNC only: sheets still open in remake / custom (misc) materials. Re-nested sheets are
+    // already excluded from counts.total, so a finished or re-nested material contributes 0
+    // and its tag disappears.
+    val openRemakeSheets = remember(model.progressStyle) {
+        (model.progressStyle as? ProgressStyle.Cnc)?.materialSegments.orEmpty()
+            .filter { it.isRemake }.sumOf { (it.counts.total - it.counts.complete).coerceAtLeast(0) }
+    }
+    val openCustomSheets = remember(model.progressStyle) {
+        (model.progressStyle as? ProgressStyle.Cnc)?.materialSegments.orEmpty()
+            .filter { it.isMisc }.sumOf { (it.counts.total - it.counts.complete).coerceAtLeast(0) }
+    }
+    val hasOpenTaggedSheets = openRemakeSheets > 0 || openCustomSheets > 0
+
+    // Grid view, when the tags won't fit: hide them least important first, one more per level
+    // (Renested, Done, Skipped, Bad, Custom, Remake). Level 0 shows everything.
+    val statusChips: @Composable RowScope.(Int) -> Unit = { level ->
         model.labels.forEach { label ->
             StatusChip(
                 text = label.name,
@@ -163,21 +181,30 @@ fun UnifiedJobCard(
             )
         }
 
+        if (openRemakeSheets > 0 && level < 6) {
+            CountStatusChip("Remake", openRemakeSheets, statusColors.remakeBg, forceFilled = true)
+        }
+        if (openCustomSheets > 0 && level < 5) {
+            CountStatusChip("Custom", openCustomSheets, statusColors.miscBg, forceFilled = true)
+        }
+
         // Count chips only for CNC and Hardwoods — Assembly/Specialty use inline bars
         if (statusCounts != null && (model.progressStyle is ProgressStyle.Cnc || model.progressStyle is ProgressStyle.Hardwoods)) {
-            CountStatusChip(
-                label = "Done",
-                count = statusCounts.complete,
-                color = statusColors.completeBorder,
-                forceFilled = statusCounts.total > 0 && statusCounts.complete >= statusCounts.total
-            )
-            if (statusCounts.bad > 0) {
+            if (level < 2) {
+                CountStatusChip(
+                    label = "Done",
+                    count = statusCounts.complete,
+                    color = statusColors.completeBorder,
+                    forceFilled = statusCounts.total > 0 && statusCounts.complete >= statusCounts.total
+                )
+            }
+            if (statusCounts.bad > 0 && level < 4) {
                 CountStatusChip("Bad", statusCounts.bad, statusColors.bad)
             }
-            if (statusCounts.skipped > 0) {
+            if (statusCounts.skipped > 0 && level < 3) {
                 CountStatusChip("Skip", statusCounts.skipped, statusColors.skipBorder)
             }
-            if (model.progressStyle is ProgressStyle.Cnc && statusCounts.reNested > 0) {
+            if (model.progressStyle is ProgressStyle.Cnc && statusCounts.reNested > 0 && level < 1) {
                 CountStatusChip("Renested", statusCounts.reNested, statusColors.completeBg)
             }
         }
@@ -227,14 +254,22 @@ fun UnifiedJobCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(text = model.jobNumber, style = jobNumberStyle, maxLines = 1)
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        statusChips()
+                    if (hasOpenTaggedSheets) {
+                        FitChips(
+                            modifier = Modifier.weight(1f),
+                            maxLevel = 6,
+                            content = { level -> statusChips(level) }
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            statusChips(0)
+                        }
                     }
                     cardControls()
                 }
@@ -274,7 +309,7 @@ fun UnifiedJobCard(
         },
         headerActions = if (gridLayout) null else {
             {
-                statusChips()
+                statusChips(0)
                 cardControls()
             }
         },
@@ -371,6 +406,37 @@ fun UnifiedJobCard(
                 )
             }
         }
+    }
+}
+
+/**
+ * Renders [content] at the lowest level (0..[maxLevel], higher = fewer chips) whose width fits;
+ * anything still too wide at [maxLevel] is clipped.
+ */
+@Composable
+private fun FitChips(
+    modifier: Modifier = Modifier,
+    maxLevel: Int,
+    content: @Composable RowScope.(level: Int) -> Unit
+) {
+    SubcomposeLayout(modifier.clipToBounds()) { constraints ->
+        var level = 0
+        var placeables = emptyList<androidx.compose.ui.layout.Placeable>()
+        while (true) {
+            val current = level
+            placeables = subcompose(current) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) { content(current) }
+            }.map { it.measure(Constraints()) }
+            val fits = (placeables.maxOfOrNull { it.width } ?: 0) <= constraints.maxWidth
+            if (fits || level >= maxLevel) break
+            level++
+        }
+        val width = (placeables.maxOfOrNull { it.width } ?: 0).coerceAtMost(constraints.maxWidth)
+        val height = placeables.maxOfOrNull { it.height } ?: 0
+        layout(width, height) { placeables.forEach { it.placeRelative(0, 0) } }
     }
 }
 
