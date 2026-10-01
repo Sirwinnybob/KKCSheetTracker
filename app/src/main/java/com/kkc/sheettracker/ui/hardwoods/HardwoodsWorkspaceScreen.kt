@@ -1917,10 +1917,16 @@ fun HardwoodsWorkspaceScreen(
         }
 
         if (showReferencePane) {
+            // Model3DPane's WebView must not be clipped: clipToBounds() forces it into an
+            // offscreen RenderNode layer, which null-derefs Chromium's hardware-accelerated
+            // GLFunctorDrawable (RenderThread SIGSEGV) on draw.
+            val clipReferencePane = jumpTarget != HardwoodsJumpTarget.THREE_D
             AdaptiveSplitLayout(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
+                clipFirst = if (isLandscape) true else clipReferencePane,
+                clipSecond = if (isLandscape) clipReferencePane else true,
                 firstContent = if (isLandscape) cutlistPane else referencePane,
                 secondContent = if (isLandscape) referencePane else cutlistPane
             )
