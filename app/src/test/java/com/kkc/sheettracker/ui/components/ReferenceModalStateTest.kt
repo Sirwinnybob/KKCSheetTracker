@@ -65,12 +65,12 @@ class ReferenceModalStateTest {
     }
 
     @Test
-    fun resolveJumpPage_redirectsFromSpilloverPageToDrawingPage() {
-        val map = mapOf("12" to listOf(6))
+    fun resolveJumpPage_keepsTheFirstPageEvenWhenCachedDetailsPointElsewhere() {
+        val map = mapOf("12" to listOf(6, 7))
         val details = mapOf(
-            "6" to CabinetPageDetail(cabinets = listOf("12"), hasDrawing = false, drawingPage = 5)
+            "6" to CabinetPageDetail(cabinets = listOf("12"), hasDrawing = false, drawingPage = 7)
         )
-        assertEquals(5, resolveJumpPage(map, details, 12))
+        assertEquals(6, resolveJumpPage(map, details, 12))
     }
 
     @Test

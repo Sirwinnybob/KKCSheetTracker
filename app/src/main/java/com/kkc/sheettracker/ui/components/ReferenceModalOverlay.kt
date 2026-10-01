@@ -113,19 +113,18 @@ data class ReferenceModalSnapshot(
     }
 }
 
-/** Drawing-page-preferring jump target for [cabinet] in the active doc's page space, or null if none.
+/** First-page jump target for [cabinet] in the active doc's page space, or null if none.
  *
- * Cabinet numbers spilling onto a following table/BOM-only page (Cabinet Vision emits these when
- * too much doesn't fit on the drawing page) still resolve here, but redirect to the page that
- * actually carries the drawing when the backend index knows one (see [CabinetPageDetail.drawingPage]).
+ * Cabinets can have a spillover part list or a separate top-view page. Both remain browseable,
+ * but jumps always start at the first page so the behavior is stable across sheet layouts and
+ * cached index versions.
  */
 fun resolveJumpPage(
     cabinetToPages: Map<String, List<Int>>,
     pageDetails: Map<String, CabinetPageDetail>,
     cabinet: Int
 ): Int? {
-    val page = cabinetToPages[cabinet.toString()]?.firstOrNull() ?: return null
-    return pageDetails[page.toString()]?.drawingPage ?: page
+    return cabinetToPages[cabinet.toString()]?.firstOrNull()
 }
 
 /**
