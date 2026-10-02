@@ -64,10 +64,73 @@ class DoorPanelCutListLayoutTest {
         val pages = layoutDoorPanelCutList(model(section("1/4 MDF", rows(90))), measurer)
         assertTrue(pages.size >= 2)
         pages.drop(1).forEach { page ->
-            val first = page.blocks.first()
-            assertTrue(first is TableHeaderBlock && first.continued)
+            val first = page.blocks[0]
+            val second = page.blocks[1]
+            assertTrue(first is MaterialHeaderBlock && first.text.endsWith("(continued)"))
+            assertEquals("Material: '1/4 MDF'  |  Units: Sheet  (continued)", (first as MaterialHeaderBlock).text)
+            assertTrue(second is TableHeaderBlock && second.continued)
         }
         assertEquals(90, pages.sumOf { p -> p.blocks.count { it is RowBlock } })
+    }
+
+    @Test
+    fun `continued material header is stacked above the continued column header`() {
+        val pages = layoutDoorPanelCutList(model(section("1/4 MDF", rows(90))), measurer)
+        pages.drop(1).forEach { page ->
+            val material = page.blocks[0] as MaterialHeaderBlock
+            val table = page.blocks[1] as TableHeaderBlock
+            val firstRow = page.blocks[2] as RowBlock
+            assertEquals(CutListGeometry.MARGIN_TOP, material.top, 0.001f)
+            assertEquals(material.top + material.height, table.top, 0.001f)
+            assertEquals(table.top + table.height, firstRow.top, 0.001f)
+        }
+    }
+
+    @Test
+    fun `cabinet counts never wrap away from their cabinet`() {
+        val long = "17 (2), 18 (2), 19 (4), 20 (2), 21 (2), 22 (2), 23 (2)"
+        val pair = """\S+ \(\d+\)"""
+        val valid = Regex("^($pair|\\S+)(, ($pair|\\S+))*,?$")
+        listOf(false, true).forEach { roomTags ->
+            val cabinetWidth = cutListColumns(roomTags).first { it.key == ColumnKey.CABINET }.widthPt
+            // Sweep widths around the real one so every possible break point is exercised.
+            val widths = listOf(cabinetWidth - 2 * CutListGeometry.CELL_HPAD) +
+                (40..110 step 3).map { it.toFloat() }
+            widths.forEach { textWidth ->
+                val lines = wrapCabinetForTest(long, textWidth)
+                assertTrue("roomTags=$roomTags w=$textWidth $lines", lines.size >= 1)
+                lines.forEach { line ->
+                    val normal = line.replace(' ', ' ')
+                    assertTrue("roomTags=$roomTags w=$textWidth line='$normal'", valid.matches(normal) && !normal.startsWith("("))
+                }
+            }
+            // And through the real layout path with the real column widths.
+            val pages = layoutDoorPanelCutList(
+                model(section("A", rows(1, cabinet = long)), roomTags = roomTags), measurer
+            )
+            val row = pages.single().blocks.filterIsInstance<RowBlock>().single()
+            val cabinetLines = row.cells.getValue(ColumnKey.CABINET)
+            assertTrue("roomTags=$roomTags $cabinetLines", cabinetLines.size > 1)
+            cabinetLines.forEach { line ->
+                val normal = line.replace(' ', ' ')
+                assertTrue("roomTags=$roomTags line='$normal'", valid.matches(normal) && !normal.startsWith("("))
+            }
+        }
+    }
+
+    /** Wraps a cabinet list through the layout at an arbitrary text width, via a custom measurer. */
+    private fun wrapCabinetForTest(text: String, textWidth: Float): List<String> {
+        // Scale the measurer so the real cabinet column (97pt/107pt) behaves like [textWidth].
+        val column = cutListColumns(true).first { it.key == ColumnKey.CABINET }
+        val real = column.widthPt - 2 * CutListGeometry.CELL_HPAD
+        val scaled = object : TextMeasurer {
+            override fun width(text: String, sizePt: Float, bold: Boolean): Float =
+                measurer.width(text, sizePt, bold) * real / textWidth
+        }
+        val pages = layoutDoorPanelCutList(
+            model(section("A", rows(1, cabinet = text)), roomTags = true), scaled
+        )
+        return pages.flatMap { it.blocks }.filterIsInstance<RowBlock>().single().cells.getValue(ColumnKey.CABINET)
     }
 
     @Test
@@ -80,8 +143,15 @@ class DoorPanelCutListLayoutTest {
                 page.blocks.forEachIndexed { i, block ->
                     if (block is MaterialHeaderBlock) {
                         val after = page.blocks.drop(i + 1)
-                        assertTrue("firstCount=$firstCount", after.firstOrNull() is TableHeaderBlock)
-                        assertTrue("firstCount=$firstCount", after.drop(1).take(2).all { it is RowBlock })
+                        val header = after.firstOrNull()
+                        assertTrue("firstCount=$firstCount", header is TableHeaderBlock)
+                        if ((header as TableHeaderBlock).continued) {
+                            // A "(continued)" header exists because a row followed: at least one row.
+                            assertTrue("firstCount=$firstCount", block.text.endsWith("(continued)"))
+                            assertTrue("firstCount=$firstCount", after.getOrNull(1) is RowBlock)
+                        } else {
+                            assertTrue("firstCount=$firstCount", after.drop(1).take(2).all { it is RowBlock })
+                        }
                     }
                     if (block is RowBlock) {
                         assertTrue(block.top + block.height <= CutListGeometry.CONTENT_BOTTOM + 0.01f)

@@ -243,6 +243,14 @@ fun layoutDoorPanelCutList(model: DoorPanelCutListModel, measurer: TextMeasurer)
         prepared.forEachIndexed { i, row ->
             if (y + row.height > g.CONTENT_BOTTOM) {
                 newPage()
+                // A loose page must still name its material: repeat it above the column header.
+                add(
+                    MaterialHeaderBlock(
+                        y,
+                        g.MATERIAL_HEIGHT,
+                        "Material: '${section.material}'  |  Units: ${section.unitsLabel}  (continued)",
+                    )
+                )
                 add(TableHeaderBlock(y, g.HEADER_ROW_HEIGHT, columns, continued = true))
             }
             add(RowBlock(y, row.height, columns, row.cells, shaded = i % 2 == 0, row.widthBandColor, row.roomColor))
@@ -280,8 +288,12 @@ private fun prepareRow(
         val bold = column.key == ColumnKey.ROOM
         val size = if (bold) g.ROOM_CELL_SIZE else g.CELL_SIZE
         val lines = when (column.key) {
-            ColumnKey.DESCRIPTION, ColumnKey.CABINET ->
+            ColumnKey.DESCRIPTION ->
                 wrapText(text, column.widthPt - 2 * g.CELL_HPAD, size, bold, measurer)
+            // Keep each "cabinet (n)" pair together: a no-break space before "(" stops wrapText
+            // (which splits only on ' ') from separating a cabinet number from its count.
+            ColumnKey.CABINET ->
+                wrapText(text.replace(Regex("""(\S)\s+\("""), "$1 ("), column.widthPt - 2 * g.CELL_HPAD, size, bold, measurer)
             // Room names never wrap: one line, cut off with an ellipsis.
             ColumnKey.ROOM ->
                 listOf(ellipsize(text, column.widthPt - 2 * g.CELL_HPAD, g.ROOM_CELL_SIZE, bold = true, measurer = measurer))
