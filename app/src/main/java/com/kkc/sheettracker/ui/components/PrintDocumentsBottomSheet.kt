@@ -60,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.ui.components.doorcutlist.DoorPanelCutListSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -138,6 +139,12 @@ fun PrintDocumentsBottomSheet(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            DoorPanelCutListSection(
+                jobFolderName = jobFolderName,
+                jobRepository = jobRepository,
+                onPrinted = onDismissRequest
             )
 
             if (isLoading) {
