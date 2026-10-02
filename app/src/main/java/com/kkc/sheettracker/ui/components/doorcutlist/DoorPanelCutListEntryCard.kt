@@ -1,7 +1,6 @@
 package com.kkc.sheettracker.ui.components.doorcutlist
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +26,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.kkcCardDepth
@@ -70,13 +72,18 @@ internal fun DoorPanelCutListEntryCard(load: CutListLoad, onOpen: () -> Unit) {
                 val count = model.materials.size
                 "$count material${if (count == 1) "" else "s"} · ${model.totalPieces} pcs"
             }
+            // Surface(onClick) clips to the shape before drawing the ripple, so it stays inside the corners.
             Surface(
+                onClick = onOpen,
                 shape = MaterialTheme.shapes.large,
                 color = MaterialTheme.colorScheme.surface,
                 modifier = Modifier
                     .fillMaxWidth()
                     .kkcCardDepth(MaterialTheme.shapes.large)
-                    .clickable(role = Role.Button, onClickLabel = "Open door panel cut list") { onOpen() }
+                    .semantics {
+                        role = Role.Button
+                        onClick(label = "Open door panel cut list", action = null)
+                    }
             ) {
                 Row(
                     modifier = Modifier

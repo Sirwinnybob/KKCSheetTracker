@@ -274,6 +274,7 @@ private fun OptionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .toggleable(value = checked, role = Role.Checkbox, onValueChange = onChange)
             .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
