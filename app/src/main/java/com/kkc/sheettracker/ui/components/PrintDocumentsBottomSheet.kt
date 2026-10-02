@@ -317,9 +317,12 @@ private fun printFile(context: Context, file: File) {
     }
 }
 
-private fun printPdfFile(context: Context, file: File) {
+internal fun printPdfFile(
+    context: Context,
+    file: File,
+    jobName: String = "KKC Sheet Tracker - ${file.name}"
+) {
     val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return
-    val jobName = "KKC Sheet Tracker - ${file.name}"
     val adapter = object : PrintDocumentAdapter() {
         override fun onLayout(
             oldAttributes: PrintAttributes?,
