@@ -20,8 +20,8 @@ android {
         applicationId = "com.kkc.sheettracker"
         minSdk = 26
         targetSdk = 36
-        versionCode = 80703
-        versionName = "8.7.3"
+        versionCode = 80704
+        versionName = "8.7.4"
     }
 
     signingConfigs {
