@@ -15,7 +15,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Print
-import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
+import com.kkc.sheettracker.ui.components.PrintDocumentsModal
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -194,7 +194,7 @@ fun AssemblyJobDetailScreen(
         }
     }
     if (showPrintDialog) {
-        PrintDocumentsBottomSheet(
+        PrintDocumentsModal(
             jobFolderName = jobFolderName,
             jobRepository = jobRepository,
             onDismissRequest = { showPrintDialog = false }

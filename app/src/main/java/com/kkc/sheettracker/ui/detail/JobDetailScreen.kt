@@ -33,7 +33,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
-import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
+import com.kkc.sheettracker.ui.components.PrintDocumentsModal
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -796,7 +796,7 @@ fun JobDetailScreen(
         }
     }
     if (showPrintDialog) {
-        PrintDocumentsBottomSheet(
+        PrintDocumentsModal(
             jobFolderName = jobFolderName,
             jobRepository = jobRepository,
             onDismissRequest = { showPrintDialog = false }
