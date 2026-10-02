@@ -119,7 +119,7 @@ import androidx.compose.material.icons.filled.Visibility
 import com.kkc.sheettracker.data.MoldingLibraryRepository
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.models.MoldingLibraryItem
-import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
+import com.kkc.sheettracker.ui.components.PrintDocumentsModal
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.ArchiveLifecycleClient
 import com.kkc.sheettracker.ui.detail.ArchiveLifecycleActionSheet
@@ -692,7 +692,7 @@ internal fun SpecialtyJobDetailScreen(
             )
         }
         if (showPrintDialog) {
-            PrintDocumentsBottomSheet(
+            PrintDocumentsModal(
                 jobFolderName = jobFolderName,
                 jobRepository = jobRepository,
                 onDismissRequest = { showPrintDialog = false }

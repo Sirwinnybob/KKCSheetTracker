@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Print
-import com.kkc.sheettracker.ui.components.PrintDocumentsBottomSheet
+import com.kkc.sheettracker.ui.components.PrintDocumentsModal
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.ArchiveLifecycleClient
 import com.kkc.sheettracker.ui.detail.ArchiveLifecycleActionSheet
@@ -459,7 +459,7 @@ fun HardwoodsJobDetailScreen(
             )
         }
         if (showPrintDialog) {
-            PrintDocumentsBottomSheet(
+            PrintDocumentsModal(
                 jobFolderName = jobFolderName,
                 jobRepository = jobRepository,
                 onDismissRequest = { showPrintDialog = false }

@@ -14,36 +14,32 @@ import android.print.PrintDocumentInfo
 import android.print.PrintManager
 import android.util.Log
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import android.graphics.pdf.PdfRenderer
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +57,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.ui.components.doorcutlist.CutListLoad
+import com.kkc.sheettracker.ui.components.doorcutlist.DoorPanelCutListEntryCard
+import com.kkc.sheettracker.ui.components.doorcutlist.DoorPanelCutListScreen
+import com.kkc.sheettracker.ui.components.doorcutlist.rememberDoorPanelCutListLoad
+import com.kkc.sheettracker.ui.supply.SupplyModalFrame
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -75,15 +77,20 @@ data class FileTreeEntry(
     val parentRelativePath: String
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+private enum class PrintModalPage(val title: String) {
+    DOCUMENTS("Print Job Documents"),
+    DOOR_CUT_LIST("Door Panel Cut List")
+}
+
 @Composable
-fun PrintDocumentsBottomSheet(
+fun PrintDocumentsModal(
     jobFolderName: String,
     jobRepository: JobRepository,
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var page by rememberSaveable { mutableStateOf(PrintModalPage.DOCUMENTS) }
+    val cutListLoad by rememberDoorPanelCutListLoad(jobFolderName, jobRepository)
     var allEntries by remember { mutableStateOf<List<FileTreeEntry>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var collapsedFolders by remember { mutableStateOf(setOf<String>()) }
@@ -122,22 +129,47 @@ fun PrintDocumentsBottomSheet(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
-        sheetState = sheetState
+    // The cut list page needs a loaded source; fall back to the documents page if it is missing.
+    val readyLoad = cutListLoad as? CutListLoad.Ready
+    val currentPage = if (page == PrintModalPage.DOOR_CUT_LIST && readyLoad == null) {
+        PrintModalPage.DOCUMENTS
+    } else {
+        page
+    }
+
+    SupplyModalFrame(
+        title = currentPage.title,
+        onDismiss = onDismissRequest,
+        navigationIcon = {
+            if (currentPage == PrintModalPage.DOOR_CUT_LIST) {
+                IconButton(onClick = { page = PrintModalPage.DOCUMENTS }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            }
+        }
     ) {
-        ImmersiveDialogDecor()
+        BackHandler(enabled = currentPage == PrintModalPage.DOOR_CUT_LIST) {
+            page = PrintModalPage.DOCUMENTS
+        }
+        if (currentPage == PrintModalPage.DOOR_CUT_LIST && readyLoad != null) {
+            DoorPanelCutListScreen(source = readyLoad.source, onPrinted = onDismissRequest)
+            return@SupplyModalFrame
+        }
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 550.dp)
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .fillMaxSize()
+                .padding(horizontal = 20.dp)
         ) {
+            DoorPanelCutListEntryCard(
+                load = cutListLoad,
+                onOpen = { page = PrintModalPage.DOOR_CUT_LIST }
+            )
+
             Text(
-                text = "Print Job Documents",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 12.dp)
+                text = "Files",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
 
             if (isLoading) {
@@ -166,8 +198,8 @@ fun PrintDocumentsBottomSheet(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f, fill = false)
-                        .padding(bottom = 24.dp)
+                        .weight(1f),
+                    contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
                     items(visibleEntries, key = { it.relativePath }) { entry ->
                         val isCollapsed = collapsedFolders.contains(entry.relativePath)
@@ -317,9 +349,12 @@ private fun printFile(context: Context, file: File) {
     }
 }
 
-private fun printPdfFile(context: Context, file: File) {
+internal fun printPdfFile(
+    context: Context,
+    file: File,
+    jobName: String = "KKC Sheet Tracker - ${file.name}"
+) {
     val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return
-    val jobName = "KKC Sheet Tracker - ${file.name}"
     val adapter = object : PrintDocumentAdapter() {
         override fun onLayout(
             oldAttributes: PrintAttributes?,

@@ -89,6 +89,8 @@ fun SupplyModalFrame(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     headerTint: Color? = null,
+    // Optional leading slot of the top bar (e.g. a back arrow for a nested page).
+    navigationIcon: @Composable () -> Unit = {},
     // true: the modal shrinks to its content (capped at the usual 92% height) instead of always
     // filling it. Content must then avoid fillMaxSize/fillMaxHeight or it re-expands to the cap.
     wrapContentHeight: Boolean = false,
@@ -154,6 +156,7 @@ fun SupplyModalFrame(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             },
+                            navigationIcon = navigationIcon,
                             actions = {
                                 actions()
                                 IconButton(onClick = { requestDismiss() }) {
