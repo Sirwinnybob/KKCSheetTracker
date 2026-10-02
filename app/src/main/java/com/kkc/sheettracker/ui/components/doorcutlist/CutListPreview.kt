@@ -38,14 +38,20 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.kkcCardDepth
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val TAG = "DoorPanelCutList"
 private const val PREVIEW_DEBOUNCE_MS = 450L
-private const val PREVIEW_MAX_WIDTH_PX = 1200
-private const val PREVIEW_MAX_PAGES = 30
+// ~900x1165 ARGB_8888 = ~4.2 MB per page, so a full preview is ~25 MB at most.
+private const val PREVIEW_MAX_WIDTH_PX = 900
+private const val PREVIEW_MAX_PAGES = 6
+
+/** Rendered preview bitmaps (first [PREVIEW_MAX_PAGES] only) plus the PDF's real page count. */
+internal data class CutListPreviewPages(val bitmaps: List<Bitmap>, val totalPages: Int)
 
 /**
  * Live preview of the printed cut list: renders the real PDF to bitmaps (debounced) so what you
@@ -65,29 +71,31 @@ internal fun CutListPreview(model: DoorPanelCutListModel, modifier: Modifier = M
     }
 
     val context = LocalContext.current
-    var pages by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
+    var preview by remember { mutableStateOf<CutListPreviewPages?>(null) }
     var rendering by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    var firstRender by remember { mutableStateOf(true) }
 
     BoxWithConstraints(modifier = modifier) {
         val targetWidthPx = minOf(constraints.maxWidth, PREVIEW_MAX_WIDTH_PX)
 
         LaunchedEffect(model, targetWidthPx) {
-            delay(PREVIEW_DEBOUNCE_MS)
+            // Show progress immediately, even while debouncing, so a stale preview is never
+            // presented as current.
             rendering = true
-            // Keep showing the previous pages until the new ones arrive (no flicker).
-            val rendered = try {
-                withContext(Dispatchers.IO) { renderCutListPreviewPages(context, model, targetWidthPx) }
+            if (!firstRender) delay(PREVIEW_DEBOUNCE_MS)
+            firstRender = false
+            // Drop the old bitmaps only once the render really starts, so a quick toggle during
+            // the debounce keeps the pane filled and old + new sets are never held together.
+            preview = null
+            failed = false
+            try {
+                preview = withContext(Dispatchers.IO) { renderCutListPreviewPages(context, model, targetWidthPx) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Cut list preview failed", e)
                 failed = true
-                null
-            }
-            if (rendered != null) {
-                failed = false
-                pages = rendered
             }
             rendering = false
         }
@@ -98,7 +106,8 @@ internal fun CutListPreview(model: DoorPanelCutListModel, modifier: Modifier = M
             } else {
                 Box(modifier = Modifier.height(3.dp))
             }
-            if (pages.isEmpty()) {
+            val shown = preview
+            if (shown == null || shown.bitmaps.isEmpty()) {
                 if (failed) {
                     Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Text(
@@ -114,8 +123,8 @@ internal fun CutListPreview(model: DoorPanelCutListModel, modifier: Modifier = M
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 4.dp)
                 ) {
-                    itemsIndexed(pages) { index, bitmap ->
-                        val label = "Page ${index + 1} of ${pages.size}"
+                    itemsIndexed(shown.bitmaps) { index, bitmap ->
+                        val label = "Page ${index + 1} of ${shown.totalPages}"
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Surface(
                                 color = Color.White,
@@ -139,6 +148,15 @@ internal fun CutListPreview(model: DoorPanelCutListModel, modifier: Modifier = M
                             )
                         }
                     }
+                    if (shown.totalPages > shown.bitmaps.size) {
+                        item {
+                            Text(
+                                text = "Preview shows the first ${shown.bitmaps.size} of ${shown.totalPages} pages — Print includes all pages.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -146,40 +164,53 @@ internal fun CutListPreview(model: DoorPanelCutListModel, modifier: Modifier = M
 }
 
 /**
- * Renders the cut list PDF for [model] into bitmaps [targetWidthPx] wide (page height proportional).
+ * Renders the cut list PDF for [model] into bitmaps [targetWidthPx] wide (page height proportional),
+ * at most [PREVIEW_MAX_PAGES] of them. Cooperatively cancellable: checks the coroutine's Job after
+ * writing the PDF and before every page allocation. Out-of-memory is reported as a regular
+ * exception (after recycling this call's bitmaps) so the UI shows "Preview unavailable".
  * Uses a unique temp file under cacheDir/print-preview so a cancelled render can never clash with
  * the next one; never touches cacheDir/print, which prepareCutListPrintFile wipes.
  */
-internal fun renderCutListPreviewPages(
+internal suspend fun renderCutListPreviewPages(
     context: Context,
     model: DoorPanelCutListModel,
     targetWidthPx: Int,
-): List<Bitmap> {
+): CutListPreviewPages {
     val dir = File(context.cacheDir, "print-preview").apply { mkdirs() }
     val file = File.createTempFile("preview", ".pdf", dir)
     var fd: ParcelFileDescriptor? = null
     var renderer: PdfRenderer? = null
+    val result = ArrayList<Bitmap>(PREVIEW_MAX_PAGES)
     try {
         writeDoorPanelCutListPdf(model, file)
+        currentCoroutineContext().ensureActive()
         fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         renderer = PdfRenderer(fd)
         val width = targetWidthPx.coerceAtLeast(1)
-        val count = minOf(renderer.pageCount, PREVIEW_MAX_PAGES)
-        val result = ArrayList<Bitmap>(count)
+        val totalPages = renderer.pageCount
+        val count = minOf(totalPages, PREVIEW_MAX_PAGES)
         for (i in 0 until count) {
+            currentCoroutineContext().ensureActive()
             var page: PdfRenderer.Page? = null
             try {
                 page = renderer.openPage(i)
                 val height = (page.height.toFloat() * width / page.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
                 val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                result.add(bitmap)
                 bitmap.eraseColor(AndroidColor.WHITE)
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                result.add(bitmap)
             } finally {
                 runCatching { page?.close() }
             }
         }
-        return result
+        return CutListPreviewPages(result, totalPages)
+    } catch (e: OutOfMemoryError) {
+        // Nothing from this call has been handed out yet, so recycling is safe.
+        result.forEach { it.recycle() }
+        throw IllegalStateException("Out of memory rendering cut list preview", e)
+    } catch (e: CancellationException) {
+        result.forEach { it.recycle() }
+        throw e
     } finally {
         runCatching { renderer?.close() }
         runCatching { fd?.close() }
