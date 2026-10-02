@@ -37,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -99,6 +100,7 @@ internal fun DoorPanelCutListScreen(source: DoorPanelCutListSource, onPrinted: (
                         label = option.material,
                         trailing = "${option.pieces} pcs",
                         checked = option.checked,
+                        dimmed = option.pieces == 0,
                         onChange = { checked ->
                             selection = selection.copy(
                                 materials = if (checked) selection.materials + option.material
@@ -116,6 +118,7 @@ internal fun DoorPanelCutListScreen(source: DoorPanelCutListSource, onPrinted: (
                             label = option.displayName,
                             trailing = "${option.pieces} pcs",
                             checked = option.checked,
+                            dimmed = option.pieces == 0,
                             swatch = if (selection.roomTags) {
                                 Color(roomColors[option.key] ?: UNASSIGNED_ROOM_COLOR)
                             } else null,
@@ -269,8 +272,11 @@ private fun OptionRow(
     trailing: String,
     checked: Boolean,
     onChange: (Boolean) -> Unit,
+    dimmed: Boolean,
     swatch: Color? = null,
 ) {
+    // Dimmed rows (no pieces in the current selection) look disabled but stay checkable.
+    val dimColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -285,12 +291,14 @@ private fun OptionRow(
             Box(
                 modifier = Modifier
                     .size(14.dp)
+                    .alpha(if (dimmed) 0.38f else 1f)
                     .background(swatch, RoundedCornerShape(4.dp))
             )
             Spacer(modifier = Modifier.width(8.dp))
         }
         Text(
             text = label,
+            color = if (dimmed) dimColor else Color.Unspecified,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -299,7 +307,7 @@ private fun OptionRow(
         Text(
             text = trailing,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (dimmed) dimColor else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 8.dp)
         )
     }
