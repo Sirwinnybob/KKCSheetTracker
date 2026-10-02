@@ -132,6 +132,52 @@ class DoorPanelCutListLayoutTest {
     }
 
     @Test
+    fun `ellipsize keeps short text and cuts long text with an ellipsis`() {
+        // 10pt → 5pt per char; 30pt fits 6 chars.
+        assertEquals("HELLO", ellipsize("HELLO", 30f, 10f, true, measurer))
+        assertEquals("ABCDEF", ellipsize("ABCDEF", 30f, 10f, true, measurer))
+
+        val cut = ellipsize("ABCDEFGHIJ", 30f, 10f, true, measurer)
+        assertTrue(cut.endsWith("…"))
+        assertTrue(measurer.width(cut, 10f, true) <= 30f)
+        assertEquals("ABCDE…", cut)
+        // Longest such prefix: one more character would no longer fit.
+        assertTrue(measurer.width(cut.dropLast(1) + "F…", 10f, true) > 30f)
+
+        // Trailing spaces are trimmed before the ellipsis.
+        assertEquals("AB…", ellipsize("AB CDEFGHIJ", 20f, 10f, true, measurer))
+
+        // Too narrow for even the ellipsis.
+        assertEquals("…", ellipsize("ABCDEFGHIJ", 4f, 10f, true, measurer))
+        assertEquals("", ellipsize("", 30f, 10f, true, measurer))
+    }
+
+    @Test
+    fun `long room names stay on one line with an ellipsis`() {
+        val longName = "SHOWROOM 2 NORTH WALL EXTRA LONG NAME"
+        val key = "Room #2 ($longName)"
+        val rooms = listOf(CutListRoom(key, longName, 0xFFF6C85F.toInt()))
+        val pages = layoutDoorPanelCutList(
+            model(section("A", rows(1, room = key)), roomTags = true, rooms = rooms),
+            measurer
+        )
+        val row = pages.flatMap { it.blocks }.filterIsInstance<RowBlock>().single()
+        val roomLines = row.cells.getValue(ColumnKey.ROOM)
+        assertEquals(1, roomLines.size)
+        assertTrue(roomLines.single().endsWith("…"))
+        assertEquals(CutListGeometry.ROW_MIN_HEIGHT, row.height, 0.001f)
+        val legend = pages.first().blocks.filterIsInstance<LegendBlock>().single()
+        assertTrue(legend.chips.single().label.endsWith("…"))
+    }
+
+    @Test
+    fun `single line rows use the taller minimum height`() {
+        val pages = layoutDoorPanelCutList(model(section("A", rows(1))), measurer)
+        val row = pages.single().blocks.filterIsInstance<RowBlock>().single()
+        assertEquals(22f, row.height, 0.001f)
+    }
+
+    @Test
     fun `rows alternate shading starting shaded and continue across pages`() {
         val pages = layoutDoorPanelCutList(model(section("A", rows(90))), measurer)
         val shading = pages.flatMap { it.blocks }.filterIsInstance<RowBlock>().map { it.shaded }

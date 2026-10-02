@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.components.doorcutlist
 
+import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -56,13 +57,23 @@ import java.util.Date
 import java.util.Locale
 
 private const val TAG = "DoorPanelCutList"
+private const val PREFS_NAME = "kkc_ui_prefs"
+private const val PREF_ROOM_TAGS = "door_cut_list_room_tags"
 
 /** Page 2 of the print modal: settings on the left, live PDF preview on the right. */
 @Composable
 internal fun DoorPanelCutListScreen(source: DoorPanelCutListSource, onPrinted: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selection by remember(source) { mutableStateOf(defaultSelection(source)) }
+    val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    // Only the Standard / Room Tags choice is remembered per tablet; materials and rooms keep per-job defaults.
+    var selection by remember(source) {
+        mutableStateOf(defaultSelection(source).copy(roomTags = prefs.getBoolean(PREF_ROOM_TAGS, false)))
+    }
+    fun setRoomTags(value: Boolean) {
+        selection = selection.copy(roomTags = value)
+        prefs.edit().putBoolean(PREF_ROOM_TAGS, value).apply()
+    }
     var building by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     val dateText = remember { SimpleDateFormat("d MMMM, yyyy", Locale.US).format(Date()) }
@@ -76,8 +87,8 @@ internal fun DoorPanelCutListScreen(source: DoorPanelCutListSource, onPrinted: (
             SectionHeader("Layout")
             KKCSlidingPillRow(
                 options = listOf(
-                    KKCPillOption("Standard", !selection.roomTags, { selection = selection.copy(roomTags = false) }),
-                    KKCPillOption("Room Tags", selection.roomTags, { selection = selection.copy(roomTags = true) }),
+                    KKCPillOption("Standard", !selection.roomTags, { setRoomTags(false) }),
+                    KKCPillOption("Room Tags", selection.roomTags, { setRoomTags(true) }),
                 ),
                 fillWidth = true
             )

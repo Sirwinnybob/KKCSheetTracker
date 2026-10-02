@@ -44,9 +44,9 @@ object CutListGeometry {
 
     const val CELL_SIZE = 8.5f
     const val ROOM_CELL_SIZE = 7.5f
-    const val ROW_MIN_HEIGHT = 19f
-    const val ROW_LINE_HEIGHT = 10.5f
-    const val ROW_VPAD = 4f
+    const val ROW_MIN_HEIGHT = 22f
+    const val ROW_LINE_HEIGHT = 12f
+    const val ROW_VPAD = 5f
     const val CELL_HPAD = 5f
 
     const val FOOTER_SIZE = 7.5f
@@ -102,6 +102,19 @@ fun wrapText(text: String, maxWidth: Float, sizePt: Float, bold: Boolean, measur
     }
     lines += current
     return lines
+}
+
+/**
+ * Single-line fit: [text] unchanged if it fits [maxWidth], otherwise the longest prefix (trailing
+ * spaces trimmed) that fits together with a trailing "…". Returns just "…" if even that is too wide.
+ */
+fun ellipsize(text: String, maxWidth: Float, sizePt: Float, bold: Boolean, measurer: TextMeasurer): String {
+    if (text.isEmpty() || measurer.width(text, sizePt, bold) <= maxWidth) return text
+    for (length in text.length - 1 downTo 1) {
+        val candidate = text.substring(0, length).trimEnd() + "…"
+        if (measurer.width(candidate, sizePt, bold) <= maxWidth) return candidate
+    }
+    return "…"
 }
 
 fun headerBandText(model: DoorPanelCutListModel): String = buildString {
@@ -192,7 +205,13 @@ fun layoutDoorPanelCutList(model: DoorPanelCutListModel, measurer: TextMeasurer)
         val legendTop = y
         val chips = model.rooms.mapIndexed { i, room ->
             LegendChip(
-                label = room.displayName,
+                label = ellipsize(
+                    room.displayName,
+                    g.LEGEND_CHIP_WIDTH - g.LEGEND_GAP - 2 * g.CELL_HPAD,
+                    g.ROOM_CELL_SIZE,
+                    bold = true,
+                    measurer = measurer,
+                ),
                 color = room.color,
                 left = g.MARGIN_X + (i % perRow) * g.LEGEND_CHIP_WIDTH,
                 top = legendTop + (i / perRow) * (g.LEGEND_CHIP_HEIGHT + g.LEGEND_GAP),
@@ -261,8 +280,11 @@ private fun prepareRow(
         val bold = column.key == ColumnKey.ROOM
         val size = if (bold) g.ROOM_CELL_SIZE else g.CELL_SIZE
         val lines = when (column.key) {
-            ColumnKey.DESCRIPTION, ColumnKey.CABINET, ColumnKey.ROOM ->
+            ColumnKey.DESCRIPTION, ColumnKey.CABINET ->
                 wrapText(text, column.widthPt - 2 * g.CELL_HPAD, size, bold, measurer)
+            // Room names never wrap: one line, cut off with an ellipsis.
+            ColumnKey.ROOM ->
+                listOf(ellipsize(text, column.widthPt - 2 * g.CELL_HPAD, g.ROOM_CELL_SIZE, bold = true, measurer = measurer))
             else -> listOf(text)
         }
         column.key to lines
