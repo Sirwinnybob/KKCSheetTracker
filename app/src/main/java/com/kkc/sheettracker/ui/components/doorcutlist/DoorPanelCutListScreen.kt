@@ -122,8 +122,7 @@ internal fun DoorPanelCutListScreen(source: DoorPanelCutListSource, onPrinted: (
     }
 
     val preview: @Composable (Modifier) -> Unit = { previewModifier ->
-        // Live preview is wired in the next commit.
-        Box(modifier = previewModifier)
+        CutListPreview(model, previewModifier)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
